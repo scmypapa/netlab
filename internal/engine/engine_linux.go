@@ -135,13 +135,6 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			result.Error = ptr(err.Error())
 			return result
 		}
-		policies := policiesByNetwork(plan.Spec)
-		for _, a := range plan.Assets {
-			if err := e.shape(ctx, plan.EnvironmentId, a, policies); err != nil {
-				result.Results = append(result.Results, executionResult(a, "unknown", err))
-				result.Error = ptr("link policy application failed")
-			}
-		}
 		return result
 	case api.NodePlanPhaseRemoveNetwork:
 		if err := e.ovn.Remove(ctx, plan.EnvironmentId); err != nil {
@@ -167,23 +160,27 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			defer unlock()
 			var state string
 			var err error
+			phase := plan.Phase
+			if phase == api.NodePlanPhasePolicies {
+				phase = api.NodePlanPhaseInspect
+			}
 			switch a.Template.Kind {
 			case api.Container:
 				if e.container == nil {
 					err = errors.New("container runtime not configured")
 				} else {
-					state, err = e.container.Execute(ctx, plan.EnvironmentId, plan.Phase, a)
+					state, err = e.container.Execute(ctx, plan.EnvironmentId, phase, a)
 				}
 			case api.Vm:
 				if e.vm == nil {
 					err = errors.New("virtual machine runtime not configured")
 				} else {
-					state, err = e.vm.Execute(ctx, plan.EnvironmentId, plan.Phase, a)
+					state, err = e.vm.Execute(ctx, plan.EnvironmentId, phase, a)
 				}
 			default:
 				err = fmt.Errorf("invalid compute kind %s", a.Template.Kind)
 			}
-			if err == nil && (plan.Phase == api.NodePlanPhaseStart || plan.Phase == api.NodePlanPhaseActivate) && state == "running" {
+			if err == nil && (plan.Phase == api.NodePlanPhasePolicies || ((plan.Phase == api.NodePlanPhaseStart || plan.Phase == api.NodePlanPhaseActivate) && state == "running")) {
 				err = e.shape(ctx, plan.EnvironmentId, a, policies)
 			}
 			r := executionResult(a, state, err)
