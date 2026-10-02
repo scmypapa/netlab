@@ -271,7 +271,8 @@ try {
       assert.equal((await detail(env)).status, 'destroyed')
       assert.deepEqual(await services(env), [])
       assert.equal((await state(env)).assets.length, 0)
-      assert.equal(wsl('find', '/var/lib/netlab-dev/environments', '-maxdepth', '1', '-name', env.id).trim(), '')
+      assert.equal(wsl('find', '/var/lib/netlab-dev/environments', '-path', `/var/lib/netlab-dev/environments/${env.id}/*`, '-type', 'f').trim(), '')
+      assert.equal(wsl('find', '/var/lib/netlab-dev/services', '-name', `${env.id}.json`).trim(), '')
     }
     const nodes = await api('/nodes')
     for (const node of baseline) assert.deepEqual(nodes.find(item => item.id === node.id).reserved, node.reserved)

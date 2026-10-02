@@ -108,7 +108,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	if op.Kind == "destroy" && op.AssetID == nil {
 		p.Targets = p.Before
 		phase := "destroy"
-		if p.Gateway != nil {
+		if p.Gateway != nil && p.BeforeSpec != nil {
 			phase = "remove-services"
 		}
 		return w.phase(ctx, op, p, phase)

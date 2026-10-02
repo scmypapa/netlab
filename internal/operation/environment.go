@@ -364,7 +364,10 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		}
 		return initial
 	}
-	_, serviceErr := w.serviceRules(ctx, op, p, p.Spec, nil)
+	var serviceErr error
+	if p.BeforeSpec != nil {
+		_, serviceErr = w.serviceRules(ctx, op, p, p.Spec, nil)
+	}
 	results, err := w.batch(ctx, op, p, api.NodePlanPhaseDestroy, p.Targets)
 	err = errors.Join(serviceErr, err, w.releaseDestroyed(ctx, results))
 	before := slices.Clone(p.Before)
