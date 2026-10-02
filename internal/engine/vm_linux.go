@@ -163,6 +163,13 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 			return "absent", err
 		}
 	}
+	media, err := stageInitialization(ctx, dir, a)
+	if err != nil {
+		return "absent", err
+	}
+	if media != "" {
+		defer os.RemoveAll(filepath.Dir(media))
+	}
 	config, err := DomainXML(env, dir, v.bridge, a)
 	if err != nil {
 		return "absent", err
@@ -172,6 +179,11 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 		return "absent", err
 	}
 	defer d.Free()
+	if media != "" {
+		if err = os.Rename(media, filepath.Join(dir, "initialization.iso")); err != nil {
+			return "stopped", err
+		}
+	}
 	return vmState(d)
 }
 func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
