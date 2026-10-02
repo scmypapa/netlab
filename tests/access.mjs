@@ -24,6 +24,17 @@ export async function verifyAccess(base, environment, otherEnvironment, api) {
     const context = await browser.newContext()
     await context.addCookies([{ name: 'netlab_session', value: token, url: secondary }])
     const page = await context.newPage()
+    await page.addInitScript(() => {
+      const NativeWebSocket = window.WebSocket
+      window.WebSocket = class extends NativeWebSocket {
+        constructor(...args) {
+          super(...args)
+          this.addEventListener('close', event => {
+            window.netlabLastSocketClose = { code: event.code, reason: event.reason, at: Date.now() }
+          })
+        }
+      }
+    })
     await page.goto(`${secondary}/environments/${environment.id}`)
     await page.getByRole('button', { name: '资产视图', exact: true }).click()
     await page.getByRole('button', { name: 'web', exact: true }).click()
@@ -52,7 +63,7 @@ export async function verifyAccess(base, environment, otherEnvironment, api) {
     let closed = connection.socket.waitForEvent('close', { timeout: 3000 })
     await api(`/service-tokens/${issued.principal.id}`, 'DELETE')
     await closed
-    assert.equal((await restricted(issued.token, '/identity')).status, 401)
+    assert.equal((await restricted(issued.token, '/identity')).status, 401, '已撤销的Token仍可认证')
     await connection.context.close()
 
     const limited = await issue()
@@ -78,11 +89,14 @@ export async function verifyAccess(base, environment, otherEnvironment, api) {
     await api(`/service-tokens/${observer.principal.id}`, 'DELETE')
     while (!(await reader.read()).done) {}
 
-    const expiring = await issue(new Date(Date.now() + 6000).toISOString())
+    const expiresAt = new Date(Date.now() + 6000).toISOString()
+    const expiring = await issue(expiresAt)
     connection = await connect(expiring.token)
     closed = connection.socket.waitForEvent('close', { timeout: 8000 })
     await closed
-    assert.equal((await restricted(expiring.token, '/identity')).status, 401)
+    const socketClose = await connection.page.evaluate(() => window.netlabLastSocketClose)
+    const expiryStatus = (await restricted(expiring.token, '/identity')).status
+    assert.equal(expiryStatus, 401, JSON.stringify({ phase: 'token-expiry', expiresAt, checkedAt: new Date().toISOString(), socketClose }))
     await connection.context.close()
   } finally {
     await browser.close()

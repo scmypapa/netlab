@@ -1,7 +1,7 @@
 -- name: GetPrincipalByName :one
 SELECT * FROM principals WHERE name=$1;
 -- name: GetCredential :one
-SELECT sqlc.embed(p),c.expires_at AS credential_expires_at FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND NOT p.disabled AND (c.expires_at IS NULL OR c.expires_at>now());
+SELECT sqlc.embed(p),c.expires_at AS credential_expires_at FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND NOT p.disabled;
 -- name: CreatePrincipal :exec
 INSERT INTO principals(id,name,kind,password_hash,administrator) VALUES ($1,$2,$3,$4,$5);
 -- name: CountPrincipals :one

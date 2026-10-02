@@ -335,7 +335,7 @@ func (q *Queries) FinishOperation(ctx context.Context, arg FinishOperationParams
 }
 
 const getCredential = `-- name: GetCredential :one
-SELECT p.id, p.name, p.kind, p.password_hash, p.administrator, p.disabled, p.created_at,c.expires_at AS credential_expires_at FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND NOT p.disabled AND (c.expires_at IS NULL OR c.expires_at>now())
+SELECT p.id, p.name, p.kind, p.password_hash, p.administrator, p.disabled, p.created_at,c.expires_at AS credential_expires_at FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND NOT p.disabled
 `
 
 type GetCredentialRow struct {

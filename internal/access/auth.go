@@ -102,6 +102,9 @@ func (s Service) Authenticate(ctx context.Context, token string) (Identity, erro
 	if err != nil {
 		return Identity{}, err
 	}
+	if row.CredentialExpiresAt.Valid && !row.CredentialExpiresAt.Time.After(time.Now()) {
+		return Identity{}, ErrUnauthorized
+	}
 	grants, err := s.Queries.GetGrants(ctx, row.Principal.ID)
 	identity := Identity{Principal: row.Principal, Grants: grants}
 	if row.CredentialExpiresAt.Valid {
