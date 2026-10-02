@@ -126,6 +126,13 @@ const (
 	Vmdk   TemplateFormat = "vmdk"
 )
 
+// Defines values for TemplateInitialization.
+const (
+	CloudInit     TemplateInitialization = "cloud-init"
+	CloudbaseInit TemplateInitialization = "cloudbase-init"
+	None          TemplateInitialization = "none"
+)
+
 // Defines values for TemplateState.
 const (
 	Failed    TemplateState = "failed"
@@ -159,6 +166,7 @@ type ActionRequestAction string
 
 // Asset defines model for Asset.
 type Asset struct {
+	Guest      *GuestSettings     `json:"guest,omitempty"`
 	Id         string             `json:"id"`
 	Interfaces []Interface        `json:"interfaces"`
 	Name       string             `json:"name"`
@@ -339,6 +347,13 @@ type ExecutionResult struct {
 	InstanceId string          `json:"instanceId"`
 	ObservedAt time.Time       `json:"observedAt"`
 	State      string          `json:"state"`
+}
+
+// GuestSettings defines model for GuestSettings.
+type GuestSettings struct {
+	Hostname          *string   `json:"hostname,omitempty"`
+	SshAuthorizedKeys *[]string `json:"sshAuthorizedKeys,omitempty"`
+	Username          *string   `json:"username,omitempty"`
 }
 
 // Hardware defines model for Hardware.
@@ -541,24 +556,28 @@ type SaveBlueprintVersion struct {
 
 // Template defines model for Template.
 type Template struct {
-	Disks     *[]TemplateDisk `json:"disks,omitempty"`
-	Error     *string         `json:"error,omitempty"`
-	Format    *TemplateFormat `json:"format,omitempty"`
-	Hardware  *Hardware       `json:"hardware,omitempty"`
-	Id        string          `json:"id"`
-	Kind      TemplateKind    `json:"kind"`
-	Name      string          `json:"name"`
-	NicModels *[]string       `json:"nicModels,omitempty"`
-	Os        string          `json:"os"`
-	Resources Resources       `json:"resources"`
-	Source    string          `json:"source"`
-	State     *TemplateState  `json:"state,omitempty"`
-	Version   int             `json:"version"`
-	Volumes   *[]Volume       `json:"volumes,omitempty"`
+	Disks          *[]TemplateDisk         `json:"disks,omitempty"`
+	Error          *string                 `json:"error,omitempty"`
+	Format         *TemplateFormat         `json:"format,omitempty"`
+	Hardware       *Hardware               `json:"hardware,omitempty"`
+	Id             string                  `json:"id"`
+	Initialization *TemplateInitialization `json:"initialization,omitempty"`
+	Kind           TemplateKind            `json:"kind"`
+	Name           string                  `json:"name"`
+	NicModels      *[]string               `json:"nicModels,omitempty"`
+	Os             string                  `json:"os"`
+	Resources      Resources               `json:"resources"`
+	Source         string                  `json:"source"`
+	State          *TemplateState          `json:"state,omitempty"`
+	Version        int                     `json:"version"`
+	Volumes        *[]Volume               `json:"volumes,omitempty"`
 }
 
 // TemplateFormat defines model for Template.Format.
 type TemplateFormat string
+
+// TemplateInitialization defines model for Template.Initialization.
+type TemplateInitialization string
 
 // TemplateState defines model for Template.State.
 type TemplateState string
