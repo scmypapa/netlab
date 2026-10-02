@@ -614,8 +614,9 @@ type NodeRegistration struct {
 
 // NodeResult defines model for NodeResult.
 type NodeResult struct {
-	Error   *string           `json:"error,omitempty"`
-	Results []ExecutionResult `json:"results"`
+	Error    *string               `json:"error,omitempty"`
+	Results  []ExecutionResult     `json:"results"`
+	Services *[]NodeServiceBinding `json:"services,omitempty"`
 }
 
 // NodeServiceBinding defines model for NodeServiceBinding.

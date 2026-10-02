@@ -1011,6 +1011,7 @@ export interface components {
     NodeResult: {
       results: components["schemas"]["ExecutionResult"][];
       error?: string;
+      services?: components["schemas"]["NodeServiceBinding"][];
     };
     NodeInfo: {
       id: string;
