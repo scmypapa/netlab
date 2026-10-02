@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"unicode/utf8"
 )
 
 const MaxTailBytes = 1 << 20
@@ -72,6 +73,11 @@ func SeekTail(file *os.File, lines int) (int64, error) {
 		if line == lines-1 {
 			end++
 			break
+		}
+	}
+	if start > 0 {
+		for end < len(window) && !utf8.RuneStart(window[end]) {
+			end++
 		}
 	}
 	_, err = file.Seek(start+int64(end), io.SeekStart)

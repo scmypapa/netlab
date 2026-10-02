@@ -21,6 +21,7 @@ func TestTailBoundaries(t *testing.T) {
 		{"none", "one\ntwo", 0, ""},
 		{"empty", "", 2, ""},
 		{"huge-line", strings.Repeat("x", 2*MaxTailBytes), 2, strings.Repeat("x", MaxTailBytes)},
+		{"huge-unicode-line", strings.Repeat("中", MaxTailBytes/3+40), 2, strings.Repeat("中", MaxTailBytes/3)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "stdout.log")

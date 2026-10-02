@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"unicode/utf8"
 
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
@@ -130,6 +131,7 @@ func (r *LogReader) Read(ctx context.Context, emit func(api.LogChunk) error) err
 		defer close(r.closed)
 	}
 	buffer := make([]byte, 32<<10)
+	pending := map[api.LogChunkStream][]byte{}
 	for {
 		for _, stream := range []api.LogChunkStream{api.LogChunkStreamStdout, api.LogChunkStreamStderr} {
 			file := r.files[stream]
@@ -146,13 +148,34 @@ func (r *LogReader) Read(ctx context.Context, emit func(api.LogChunk) error) err
 				delete(r.ends, stream)
 			}
 			for {
-				n, err := source.Read(buffer)
+				prefix := len(pending[stream])
+				copy(buffer, pending[stream])
+				n, err := source.Read(buffer[prefix:])
 				if n > 0 {
-					if err := emit(api.LogChunk{Stream: stream, Data: string(buffer[:n])}); err != nil {
-						return err
+					n += prefix
+					end := n
+					// A file write or read boundary can split a UTF-8 character.
+					for start := n - 1; start >= max(0, n-utf8.UTFMax); start-- {
+						if utf8.RuneStart(buffer[start]) {
+							if !utf8.FullRune(buffer[start:n]) {
+								end = start
+							}
+							break
+						}
+					}
+					pending[stream] = append(pending[stream][:0], buffer[end:n]...)
+					if end > 0 {
+						if err := emit(api.LogChunk{Stream: stream, Data: string(buffer[:end])}); err != nil {
+							return err
+						}
 					}
 				}
 				if err == io.EOF {
+					if !r.options.Follow && len(pending[stream]) > 0 {
+						if err := emit(api.LogChunk{Stream: stream, Data: string(pending[stream])}); err != nil {
+							return err
+						}
+					}
 					break
 				}
 				if err != nil {
