@@ -118,8 +118,12 @@ export function TemplateDetails({
             {template.format?.toUpperCase() ??
               (template.kind === "container" ? "OCI" : "—")}
           </dd>
-          <dt>地址</dt>
-          <dd className="template-source">{template.source}</dd>
+          {template.source && (
+            <>
+              <dt>地址</dt>
+              <dd className="template-source">{template.source}</dd>
+            </>
+          )}
         </dl>
       </section>
     </Drawer>

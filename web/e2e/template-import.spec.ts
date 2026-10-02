@@ -221,3 +221,48 @@ test("container image package uses the existing import API without VM fields", a
   expect(imported[0]).not.toHaveProperty("hardware");
   expect(imported[0]).toHaveProperty("initialization", "none");
 });
+
+test("ordinary template details hide the source row and retain virtual hardware", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.route("**/api/v1/identity", (route) =>
+    route.fulfill({
+      json: { id: "viewer", name: "viewer", administrator: false },
+    }),
+  );
+  await page.route("**/api/v1/templates?*", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "windows",
+          name: "Windows template",
+          kind: "vm",
+          os: "Windows",
+          source: "",
+          version: 1,
+          state: "ready",
+          format: "qcow2",
+          initialization: "cloudbase-init",
+          resources: { cpu: 4, memoryMiB: 4096, diskGiB: 40 },
+          hardware: {
+            machine: "pc-q35-10.0",
+            firmware: "uefi",
+            diskBus: "sata",
+            nicModel: "e1000e",
+          },
+        },
+      ],
+    }),
+  );
+  await page.goto("/templates");
+  await expect(
+    page.getByRole("button", { name: "导入模板", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: /Windows template/ }).click();
+  const drawer = page.getByRole("dialog", { name: "资产模板" });
+  await expect(drawer).toContainText("pc-q35-10.0");
+  await expect(drawer).toContainText("UEFI");
+  await expect(drawer).toContainText("Cloudbase-Init");
+  await expect(drawer.locator("dt").filter({ hasText: "地址" })).toHaveCount(0);
+});

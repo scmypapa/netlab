@@ -9,6 +9,7 @@ async function fixture(
     assetPermissions?: Record<string, string[]>;
     identity?: Identity;
     operation?: Operation;
+    status?: string;
   } = {},
 ) {
   const calls: { method: string; path: string; body: unknown }[] = [];
@@ -59,7 +60,7 @@ async function fixture(
     projectId: "lab-project",
     name: "混合环境",
     revision: 1,
-    status: "running",
+    status: options.status ?? "running",
     permissions: options.permissions ?? [
       "read",
       "operate",
@@ -108,6 +109,8 @@ async function fixture(
       },
     },
   ];
+  if (options.identity && !options.identity.administrator)
+    for (const template of templates) template.source = "";
   const blueprints = [
     {
       id: "training",
@@ -185,14 +188,14 @@ async function fixture(
     else if (path === "/environments/env/state")
       response = {
         id: "env",
-        status: "running",
+        status: environment.status,
         revision: 1,
         operation: options.operation,
         assets: spec.assets.map((asset) => ({
           assetId: asset.id,
           instanceId: asset.id,
           nodeId: "node",
-          state: "running",
+          state: environment.status,
           observedAt: environment.updatedAt,
         })),
         updatedAt: environment.updatedAt,
@@ -277,7 +280,21 @@ async function fixture(
       status = 202;
     } else if (path === "/operations")
       response = options.operation ? [options.operation] : [];
-    else if (
+    else if (path === "/environments/env/actions") {
+      response = {
+        id: "environment-action",
+        environmentId: "env",
+        kind: body.action,
+        state: "queued",
+        phase: "queued",
+        completed: 0,
+        total: 2,
+        retryable: false,
+        createdAt: environment.updatedAt,
+        updatedAt: environment.updatedAt,
+      };
+      status = 202;
+    } else if (
       path.startsWith("/environments/env/assets/") &&
       path.endsWith("/actions")
     ) {
@@ -735,3 +752,141 @@ for (const [projectId, permission, canCreate] of [
     ).toHaveCount(canCreate ? 1 : 0);
   });
 }
+
+test("suspended environment and asset both offer a normal stop", async ({
+  page,
+}) => {
+  const calls = await fixture(page, { status: "suspended" });
+  await page.goto("/environments/env");
+  await expect(
+    page.getByRole("button", { name: "继续运行", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "环境操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "停止环境", exact: true }).click();
+  await expect
+    .poll(() =>
+      calls.filter((call) => call.path === "/environments/env/actions"),
+    )
+    .toEqual([
+      {
+        method: "POST",
+        path: "/environments/env/actions",
+        body: {
+          action: "stop",
+          expectedRevision: 1,
+          clientRequestId: expect.any(String),
+        },
+      },
+    ]);
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "继续运行", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("menuitem", { name: "关机", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        calls.find(
+          (call) => call.path === "/environments/env/assets/windows/actions",
+        )?.body,
+    )
+    .toEqual({
+      action: "stop",
+      expectedRevision: 1,
+      clientRequestId: expect.any(String),
+    });
+});
+
+test("stopped assets cannot pause", async ({ page }) => {
+  await fixture(page, { status: "stopped" });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "暂停", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("menuitem", { name: "启动", exact: true }),
+  ).toBeEnabled();
+});
+
+test("asset-scoped session opens its console without environment management", async ({
+  page,
+}) => {
+  await fixture(page, {
+    permissions: [],
+    assetPermissions: { windows: ["read", "session"] },
+    identity: { id: "scoped", name: "scoped", administrator: false },
+  });
+  const connections: string[] = [];
+  await page.routeWebSocket(
+    /\/api\/v1\/environments\/env\/assets\/windows\/console\?kind=vnc$/,
+    (socket) => {
+      connections.push(socket.url());
+      socket.close({ code: 1000, reason: "fixture completed" });
+    },
+  );
+  await page.goto("/environments/env");
+  await expect(
+    page.getByRole("button", { name: "共享环境", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "环境操作", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "终端", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await expect(page.locator(".template-properties")).toContainText("UEFI");
+  await page.getByRole("button", { name: "控制台", exact: true }).click();
+  await expect
+    .poll(() => [...new Set(connections)])
+    .toEqual([
+      "ws://127.0.0.1:5176/api/v1/environments/env/assets/windows/console?kind=vnc",
+    ]);
+});
+
+test("ordinary asset editing retains VM specifications while source is hidden", async ({
+  page,
+}) => {
+  const calls = await fixture(page, {
+    permissions: ["read", "compose"],
+    identity: { id: "composer", name: "composer", administrator: false },
+  });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑资产" });
+  await expect(
+    editor.getByRole("textbox", { name: "资产模板", exact: true }),
+  ).toHaveValue("Windows Server · 虚拟机");
+  await expect(editor.getByLabel("CPU · 核", { exact: true })).toHaveValue("4");
+  await editor.getByRole("button", { name: "来宾设置", exact: true }).click();
+  await editor
+    .getByRole("textbox", { name: "主机名", exact: true })
+    .fill("desktop-01");
+  await editor.getByRole("button", { name: "更新资产", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect
+    .poll(() => calls.find((call) => call.path.endsWith("/draft"))?.body)
+    .toMatchObject({
+      spec: {
+        assets: [
+          { id: "web" },
+          {
+            id: "windows",
+            templateId: "win",
+            resources: { cpu: 4, memoryMiB: 4096, diskGiB: 40 },
+            guest: { hostname: "desktop-01" },
+          },
+        ],
+      },
+    });
+});
