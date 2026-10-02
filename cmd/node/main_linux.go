@@ -46,6 +46,7 @@ func run() error {
 	flag.StringVar(&cfg.OVSEndpoint, "ovs", "unix:/run/openvswitch/db.sock", "local OVS endpoint")
 	flag.StringVar(&cfg.Bridge, "bridge", "br-int", "OVN integration bridge")
 	flag.StringVar(&cfg.ProviderCIDR, "service-network", "100.127.0.0/16", "reserved IPv4 service provider network")
+	flag.StringVar(&cfg.AdvertiseAddress, "advertise-address", "", "client access address; defaults to the default-route source")
 	flag.StringVar(&address, "listen", ":9443", "mTLS listen address")
 	flag.StringVar(&certificate, "cert", "/etc/netlab/node.crt", "node certificate")
 	flag.StringVar(&key, "key", "/etc/netlab/node.key", "node private key")

@@ -38,6 +38,21 @@ func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 		}
 		models = append(models, gateway...)
 	}
+	if n.vpnRecord != nil {
+		if record := n.vpnRecord(plan.EnvironmentId); record != nil && len(record.Peers) > 0 {
+			var router *Router
+			for _, item := range models {
+				if current, ok := item.(*Router); ok {
+					router = current
+					break
+				}
+			}
+			if router == nil {
+				return fmt.Errorf("VPN environment router is missing")
+			}
+			models = append(models, vpnModels(plan.EnvironmentId, record, router, n.chassis)...)
+		}
+	}
 	ops, err := n.deleteOperations(ctx, plan.EnvironmentId)
 	if err != nil {
 		return err
@@ -57,7 +72,7 @@ func (n *OVN) Remove(ctx context.Context, environmentID string) error {
 }
 func (n *OVN) deleteOperations(ctx context.Context, environmentID string) ([]ovsdb.Operation, error) {
 	var ops []ovsdb.Operation
-	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "DHCP_Options", "Logical_Router", "Logical_Router_Port", "Logical_Router_Static_Route", "ACL", "Load_Balancer"} {
+	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "DHCP_Options", "Logical_Router", "Logical_Router_Port", "Logical_Router_Static_Route", "ACL", "Load_Balancer", "NAT", "Address_Set"} {
 		v, err := ovsdb.NewOvsMap(map[string]string{"netlab.environment": environmentID})
 		if err != nil {
 			return nil, err

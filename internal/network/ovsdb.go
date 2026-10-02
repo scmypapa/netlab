@@ -44,7 +44,22 @@ type Router struct {
 	Ports         []string          `ovsdb:"ports"`
 	Routes        []string          `ovsdb:"static_routes"`
 	LoadBalancers []string          `ovsdb:"load_balancer"`
+	NAT           []string          `ovsdb:"nat"`
 	Options       map[string]string `ovsdb:"options"`
+	ExternalIDs   map[string]string `ovsdb:"external_ids"`
+}
+type AddressSet struct {
+	UUID        string            `ovsdb:"_uuid"`
+	Name        string            `ovsdb:"name"`
+	Addresses   []string          `ovsdb:"addresses"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
+}
+type NAT struct {
+	UUID          string            `ovsdb:"_uuid"`
+	Type          string            `ovsdb:"type"`
+	LogicalIP     string            `ovsdb:"logical_ip"`
+	ExternalIP    string            `ovsdb:"external_ip"`
+	AllowedExtIPs *string           `ovsdb:"allowed_ext_ips"`
 	ExternalIDs   map[string]string `ovsdb:"external_ids"`
 }
 type RouterPort struct {
@@ -102,9 +117,10 @@ type Interface struct {
 }
 
 type OVN struct {
-	client   client.Client
-	provider netip.Prefix
-	chassis  string
+	client    client.Client
+	provider  netip.Prefix
+	chassis   string
+	vpnRecord func(string) *vpnRecord
 }
 type OVS struct {
 	client client.Client
@@ -115,7 +131,7 @@ func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
 	tables := map[string]model.Model{
 		"Logical_Switch": &Switch{}, "Logical_Switch_Port": &SwitchPort{}, "DHCP_Options": &DHCP{},
 		"Logical_Router": &Router{}, "Logical_Router_Port": &RouterPort{}, "Logical_Router_Static_Route": &Route{}, "ACL": &ACL{},
-		"Load_Balancer": &LoadBalancer{},
+		"Load_Balancer": &LoadBalancer{}, "NAT": &NAT{}, "Address_Set": &AddressSet{},
 	}
 	db, err := model.NewClientDBModel("OVN_Northbound", tables)
 	if err != nil {

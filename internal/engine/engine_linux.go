@@ -21,6 +21,7 @@ import (
 type Config struct {
 	ID, Name, DataDir, ContainerdSocket, LibvirtURI, OVNEndpoint, OVSEndpoint, Bridge string
 	ProviderCIDR                                                                      string
+	AdvertiseAddress                                                                  string
 }
 type Engine struct {
 	cfg       Config
@@ -29,6 +30,7 @@ type Engine struct {
 	ovn       *network.OVN
 	ovs       *network.OVS
 	gateway   *network.Gateway
+	vpn       *network.VPN
 	slots     chan struct{}
 	mu        sync.Mutex
 	locks     map[string]*objectLock
@@ -55,6 +57,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 	if e.gateway, err = network.NewGateway(ctx, cfg.DataDir, cfg.ID, cfg.ProviderCIDR, e.ovs, e.ovn); err != nil {
+		e.Close()
+		return nil, err
+	}
+	if e.vpn, err = network.NewVPN(cfg.DataDir, e.ovs, e.ovn); err != nil {
 		e.Close()
 		return nil, err
 	}
@@ -137,6 +143,11 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 	}
 	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
 	info.ServiceNetwork = ptr(e.gateway.Network())
+	address, err := network.AccessAddress(e.cfg.AdvertiseAddress)
+	if err != nil {
+		return api.NodeInfo{}, err
+	}
+	info.AccessAddress = &address
 	if e.vm != nil {
 		info.VmHardware = &e.vm.hardware
 	}
@@ -158,8 +169,20 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		}
 		return result
 	case api.NodePlanPhaseRemoveNetwork:
+		if err := e.vpn.Remove(ctx, plan.EnvironmentId); err != nil {
+			result.Error = ptr(err.Error())
+			return result
+		}
 		if err := e.gateway.Remove(ctx, plan.EnvironmentId); err != nil {
 			result.Error = ptr(err.Error())
+		}
+		return result
+	case api.NodePlanPhaseVpn:
+		value, err := e.vpn.Apply(ctx, plan)
+		if err != nil {
+			result.Error = ptr(err.Error())
+		} else {
+			result.Vpn = &value
 		}
 		return result
 	case api.NodePlanPhaseServices:
@@ -281,11 +304,11 @@ func (e *Engine) PrepareTemplate(ctx context.Context, t api.Template) (api.Templ
 		err = fmt.Errorf("invalid template kind %s", t.Kind)
 	}
 	if err != nil {
-		t.State = ptr(api.Failed)
+		t.State = ptr(api.TemplateStateFailed)
 		t.Error = ptr(err.Error())
 		return t, err
 	}
-	t.State = ptr(api.Ready)
+	t.State = ptr(api.TemplateStateReady)
 	t.Error = nil
 	return t, nil
 }
