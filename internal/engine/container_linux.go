@@ -36,6 +36,7 @@ import (
 const environmentLabel = "netlab.environment"
 const assetLabel = "netlab.asset"
 const networkLabel = "netlab.interfaces"
+const executionLabel = "netlab.execution"
 
 type Containers struct {
 	client *containerd.Client
@@ -64,7 +65,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 	container, err := c.client.LoadContainer(ctx, a.InstanceId)
 	if errdefs.IsNotFound(err) {
 		if phase == api.NodePlanPhaseDestroy {
-			return "destroyed", c.removeFiles(env, a)
+			return "destroyed", c.removeFiles(ctx, env, a)
 		}
 		return "absent", err
 	}
@@ -83,6 +84,14 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		return state, err
 	}
 	switch phase {
+	case api.NodePlanPhaseCleanupVolumes:
+		references, err := c.volumeReferences(ctx, env, a.Asset.Id)
+		if err != nil {
+			return state, err
+		}
+		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a.Asset.Id, id) }, true)
+	case api.NodePlanPhaseUpdate:
+		return c.update(ctx, container, env, a)
 	case api.NodePlanPhaseActivate, api.NodePlanPhaseStart:
 		if state == "stopped" || state == "prepared" || state == "created" {
 			return c.start(ctx, container, env, a)
@@ -117,7 +126,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		if err = container.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
 			return "stopped", err
 		}
-		return "destroyed", c.removeFiles(env, a)
+		return "destroyed", c.removeFiles(ctx, env, a)
 	case api.NodePlanPhaseInspect:
 	default:
 		return state, fmt.Errorf("invalid container phase %s", phase)
@@ -144,16 +153,8 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	if err != nil {
 		return "absent", err
 	}
-	ic, err := image.Config(ctx)
+	config, err := imageConfig(ctx, image)
 	if err != nil {
-		return "absent", err
-	}
-	blob, err := content.ReadBlob(ctx, image.ContentStore(), ic)
-	if err != nil {
-		return "absent", err
-	}
-	var config imagespec.Image
-	if err = json.Unmarshal(blob, &config); err != nil {
 		return "absent", err
 	}
 	dir := instanceDir(c.data, env, a.InstanceId)
@@ -163,32 +164,13 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	if err = writeNetworkFiles(dir, a.Interfaces); err != nil {
 		return "absent", err
 	}
-	volumes := []api.Volume{}
-	if a.Asset.Volumes != nil {
-		volumes = append(volumes, (*a.Asset.Volumes)...)
-	}
-	// Docker VOLUME declarations become managed volumes instead of hiding image data.
-	declared := make(map[string]bool)
-	for _, v := range volumes {
-		declared[v.MountPath] = true
-	}
-	paths := []string{}
-	for path := range config.Config.Volumes {
-		if !declared[path] {
-			paths = append(paths, path)
-		}
-	}
-	sort.Strings(paths)
-	for i, path := range paths {
-		volumes = append(volumes, api.Volume{Id: fmt.Sprintf("image-volume-%d", i), MountPath: path, SizeGiB: 1})
-	}
+	volumes := managedVolumes(config, a.Asset.Volumes)
 	mounts := []specs.Mount{{Destination: "/etc/resolv.conf", Type: "bind", Source: filepath.Join(dir, "resolv.conf"), Options: []string{"rbind", "ro"}}, {Destination: "/etc/hosts", Type: "bind", Source: filepath.Join(dir, "hosts"), Options: []string{"rbind", "ro"}}}
-	for _, vol := range volumes {
-		if !filepath.IsAbs(vol.MountPath) || filepath.Clean(vol.MountPath) == "/" {
-			return "absent", fmt.Errorf("invalid container volume mount path %s", vol.MountPath)
-		}
-		mounts = append(mounts, specs.Mount{Destination: vol.MountPath, Type: "bind", Source: c.volumeDir(env, a.Asset.Id, vol.Id), Options: []string{"rbind", "rw"}})
+	volumeMounts, err := c.volumeMounts(env, a.Asset.Id, volumes)
+	if err != nil {
+		return "absent", err
 	}
+	mounts = append(mounts, volumeMounts...)
 	networkJSON, err := json.Marshal(a.Interfaces)
 	if err != nil {
 		return "absent", err
@@ -197,7 +179,11 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	if err != nil {
 		return "absent", err
 	}
-	labels := map[string]string{environmentLabel: env, assetLabel: a.Asset.Id, networkLabel: string(networkJSON), "netlab.volumes": string(volumeJSON), "netlab.stop-signal": config.Config.StopSignal}
+	executionJSON, err := json.Marshal(a)
+	if err != nil {
+		return "absent", err
+	}
+	labels := map[string]string{environmentLabel: env, assetLabel: a.Asset.Id, networkLabel: string(networkJSON), executionLabel: string(executionJSON), "netlab.volumes": string(volumeJSON), "netlab.stop-signal": config.Config.StopSignal}
 	opts := []oci.SpecOpts{oci.WithImageConfig(image), oci.WithHostname(a.Asset.Name), oci.WithMemoryLimit(uint64(a.Asset.Resources.MemoryMiB) << 20), oci.WithMounts(mounts), cpuLimit(a.Asset.Resources.Cpu)}
 	if a.Asset.Parameters != nil {
 		envs := []string{}
@@ -236,6 +222,54 @@ func (c *Containers) image(ctx context.Context, t api.Template) (containerd.Imag
 		return nil, err
 	}
 	return c.client.GetImage(ctx, ref)
+}
+
+func imageConfig(ctx context.Context, image containerd.Image) (imagespec.Image, error) {
+	var config imagespec.Image
+	descriptor, err := image.Config(ctx)
+	if err != nil {
+		return config, err
+	}
+	blob, err := content.ReadBlob(ctx, image.ContentStore(), descriptor)
+	if err != nil {
+		return config, err
+	}
+	err = json.Unmarshal(blob, &config)
+	return config, err
+}
+
+func managedVolumes(config imagespec.Image, configured *[]api.Volume) []api.Volume {
+	volumes := []api.Volume{}
+	if configured != nil {
+		volumes = append(volumes, (*configured)...)
+	}
+	declared := make(map[string]bool)
+	for _, v := range volumes {
+		declared[v.MountPath] = true
+	}
+	paths := []string{}
+	for path := range config.Config.Volumes {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	// Stable image-volume identities do not change when another mount is overridden.
+	for i, path := range paths {
+		if !declared[path] {
+			volumes = append(volumes, api.Volume{Id: fmt.Sprintf("image-volume-%d", i), MountPath: path, SizeGiB: 1})
+		}
+	}
+	return volumes
+}
+
+func (c *Containers) volumeMounts(env, asset string, volumes []api.Volume) ([]specs.Mount, error) {
+	mounts := make([]specs.Mount, 0, len(volumes))
+	for _, volume := range volumes {
+		if !filepath.IsAbs(volume.MountPath) || filepath.Clean(volume.MountPath) == "/" {
+			return nil, fmt.Errorf("invalid container volume mount path %s", volume.MountPath)
+		}
+		mounts = append(mounts, specs.Mount{Destination: volume.MountPath, Type: "bind", Source: c.volumeDir(env, asset, volume.Id), Options: []string{"rbind", "rw"}})
+	}
+	return mounts, nil
 }
 func (c *Containers) importImage(ctx context.Context, t api.Template) (containerd.Image, error) {
 	if strings.HasPrefix(t.Source, "/") || strings.HasPrefix(t.Source, "file:") {
@@ -481,6 +515,9 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 		}
 		state, err := containerState(ctx, item)
 		r := api.ExecutionResult{AssetId: labels[assetLabel], InstanceId: item.ID(), State: state, ObservedAt: time.Now().UTC()}
+		var observeErr error
+		r.Execution, observeErr = c.observedExecution(ctx, item)
+		err = errors.Join(err, observeErr)
 		if err != nil {
 			r.Error = ptr(err.Error())
 		}
@@ -491,19 +528,32 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 func (c *Containers) volumeDir(env, asset, volume string) string {
 	return filepath.Join(c.data, "environments", env, "volumes", asset, volume)
 }
-func (c *Containers) removeFiles(env string, a api.AssetExecution) error {
+func (c *Containers) removeFiles(ctx context.Context, env string, a api.AssetExecution) error {
 	if err := os.RemoveAll(instanceDir(c.data, env, a.InstanceId)); err != nil {
 		return err
 	}
-	if a.Asset.Volumes != nil {
-		for _, v := range *a.Asset.Volumes {
-			if v.Retain == nil || !*v.Retain {
-				if err := os.RemoveAll(c.volumeDir(env, a.Asset.Id, v.Id)); err != nil {
-					return err
-				}
-			}
+	references, err := c.volumeReferences(ctx, env, a.Asset.Id)
+	if err != nil {
+		return err
+	}
+	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a.Asset.Id, id) }, false)
+}
+
+func (c *Containers) volumeReferences(ctx context.Context, env, asset string) (map[string]bool, error) {
+	references := make(map[string]bool)
+	users, err := c.client.Containers(ctx, "labels.\""+environmentLabel+"\"=="+strconvQuote(env)+",labels.\""+assetLabel+"\"=="+strconvQuote(asset))
+	if err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		spec, err := user.Spec(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, mount := range spec.Mounts {
+			references[mount.Source] = true
 		}
 	}
-	return nil
+	return references, nil
 }
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }

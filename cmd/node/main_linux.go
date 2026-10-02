@@ -46,9 +46,6 @@ func run() error {
 	flag.StringVar(&key, "key", "/etc/netlab/node.key", "node private key")
 	flag.StringVar(&ca, "ca", "/etc/netlab/ca.crt", "controller certificate authority")
 	flag.Parse()
-	if _, err := uuid.Parse(cfg.ID); err != nil {
-		return errors.New("a registered node UUID is required")
-	}
 	if cfg.Name == "" {
 		name, err := os.Hostname()
 		if err != nil {
@@ -58,6 +55,10 @@ func run() error {
 	}
 	if !filepath.IsAbs(cfg.DataDir) {
 		return errors.New("data directory must be absolute")
+	}
+	var err error
+	if cfg.ID, err = persistentNodeID(cfg.DataDir, cfg.ID); err != nil {
+		return err
 	}
 	caPEM, err := os.ReadFile(ca)
 	if err != nil {
@@ -170,4 +171,28 @@ func validatePlanPaths(p api.NodePlan) error {
 }
 func pathID(id string) bool {
 	return id != "" && id != "." && id != ".." && !strings.ContainsAny(id, "/\\\x00")
+}
+func persistentNodeID(directory, override string) (string, error) {
+	if err := os.MkdirAll(directory, 0711); err != nil {
+		return "", err
+	}
+	path := filepath.Join(directory, "node-id")
+	if override == "" {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			value := strings.TrimSpace(string(data))
+			if _, err = uuid.Parse(value); err != nil {
+				return "", fmt.Errorf("invalid stored node identity: %w", err)
+			}
+			return value, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		override = uuid.NewString()
+	}
+	if _, err := uuid.Parse(override); err != nil {
+		return "", err
+	}
+	return override, os.WriteFile(path, []byte(override+"\n"), 0600)
 }

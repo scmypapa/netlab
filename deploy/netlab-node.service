@@ -5,8 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/netlab-node --id ${NETLAB_NODE_ID} --name ${NETLAB_NODE_NAME}
-EnvironmentFile=/etc/netlab/node.env
+ExecStart=/usr/local/bin/netlab-node
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=120

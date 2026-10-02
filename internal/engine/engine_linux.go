@@ -186,7 +186,42 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			if err == nil && (plan.Phase == api.NodePlanPhaseStart || plan.Phase == api.NodePlanPhaseActivate) && state == "running" {
 				err = e.shape(ctx, plan.EnvironmentId, a, policies)
 			}
-			result.Results[i] = executionResult(a, state, err)
+			r := executionResult(a, state, err)
+			if plan.Phase == api.NodePlanPhaseUpdate || plan.Phase == api.NodePlanPhaseInspect {
+				var observed *api.AssetExecution
+				var observeErr error
+				if a.Template.Kind == api.Container && e.container != nil {
+					container, loadErr := e.container.client.LoadContainer(ctx, a.InstanceId)
+					if loadErr != nil {
+						observeErr = loadErr
+					} else {
+						observed, observeErr = e.container.observedExecution(ctx, container)
+						if observed != nil && r.State == "unknown" {
+							var stateErr error
+							r.State, stateErr = containerState(ctx, container)
+							observeErr = errors.Join(observeErr, stateErr)
+						}
+					}
+				} else if a.Template.Kind == api.Vm && e.vm != nil {
+					domain, loadErr := e.vm.conn.LookupDomainByUUIDString(a.InstanceId)
+					if loadErr != nil {
+						observeErr = loadErr
+					} else {
+						observed, observeErr = e.vm.observedExecution(domain)
+						if observed != nil && r.State == "unknown" {
+							var stateErr error
+							r.State, stateErr = vmState(domain)
+							observeErr = errors.Join(observeErr, stateErr)
+						}
+						domain.Free()
+					}
+				}
+				r.Execution = observed
+				if err = errors.Join(err, observeErr); err != nil {
+					r.Error = ptr(err.Error())
+				}
+			}
+			result.Results[i] = r
 		}(i, asset)
 	}
 	wg.Wait()

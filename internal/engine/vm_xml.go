@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"path/filepath"
@@ -15,6 +16,7 @@ type Ownership struct {
 	Environment string   `xml:"environment,attr"`
 	Asset       string   `xml:"asset,attr"`
 	Instance    string   `xml:"instance,attr"`
+	Execution   string   `xml:"execution"`
 }
 
 func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (string, error) {
@@ -22,7 +24,11 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		return "", fmt.Errorf("template %s has no virtual hardware", a.Template.Name)
 	}
 	h := a.Template.Hardware
-	metadata, err := xml.Marshal(Ownership{Environment: environmentID, Asset: a.Asset.Id, Instance: a.InstanceId})
+	execution, err := json.Marshal(a)
+	if err != nil {
+		return "", err
+	}
+	metadata, err := xml.Marshal(Ownership{Environment: environmentID, Asset: a.Asset.Id, Instance: a.InstanceId, Execution: string(execution)})
 	if err != nil {
 		return "", err
 	}
