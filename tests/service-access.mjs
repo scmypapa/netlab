@@ -135,7 +135,7 @@ try {
     const seed = await api('/environments', 'POST', { name: '服务入口模板源', spec: { networks, assets, services: [declared] } })
     report.environmentIds.push(seed.id)
     const blueprint = await api(`/environments/${seed.id}/blueprints`, 'POST', { name: `服务入口 ${seed.id}`, expectedRevision: seed.revision, spec: seed.spec })
-    for (const marker of ['A', 'B']) {
+    await Promise.all(['A', 'B'].map(async marker => {
       const env = await api('/environments', 'POST', { name: `服务入口验收 ${marker}`, run: true, blueprintVersionId: blueprint.latestVersionId, clientRequestId: randomUUID() })
       environments.push(env)
       report.environmentIds.push(env.id)
@@ -146,7 +146,7 @@ try {
       const actual = await state(env)
       const web = env.spec.assets.find(item => item.name === 'web')
       inside(actual.assets.find(item => item.assetId === web.id).instanceId, 'sh', '-c', `printf %s ${env.id} > /usr/share/nginx/html/environment-id`)
-    }
+    }))
     await action(seed, 'destroy')
   })
   const [a, b] = environments

@@ -54,7 +54,7 @@ export function WorkbenchPage() {
   const [selectedConnection, setSelectedConnection] = useState("");
   const [sharing, setSharing] = useState(false);
   const [logging, setLogging] = useState<Asset>();
-  const [serving, setServing] = useState<Asset>();
+  const [serving, setServing] = useState<string>();
   const [context, setContext] = useState<{
     x: number;
     y: number;
@@ -98,6 +98,7 @@ export function WorkbenchPage() {
     [layout, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
+  const servedAsset = spec.assets.find((item) => item.id === serving);
   const connect = (kind: Schema<"ConsoleKind">) => {
     if (!asset) return;
     const connection = { id: asset.id, name: asset.name, kind };
@@ -653,7 +654,7 @@ export function WorkbenchPage() {
             onServices={() => {
               workbench.exposeService.reset();
               workbench.revokeService.reset();
-              setServing(asset);
+              setServing(asset?.id);
             }}
             onSelect={setSelection}
           />
@@ -691,10 +692,10 @@ export function WorkbenchPage() {
           onClose={() => setLogging(undefined)}
         />
       )}
-      {serving && (
+      {servedAsset && (
         <ServiceDrawer
-          key={serving.id}
-          asset={spec.assets.find((item) => item.id === serving.id) ?? serving}
+          key={servedAsset.id}
+          asset={servedAsset}
           spec={spec}
           services={workbench.services.data ?? []}
           loading={workbench.services.isLoading}
@@ -703,7 +704,7 @@ export function WorkbenchPage() {
             workbench.exposeService.isPending ||
             workbench.revokeService.isPending
           }
-          canManage={allows(environment, "access", serving.id)}
+          canManage={allows(environment, "access", servedAsset.id)}
           error={
             workbench.services.error ??
             workbench.exposeService.error ??
@@ -711,7 +712,7 @@ export function WorkbenchPage() {
           }
           onCreate={(body, onAccepted) =>
             workbench.exposeService.mutate(
-              { assetId: serving.id, ...body },
+              { assetId: servedAsset.id, ...body },
               { onSuccess: onAccepted },
             )
           }
