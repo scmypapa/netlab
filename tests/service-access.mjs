@@ -93,6 +93,7 @@ function udp(endpoint, message = randomUUID(), socket) {
 }
 async function expose(env, asset, input, token) {
   const current = await detail(env)
+  const existing = new Set((await services(env)).map(item => item.id))
   const body = { ...input, expectedRevision: current.revision, clientRequestId: randomUUID() }
   const path = `/environments/${env.id}/assets/${asset.id}/services`
   const operation = await api(path, 'POST', body, token)
@@ -100,7 +101,7 @@ async function expose(env, asset, input, token) {
   const result = await completed(operation.id, token)
   assert.equal(result.total, 1, '服务变更不应统计整环境资产')
   const endpoints = await services(env)
-  const endpoint = endpoints.find(item => item.assetId === asset.id && item.protocol === input.protocol && item.targetPort === input.targetPort)
+  const endpoint = endpoints.find(item => !existing.has(item.id) && item.assetId === asset.id && item.protocol === input.protocol && item.targetPort === input.targetPort)
   assert.ok(endpoint?.address && endpoint.port > 0, '执行成功后没有真实入口')
   return endpoint
 }
@@ -168,7 +169,7 @@ try {
     const ssh = await guestSSH(actual.assets.find(item => item.assetId === web.id).instanceId,
       actual.assets.find(item => item.assetId === vm.id).instanceId, () => vm.interfaces[0].address, key)
     const source = await readFile(new URL('./fixtures/service-server.py', import.meta.url))
-    ssh.run(`sudo sh -c 'printf %s ${source.toString('base64')} | base64 -d > /tmp/netlab-service.py; nohup python3 /tmp/netlab-service.py ${a.id} >/tmp/netlab-service.log 2>&1 </dev/null &'`)
+    ssh.run(`sh -c 'printf %s ${source.toString('base64')} | base64 -d > /tmp/netlab-service.py; nohup python3 /tmp/netlab-service.py ${a.id} >/tmp/netlab-service.log 2>&1 </dev/null &'`)
     const deadline = Date.now() + 10_000
     while (!ssh.run('ss -lnt').includes(':8080') && Date.now() < deadline) await delay(100)
     assert.ok(ssh.run('ss -lnt').includes(':8080'), '测试服务没有真实监听')
@@ -189,12 +190,12 @@ try {
     const forbidden = await fetch(`${base}/api/v1/environments/${a.id}/assets/${vm.id}/services`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: 'tcp', targetPort: 22, expectedRevision: (await detail(a)).revision }) })
     assert.equal(forbidden.status, 403)
     const actual = await state(a)
-    const beforePID = wsl('ctr', '-n', 'netlab', 'tasks', 'list')
+    const beforePID = wsl('ctr', '-n', 'netlab', 'tasks', 'list').split('\n').sort()
     const added = await expose(a, web, { protocol: 'tcp', targetPort: 80, interfaceId: web.interfaces[0].id }, token)
     assert.equal(await http(added), a.id)
     const after = await state(a)
     assert.deepEqual(after.assets.map(item => item.instanceId), actual.assets.map(item => item.instanceId))
-    assert.equal(wsl('ctr', '-n', 'netlab', 'tasks', 'list'), beforePID, '服务操作改变了容器进程')
+    assert.deepEqual(wsl('ctr', '-n', 'netlab', 'tasks', 'list').split('\n').sort(), beforePID, '服务操作改变了容器进程')
     await revoke(a, added, token)
   })
   await step('宿主手工端口冲突真实失败并保留原入口', async () => {
@@ -293,6 +294,7 @@ try {
     assert.equal(await http(webB), b.id)
   })
   await step('销毁、容量与数据库及真实网络残留检查', async () => {
+    const endpoints = (await Promise.all(environments.map(services))).flat()
     await Promise.all(environments.map(env => action(env, 'destroy')))
     for (const env of environments) {
       assert.equal((await detail(env)).status, 'destroyed')
@@ -308,7 +310,11 @@ try {
       assert.ok(report.environmentIds.every(id => !rows.includes(id)), `${table}残留`)
     }
     const rules = wsl('nft', 'list', 'ruleset')
-    assert.ok(environments.every(env => !rules.includes(env.id)), 'nftables规则残留')
+    for (const endpoint of endpoints) {
+      assert.ok(!rules.includes(`${endpoint.protocol} . ${endpoint.port}`), 'nftables规则残留')
+      const type = endpoint.protocol === 'tcp' ? 'SOCK_STREAM' : 'SOCK_DGRAM'
+      wsl('python3', '-c', `import socket; s=socket.socket(socket.AF_INET,socket.${type}); s.bind(("0.0.0.0",${endpoint.port}))`)
+    }
     const active = new Set([...wsl('virsh', 'list', '--all', '--uuid').trim().split(/\s+/), ...wsl('ctr', '-n', 'netlab', 'containers', 'list', '-q').trim().split(/\s+/)])
     assert.ok([...instances].every(id => !active.has(id)), '运行实例残留')
     const ids = report.environmentIds.map(id => `'${id}'`).join(',')
