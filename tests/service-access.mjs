@@ -236,6 +236,18 @@ try {
     assert.equal(await http(webA), a.id)
     assert.equal(await http(vmTCP), a.id)
   })
+  await step('网络策略变更保持既有服务与资产实例', async () => {
+    const before = await detail(a)
+    const previous = await state(a)
+    const spec = structuredClone(before.spec)
+    spec.policies = [{ id: randomUUID(), networkId: spec.networks[1].id, direction: 'both', action: 'shape', delayMs: 1 }]
+    await completed((await api(`/environments/${a.id}/changes`, 'POST', { expectedRevision: before.revision, spec, apply: true })).id)
+    assert.deepEqual((await state(a)).assets.map(item => item.instanceId), previous.assets.map(item => item.instanceId))
+    assert.equal((await services(a)).find(item => item.id === webA.id).port, webA.port)
+    assert.equal(await http(webA), a.id)
+    assert.equal(await http(vmTCP), a.id)
+    assert.equal(await udp(vmUDP, 'policy'), `${a.id}:policy`)
+  })
   await step('Agent停止期间转发保持，重启恢复端口占有', async () => {
     wsl('systemctl', 'stop', 'netlab-node-dev.service')
     try {
@@ -264,6 +276,21 @@ try {
       assert.equal(await http(reused), b.id)
       await revoke(b, reused)
     } finally { agent.destroy(); socket.close() }
+  })
+  await step('资产移除沿编排权限清理附属入口，另一环境保持运行', async () => {
+    const ssh = await expose(a, vm, { protocol: 'tcp', targetPort: 22 })
+    const issued = await api('/service-tokens', 'POST', { name: `编排清理 ${a.id}`, grants: [{ scopeKind: 'environment', scopeId: a.id, permissions: ['read', 'compose'] }] })
+    principals.push(issued.principal.id)
+    const before = await detail(a)
+    const other = await state(b)
+    const spec = structuredClone(before.spec)
+    spec.assets = spec.assets.filter(item => item.id !== vm.id)
+    await completed((await api(`/environments/${a.id}/changes`, 'POST', { expectedRevision: before.revision, spec, apply: true }, issued.token)).id, issued.token)
+    assert.ok(!(await services(a)).some(item => item.id === ssh.id || item.assetId === vm.id))
+    assert.equal((await state(a)).assets.length, 1)
+    assert.deepEqual((await state(b)).assets.map(item => item.instanceId), other.assets.map(item => item.instanceId))
+    assert.equal(await http(webA), a.id)
+    assert.equal(await http(webB), b.id)
   })
   await step('销毁、容量与数据库及真实网络残留检查', async () => {
     await Promise.all(environments.map(env => action(env, 'destroy')))

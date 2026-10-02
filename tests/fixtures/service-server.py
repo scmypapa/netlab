@@ -19,6 +19,10 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+class Server(ThreadingHTTPServer):
+    request_queue_size = 128
+
+
 def echo():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
         server.bind(("0.0.0.0", 8081))
@@ -28,4 +32,4 @@ def echo():
 
 
 threading.Thread(target=echo, daemon=True).start()
-ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+Server(("0.0.0.0", 8080), Handler).serve_forever()
