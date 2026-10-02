@@ -269,7 +269,7 @@ try {
     const before = await api(`/environments/${a.id}`)
     const reservations = await api('/nodes')
     const spec = structuredClone(before.spec)
-    spec.assets.find(x => x.name === 'VM').resources.diskGiB = 1
+    spec.assets.find(x => x.name === 'VM').resources.diskGiB = 4
     const target = spec.assets.find(x => x.name === 'web')
     const volume = { id: randomUUID(), mountPath: '/var/netlab-failed', sizeGiB: 1 }
     target.volumes.push(volume)
@@ -277,7 +277,7 @@ try {
     const failed = await finished(op.id)
     assert.equal(failed.state, 'failed')
     assert.equal(failed.phase, 'rolled-back', failed.error)
-    assert.match(failed.error, /shrinking/)
+    assert.match(failed.error, /system disk .*cannot be shrunk/)
     const restored = await api(`/environments/${a.id}`)
     assert.equal(restored.status, 'running')
     assert.equal(restored.revision, before.revision)

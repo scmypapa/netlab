@@ -64,7 +64,23 @@
 | 测试时序 | 扩盘重启后约 3 秒即请求重建关机；来宾约 10 秒才启动电源事件服务，关机超时并真实回退。脚本增加真实 SSH 来宾断言；产品未增加健康门槛、自动强停或延长超时。 |
 | 环境故障 | 最新一轮两个混合环境 SSH 已通过，后续专项 SSH 超时；同时 PostgreSQL 终止连接、控制面退出、WSL 无法启动 root 进程。C 盘仅剩 308.6 MiB，Ubuntu 虚拟磁盘由 11.85 GiB 增长至 25.23 GiB。测试暂停，现场保留，整轮记录失败。 |
 
-最近一轮停在第 5 步；之前一轮停在第 12 步，两轮均未计算为完整通过。最近的 SSH 超时仍需在宿主恢复后读取来宾日志确认。恢复存储后先检查保留现场，再继续同一脚本。
+宿主恢复后读取了失败 VM 的系统盘：cloud-init 停在首启扩分区阶段，SSH 主机密钥尚未生成；日志尾部有未完成写入的数据。迁移存储后，同一 Ubuntu 双网卡、SSH 和网络变更步骤通过。原失败报告继续保留。
+
+2026-10-02 迁移后的流程通过前 12 步；第 13 步的缩盘用例仍沿用空盘测试的 1 GiB 目标和旧错误文本，触发了真实 Ubuntu 模板的 4 GiB 最小容量限制。用例改为从已扩展的 5 GiB 缩到 4 GiB，并校验真实缩盘拒绝结果；产品代码未增加回退判断。保留同一现场完成后续三项定向验证：
+
+| 操作 | 单次实测 |
+| --- | --- |
+| 真实缩盘失败、配置/新增卷/容量整批回退 | 27.632 秒 |
+| KVM 强停保盘、重新启动并完成 SSH 登录 | 18.314 秒 |
+| 并行销毁、容量及 libvirt/containerd/OVN 残留检查 | 1.810 秒 |
+
+该轮首段与续跑分别记录于 `data/api-lifecycle-result.json` 和 `data/api-lifecycle-resumed-result.json`。单轮 15 步完整结果将在下一次集成候选验证后记录。
+
+### 本地存储
+
+- Ubuntu 测试发行版通过 WSL 原生迁移放到 `D:\wsl\Ubuntu`，账号、证书、模板和数据库现场保留；Docker 原有存储仍为 `D:\DockerDesktopWSL\main`。
+- 控制面与节点工作区、测试报告和 nginx 镜像包位于 D 盘。新建并行工作区位于 `D:\newgz\netlab-runtime` 和 `D:\newgz\netlab-observe`。
+- 后续 Go 构建使用 `GOCACHE=D:\newgz\netlab\data\go-build`、`GOMODCACHE=D:\newgz\netlab\data\go-mod`、`GOPATH=D:\newgz\netlab\data\go`；临时目录为 `D:\newgz\netlab\data\tmp`。pnpm store 已位于 `D:\.pnpm-store\v10`。
 
 ### 尚未完成
 
