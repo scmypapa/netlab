@@ -15,7 +15,7 @@ import (
 const applyServicePorts = `-- name: ApplyServicePorts :exec
 UPDATE service_ports p SET state='applied',port=b."listenPort",updated_at=now()
 FROM jsonb_to_recordset($2::jsonb) AS b(id text,protocol text,"listenPort" integer)
-WHERE p.environment_id=$1 AND b.id=p.service_id AND b.protocol=p.protocol AND (b."listenPort"=p.port OR p.port IS NULL)
+WHERE p.environment_id=$1 AND p.purpose='service' AND b.id=p.service_id AND b.protocol=p.protocol AND (b."listenPort"=p.port OR p.port IS NULL)
 `
 
 type ApplyServicePortsParams struct {
@@ -29,7 +29,7 @@ func (q *Queries) ApplyServicePorts(ctx context.Context, arg ApplyServicePortsPa
 }
 
 const deleteUnusedServicePorts = `-- name: DeleteUnusedServicePorts :exec
-DELETE FROM service_ports p WHERE p.environment_id=$1
+DELETE FROM service_ports p WHERE p.environment_id=$1 AND p.purpose='service'
  AND NOT EXISTS(SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS b(id text,protocol text,"listenPort" integer)
  WHERE b.id=p.service_id AND b.protocol=p.protocol AND (b."listenPort"=p.port OR p.port IS NULL))
 `
@@ -45,7 +45,7 @@ func (q *Queries) DeleteUnusedServicePorts(ctx context.Context, arg DeleteUnused
 }
 
 const getAppliedServicePorts = `-- name: GetAppliedServicePorts :many
-SELECT p.id, p.node_id, p.protocol, p.port, p.environment_id, p.service_id, p.operation_id, p.state, p.updated_at,n.endpoint FROM service_ports p JOIN nodes n ON n.id=p.node_id WHERE p.environment_id=$1 AND p.state='applied' ORDER BY p.service_id
+SELECT p.id, p.node_id, p.protocol, p.port, p.environment_id, p.service_id, p.operation_id, p.state, p.updated_at, p.purpose,n.endpoint FROM service_ports p JOIN nodes n ON n.id=p.node_id WHERE p.environment_id=$1 AND p.state='applied' AND p.purpose='service' ORDER BY p.service_id
 `
 
 type GetAppliedServicePortsRow struct {
@@ -58,6 +58,7 @@ type GetAppliedServicePortsRow struct {
 	OperationID   string
 	State         string
 	UpdatedAt     pgtype.Timestamptz
+	Purpose       string
 	Endpoint      string
 }
 
@@ -80,6 +81,7 @@ func (q *Queries) GetAppliedServicePorts(ctx context.Context, environmentID stri
 			&i.OperationID,
 			&i.State,
 			&i.UpdatedAt,
+			&i.Purpose,
 			&i.Endpoint,
 		); err != nil {
 			return nil, err
@@ -93,7 +95,7 @@ func (q *Queries) GetAppliedServicePorts(ctx context.Context, environmentID stri
 }
 
 const getServicePorts = `-- name: GetServicePorts :many
-SELECT id, node_id, protocol, port, environment_id, service_id, operation_id, state, updated_at FROM service_ports WHERE environment_id=$1 ORDER BY service_id,protocol,port
+SELECT id, node_id, protocol, port, environment_id, service_id, operation_id, state, updated_at, purpose FROM service_ports WHERE environment_id=$1 AND purpose='service' ORDER BY service_id,protocol,port
 `
 
 func (q *Queries) GetServicePorts(ctx context.Context, environmentID string) ([]ServicePort, error) {
@@ -115,6 +117,7 @@ func (q *Queries) GetServicePorts(ctx context.Context, environmentID string) ([]
 			&i.OperationID,
 			&i.State,
 			&i.UpdatedAt,
+			&i.Purpose,
 		); err != nil {
 			return nil, err
 		}
@@ -151,7 +154,7 @@ func (q *Queries) ListGatewayAddresses(ctx context.Context, networkNodeID *strin
 }
 
 const releaseServicePorts = `-- name: ReleaseServicePorts :exec
-DELETE FROM service_ports WHERE environment_id=$1
+DELETE FROM service_ports WHERE environment_id=$1 AND purpose='service'
 `
 
 func (q *Queries) ReleaseServicePorts(ctx context.Context, environmentID string) error {
@@ -161,7 +164,7 @@ func (q *Queries) ReleaseServicePorts(ctx context.Context, environmentID string)
 
 const reserveAppliedServicePorts = `-- name: ReserveAppliedServicePorts :exec
 UPDATE service_ports SET state='reserved',operation_id=$1 WHERE environment_id=$2
- AND service_id=ANY($3::text[])
+ AND purpose='service' AND service_id=ANY($3::text[])
 `
 
 type ReserveAppliedServicePortsParams struct {
@@ -177,7 +180,7 @@ func (q *Queries) ReserveAppliedServicePorts(ctx context.Context, arg ReserveApp
 
 const reserveServicePort = `-- name: ReserveServicePort :one
 INSERT INTO service_ports(node_id,protocol,port,environment_id,service_id,operation_id,state)
-VALUES($1,$2,NULLIF($3::integer,0),$4,$5,$6,'reserved') RETURNING id, node_id, protocol, port, environment_id, service_id, operation_id, state, updated_at
+VALUES($1,$2,NULLIF($3::integer,0),$4,$5,$6,'reserved') RETURNING id, node_id, protocol, port, environment_id, service_id, operation_id, state, updated_at, purpose
 `
 
 type ReserveServicePortParams struct {
@@ -209,6 +212,7 @@ func (q *Queries) ReserveServicePort(ctx context.Context, arg ReserveServicePort
 		&i.OperationID,
 		&i.State,
 		&i.UpdatedAt,
+		&i.Purpose,
 	)
 	return i, err
 }

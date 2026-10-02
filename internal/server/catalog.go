@@ -67,7 +67,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	if input.Version == 0 {
 		input.Version = 1
 	}
-	state := api.Importing
+	state := api.TemplateStateImporting
 	input.State, input.Error = &state, nil
 	raw, err := json.Marshal(input)
 	if err != nil {

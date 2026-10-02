@@ -30,6 +30,8 @@ var Roles = []api.RolePreset{
 
 func OperationPermission(kind string) string {
 	switch kind {
+	case "vpn-create", "vpn-revoke":
+		return "access"
 	case "change":
 		return "compose"
 	case "destroy", "rebuild":

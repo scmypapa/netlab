@@ -55,6 +55,9 @@ func Readable(identity access.Identity, row queries.Operation, runtime queries.E
 	if identity.Allows("read", runtime.ProjectID, runtime.ID, asset, runtime.OwnerID) {
 		return true
 	}
+	if row.Kind == "vpn-create" || row.Kind == "vpn-revoke" {
+		return identity.Allows("access", runtime.ProjectID, runtime.ID, "", runtime.OwnerID)
+	}
 	if row.Kind != "change" {
 		return false
 	}
@@ -126,7 +129,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	}
 	phase := row.Phase
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, BeforeSpec: p.BeforeSpec}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)

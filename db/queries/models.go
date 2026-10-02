@@ -60,6 +60,8 @@ type Environment struct {
 	UpdatedAt          pgtype.Timestamptz
 	BlueprintVersionID *string
 	GatewayAddress     *netip.Addr
+	VpnPublicKey       *string
+	VpnMtu             *int32
 }
 
 type Event struct {
@@ -147,10 +149,27 @@ type ServicePort struct {
 	OperationID   string
 	State         string
 	UpdatedAt     pgtype.Timestamptz
+	Purpose       string
 }
 
 type Template struct {
 	ID         string
 	Definition []byte
 	CreatedAt  pgtype.Timestamptz
+}
+
+type VpnAccess struct {
+	ID            string
+	EnvironmentID string
+	Definition    []byte
+	Addresses     []netip.Addr
+	Applied       bool
+	OperationID   string
+	CreatedAt     pgtype.Timestamptz
+}
+
+type VpnAlias struct {
+	EnvironmentID string
+	NetworkID     string
+	Prefix        netip.Prefix
 }

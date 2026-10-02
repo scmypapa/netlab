@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/environment"
 	"netlab.local/core/internal/transport"
 )
 
@@ -43,6 +44,10 @@ type Payload struct {
 	Gateway        *api.ServiceGateway      `json:"gateway,omitempty"`
 	Bindings       []api.NodeServiceBinding `json:"bindings,omitempty"`
 	BeforeBindings []api.NodeServiceBinding `json:"beforeBindings,omitempty"`
+	VPNChange      *environment.VPNChange   `json:"vpnChange,omitempty"`
+	VPNPlan        *api.NodeVPNPlan         `json:"vpnPlan,omitempty"`
+	VPNBefore      *api.NodeVPNPlan         `json:"vpnBefore,omitempty"`
+	VPNResult      *api.NodeVPNResult       `json:"vpnResult,omitempty"`
 }
 type Worker struct {
 	Pool    *pgxpool.Pool
@@ -116,6 +121,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	if err == nil {
 		if op.Kind == "prepare-template" {
 			err = w.prepareTemplate(ctx, &op, &payload)
+		} else if op.Kind == "vpn-create" || op.Kind == "vpn-revoke" {
+			err = w.vpnOperation(ctx, &op, &payload)
 		} else {
 			err = w.environment(ctx, &op, &payload)
 			results = payload.Results
@@ -125,7 +132,7 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 		return
 	}
 	if err != nil && payload.Template != nil {
-		failed, message := api.Failed, err.Error()
+		failed, message := api.TemplateStateFailed, err.Error()
 		payload.Template.State = &failed
 		payload.Template.Error = &message
 		raw, saveErr := json.Marshal(payload.Template)
@@ -216,7 +223,7 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 		var prepared api.Template
 		err = w.Client.Do(ctx, "POST", n.Endpoint, "/node/v1/templates/prepare", t, &prepared)
 		if err != nil {
-			failed := api.Failed
+			failed := api.TemplateStateFailed
 			t.State = &failed
 			message := err.Error()
 			t.Error = &message

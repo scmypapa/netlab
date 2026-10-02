@@ -142,7 +142,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		}
 		for _, a := range p.Spec.Assets {
 			t, ok := templates[a.TemplateId]
-			if !ok || t.State == nil || *t.State != api.Ready {
+			if !ok || t.State == nil || *t.State != api.TemplateStateReady {
 				return fmt.Errorf("资产 %s 的模板尚未准备完成", a.Name)
 			}
 			old, exists := current[a.Id]

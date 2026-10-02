@@ -71,6 +71,13 @@ func Record(row queries.Environment) (api.Environment, error) {
 }
 func Operation(row queries.Operation) (api.Operation, error) {
 	result := api.Operation{Id: row.ID, EnvironmentId: row.EnvironmentID, Kind: row.Kind, State: api.OperationState(row.State), Phase: row.Phase, Error: row.Error, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
+	if row.Kind == "vpn-create" || row.Kind == "vpn-revoke" {
+		result.Total = 1
+		if row.State == "succeeded" {
+			result.Completed = 1
+		}
+		return result, nil
+	}
 	results := []api.ExecutionResult{}
 	if err := json.Unmarshal(row.Results, &results); err != nil {
 		return result, err
@@ -238,6 +245,10 @@ func submit(ctx context.Context, q *queries.Queries, row queries.Environment, ki
 	if err != nil {
 		return queries.Operation{}, err
 	}
+	return submitPayload(ctx, q, row, kind, asset, raw, requestId)
+}
+
+func submitPayload(ctx context.Context, q *queries.Queries, row queries.Environment, kind string, asset *string, raw []byte, requestId *string) (queries.Operation, error) {
 	op, err := q.CreateOperation(ctx, queries.CreateOperationParams{ID: uuid.NewString(), EnvironmentID: &row.ID, ScopeKind: "environment", ScopeID: row.ID, Kind: kind, AssetID: asset, Payload: raw, ExpectedRevision: row.Revision, ClientRequestID: requestId})
 	if err != nil {
 		return op, err

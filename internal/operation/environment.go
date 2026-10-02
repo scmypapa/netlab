@@ -79,12 +79,15 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 					}
 				}
 			}
-			next = "commit"
+			next = "vpn"
 			if p.Gateway != nil {
 				next = "services"
 			}
 		case "services":
 			p.Bindings, err = w.serviceRules(ctx, op, p, p.Spec, p.Bindings)
+			next = "vpn"
+		case "vpn":
+			err = w.syncVPN(ctx, op, p)
 			next = "commit"
 		case "commit":
 			err = w.commit(ctx, op, p)
@@ -142,7 +145,10 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		case "remove-network":
 			err = w.network(ctx, op, p, true)
 			if err == nil {
-				err = w.Queries.ReleaseServicePorts(ctx, *op.EnvironmentID)
+				err = w.Queries.ReleaseAllAccessPorts(ctx, *op.EnvironmentID)
+			}
+			if err == nil {
+				err = w.Queries.DeleteEnvironmentVPN(ctx, *op.EnvironmentID)
 			}
 			if err == nil {
 				err = w.Queries.SetGatewayAddress(ctx, queries.SetGatewayAddressParams{EnvironmentID: *op.EnvironmentID})
@@ -266,6 +272,11 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 	}
 	if p.Gateway != nil {
 		if err = commitServices(ctx, q, row.ID, p.Bindings); err != nil {
+			return err
+		}
+	}
+	if p.VPNResult != nil {
+		if err = commitVPN(ctx, q, row.ID, p); err != nil {
 			return err
 		}
 	}
@@ -434,6 +445,10 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		oldPlan.Updates = nil
 		oldPlan.Unchanged = nil
 		err = errors.Join(err, w.network(ctx, op, &oldPlan, false))
+		if p.VPNBefore != nil {
+			_, vpnErr := w.callVPN(ctx, op, old, *p.VPNBefore)
+			err = errors.Join(err, vpnErr)
+		}
 		err = errors.Join(err, w.activate(ctx, op, p, before))
 		_, policyErr := w.batch(ctx, op, p, api.NodePlanPhasePolicies, before)
 		err = errors.Join(err, policyErr)
