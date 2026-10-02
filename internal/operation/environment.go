@@ -142,6 +142,9 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		case "remove-network":
 			err = w.network(ctx, op, p, true)
 			if err == nil {
+				err = w.Queries.ReleaseServicePorts(ctx, *op.EnvironmentID)
+			}
+			if err == nil {
 				err = w.Queries.SetGatewayAddress(ctx, queries.SetGatewayAddressParams{EnvironmentID: *op.EnvironmentID})
 			}
 			next = "destroyed"
