@@ -35,6 +35,7 @@ const (
 const (
 	ChangeItemKindAsset   ChangeItemKind = "asset"
 	ChangeItemKindNetwork ChangeItemKind = "network"
+	ChangeItemKindService ChangeItemKind = "service"
 )
 
 // Defines values for ConsoleKind.
@@ -42,6 +43,12 @@ const (
 	Serial   ConsoleKind = "serial"
 	Terminal ConsoleKind = "terminal"
 	Vnc      ConsoleKind = "vnc"
+)
+
+// Defines values for CreateServiceProtocol.
+const (
+	CreateServiceProtocolTcp CreateServiceProtocol = "tcp"
+	CreateServiceProtocolUdp CreateServiceProtocol = "udp"
 )
 
 // Defines values for EnvironmentStatus.
@@ -165,6 +172,18 @@ const (
 	ScopeGrantScopeKindAsset       ScopeGrantScopeKind = "asset"
 	ScopeGrantScopeKindEnvironment ScopeGrantScopeKind = "environment"
 	ScopeGrantScopeKindProject     ScopeGrantScopeKind = "project"
+)
+
+// Defines values for ServiceEndpointProtocol.
+const (
+	ServiceEndpointProtocolTcp ServiceEndpointProtocol = "tcp"
+	ServiceEndpointProtocolUdp ServiceEndpointProtocol = "udp"
+)
+
+// Defines values for ServiceExposureProtocol.
+const (
+	Tcp ServiceExposureProtocol = "tcp"
+	Udp ServiceExposureProtocol = "udp"
 )
 
 // Defines values for TemplateFormat.
@@ -357,6 +376,19 @@ type CreateEnvironment struct {
 	Spec               *EnvironmentSpec `json:"spec,omitempty"`
 }
 
+// CreateService defines model for CreateService.
+type CreateService struct {
+	ClientRequestId  *string               `json:"clientRequestId,omitempty"`
+	ExpectedRevision int                   `json:"expectedRevision"`
+	InterfaceId      *string               `json:"interfaceId,omitempty"`
+	ListenPort       *int                  `json:"listenPort,omitempty"`
+	Protocol         CreateServiceProtocol `json:"protocol"`
+	TargetPort       int                   `json:"targetPort"`
+}
+
+// CreateServiceProtocol defines model for CreateService.Protocol.
+type CreateServiceProtocol string
+
 // CreateServiceToken defines model for CreateServiceToken.
 type CreateServiceToken struct {
 	ExpiresAt *time.Time   `json:"expiresAt,omitempty"`
@@ -414,10 +446,11 @@ type EnvironmentSharing struct {
 
 // EnvironmentSpec defines model for EnvironmentSpec.
 type EnvironmentSpec struct {
-	Assets   []Asset   `json:"assets"`
-	Networks []Network `json:"networks"`
-	Policies *[]Policy `json:"policies,omitempty"`
-	Routes   *[]Route  `json:"routes,omitempty"`
+	Assets   []Asset            `json:"assets"`
+	Networks []Network          `json:"networks"`
+	Policies *[]Policy          `json:"policies,omitempty"`
+	Routes   *[]Route           `json:"routes,omitempty"`
+	Services *[]ServiceExposure `json:"services,omitempty"`
 }
 
 // EnvironmentState defines model for EnvironmentState.
@@ -730,6 +763,35 @@ type ScopeGrant struct {
 // ScopeGrantScopeKind defines model for ScopeGrant.ScopeKind.
 type ScopeGrantScopeKind string
 
+// ServiceEndpoint defines model for ServiceEndpoint.
+type ServiceEndpoint struct {
+	Address     string                  `json:"address"`
+	AssetId     string                  `json:"assetId"`
+	Id          string                  `json:"id"`
+	InterfaceId string                  `json:"interfaceId"`
+	ListenPort  *int                    `json:"listenPort,omitempty"`
+	Port        int                     `json:"port"`
+	Protocol    ServiceEndpointProtocol `json:"protocol"`
+	TargetPort  int                     `json:"targetPort"`
+	UpdatedAt   time.Time               `json:"updatedAt"`
+}
+
+// ServiceEndpointProtocol defines model for ServiceEndpoint.Protocol.
+type ServiceEndpointProtocol string
+
+// ServiceExposure defines model for ServiceExposure.
+type ServiceExposure struct {
+	AssetId     string                  `json:"assetId"`
+	Id          string                  `json:"id"`
+	InterfaceId string                  `json:"interfaceId"`
+	ListenPort  *int                    `json:"listenPort,omitempty"`
+	Protocol    ServiceExposureProtocol `json:"protocol"`
+	TargetPort  int                     `json:"targetPort"`
+}
+
+// ServiceExposureProtocol defines model for ServiceExposure.Protocol.
+type ServiceExposureProtocol string
+
 // Template defines model for Template.
 type Template struct {
 	Disks          *[]TemplateDisk         `json:"disks,omitempty"`
@@ -870,6 +932,12 @@ type EnvironmentEventsParams struct {
 // ReplaceEnvironmentGrantsJSONBody defines parameters for ReplaceEnvironmentGrants.
 type ReplaceEnvironmentGrantsJSONBody = []EnvironmentGrant
 
+// RevokeServiceParams defines parameters for RevokeService.
+type RevokeServiceParams struct {
+	ExpectedRevision int     `form:"expectedRevision" json:"expectedRevision"`
+	ClientRequestId  *string `form:"clientRequestId,omitempty" json:"clientRequestId,omitempty"`
+}
+
 // ListNodesParams defines parameters for ListNodes.
 type ListNodesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -915,6 +983,9 @@ type EnvironmentActionJSONRequestBody = ActionRequest
 
 // AssetActionJSONRequestBody defines body for AssetAction for application/json ContentType.
 type AssetActionJSONRequestBody = ActionRequest
+
+// ExposeAssetServiceJSONRequestBody defines body for ExposeAssetService for application/json ContentType.
+type ExposeAssetServiceJSONRequestBody = CreateService
 
 // SaveEnvironmentBlueprintJSONRequestBody defines body for SaveEnvironmentBlueprint for application/json ContentType.
 type SaveEnvironmentBlueprintJSONRequestBody = SaveBlueprint

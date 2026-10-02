@@ -64,6 +64,30 @@ paths:
       operationId: getEnvironmentState
       responses:
         '200': {description: State, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentState'}}}}
+  /environments/{id}/services:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listEnvironmentServices
+      responses:
+        '200': {description: Applied service endpoints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ServiceEndpoint'}}}}}
+  /environments/{id}/assets/{assetId}/services:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: exposeAssetService
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateService'}}}}
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
+  /environments/{id}/services/{serviceId}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: serviceId, in: path, required: true, schema: {type: string}}
+    delete:
+      operationId: revokeService
+      parameters:
+        - {name: expectedRevision, in: query, required: true, schema: {type: integer}}
+        - {name: clientRequestId, in: query, schema: {type: string}}
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
   /environments/{id}/events:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -473,6 +497,36 @@ components:
         networks: {type: array, items: {$ref: '#/components/schemas/Network'}}
         routes: {type: array, items: {$ref: '#/components/schemas/Route'}}
         policies: {type: array, items: {$ref: '#/components/schemas/Policy'}}
+        services: {type: array, items: {$ref: '#/components/schemas/ServiceExposure'}}
+    ServiceExposure:
+      type: object
+      required: [id, assetId, interfaceId, protocol, targetPort]
+      properties:
+        id: {type: string}
+        assetId: {type: string}
+        interfaceId: {type: string}
+        protocol: {type: string, enum: [tcp, udp]}
+        targetPort: {type: integer, minimum: 1, maximum: 65535}
+        listenPort: {type: integer, minimum: 1, maximum: 65535}
+    ServiceEndpoint:
+      allOf:
+        - {$ref: '#/components/schemas/ServiceExposure'}
+        - type: object
+          required: [address, port, updatedAt]
+          properties:
+            address: {type: string}
+            port: {type: integer}
+            updatedAt: {type: string, format: date-time}
+    CreateService:
+      type: object
+      required: [protocol, targetPort, expectedRevision]
+      properties:
+        interfaceId: {type: string}
+        protocol: {type: string, enum: [tcp, udp]}
+        targetPort: {type: integer, minimum: 1, maximum: 65535}
+        listenPort: {type: integer, minimum: 1, maximum: 65535}
+        expectedRevision: {type: integer}
+        clientRequestId: {type: string}
     Point:
       type: object
       required: [x, y]
@@ -749,7 +803,7 @@ components:
       properties:
         id: {type: string}
         name: {type: string}
-        kind: {type: string, enum: [asset, network]}
+        kind: {type: string, enum: [asset, network, service]}
         effect: {type: string, enum: [add, update, replace, remove]}
         requiresStop: {type: boolean}
         dataEffect: {type: string}

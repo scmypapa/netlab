@@ -142,6 +142,62 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/services": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["listEnvironmentServices"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/assets/{assetId}/services": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["exposeAssetService"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/services/{serviceId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        serviceId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["revokeService"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/events": {
     parameters: {
       query?: never;
@@ -734,6 +790,31 @@ export interface components {
       networks: components["schemas"]["Network"][];
       routes?: components["schemas"]["Route"][];
       policies?: components["schemas"]["Policy"][];
+      services?: components["schemas"]["ServiceExposure"][];
+    };
+    ServiceExposure: {
+      id: string;
+      assetId: string;
+      interfaceId: string;
+      /** @enum {string} */
+      protocol: "tcp" | "udp";
+      targetPort: number;
+      listenPort?: number;
+    };
+    ServiceEndpoint: components["schemas"]["ServiceExposure"] & {
+      address: string;
+      port: number;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    CreateService: {
+      interfaceId?: string;
+      /** @enum {string} */
+      protocol: "tcp" | "udp";
+      targetPort: number;
+      listenPort?: number;
+      expectedRevision: number;
+      clientRequestId?: string;
     };
     Point: {
       x: number;
@@ -1007,7 +1088,7 @@ export interface components {
       id: string;
       name: string;
       /** @enum {string} */
-      kind: "asset" | "network";
+      kind: "asset" | "network" | "service";
       /** @enum {string} */
       effect: "add" | "update" | "replace" | "remove";
       requiresStop?: boolean;
@@ -1304,6 +1385,65 @@ export interface operations {
           "application/json": components["schemas"]["EnvironmentState"];
         };
       };
+    };
+  };
+  listEnvironmentServices: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Applied service endpoints */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ServiceEndpoint"][];
+        };
+      };
+    };
+  };
+  exposeAssetService: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateService"];
+      };
+    };
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  revokeService: {
+    parameters: {
+      query: {
+        expectedRevision: number;
+        clientRequestId?: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        serviceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
     };
   };
   environmentEvents: {
