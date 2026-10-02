@@ -27,8 +27,51 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 	if row.AssetID != nil {
 		asset = *row.AssetID
 	}
-	return environment.OperationID != nil && *environment.OperationID == row.ID &&
-		identity.Allows(access.OperationPermission(row.Kind), environment.ProjectID, *row.EnvironmentID, asset, environment.OwnerID)
+	return environment.OperationID != nil && *environment.OperationID == row.ID && authorizedOperation(identity, row, environment, asset) == nil
+}
+
+func authorizedOperation(identity access.Identity, row queries.Operation, runtime queries.Environment, asset string) error {
+	runtime.ID = *row.EnvironmentID
+	if row.Kind == "change" {
+		var p Payload
+		if err := json.Unmarshal(row.Payload, &p); err != nil {
+			return err
+		}
+		if p.BeforeSpec != nil {
+			return environment.AuthorizeChange(identity, runtime, *p.BeforeSpec, p.Spec)
+		}
+	}
+	if !identity.Allows(access.OperationPermission(row.Kind), runtime.ProjectID, *row.EnvironmentID, asset, runtime.OwnerID) {
+		return access.ErrForbidden
+	}
+	return nil
+}
+
+func Readable(identity access.Identity, row queries.Operation, runtime queries.Environment) bool {
+	asset := ""
+	if row.AssetID != nil {
+		asset = *row.AssetID
+	}
+	if identity.Allows("read", runtime.ProjectID, runtime.ID, asset, runtime.OwnerID) {
+		return true
+	}
+	if row.Kind != "change" {
+		return false
+	}
+	var p Payload
+	if json.Unmarshal(row.Payload, &p) != nil || p.BeforeSpec == nil || !environment.ServiceOnly(*p.BeforeSpec, p.Spec) {
+		return false
+	}
+	assets := environment.ChangedServiceAssets(*p.BeforeSpec, p.Spec)
+	if len(assets) == 0 {
+		return false
+	}
+	for id := range assets {
+		if !identity.Allows("read", runtime.ProjectID, runtime.ID, id, runtime.OwnerID) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s Service) Retry(ctx context.Context, identity access.Identity, id string) (api.Operation, error) {
@@ -36,18 +79,20 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	var envService environment.Service
 	if row.EnvironmentID == nil {
 		if !identity.Administrator() {
 			return api.Operation{}, access.ErrForbidden
 		}
 	} else {
-		envService = environment.Service{Pool: s.Pool, Queries: s.Queries}
-		permission, asset := access.OperationPermission(row.Kind), ""
+		runtime, readErr := s.Queries.GetEnvironment(ctx, *row.EnvironmentID)
+		if readErr != nil {
+			return api.Operation{}, readErr
+		}
+		asset := ""
 		if row.AssetID != nil {
 			asset = *row.AssetID
 		}
-		if _, err = envService.Authorized(ctx, identity, *row.EnvironmentID, permission, asset); err != nil {
+		if err = authorizedOperation(identity, row, runtime, asset); err != nil {
 			return api.Operation{}, err
 		}
 	}
@@ -81,7 +126,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	}
 	phase := row.Phase
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, BeforeSpec: p.BeforeSpec}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)

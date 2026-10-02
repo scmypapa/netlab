@@ -185,7 +185,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			}
 		}
 	}
-	return spec, nil
+	return normalizeServices(spec)
 }
 
 func usable(p netip.Prefix, a netip.Addr) bool {
@@ -302,6 +302,25 @@ func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]
 	}
 	if !reflect.DeepEqual(before.Routes, after.Routes) || !reflect.DeepEqual(before.Policies, after.Policies) {
 		result.Changes = append(result.Changes, api.ChangeItem{Id: "network-rules", Name: "网络规则", Kind: api.ChangeItemKindNetwork, Effect: api.Update})
+	}
+	oldServices := map[string]api.ServiceExposure{}
+	for _, service := range Services(before) {
+		oldServices[service.Id] = service
+	}
+	for _, service := range Services(after) {
+		previous, exists := oldServices[service.Id]
+		delete(oldServices, service.Id)
+		effect := api.Add
+		if exists {
+			if reflect.DeepEqual(previous, service) {
+				continue
+			}
+			effect = api.Update
+		}
+		result.Changes = append(result.Changes, api.ChangeItem{Id: service.Id, Name: "服务开放", Kind: api.ChangeItemKindService, Effect: effect})
+	}
+	for _, service := range oldServices {
+		result.Changes = append(result.Changes, api.ChangeItem{Id: service.Id, Name: "服务开放", Kind: api.ChangeItemKindService, Effect: api.Remove})
 	}
 	slices.SortFunc(result.Changes, func(a, b api.ChangeItem) int { return strings.Compare(a.Id, b.Id) })
 	return result

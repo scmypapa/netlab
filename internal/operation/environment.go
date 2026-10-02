@@ -45,7 +45,10 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			}
 			// Uncreated leftovers are handled by destroy; only defined current instances need stopping.
 			affected = slices.DeleteFunc(affected, func(t Target) bool { return findInstance(p.Before, t.Execution.InstanceId).Execution.InstanceId == "" })
-			_, err = w.batch(ctx, op, p, api.NodePlanPhaseStop, affected)
+			err = w.quiesceServices(ctx, op, p, affected)
+			if err == nil {
+				_, err = w.batch(ctx, op, p, api.NodePlanPhaseStop, affected)
+			}
 			next = "network"
 		case "update":
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseUpdate, p.Updates)
@@ -76,6 +79,12 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 					}
 				}
 			}
+			next = "commit"
+			if p.Gateway != nil {
+				next = "services"
+			}
+		case "services":
+			p.Bindings, err = w.serviceRules(ctx, op, p, p.Spec, p.Bindings)
 			next = "commit"
 		case "commit":
 			err = w.commit(ctx, op, p)
@@ -115,6 +124,15 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		case "settle":
 			err = w.status(ctx, op, p, nil)
 			next = "complete"
+		case "remove-services":
+			_, err = w.serviceRules(ctx, op, p, p.Spec, nil)
+			if err == nil {
+				err = w.Queries.ReleaseServicePorts(ctx, *op.EnvironmentID)
+				if err != nil {
+					err = fmt.Errorf("%w: %v", errPersistence, err)
+				}
+			}
+			next = "destroy"
 		case "destroy":
 			targets := append(slices.Clone(p.Targets), p.Old...)
 			var results []api.ExecutionResult
@@ -123,6 +141,9 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			next = "remove-network"
 		case "remove-network":
 			err = w.network(ctx, op, p, true)
+			if err == nil {
+				err = w.Queries.SetGatewayAddress(ctx, queries.SetGatewayAddressParams{EnvironmentID: *op.EnvironmentID})
+			}
 			next = "destroyed"
 		case "destroyed":
 			err = w.Queries.SetEnvironmentState(ctx, queries.SetEnvironmentStateParams{ID: *op.EnvironmentID, Status: "destroyed"})
@@ -135,7 +156,7 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		}
 		if err != nil {
 			detail := fmt.Errorf("%s: %w", op.Phase, err)
-			if p.Committed || op.Phase == "destroy" || op.Phase == "remove-network" || op.Phase == "control" || op.Phase == "restart" || op.Phase == "settle" {
+			if p.Committed || op.Phase == "remove-services" || op.Phase == "destroy" || op.Phase == "remove-network" || op.Phase == "control" || op.Phase == "restart" || op.Phase == "settle" {
 				return errors.Join(detail, w.status(ctx, op, p, detail))
 			}
 			message := detail.Error()
@@ -201,32 +222,34 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 	if row.Revision != op.ExpectedRevision {
 		return fmt.Errorf("运行修订已变化")
 	}
-	ids := []string{}
-	for _, t := range p.Old {
-		ids = append(ids, t.Execution.Asset.Id)
-	}
-	if err = q.ClearCurrentAssets(ctx, queries.ClearCurrentAssetsParams{EnvironmentID: row.ID, Column2: ids}); err != nil {
-		return err
-	}
-	instances := []string{}
-	for _, t := range p.Targets {
-		instances = append(instances, t.Execution.InstanceId)
-	}
-	if err = q.MakeCurrentAssets(ctx, instances); err != nil {
-		return err
-	}
-	raw, err := resourceRecords(row.ID, desiredTargets(p))
-	if err != nil {
-		return err
-	}
-	if err = q.UpdateExecutions(ctx, raw); err != nil {
-		return err
+	if p.BeforeSpec == nil || !environment.ServiceOnly(*p.BeforeSpec, p.Spec) || op.Kind != "change" {
+		ids := []string{}
+		for _, t := range p.Old {
+			ids = append(ids, t.Execution.Asset.Id)
+		}
+		if err = q.ClearCurrentAssets(ctx, queries.ClearCurrentAssetsParams{EnvironmentID: row.ID, Column2: ids}); err != nil {
+			return err
+		}
+		instances := []string{}
+		for _, t := range p.Targets {
+			instances = append(instances, t.Execution.InstanceId)
+		}
+		if err = q.MakeCurrentAssets(ctx, instances); err != nil {
+			return err
+		}
+		raw, err := resourceRecords(row.ID, desiredTargets(p))
+		if err != nil {
+			return err
+		}
+		if err = q.UpdateExecutions(ctx, raw); err != nil {
+			return err
+		}
 	}
 	state, err := runtimeState(ctx, q, row.ID)
 	if err != nil {
 		return err
 	}
-	raw, err = json.Marshal(p.Spec)
+	raw, err := json.Marshal(p.Spec)
 	if err != nil {
 		return err
 	}
@@ -237,6 +260,11 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 	}
 	if err != nil {
 		return err
+	}
+	if p.Gateway != nil {
+		if err = commitServices(ctx, q, row.ID, p.Bindings); err != nil {
+			return err
+		}
 	}
 	p.Committed = true
 	transactionWorker := w
@@ -307,8 +335,38 @@ func (w Worker) releaseDestroyed(ctx context.Context, results []api.ExecutionRes
 
 func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload) error {
 	initial := errors.New(*p.Failure)
+	if p.BeforeSpec != nil && environment.ServiceOnly(*p.BeforeSpec, p.Spec) {
+		if _, err := w.serviceRules(ctx, op, p, *p.BeforeSpec, p.BeforeBindings); err != nil {
+			return errors.Join(initial, err)
+		}
+		tx, err := w.Pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		defer tx.Rollback(ctx)
+		q := w.Queries.WithTx(tx)
+		if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		if err = commitServices(ctx, q, *op.EnvironmentID, p.BeforeBindings); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		transactionWorker := w
+		transactionWorker.Queries = q
+		if err = transactionWorker.status(ctx, op, p, initial); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		if err = transactionWorker.phase(ctx, op, p, "rolled-back"); err != nil {
+			return err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		return initial
+	}
+	_, serviceErr := w.serviceRules(ctx, op, p, p.Spec, nil)
 	results, err := w.batch(ctx, op, p, api.NodePlanPhaseDestroy, p.Targets)
-	err = errors.Join(err, w.releaseDestroyed(ctx, results))
+	err = errors.Join(serviceErr, err, w.releaseDestroyed(ctx, results))
 	before := slices.Clone(p.Before)
 	var updateError error
 	if len(p.Updates) > 0 {
@@ -381,6 +439,8 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 			}
 		}
 		restored = &old
+		_, serviceErr := w.serviceRules(ctx, op, p, old, p.BeforeBindings)
+		err = errors.Join(err, serviceErr)
 		if err == nil {
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Updates, before))
 		}
@@ -402,6 +462,16 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	q := w.Queries.WithTx(tx)
 	if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if p.Gateway != nil {
+		if err = commitServices(ctx, q, *op.EnvironmentID, p.BeforeBindings); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		if p.BeforeSpec == nil {
+			if err = q.SetGatewayAddress(ctx, queries.SetGatewayAddressParams{EnvironmentID: *op.EnvironmentID}); err != nil {
+				return fmt.Errorf("%w: %v", errPersistence, err)
+			}
+		}
 	}
 	raw, err := resourceRecords(*op.EnvironmentID, before)
 	if err != nil {

@@ -162,7 +162,7 @@ func (q *Queries) CreateCredential(ctx context.Context, arg CreateCredentialPara
 
 const createEnvironment = `-- name: CreateEnvironment :one
 INSERT INTO environments(id,project_id,owner_id,name,external_reference,spec,client_request_id)
-VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(project_id,client_request_id) DO NOTHING RETURNING id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id
+VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(project_id,client_request_id) DO NOTHING RETURNING id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id, gateway_address
 `
 
 type CreateEnvironmentParams struct {
@@ -205,6 +205,7 @@ func (q *Queries) CreateEnvironment(ctx context.Context, arg CreateEnvironmentPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.BlueprintVersionID,
+		&i.GatewayAddress,
 	)
 	return i, err
 }
@@ -407,7 +408,7 @@ func (q *Queries) GetCurrentAsset(ctx context.Context, arg GetCurrentAssetParams
 }
 
 const getEnvironment = `-- name: GetEnvironment :one
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE id=$1
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id, gateway_address FROM environments WHERE id=$1
 `
 
 func (q *Queries) GetEnvironment(ctx context.Context, id string) (Environment, error) {
@@ -432,12 +433,13 @@ func (q *Queries) GetEnvironment(ctx context.Context, id string) (Environment, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.BlueprintVersionID,
+		&i.GatewayAddress,
 	)
 	return i, err
 }
 
 const getEnvironmentByRequest = `-- name: GetEnvironmentByRequest :one
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE project_id=$1 AND client_request_id=$2
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id, gateway_address FROM environments WHERE project_id=$1 AND client_request_id=$2
 `
 
 type GetEnvironmentByRequestParams struct {
@@ -467,6 +469,7 @@ func (q *Queries) GetEnvironmentByRequest(ctx context.Context, arg GetEnvironmen
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.BlueprintVersionID,
+		&i.GatewayAddress,
 	)
 	return i, err
 }
@@ -690,13 +693,13 @@ func (q *Queries) GetTemplates(ctx context.Context, dollar_1 []string) ([]Templa
 
 const listEnvironments = `-- name: ListEnvironments :many
 WITH readable AS (
- SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
+ SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.gateway_address,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
  ($5::boolean OR ($6::boolean AND e.owner_id=$7) OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=$7 AND 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
  FROM environments e WHERE e.status<>'destroyed'
 ), visible AS (
- SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.runtime_spec, e.full_read,CASE WHEN full_read THEN runtime_spec->'assets' ELSE
+ SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.gateway_address, e.runtime_spec, e.full_read,CASE WHEN full_read THEN runtime_spec->'assets' ELSE
  (SELECT jsonb_agg(a) FROM jsonb_array_elements(runtime_spec->'assets') a WHERE EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=$7 AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))) END AS visible_assets
  FROM readable e
@@ -1034,7 +1037,11 @@ WHERE ($1::text='' OR o.environment_id=$1)
 AND ($2::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=$2))
 AND ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=$5 AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id))))
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id)))
+ OR (o.kind='change' AND (o.payload->'beforeSpec')-'services'=(o.payload->'spec')-'services'
+ AND cardinality(service_change_assets(o.payload))>0 AND NOT EXISTS
+ (SELECT 1 FROM unnest(service_change_assets(o.payload)) a(asset_id) WHERE NOT EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=$5 AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||a.asset_id AND 'read'=ANY(g.permissions)))))
 ORDER BY o.created_at DESC,o.id DESC LIMIT $6
 `
 
@@ -1103,7 +1110,7 @@ func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOper
 }
 
 const lockEnvironment = `-- name: LockEnvironment :one
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE id=$1 FOR UPDATE
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id, gateway_address FROM environments WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockEnvironment(ctx context.Context, id string) (Environment, error) {
@@ -1128,6 +1135,7 @@ func (q *Queries) LockEnvironment(ctx context.Context, id string) (Environment, 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.BlueprintVersionID,
+		&i.GatewayAddress,
 	)
 	return i, err
 }

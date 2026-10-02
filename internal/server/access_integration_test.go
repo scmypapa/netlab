@@ -362,4 +362,5 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	if slices.Contains(identity.Permissions("default", "env-a", "one", nil), api.PermissionFile) {
 		t.Fatal("ungranted file permission")
 	}
+	testServiceAccessAPI(t, ctx, pool, s, admin, call)
 }

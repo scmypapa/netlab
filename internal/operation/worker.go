@@ -27,19 +27,22 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
-	Spec         api.EnvironmentSpec   `json:"spec"`
-	BeforeStatus string                `json:"beforeStatus,omitempty"`
-	Template     *api.Template         `json:"template,omitempty"`
-	Targets      []Target              `json:"targets,omitempty"`
-	Old          []Target              `json:"old,omitempty"`
-	Unchanged    []Target              `json:"unchanged,omitempty"`
-	Updates      []Target              `json:"updates,omitempty"`
-	Owner        *Target               `json:"owner,omitempty"`
-	Committed    bool                  `json:"committed,omitempty"`
-	BeforeSpec   *api.EnvironmentSpec  `json:"beforeSpec,omitempty"`
-	Before       []Target              `json:"before,omitempty"`
-	Results      []api.ExecutionResult `json:"results,omitempty"`
-	Failure      *string               `json:"failure,omitempty"`
+	Spec           api.EnvironmentSpec      `json:"spec"`
+	BeforeStatus   string                   `json:"beforeStatus,omitempty"`
+	Template       *api.Template            `json:"template,omitempty"`
+	Targets        []Target                 `json:"targets,omitempty"`
+	Old            []Target                 `json:"old,omitempty"`
+	Unchanged      []Target                 `json:"unchanged,omitempty"`
+	Updates        []Target                 `json:"updates,omitempty"`
+	Owner          *Target                  `json:"owner,omitempty"`
+	Committed      bool                     `json:"committed,omitempty"`
+	BeforeSpec     *api.EnvironmentSpec     `json:"beforeSpec,omitempty"`
+	Before         []Target                 `json:"before,omitempty"`
+	Results        []api.ExecutionResult    `json:"results,omitempty"`
+	Failure        *string                  `json:"failure,omitempty"`
+	Gateway        *api.ServiceGateway      `json:"gateway,omitempty"`
+	Bindings       []api.NodeServiceBinding `json:"bindings,omitempty"`
+	BeforeBindings []api.NodeServiceBinding `json:"beforeBindings,omitempty"`
 }
 type Worker struct {
 	Pool    *pgxpool.Pool
@@ -367,7 +370,7 @@ func (w Worker) network(ctx context.Context, op *queries.Operation, p *Payload, 
 	if len(nodes) == 0 {
 		return errors.New("环境网络所属节点不存在")
 	}
-	result, err := w.Client.Execute(ctx, nodes[0].Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec})
+	result, err := w.Client.Execute(ctx, nodes[0].Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec, Gateway: p.Gateway})
 	if err != nil {
 		return err
 	}

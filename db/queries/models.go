@@ -5,6 +5,8 @@
 package queries
 
 import (
+	"net/netip"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -57,6 +59,7 @@ type Environment struct {
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
 	BlueprintVersionID *string
+	GatewayAddress     *netip.Addr
 }
 
 type Event struct {
@@ -132,6 +135,18 @@ type RuntimeAsset struct {
 	Current       bool
 	Error         *string
 	ObservedAt    pgtype.Timestamptz
+}
+
+type ServicePort struct {
+	ID            int64
+	NodeID        string
+	Protocol      string
+	Port          *int32
+	EnvironmentID string
+	ServiceID     string
+	OperationID   string
+	State         string
+	UpdatedAt     pgtype.Timestamptz
 }
 
 type Template struct {

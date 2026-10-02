@@ -77,11 +77,12 @@ func Operation(row queries.Operation) (api.Operation, error) {
 	}
 	result.Results = &results
 	var payload struct {
-		Spec     api.EnvironmentSpec                      `json:"spec"`
-		Targets  []struct{ Execution api.AssetExecution } `json:"targets"`
-		Updates  []struct{ Execution api.AssetExecution } `json:"updates"`
-		Old      []struct{ Execution api.AssetExecution } `json:"old"`
-		Template *api.Template                            `json:"template"`
+		Spec       api.EnvironmentSpec                      `json:"spec"`
+		BeforeSpec *api.EnvironmentSpec                     `json:"beforeSpec"`
+		Targets    []struct{ Execution api.AssetExecution } `json:"targets"`
+		Updates    []struct{ Execution api.AssetExecution } `json:"updates"`
+		Old        []struct{ Execution api.AssetExecution } `json:"old"`
+		Template   *api.Template                            `json:"template"`
 	}
 	if err := json.Unmarshal(row.Payload, &payload); err != nil {
 		return result, err
@@ -104,6 +105,13 @@ func Operation(row queries.Operation) (api.Operation, error) {
 		}
 	}
 	result.Total = len(targets)
+	if row.Kind == "change" && payload.BeforeSpec != nil && ServiceOnly(*payload.BeforeSpec, payload.Spec) {
+		services := map[string]bool{}
+		for _, service := range ChangedServices(*payload.BeforeSpec, payload.Spec) {
+			services[service.Id] = true
+		}
+		result.Total = len(services)
+	}
 	if payload.Template != nil {
 		result.Total = 1
 	}
@@ -164,6 +172,9 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	if err != nil {
 		return api.Environment{}, err
 	}
+	if len(Services(spec)) > 0 && !identity.Allows("access", project, "", "", nil) {
+		return api.Environment{}, access.ErrForbidden
+	}
 	raw, err := json.Marshal(spec)
 	if err != nil {
 		return api.Environment{}, err
@@ -222,7 +233,8 @@ func submit(ctx context.Context, q *queries.Queries, row queries.Environment, ki
 	raw, err := json.Marshal(struct {
 		Spec         api.EnvironmentSpec `json:"spec"`
 		BeforeStatus string              `json:"beforeStatus"`
-	}{spec, row.Status})
+		BeforeSpec   json.RawMessage     `json:"beforeSpec,omitempty"`
+	}{spec, row.Status, row.AppliedSpec})
 	if err != nil {
 		return queries.Operation{}, err
 	}
@@ -319,8 +331,28 @@ func (s Service) Action(ctx context.Context, identity access.Identity, id, asset
 	return Operation(op)
 }
 func (s Service) Change(ctx context.Context, identity access.Identity, id string, request api.ChangeRequest) (api.ChangePreview, *api.Operation, error) {
-	row, err := s.Authorized(ctx, identity, id, "compose", "")
+	row, err := s.Queries.GetEnvironment(ctx, id)
 	if err != nil {
+		return api.ChangePreview{}, nil, err
+	}
+	current, err := Record(row)
+	if err != nil {
+		return api.ChangePreview{}, nil, err
+	}
+	before := current.Spec
+	if current.AppliedSpec != nil {
+		before = *current.AppliedSpec
+	}
+	request.Spec = RemoveDependentServices(before, request.Spec)
+	templates, err := Templates(ctx, s.Queries, request.Spec.Assets)
+	if err != nil {
+		return api.ChangePreview{}, nil, err
+	}
+	spec, err := Normalize(request.Spec, templates)
+	if err != nil {
+		return api.ChangePreview{}, nil, err
+	}
+	if err = AuthorizeChange(identity, row, before, spec); err != nil {
 		return api.ChangePreview{}, nil, err
 	}
 	if request.Apply && request.ClientRequestId != nil {
@@ -334,22 +366,6 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	}
 	if request.Apply && int(row.Revision) != request.ExpectedRevision {
 		return api.ChangePreview{}, nil, ErrConflict
-	}
-	templates, err := Templates(ctx, s.Queries, request.Spec.Assets)
-	if err != nil {
-		return api.ChangePreview{}, nil, err
-	}
-	spec, err := Normalize(request.Spec, templates)
-	if err != nil {
-		return api.ChangePreview{}, nil, err
-	}
-	current, err := Record(row)
-	if err != nil {
-		return api.ChangePreview{}, nil, err
-	}
-	before := current.Spec
-	if current.AppliedSpec != nil {
-		before = *current.AppliedSpec
 	}
 	preview := Diff(int(row.Revision), before, spec, templates)
 	if !request.Apply {

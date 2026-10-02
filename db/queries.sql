@@ -164,7 +164,11 @@ WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environmen
 AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
 AND (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id))))
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id)))
+ OR (o.kind='change' AND (o.payload->'beforeSpec')-'services'=(o.payload->'spec')-'services'
+ AND cardinality(service_change_assets(o.payload))>0 AND NOT EXISTS
+ (SELECT 1 FROM unnest(service_change_assets(o.payload)) a(asset_id) WHERE NOT EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||a.asset_id AND 'read'=ANY(g.permissions)))))
 ORDER BY o.created_at DESC,o.id DESC LIMIT sqlc.arg(page_limit);
 -- name: SaveOperationProgress :execrows
 WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running' RETURNING environment_id,id,phase)

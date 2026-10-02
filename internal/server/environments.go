@@ -227,12 +227,11 @@ func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, identity a
 	}
 	var runtime queries.Environment
 	if row.EnvironmentID != nil {
-		asset := ""
-		if row.AssetID != nil {
-			asset = *row.AssetID
-		}
-		if runtime, err = s.Environments.Authorized(r.Context(), identity, *row.EnvironmentID, "read", asset); err != nil {
+		if runtime, err = s.Queries.GetEnvironment(r.Context(), *row.EnvironmentID); err != nil {
 			return err
+		}
+		if !operation.Readable(identity, row, runtime) {
+			return access.ErrForbidden
 		}
 	} else if err = requireAdministrator(identity); err != nil {
 		return err

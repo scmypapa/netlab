@@ -37,7 +37,7 @@ func (s Service) CreationSpec(ctx context.Context, identity access.Identity, req
 
 // Each creation has its own logical identities; addresses remain in isolated networks.
 func instantiate(spec *api.EnvironmentSpec, view *api.CanvasView) {
-	networks, assets, objects := map[string]string{}, map[string]string{}, map[string]string{}
+	networks, assets, interfaces, objects := map[string]string{}, map[string]string{}, map[string]string{}, map[string]string{}
 	for i := range spec.Networks {
 		network := &spec.Networks[i]
 		id := uuid.NewString()
@@ -51,12 +51,20 @@ func instantiate(spec *api.EnvironmentSpec, view *api.CanvasView) {
 		asset.Id = id
 		for j := range asset.Interfaces {
 			iface := &asset.Interfaces[j]
-			iface.Id, iface.NetworkId = uuid.NewString(), networks[iface.NetworkId]
+			interfaces[iface.Id] = uuid.NewString()
+			iface.Id, iface.NetworkId = interfaces[iface.Id], networks[iface.NetworkId]
 		}
 		if asset.Volumes != nil {
 			for j := range *asset.Volumes {
 				(*asset.Volumes)[j].Id = uuid.NewString()
 			}
+		}
+	}
+	if spec.Services != nil {
+		for i := range *spec.Services {
+			service := &(*spec.Services)[i]
+			service.Id, service.AssetId, service.InterfaceId = uuid.NewString(), assets[service.AssetId], interfaces[service.InterfaceId]
+			service.ListenPort = nil
 		}
 	}
 	for i := range spec.Networks {

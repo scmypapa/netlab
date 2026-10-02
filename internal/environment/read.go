@@ -56,6 +56,10 @@ func VisibleRecord(row queries.Environment, visible map[string]bool) (api.Enviro
 			}
 		}
 		spec.Routes, spec.Policies = nil, nil
+		if spec.Services != nil {
+			services := slices.DeleteFunc(slices.Clone(*spec.Services), func(service api.ServiceExposure) bool { return !visible[service.AssetId] })
+			spec.Services = &services
+		}
 		return spec
 	}
 	result.Spec = filter(result.Spec)
