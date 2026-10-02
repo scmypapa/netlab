@@ -1,0 +1,99 @@
+.workspace {
+  height: min(38dvh, 390px);
+  min-height: 230px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-top: 1px solid var(--strong-line);
+}
+.workspace:fullscreen {
+  height: 100dvh;
+}
+.toolbar,
+.tabs,
+.tab {
+  display: flex;
+  align-items: center;
+}
+.toolbar {
+  padding: 0 12px;
+  height: 40px;
+  flex-shrink: 0;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+.tabs {
+  height: 100%;
+  overflow-x: auto;
+  min-width: 0;
+}
+.tab {
+  height: 100%;
+  gap: 3px;
+  border-bottom: 2px solid transparent;
+  padding: 0 8px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tab button[role="tab"] {
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  color: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.connection {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.connection[hidden] {
+  display: none;
+}
+.status {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.status span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.status i {
+  width: 5px;
+  height: 5px;
+  background: currentColor;
+  border-radius: 50%;
+}
+.connected {
+  color: var(--accent);
+}
+.surface {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.terminal {
+  background: #142128;
+  padding: 8px 12px;
+}
+.vnc {
+  background: #282828;
+}

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
+import { verifyConsoles } from './consoles.mjs'
 
 const base = process.env.NETLAB_TEST_URL || 'http://127.0.0.1:8090'
 const password = process.env.NETLAB_TEST_PASSWORD
@@ -162,6 +163,7 @@ try {
       assert.equal(inContainer(client.instanceId, 'curl', '-sf', '--max-time', '8', `http://${environment.spec.assets[0].interfaces[0].address}/environment-id`), environment.id)
     }
   })
+  await step('真实容器终端、TTY尺寸与VM VNC控制台', () => verifyConsoles(base, cookie, a))
   await step('容器与 KVM 暂停、恢复', async () => {
     await action(a.id, 'suspend')
     assert.equal((await api(`/environments/${a.id}`)).status, 'suspended')
