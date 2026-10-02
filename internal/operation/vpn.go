@@ -18,6 +18,12 @@ func (w Worker) vpnOperation(ctx context.Context, op *queries.Operation, p *Payl
 	if op.Phase == "complete" {
 		return nil
 	}
+	if op.Phase == "rolled-back" {
+		return errors.New(*p.Failure)
+	}
+	if op.Phase == "rollback" {
+		return w.rollbackVPN(ctx, op, p)
+	}
 	if op.Phase == "queued" {
 		row, err := w.Queries.GetEnvironment(ctx, *op.EnvironmentID)
 		if err != nil {
@@ -46,10 +52,55 @@ func (w Worker) vpnOperation(ctx context.Context, op *queries.Operation, p *Payl
 		return err
 	}
 	if err != nil {
-		_, restoreErr := w.callVPN(ctx, op, p.Spec, *p.VPNBefore)
-		return errors.Join(err, restoreErr, w.status(ctx, op, p, err))
+		message := err.Error()
+		p.Failure = &message
+		if saveErr := w.phase(ctx, op, p, "rollback"); saveErr != nil {
+			return errors.Join(err, saveErr)
+		}
+		return w.rollbackVPN(ctx, op, p)
 	}
 	return nil
+}
+
+func (w Worker) rollbackVPN(ctx context.Context, op *queries.Operation, p *Payload) error {
+	failure := errors.New(*p.Failure)
+	if _, err := w.callVPN(ctx, op, p.Spec, *p.VPNBefore); err != nil {
+		detail := errors.Join(failure, err)
+		message := detail.Error()
+		if saveErr := w.Queries.SetEnvironmentState(ctx, queries.SetEnvironmentStateParams{ID: *op.EnvironmentID, Status: "failed", Error: &message}); saveErr != nil {
+			return errors.Join(detail, fmt.Errorf("%w: %v", errPersistence, saveErr))
+		}
+		return detail
+	}
+	tx, err := w.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	defer tx.Rollback(ctx)
+	q := w.Queries.WithTx(tx)
+	if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if len(p.VPNBefore.Peers) == 0 {
+		if err = q.DeleteVPNPort(ctx, *op.EnvironmentID); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+	}
+	if err = q.DeleteUnusedVPNAliases(ctx, *op.EnvironmentID); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	transactionWorker := w
+	transactionWorker.Queries = q
+	if err = transactionWorker.status(ctx, op, p, failure); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if err = transactionWorker.phase(ctx, op, p, "rolled-back"); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	return failure
 }
 
 func (w Worker) prepareVPN(ctx context.Context, op *queries.Operation, spec api.EnvironmentSpec, change *environment.VPNChange) (*api.NodeVPNPlan, *api.NodeVPNPlan, error) {

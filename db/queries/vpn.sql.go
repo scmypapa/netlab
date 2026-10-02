@@ -81,7 +81,7 @@ func (q *Queries) DeleteEnvironmentVPN(ctx context.Context, id string) error {
 const deleteUnusedVPNAliases = `-- name: DeleteUnusedVPNAliases :exec
 DELETE FROM vpn_aliases a WHERE a.environment_id=$1 AND NOT EXISTS (
   SELECT 1 FROM vpn_access v,jsonb_array_elements(v.definition->'routes') r
-  WHERE v.environment_id=a.environment_id AND r->>'accessCidr'=a.prefix::text
+  WHERE v.environment_id=a.environment_id AND v.applied AND r->>'accessCidr'=a.prefix::text
 )
 `
 

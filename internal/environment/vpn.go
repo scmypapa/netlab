@@ -207,14 +207,6 @@ func (s Service) changeVPN(ctx context.Context, identity access.Identity, id, ac
 			delete(found, networkID)
 			peer.Routes = append(peer.Routes, api.VPNRoute{NetworkId: networkID})
 		}
-		if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(73421494)"); err != nil {
-			return api.Operation{}, err
-		}
-		peers, routeErr := VPNRoutes(ctx, q, id, spec, []api.VPNPeer{peer})
-		if routeErr != nil {
-			return api.Operation{}, routeErr
-		}
-		peer = peers[0]
 		accessID = peer.Id
 	} else if _, err = q.GetVPNAccess(ctx, queries.GetVPNAccessParams{EnvironmentID: id, ID: accessID}); err != nil {
 		return api.Operation{}, err
