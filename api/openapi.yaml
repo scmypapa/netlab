@@ -82,6 +82,11 @@ paths:
       operationId: getOperation
       responses:
         '200': {description: Operation, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+  /operations/{id}/retry:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: retryOperation
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
   /templates:
     get:
       operationId: listTemplates

@@ -231,7 +231,12 @@ func Resolve(spec api.EnvironmentSpec, asset api.Asset, previous []api.ResolvedI
 	return result
 }
 
-func Diff(revision int, before, after api.EnvironmentSpec) api.ChangePreview {
+func RequiresStop(kind api.TemplateKind, before, after api.Asset) bool {
+	before.Resources = after.Resources
+	return string(kind) == "vm" || !reflect.DeepEqual(before, after)
+}
+
+func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]api.Template) api.ChangePreview {
 	result := api.ChangePreview{Revision: revision, Changes: []api.ChangeItem{}}
 	oldAssets := map[string]api.Asset{}
 	for _, a := range before.Assets {
@@ -250,7 +255,7 @@ func Diff(revision int, before, after api.EnvironmentSpec) api.ChangePreview {
 				effect = api.Replace
 			}
 		}
-		needsStop := ok
+		needsStop := ok && (effect == api.Replace || RequiresStop(templates[a.TemplateId].Kind, old, a))
 		result.Changes = append(result.Changes, api.ChangeItem{Id: a.Id, Name: a.Name, Kind: api.ChangeItemKindAsset, Effect: effect, RequiresStop: &needsStop})
 	}
 	for _, a := range oldAssets {

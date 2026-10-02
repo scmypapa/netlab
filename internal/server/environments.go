@@ -10,6 +10,7 @@ import (
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/environment"
+	"netlab.local/core/internal/operation"
 )
 
 func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
@@ -218,4 +219,12 @@ func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	return writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) retryOperation(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	result, err := (operation.Service{Pool: s.Pool, Queries: s.Queries}).Retry(r.Context(), identity, r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusAccepted, result)
 }

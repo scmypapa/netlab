@@ -23,7 +23,6 @@ import (
 
 type Target struct {
 	NodeID    string             `json:"nodeId"`
-	Endpoint  string             `json:"endpoint"`
 	Execution api.AssetExecution `json:"execution"`
 	State     string             `json:"state"`
 }
@@ -47,6 +46,8 @@ type Worker struct {
 	Queries *queries.Queries
 	Client  *transport.Client
 }
+
+var errPersistence = errors.New("持久状态提交结果尚未确认")
 
 func (w Worker) Run(ctx context.Context) {
 	var wg sync.WaitGroup
@@ -77,7 +78,7 @@ func (w Worker) Run(ctx context.Context) {
 						continue
 					}
 				}
-				w.execute(ctx, op)
+				w.execute(ctx, queries.Operation(op))
 			}
 		}()
 	}
@@ -117,7 +118,7 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			results = payload.Results
 		}
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || errors.Is(err, errPersistence) {
 		return
 	}
 	if err != nil && payload.Template != nil {
@@ -180,10 +181,10 @@ func (w Worker) phase(ctx context.Context, op *queries.Operation, p *Payload, ph
 	}
 	n, err := w.Queries.SaveOperationProgress(ctx, queries.SaveOperationProgressParams{ID: op.ID, LeaseOwner: op.LeaseOwner, Phase: phase, Payload: raw, Results: results})
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	if n != 1 {
-		return errors.New("operation ownership changed")
+		return fmt.Errorf("%w: operation ownership changed", errPersistence)
 	}
 	op.Phase = phase
 	return nil
@@ -234,7 +235,20 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	endpoints := map[string]string{}
 	for _, t := range targets {
 		grouped[t.NodeID] = append(grouped[t.NodeID], t.Execution)
-		endpoints[t.NodeID] = t.Endpoint
+	}
+	ids := make([]string, 0, len(grouped))
+	for id := range grouped {
+		ids = append(ids, id)
+	}
+	nodes, err := w.Queries.GetNodeEndpoints(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	for _, n := range nodes {
+		endpoints[n.ID] = n.Endpoint
+	}
+	if len(nodes) != len(grouped) {
+		return nil, errors.New("运行资产所属节点不存在")
 	}
 	type response struct {
 		results []api.ExecutionResult
@@ -246,12 +260,26 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 		wg.Add(1)
 		go func(id string, assets []api.AssetExecution) {
 			defer wg.Done()
-			result, err := w.Client.Execute(ctx, endpoints[id], api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec})
+			spec := p.Spec
+			if op.Phase == "rollback" && p.BeforeSpec != nil {
+				spec = *p.BeforeSpec
+			}
+			result, err := w.Client.Execute(ctx, endpoints[id], api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec})
 			if err == nil && result.Error != nil {
 				err = errors.New(*result.Error)
 			}
+			expected := map[string]string{}
+			for _, a := range assets {
+				expected[a.InstanceId] = a.Asset.Id
+			}
 			observed := map[string]api.ExecutionResult{}
+			valid := make([]api.ExecutionResult, 0, len(result.Results))
 			for _, r := range result.Results {
+				if expected[r.InstanceId] != r.AssetId || expected[r.InstanceId] == "" {
+					err = errors.Join(err, fmt.Errorf("节点返回了请求范围外的资产结果 %s", r.InstanceId))
+					continue
+				}
+				valid = append(valid, r)
 				observed[r.InstanceId] = r
 				if r.Error != nil {
 					err = errors.Join(err, fmt.Errorf("asset %s: %s", r.AssetId, *r.Error))
@@ -263,7 +291,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 					err = errors.Join(err, fmt.Errorf("node omitted asset result %s", a.Asset.Name))
 				}
 			}
-			responses <- response{result.Results, err}
+			responses <- response{valid, err}
 		}(id, assets)
 	}
 	wg.Wait()
@@ -292,7 +320,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	}
 	if phase != api.NodePlanPhaseCleanupVolumes {
 		if err = w.Queries.ApplyAssetResults(ctx, raw); err != nil {
-			return results, errors.Join(executionErr, err)
+			return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
 		}
 	}
 	if err = w.phase(ctx, op, p, op.Phase); err != nil {
@@ -317,7 +345,14 @@ func (w Worker) network(ctx context.Context, op *queries.Operation, p *Payload, 
 			assets = append(assets, t.Execution)
 		}
 	}
-	result, err := w.Client.Execute(ctx, p.Owner.Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec})
+	nodes, err := w.Queries.GetNodeEndpoints(ctx, []string{p.Owner.NodeID})
+	if err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if len(nodes) == 0 {
+		return errors.New("环境网络所属节点不存在")
+	}
+	result, err := w.Client.Execute(ctx, nodes[0].Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec})
 	if err != nil {
 		return err
 	}

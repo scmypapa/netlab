@@ -76,23 +76,44 @@ func Operation(row queries.Operation) (api.Operation, error) {
 	}
 	result.Results = &results
 	var payload struct {
-		Spec     api.EnvironmentSpec `json:"spec"`
-		Targets  []json.RawMessage   `json:"targets"`
-		Template *api.Template       `json:"template"`
+		Spec     api.EnvironmentSpec                      `json:"spec"`
+		Targets  []struct{ Execution api.AssetExecution } `json:"targets"`
+		Updates  []struct{ Execution api.AssetExecution } `json:"updates"`
+		Old      []struct{ Execution api.AssetExecution } `json:"old"`
+		Template *api.Template                            `json:"template"`
 	}
 	if err := json.Unmarshal(row.Payload, &payload); err != nil {
 		return result, err
 	}
-	result.Total = len(payload.Targets)
-	if result.Total == 0 {
-		result.Total = len(payload.Spec.Assets)
+	targets := map[string]string{}
+	for _, group := range [][]struct{ Execution api.AssetExecution }{payload.Targets, payload.Updates, payload.Old} {
+		for _, t := range group {
+			if _, exists := targets[t.Execution.Asset.Id]; !exists {
+				targets[t.Execution.Asset.Id] = t.Execution.InstanceId
+			}
+		}
 	}
+	if row.Kind == "start" || row.Phase == "queued" {
+		for _, a := range payload.Spec.Assets {
+			if row.AssetID == nil || *row.AssetID == a.Id {
+				if _, exists := targets[a.Id]; !exists {
+					targets[a.Id] = ""
+				}
+			}
+		}
+	}
+	result.Total = len(targets)
 	if payload.Template != nil {
 		result.Total = 1
 	}
-	for _, r := range results {
-		if r.Error == nil {
-			result.Completed++
+	if row.State == "succeeded" {
+		result.Completed = result.Total
+	} else if row.State == "running" && (row.Phase == "cleanup" || row.Phase == "settle" || row.Phase == "destroy" || row.Phase == "remove-network" || row.Phase == "destroyed") {
+		for _, r := range results {
+			if instance, exists := targets[r.AssetId]; exists && (instance == r.InstanceId || instance == "") && r.Error == nil {
+				result.Completed++
+				delete(targets, r.AssetId)
+			}
 		}
 	}
 	return result, nil
@@ -302,7 +323,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if current.AppliedSpec != nil {
 		before = *current.AppliedSpec
 	}
-	preview := Diff(int(row.Revision), before, spec)
+	preview := Diff(int(row.Revision), before, spec, templates)
 	if !request.Apply {
 		return preview, nil, nil
 	}
