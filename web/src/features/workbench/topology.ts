@@ -1,11 +1,6 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
-import type {
-  EnvironmentSpec,
-  EnvironmentState,
-  Schema,
-  Template,
-} from "../../api/client";
+import type { EnvironmentSpec, Schema, Template } from "../../api/client";
 
 export const networkColors = [
   "#0f9c8d",
@@ -28,7 +23,6 @@ export type TopologyNode = Node<TopologyData, "asset" | "network">;
 export function topology(
   spec: EnvironmentSpec,
   templates: Template[],
-  state: EnvironmentState | undefined,
   view: Schema<"CanvasView">,
 ): { nodes: TopologyNode[]; edges: Edge[] } {
   const graph = new dagre.graphlib.Graph()
@@ -46,8 +40,11 @@ export function topology(
       { network, color: networkColors[index % networkColors.length] },
     ]),
   );
-  const states = new Map(
-    (state?.assets ?? []).map((asset) => [asset.assetId, asset.state]),
+  const counts = new Map<string, number>();
+  spec.assets.forEach((asset) =>
+    new Set(asset.interfaces.map((item) => item.networkId)).forEach((id) =>
+      counts.set(id, (counts.get(id) ?? 0) + 1),
+    ),
   );
   const templateMap = new Map(
     templates.map((template) => [template.id, template]),
@@ -63,9 +60,7 @@ export function topology(
         kind: "network" as const,
         state: "",
         color: networks.get(network.id)!.color,
-        count: spec.assets.filter((asset) =>
-          asset.interfaces.some((item) => item.networkId === network.id),
-        ).length,
+        count: counts.get(network.id) ?? 0,
       },
     })),
     ...spec.assets.map((asset) => ({
@@ -79,7 +74,7 @@ export function topology(
           asset.interfaces[0]?.address ||
           "",
         kind: templateMap.get(asset.templateId)?.kind ?? "container",
-        state: states.get(asset.id) ?? "draft",
+        state: "draft",
         color:
           networks.get(asset.interfaces[0]?.networkId)?.color ??
           networkColors[0],

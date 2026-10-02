@@ -49,10 +49,33 @@ export function WorkbenchPage() {
     ? workbench.spec
     : (environment?.appliedSpec ??
       environment?.spec ?? { assets: [], networks: [] });
-  const graph = useMemo(
+  const templatesById = useMemo(
+    () => new Map(templates.map((template) => [template.id, template])),
+    [templates],
+  );
+  const assetStates = useMemo(
     () =>
-      topology(spec, templates, workbench.state.data, environment?.view ?? {}),
-    [spec, templates, workbench.state.data, environment?.view],
+      new Map(
+        (workbench.state.data?.assets ?? []).map((asset) => [
+          asset.assetId,
+          asset.state,
+        ]),
+      ),
+    [workbench.state.data?.assets],
+  );
+  const layout = useMemo(
+    () => topology(spec, templates, environment?.view ?? {}),
+    [spec, templates, environment?.view],
+  );
+  const graph = useMemo(
+    () => ({
+      ...layout,
+      nodes: layout.nodes.map((node) => ({
+        ...node,
+        data: { ...node.data, state: assetStates.get(node.id) ?? "draft" },
+      })),
+    }),
+    [layout, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
   const network = spec.networks.find((item) => item.id === selection);
@@ -299,16 +322,13 @@ export function WorkbenchPage() {
                   key={item.id}
                   onClick={() => setSelection(item.id)}
                 >
-                  {templates.find((template) => template.id === item.templateId)
-                    ?.kind === "vm" ? (
+                  {templatesById.get(item.templateId)?.kind === "vm" ? (
                     <Monitor size={16} />
                   ) : (
                     <Box size={16} />
                   )}
                   <span>{item.name}</span>
-                  <span
-                    className={`tree-state ${workbench.state.data?.assets.find((state) => state.assetId === item.id)?.state}`}
-                  />
+                  <span className={`tree-state ${assetStates.get(item.id)}`} />
                 </button>
               ))}
             <div className="tree-section-heading">
@@ -431,9 +451,7 @@ export function WorkbenchPage() {
                           className="asset-row-name"
                           onClick={() => setSelection(item.id)}
                         >
-                          {templates.find(
-                            (template) => template.id === item.templateId,
-                          )?.kind === "vm" ? (
+                          {templatesById.get(item.templateId)?.kind === "vm" ? (
                             <Monitor size={17} />
                           ) : (
                             <Box size={17} />
@@ -442,13 +460,7 @@ export function WorkbenchPage() {
                         </button>
                       </td>
                       <td>
-                        <Status
-                          value={
-                            workbench.state.data?.assets.find(
-                              (state) => state.assetId === item.id,
-                            )?.state ?? "draft"
-                          }
-                        />
+                        <Status value={assetStates.get(item.id) ?? "draft"} />
                       </td>
                       <td>
                         {item.interfaces
@@ -516,7 +528,7 @@ export function WorkbenchPage() {
             asset={asset}
             network={network}
             spec={spec}
-            template={templates.find((item) => item.id === asset?.templateId)}
+            template={asset && templatesById.get(asset.templateId)}
             state={workbench.state.data}
             editing={workbench.editing}
             busy={busy}
