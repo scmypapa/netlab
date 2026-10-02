@@ -2,11 +2,137 @@ openapi: 3.0.3
 info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
-paths: {}
+paths:
+  /environments:
+    get:
+      operationId: listEnvironments
+      responses:
+        '200': {description: Environments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Environment'}}}}}
+    post:
+      operationId: createEnvironment
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateEnvironment'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Environment'}}}}
+  /environments/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getEnvironment
+      responses:
+        '200': {description: Environment, content: {application/json: {schema: {$ref: '#/components/schemas/Environment'}}}}
+  /environments/{id}/state:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getEnvironmentState
+      responses:
+        '200': {description: State, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentState'}}}}
+  /environments/{id}/actions:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: environmentAction
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ActionRequest'}}}}
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
+  /environments/{id}/changes:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: changeEnvironment
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ChangeRequest'}}}}
+      responses:
+        '200': {description: Preview, content: {application/json: {schema: {$ref: '#/components/schemas/ChangePreview'}}}}
+        '202': {$ref: '#/components/responses/Accepted'}
+  /environments/{id}/view:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put:
+      operationId: saveView
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CanvasView'}}}}
+      responses: {'204': {description: Saved}}
+  /environments/{id}/draft:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put:
+      operationId: saveDraft
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Draft'}}}}
+      responses: {'204': {description: Saved}}
+    delete:
+      operationId: discardDraft
+      responses: {'204': {description: Discarded}}
+  /environments/{id}/assets/{assetId}/actions:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: assetAction
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ActionRequest'}}}}
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
+  /operations:
+    get:
+      operationId: listOperations
+      parameters: [{name: environmentId, in: query, schema: {type: string}}]
+      responses:
+        '200': {description: Operations, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Operation'}}}}}
+  /operations/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getOperation
+      responses:
+        '200': {description: Operation, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+  /templates:
+    get:
+      operationId: listTemplates
+      responses:
+        '200': {description: Templates, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Template'}}}}}
+    post:
+      operationId: createTemplate
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
+  /nodes:
+    get:
+      operationId: listNodes
+      responses:
+        '200': {description: Nodes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Node'}}}}}
+    post:
+      operationId: registerNode
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NodeRegistration'}}}}
+      responses:
+        '201': {description: Registered, content: {application/json: {schema: {$ref: '#/components/schemas/Node'}}}}
+  /identity:
+    get:
+      operationId: getIdentity
+      responses:
+        '200': {description: Identity, content: {application/json: {schema: {$ref: '#/components/schemas/Identity'}}}}
+  /sessions/login:
+    post:
+      operationId: login
+      security: []
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Login'}}}}
+      responses:
+        '200': {description: Signed in, content: {application/json: {schema: {$ref: '#/components/schemas/Identity'}}}}
+  /sessions/logout:
+    post:
+      operationId: logout
+      responses: {'204': {description: Signed out}}
 components:
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: string}}
+  responses:
+    Accepted:
+      description: Accepted
+      content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}
   securitySchemes:
     bearer: {type: http, scheme: bearer}
   schemas:
+    Identity:
+      type: object
+      required: [id, name, administrator]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        administrator: {type: boolean}
+    Login:
+      type: object
+      required: [name, password]
+      properties:
+        name: {type: string}
+        password: {type: string, format: password}
     Resources:
       type: object
       required: [cpu, memoryMiB, diskGiB]
