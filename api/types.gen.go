@@ -731,6 +731,7 @@ type TemplateDiskBus string
 // TemplateKind defines model for TemplateKind.
 type TemplateKind string
 
+<<<<<<< HEAD
 // UpdateUser defines model for UpdateUser.
 type UpdateUser struct {
 	Disabled bool    `json:"disabled"`
@@ -745,11 +746,22 @@ type VmHardware struct {
 	DiskControllers []string    `json:"diskControllers"`
 	Machines        []VmMachine `json:"machines"`
 	NicModels       []string    `json:"nicModels"`
+=======
+// VmHardware defines model for VmHardware.
+type VmHardware struct {
+	CpuModels []string    `json:"cpuModels"`
+	CpuModes  []string    `json:"cpuModes"`
+	Machines  []VmMachine `json:"machines"`
+	NicModels []string    `json:"nicModels"`
+>>>>>>> codex/netlab-node
 }
 
 // VmMachine defines model for VmMachine.
 type VmMachine struct {
+<<<<<<< HEAD
 	Aliases       []string `json:"aliases"`
+=======
+>>>>>>> codex/netlab-node
 	DiskBuses     []string `json:"diskBuses"`
 	Firmware      []string `json:"firmware"`
 	FirmwareFiles []string `json:"firmwareFiles"`
