@@ -63,6 +63,14 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		return "unknown", err
 	}
 	switch phase {
+	case api.NodePlanPhaseCleanupVolumes:
+		references, err := v.volumeReferences(env, a.Asset.Id)
+		if err != nil {
+			return state, err
+		}
+		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a.Asset.Id, id) }, true)
+	case api.NodePlanPhaseUpdate:
+		return v.update(ctx, d, env, a)
 	case api.NodePlanPhaseActivate, api.NodePlanPhaseStart:
 		if state == "stopped" {
 			err = d.Create()
@@ -131,6 +139,9 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 		return "absent", err
 	}
 	format := image.Format
+	if a.Asset.Resources.DiskGiB*(1<<30) < image.VirtualSize {
+		return "absent", fmt.Errorf("requested system disk is smaller than the template disk")
+	}
 	disk := filepath.Join(dir, "system.qcow2")
 	if _, err = os.Stat(disk); errors.Is(err, os.ErrNotExist) {
 		if err = command(ctx, "qemu-img", "create", "-f", "qcow2", "-F", format, "-b", source, disk); err != nil {
@@ -142,16 +153,8 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 		return "absent", err
 	}
 	if a.Asset.Volumes != nil {
-		for _, vol := range *a.Asset.Volumes {
-			path := filepath.Join(v.data, "environments", env, "volumes", a.Asset.Id, vol.Id+".qcow2")
-			if err = os.MkdirAll(filepath.Dir(path), 0711); err != nil {
-				return "absent", err
-			}
-			if _, err = os.Stat(path); errors.Is(err, os.ErrNotExist) {
-				if err = command(ctx, "qemu-img", "create", "-f", "qcow2", path, fmt.Sprintf("%dG", vol.SizeGiB)); err != nil {
-					return "absent", err
-				}
-			}
+		if err = v.prepareVolumes(ctx, env, a.Asset.Id, *a.Asset.Volumes); err != nil {
+			return "absent", err
 		}
 	}
 	config, err := DomainXML(env, dir, v.bridge, a)
@@ -234,17 +237,87 @@ func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
 	if err := os.RemoveAll(instanceDir(v.data, env, a.InstanceId)); err != nil {
 		return err
 	}
-	if a.Asset.Volumes != nil {
-		for _, vol := range *a.Asset.Volumes {
-			if vol.Retain == nil || !*vol.Retain {
-				path := filepath.Join(v.data, "environments", env, "volumes", a.Asset.Id, vol.Id+".qcow2")
-				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	references, err := v.volumeReferences(env, a.Asset.Id)
+	if err != nil {
+		return err
+	}
+	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a.Asset.Id, id) }, false)
+}
+
+func (v *VirtualMachines) volumePath(env, asset, volume string) string {
+	return filepath.Join(v.data, "environments", env, "volumes", asset, volume+".qcow2")
+}
+
+func (v *VirtualMachines) prepareVolumes(ctx context.Context, env, asset string, volumes []api.Volume) error {
+	for _, volume := range volumes {
+		path := v.volumePath(env, asset, volume.Id)
+		if err := os.MkdirAll(filepath.Dir(path), 0711); err != nil {
+			return err
+		}
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			if err = command(ctx, "qemu-img", "create", "-f", "qcow2", path, fmt.Sprintf("%dG", volume.SizeGiB)); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else {
+			image, err := inspectImage(ctx, path)
+			if err != nil {
+				return err
+			}
+			size := volume.SizeGiB * (1 << 30)
+			if size < image.VirtualSize {
+				return fmt.Errorf("volume %s cannot be shrunk", volume.Id)
+			}
+			if size > image.VirtualSize {
+				if err = command(ctx, "qemu-img", "resize", path, fmt.Sprint(size)); err != nil {
 					return err
 				}
 			}
 		}
 	}
 	return nil
+}
+
+func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, error) {
+	references := make(map[string]bool)
+	instances, err := os.ReadDir(filepath.Join(v.data, "environments", env, "instances"))
+	if errors.Is(err, os.ErrNotExist) {
+		return references, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, instance := range instances {
+		domain, err := v.conn.LookupDomainByUUIDString(instance.Name())
+		if noDomain(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
+		domain.Free()
+		if err != nil {
+			return nil, err
+		}
+		var config libvirtxml.Domain
+		if err = config.Unmarshal(text); err != nil {
+			return nil, err
+		}
+		var owner Ownership
+		if err = xml.Unmarshal([]byte(config.Metadata.XML), &owner); err != nil {
+			return nil, err
+		}
+		if owner.Environment == env && owner.Asset == asset {
+			for _, disk := range config.Devices.Disks {
+				if disk.Source != nil && disk.Source.File != nil {
+					references[disk.Source.File.File] = true
+				}
+			}
+		}
+	}
+	return references, nil
 }
 func (v *VirtualMachines) owned(d *libvirt.Domain, env, asset string) (Ownership, error) {
 	text, err := d.GetXMLDesc(0)
@@ -296,6 +369,9 @@ func (v *VirtualMachines) Inventory(env string) ([]api.ExecutionResult, error) {
 		if env == "" || owner.Environment == env {
 			state, err := vmState(&d)
 			r := api.ExecutionResult{AssetId: owner.Asset, InstanceId: owner.Instance, State: state, ObservedAt: time.Now().UTC()}
+			var observeErr error
+			r.Execution, observeErr = v.observedExecution(&d)
+			err = errors.Join(err, observeErr)
 			if err != nil {
 				r.Error = ptr(err.Error())
 			}
