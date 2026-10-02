@@ -48,6 +48,9 @@ export function ObjectInspector({
   onAction,
   onConnect,
   onLogs,
+  services,
+  canAccess,
+  onServices,
   onSelect,
 }: {
   asset?: Asset;
@@ -68,6 +71,9 @@ export function ObjectInspector({
   onAction: (action: Schema<"ActionRequest">["action"]) => void;
   onConnect: (kind: Schema<"ConsoleKind">) => void;
   onLogs: () => void;
+  services: Schema<"ServiceEndpoint">[];
+  canAccess: boolean;
+  onServices: () => void;
   onSelect: (id: string) => void;
 }) {
   const assetState = state?.assets.find((item) => item.assetId === asset?.id);
@@ -369,6 +375,44 @@ export function ObjectInspector({
               })}
             </div>
           </section>
+          {!editing && assetState && (
+            <section className="inspector-section">
+              <h3>
+                服务
+                {canAccess && (
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    aria-label="管理服务入口"
+                    disabled={busy}
+                    onClick={onServices}
+                  >
+                    <Network size={16} />
+                  </ActionIcon>
+                )}
+              </h3>
+              <div className="interface-list">
+                {services
+                  .filter((item) => item.assetId === asset.id)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      className="interface-item"
+                      onClick={onServices}
+                    >
+                      <div>
+                        <strong>
+                          {item.protocol.toUpperCase()} · {item.targetPort}
+                        </strong>
+                        <span className="mono">
+                          {item.address}:{item.port}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </section>
+          )}
         </>
       )}
       {network && (

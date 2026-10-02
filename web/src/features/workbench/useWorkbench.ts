@@ -23,6 +23,11 @@ export function useWorkbench(id: string) {
     queryFn: () => api.state(id),
     enabled: observing === id,
   });
+  const services = useQuery({
+    queryKey: ["services", id],
+    queryFn: () => api.services(id),
+    enabled: Boolean(environment.data?.appliedSpec),
+  });
   const catalog = useCursorList(
     ["templates", "picker", { search }],
     (page) => api.templates({ ...page, search }),
@@ -82,6 +87,7 @@ export function useWorkbench(id: string) {
         if (operationChanged) {
           operationChanged = false;
           void client.invalidateQueries({ queryKey: ["operations", id] });
+          void client.invalidateQueries({ queryKey: ["services", id] });
           void client.invalidateQueries({ queryKey: ["environments"] });
         }
       }, 100);
@@ -108,6 +114,7 @@ export function useWorkbench(id: string) {
     void client.invalidateQueries({ queryKey: ["environment", id] });
     void client.invalidateQueries({ queryKey: ["state", id] });
     void client.invalidateQueries({ queryKey: ["operations", id] });
+    void client.invalidateQueries({ queryKey: ["services", id] });
     void client.invalidateQueries({ queryKey: ["environments"] });
   };
   useEffect(() => {
@@ -116,8 +123,10 @@ export function useWorkbench(id: string) {
       environment.data &&
       (state.data.revision !== environment.data.revision ||
         state.data.status !== environment.data.status)
-    )
+    ) {
       void client.invalidateQueries({ queryKey: ["environment", id] });
+      void client.invalidateQueries({ queryKey: ["services", id] });
+    }
   }, [state.data, environment.data, client, id]);
   const beginEdit = () => {
     if (environment.data) {
@@ -194,9 +203,34 @@ export function useWorkbench(id: string) {
     mutationFn: api.retryOperation,
     onSuccess: refresh,
   });
+  const exposeService = useMutation({
+    mutationFn: ({
+      assetId,
+      ...body
+    }: Omit<Schema<"CreateService">, "expectedRevision" | "clientRequestId"> & {
+      assetId: string;
+    }) =>
+      api.exposeService(id, assetId, {
+        ...body,
+        expectedRevision: environment.data!.revision,
+        clientRequestId: crypto.randomUUID(),
+      }),
+    onSuccess: refresh,
+  });
+  const revokeService = useMutation({
+    mutationFn: (serviceId: string) =>
+      api.revokeService(
+        id,
+        serviceId,
+        environment.data!.revision,
+        crypto.randomUUID(),
+      ),
+    onSuccess: refresh,
+  });
   return {
     environment,
     state,
+    services,
     templates,
     templateSearch,
     setTemplateSearch,
@@ -212,6 +246,8 @@ export function useWorkbench(id: string) {
     apply,
     action,
     retry,
+    exposeService,
+    revokeService,
     saveView,
   };
 }

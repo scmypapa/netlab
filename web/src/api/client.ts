@@ -172,6 +172,24 @@ export const api = {
   saveBlueprintVersion: (id: string, body: Schema<"SaveBlueprintVersion">) =>
     request<BlueprintVersion>(`/blueprints/${id}/versions`, "POST", body),
   state: (id: string) => request<EnvironmentState>(`/environments/${id}/state`),
+  services: (id: string) =>
+    request<Schema<"ServiceEndpoint">[]>(`/environments/${id}/services`),
+  exposeService: (id: string, assetId: string, body: Schema<"CreateService">) =>
+    request<Operation>(
+      `/environments/${id}/assets/${assetId}/services`,
+      "POST",
+      body,
+    ),
+  revokeService: (
+    id: string,
+    serviceId: string,
+    expectedRevision: number,
+    clientRequestId: string,
+  ) =>
+    request<Operation>(
+      `/environments/${id}/services/${serviceId}?${new URLSearchParams({ expectedRevision: String(expectedRevision), clientRequestId })}`,
+      "DELETE",
+    ),
   events: (id: string) => new EventSource(`/api/v1/environments/${id}/events`),
   action: (id: string, body: Schema<"ActionRequest">) =>
     request<Operation>(`/environments/${id}/actions`, "POST", body),

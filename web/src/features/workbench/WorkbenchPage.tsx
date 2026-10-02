@@ -28,6 +28,7 @@ import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ObjectInspector } from "./ObjectInspector";
 import { LogDrawer } from "./LogDrawer";
+import { ServiceDrawer } from "./ServiceDrawer";
 import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
 import { connectAsset, networkColors, topology } from "./topology";
@@ -53,6 +54,7 @@ export function WorkbenchPage() {
   const [selectedConnection, setSelectedConnection] = useState("");
   const [sharing, setSharing] = useState(false);
   const [logging, setLogging] = useState<Asset>();
+  const [serving, setServing] = useState<Asset>();
   const [context, setContext] = useState<{
     x: number;
     y: number;
@@ -169,6 +171,18 @@ export function WorkbenchPage() {
       routes: current.routes?.filter((item) => item.networkId !== selection),
       policies: current.policies?.filter(
         (item) => item.networkId !== selection,
+      ),
+      services: current.services?.filter((service) =>
+        current.assets.some(
+          (item) =>
+            item.id === service.assetId &&
+            item.id !== selection &&
+            item.interfaces.some(
+              (iface) =>
+                iface.id === service.interfaceId &&
+                iface.networkId !== selection,
+            ),
+        ),
       ),
     }));
     setSelection(undefined);
@@ -623,6 +637,8 @@ export function WorkbenchPage() {
             canManage={allows(environment, "manage", asset?.id)}
             canConnect={allows(environment, "session", asset?.id)}
             canObserve={allows(environment, "observe", asset?.id)}
+            canAccess={allows(environment, "access", asset?.id)}
+            services={workbench.services.data ?? []}
             onClose={() => setSelection(undefined)}
             onEdit={editObject}
             onRemove={remove}
@@ -634,6 +650,11 @@ export function WorkbenchPage() {
             }
             onConnect={connect}
             onLogs={() => setLogging(asset)}
+            onServices={() => {
+              workbench.exposeService.reset();
+              workbench.revokeService.reset();
+              setServing(asset);
+            }}
             onSelect={setSelection}
           />
         )}
@@ -668,6 +689,34 @@ export function WorkbenchPage() {
           environmentId={id}
           asset={logging}
           onClose={() => setLogging(undefined)}
+        />
+      )}
+      {serving && (
+        <ServiceDrawer
+          key={serving.id}
+          asset={spec.assets.find((item) => item.id === serving.id) ?? serving}
+          spec={spec}
+          services={workbench.services.data ?? []}
+          loading={workbench.services.isLoading}
+          pending={
+            busy ||
+            workbench.exposeService.isPending ||
+            workbench.revokeService.isPending
+          }
+          canManage={allows(environment, "access", serving.id)}
+          error={
+            workbench.services.error ??
+            workbench.exposeService.error ??
+            workbench.revokeService.error
+          }
+          onCreate={(body, onAccepted) =>
+            workbench.exposeService.mutate(
+              { assetId: serving.id, ...body },
+              { onSuccess: onAccepted },
+            )
+          }
+          onRevoke={(serviceId) => workbench.revokeService.mutate(serviceId)}
+          onClose={() => setServing(undefined)}
         />
       )}
       {editor === "asset" && (

@@ -17,6 +17,8 @@ const phaseLabels: Record<string, string> = {
   scheduling: "分配资源",
   placing: "分配资源",
   network: "配置网络",
+  services: "应用服务入口",
+  "revoke-services": "撤销服务入口",
   prepare: "准备资产",
   activate: "启动资产",
   complete: "完成",

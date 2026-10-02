@@ -142,6 +142,11 @@ async function fixture(
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
     const body = request.postDataJSON();
     calls.push({ method: request.method(), path, body });
+    if (path.endsWith("/events"))
+      return route.fulfill({
+        contentType: "text/event-stream",
+        body: ": connected\n\n",
+      });
     let response: unknown;
     let status = 200;
     if (path === "/identity")
@@ -200,6 +205,7 @@ async function fixture(
         })),
         updatedAt: environment.updatedAt,
       };
+    else if (path.endsWith("/services")) response = [];
     else if (path === "/templates") response = templates;
     else if (path === "/blueprints") response = blueprints;
     else if (
@@ -847,7 +853,7 @@ test("asset-scoped session opens its console without environment management", as
   await expect
     .poll(() => [...new Set(connections)])
     .toEqual([
-      "ws://127.0.0.1:5176/api/v1/environments/env/assets/windows/console?kind=vnc",
+      `${new URL(page.url()).origin.replace(/^http/, "ws")}/api/v1/environments/env/assets/windows/console?kind=vnc`,
     ]);
 });
 
@@ -955,4 +961,104 @@ test("container restart policy is edited with the ordinary asset draft", async (
         assets: [{ id: "web", restartPolicy: "on-failure" }, { id: "windows" }],
       },
     });
+});
+
+test("service endpoints follow the selected asset and acceptance does not imply an applied mapping", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.route("**/api/v1/environments/env/services", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "http-entry",
+          assetId: "web",
+          interfaceId: "eth-web",
+          protocol: "tcp",
+          targetPort: 80,
+          address: "192.0.2.10",
+          port: 32000,
+          updatedAt: "2026-10-02T08:10:00Z",
+        },
+      ],
+    }),
+  );
+  const submitted: unknown[] = [];
+  await page.route(
+    "**/api/v1/environments/env/assets/web/services",
+    (route) => {
+      submitted.push(route.request().postDataJSON());
+      return route.fulfill({
+        status: 202,
+        json: {
+          id: "service-op",
+          kind: "change",
+          state: "queued",
+          phase: "queued",
+          completed: 0,
+          total: 1,
+        },
+      });
+    },
+  );
+  const revoked: URL[] = [];
+  await page.route(
+    "**/api/v1/environments/env/services/http-entry?**",
+    (route) => {
+      revoked.push(new URL(route.request().url()));
+      expect(route.request().method()).toBe("DELETE");
+      return route.fulfill({
+        status: 202,
+        json: {
+          id: "revoke-op",
+          kind: "change",
+          state: "queued",
+          phase: "queued",
+          completed: 0,
+          total: 1,
+        },
+      });
+    },
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "管理服务入口", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "web-01 · 服务" });
+  await expect(drawer).toContainText("192.0.2.10:32000");
+  await drawer.getByRole("button", { name: "开放服务", exact: true }).click();
+  await drawer
+    .getByRole("textbox", { name: "目标端口", exact: true })
+    .fill("8080");
+  await drawer.getByRole("button", { name: "开放服务", exact: true }).click();
+  await expect
+    .poll(() => submitted)
+    .toEqual([
+      expect.objectContaining({
+        interfaceId: "eth-web",
+        protocol: "tcp",
+        targetPort: 8080,
+        expectedRevision: 1,
+      }),
+    ]);
+  expect(submitted[0]).not.toHaveProperty("listenPort");
+  await expect(drawer).not.toContainText("TCP 8080");
+  await drawer
+    .getByRole("button", { name: "服务 tcp/80 操作", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "撤销入口", exact: true }).click();
+  await expect.poll(() => revoked.length).toBe(1);
+  expect(revoked[0].searchParams.get("expectedRevision")).toBe("1");
+});
+
+test("asset read permission does not expose service management", async ({
+  page,
+}) => {
+  await fixture(page, { permissions: ["read"] });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "管理服务入口", exact: true }),
+  ).toHaveCount(0);
 });
