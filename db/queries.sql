@@ -94,9 +94,14 @@ WITH candidate AS (
  SELECT o.id FROM operations o WHERE (o.state='queued' OR (o.state='running' AND o.lease_until<now()))
  AND NOT EXISTS(SELECT 1 FROM operations live WHERE live.scope_kind=o.scope_kind AND live.scope_id=o.scope_id AND live.id<>o.id AND live.state='running')
  ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1
+), claimed AS (
+ UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
+ FROM candidate c WHERE o.id=c.id RETURNING o.*
+), active AS (
+ UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=NULL,updated_at=now()
+ FROM claimed c WHERE e.id=c.environment_id RETURNING e.id
 )
-UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
-FROM candidate c WHERE o.id=c.id RETURNING o.*;
+SELECT claimed.* FROM claimed;
 -- name: RenewLease :execrows
 UPDATE operations SET lease_until=now()+interval '30 seconds' WHERE id=$1 AND lease_owner=$2 AND state='running';
 -- name: SetOperationPhase :execrows
@@ -118,7 +123,7 @@ FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"ins
 -- name: ApplyAssetResults :exec
 UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
 FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,state text,error text,"observedAt" timestamptz)
-WHERE a.instance_id=r."instanceId" AND a.observed_at<=r."observedAt";
+WHERE a.instance_id=r."instanceId";
 -- name: ReleaseAssets :exec
 DELETE FROM runtime_assets WHERE instance_id=ANY($1::text[]);
 -- name: ClearCurrentAssets :exec
@@ -159,3 +164,9 @@ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu integer,"memoryMiB
 WHERE a.instance_id=r."instanceId";
 -- name: GetNodeReservations :many
 SELECT node_id,COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM runtime_assets WHERE node_id=ANY($1::text[]) GROUP BY node_id;
+-- name: LockOperation :one
+SELECT * FROM operations WHERE id=$1 FOR UPDATE;
+-- name: RetryOperation :one
+UPDATE operations SET state='queued',phase=$2,payload=$3,expected_revision=$4,error=NULL,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 RETURNING *;
+-- name: GetNodeEndpoints :many
+SELECT id,endpoint FROM nodes WHERE id=ANY($1::text[]);

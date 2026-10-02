@@ -65,7 +65,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	}
 	current := map[string]Target{}
 	for _, a := range actual {
-		n, ok := byNode[a.NodeID]
+		_, ok := byNode[a.NodeID]
 		if !ok {
 			return fmt.Errorf("资产 %s 的运行节点不存在", a.AssetID)
 		}
@@ -73,7 +73,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if err = json.Unmarshal(a.Execution, &execution); err != nil {
 			return err
 		}
-		t := Target{a.NodeID, n.Endpoint, execution, a.State}
+		t := Target{NodeID: a.NodeID, Execution: execution, State: a.State}
 		if a.Current {
 			current[a.AssetID] = t
 			p.Before = append(p.Before, t)
@@ -88,11 +88,11 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	}
 	for _, n := range nodes {
 		if row.NetworkNodeID != nil && n.ID == *row.NetworkNodeID {
-			p.Owner = &Target{NodeID: n.ID, Endpoint: n.Endpoint}
+			p.Owner = &Target{NodeID: n.ID}
 			break
 		}
 		if p.Owner == nil && n.State == "ready" && slices.Contains(infos[n.ID].Capabilities, "network") {
-			p.Owner = &Target{NodeID: n.ID, Endpoint: n.Endpoint}
+			p.Owner = &Target{NodeID: n.ID}
 		}
 	}
 	if p.Owner == nil && len(p.Spec.Networks) > 0 {
@@ -139,7 +139,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		} else if p.BeforeStatus == "stopped" || p.BeforeStatus == "suspended" {
 			state = p.BeforeStatus
 		}
-		if op.Kind == "start" {
+		if op.Kind == "start" && (op.AssetID == nil || *op.AssetID == a.Id) {
 			state = "running"
 		}
 		execution := api.AssetExecution{Asset: a, Template: t, InstanceId: uuid.NewString(), Interfaces: environment.Resolve(p.Spec, a, nics)}
@@ -155,7 +155,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		}
 		execution.InstanceId = old.Execution.InstanceId
 		if !reflect.DeepEqual(old.Execution.Asset, a) || !reflect.DeepEqual(old.Execution.Interfaces, execution.Interfaces) {
-			p.Updates = append(p.Updates, Target{old.NodeID, old.Endpoint, execution, state})
+			p.Updates = append(p.Updates, Target{NodeID: old.NodeID, Execution: execution, State: state})
 		} else {
 			old.State = state
 			p.Unchanged = append(p.Unchanged, old)
@@ -198,6 +198,11 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if n.State != "ready" {
 			continue
 		}
+		var info api.NodeInfo
+		if err = json.Unmarshal(n.Info, &info); err != nil {
+			return err
+		}
+		infos[n.ID] = info
 		capacity[n.ID] = infos[n.ID].Capacity
 		if len(n.CapacityOverride) > 0 {
 			var override api.Resources
@@ -255,7 +260,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			}
 			best = old.NodeID
 		}
-		t.NodeID, t.Endpoint = best, byNode[best].Endpoint
+		t.NodeID = best
 		used[best] = add(used[best], requirement)
 	}
 	raw, err := resourceRecords(row.ID, p.Targets)
@@ -279,10 +284,13 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	}
 	transactionWorker := w
 	transactionWorker.Queries = q
-	if err = transactionWorker.phase(ctx, op, p, "network"); err != nil {
+	if err = transactionWorker.phase(ctx, op, p, "prepare"); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	return nil
 }
 
 func resources(a api.Asset) api.Resources {

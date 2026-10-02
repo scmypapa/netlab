@@ -62,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 		"GET /api/v1/environments/{id}/events":                    s.events,
 		"GET /api/v1/operations":                                  s.listOperations,
 		"GET /api/v1/operations/{id}":                             s.getOperation,
+		"POST /api/v1/operations/{id}/retry":                      s.retryOperation,
 		"GET /api/v1/templates":                                   s.listTemplates,
 		"POST /api/v1/templates":                                  s.createTemplate,
 		"GET /api/v1/nodes":                                       s.listNodes,
@@ -85,7 +86,7 @@ func (s *Server) Handler() http.Handler {
 		writeError(w, r, httpError{http.StatusNotFound, "接口不存在"})
 	})
 	if s.Web != nil {
-		mux.Handle("GET /", s.Web)
+		mux.Handle("/", s.Web)
 	}
 	protection := http.NewCrossOriginProtection()
 	protection.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -231,7 +231,12 @@ func Resolve(spec api.EnvironmentSpec, asset api.Asset, previous []api.ResolvedI
 	return result
 }
 
-func Diff(revision int, before, after api.EnvironmentSpec) api.ChangePreview {
+func RequiresStop(kind api.TemplateKind, before, after api.Asset) bool {
+	before.Resources = after.Resources
+	return string(kind) == "vm" || !reflect.DeepEqual(before, after)
+}
+
+func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]api.Template) api.ChangePreview {
 	result := api.ChangePreview{Revision: revision, Changes: []api.ChangeItem{}}
 	oldAssets := map[string]api.Asset{}
 	for _, a := range before.Assets {
@@ -240,9 +245,12 @@ func Diff(revision int, before, after api.EnvironmentSpec) api.ChangePreview {
 	for _, a := range after.Assets {
 		old, ok := oldAssets[a.Id]
 		effect := api.Add
+		networkChanged := false
 		if ok {
 			delete(oldAssets, a.Id)
-			if reflect.DeepEqual(old, a) {
+			previous := Resolve(before, old, nil)
+			networkChanged = !reflect.DeepEqual(previous, Resolve(after, a, previous))
+			if reflect.DeepEqual(old, a) && !networkChanged {
 				continue
 			}
 			effect = api.Update
@@ -250,7 +258,7 @@ func Diff(revision int, before, after api.EnvironmentSpec) api.ChangePreview {
 				effect = api.Replace
 			}
 		}
-		needsStop := ok
+		needsStop := ok && (effect == api.Replace || networkChanged || RequiresStop(templates[a.TemplateId].Kind, old, a))
 		result.Changes = append(result.Changes, api.ChangeItem{Id: a.Id, Name: a.Name, Kind: api.ChangeItemKindAsset, Effect: effect, RequiresStop: &needsStop})
 	}
 	for _, a := range oldAssets {

@@ -31,7 +31,7 @@ func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) (int64, erro
 const applyAssetResults = `-- name: ApplyAssetResults :exec
 UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
 FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,state text,error text,"observedAt" timestamptz)
-WHERE a.instance_id=r."instanceId" AND a.observed_at<=r."observedAt"
+WHERE a.instance_id=r."instanceId"
 `
 
 func (q *Queries) ApplyAssetResults(ctx context.Context, dollar_1 []byte) error {
@@ -44,14 +44,39 @@ WITH candidate AS (
  SELECT o.id FROM operations o WHERE (o.state='queued' OR (o.state='running' AND o.lease_until<now()))
  AND NOT EXISTS(SELECT 1 FROM operations live WHERE live.scope_kind=o.scope_kind AND live.scope_id=o.scope_id AND live.id<>o.id AND live.state='running')
  ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1
+), claimed AS (
+ UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
+ FROM candidate c WHERE o.id=c.id RETURNING o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id
+), active AS (
+ UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=NULL,updated_at=now()
+ FROM claimed c WHERE e.id=c.environment_id RETURNING e.id
 )
-UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
-FROM candidate c WHERE o.id=c.id RETURNING o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id
+SELECT claimed.id, claimed.environment_id, claimed.scope_kind, claimed.scope_id, claimed.kind, claimed.asset_id, claimed.state, claimed.phase, claimed.payload, claimed.results, claimed.error, claimed.expected_revision, claimed.lease_owner, claimed.lease_until, claimed.created_at, claimed.updated_at, claimed.client_request_id FROM claimed
 `
 
-func (q *Queries) ClaimOperation(ctx context.Context, leaseOwner *string) (Operation, error) {
+type ClaimOperationRow struct {
+	ID               string
+	EnvironmentID    *string
+	ScopeKind        string
+	ScopeID          string
+	Kind             string
+	AssetID          *string
+	State            string
+	Phase            string
+	Payload          []byte
+	Results          []byte
+	Error            *string
+	ExpectedRevision int32
+	LeaseOwner       *string
+	LeaseUntil       pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	ClientRequestID  *string
+}
+
+func (q *Queries) ClaimOperation(ctx context.Context, leaseOwner *string) (ClaimOperationRow, error) {
 	row := q.db.QueryRow(ctx, claimOperation, leaseOwner)
-	var i Operation
+	var i ClaimOperationRow
 	err := row.Scan(
 		&i.ID,
 		&i.EnvironmentID,
@@ -410,6 +435,35 @@ func (q *Queries) GetGrants(ctx context.Context, principalID string) ([]Grant, e
 			&i.ScopeID,
 			&i.Permissions,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getNodeEndpoints = `-- name: GetNodeEndpoints :many
+SELECT id,endpoint FROM nodes WHERE id=ANY($1::text[])
+`
+
+type GetNodeEndpointsRow struct {
+	ID       string
+	Endpoint string
+}
+
+func (q *Queries) GetNodeEndpoints(ctx context.Context, dollar_1 []string) ([]GetNodeEndpointsRow, error) {
+	rows, err := q.db.Query(ctx, getNodeEndpoints, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetNodeEndpointsRow{}
+	for rows.Next() {
+		var i GetNodeEndpointsRow
+		if err := rows.Scan(&i.ID, &i.Endpoint); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1047,6 +1101,35 @@ func (q *Queries) LockNodes(ctx context.Context, dollar_1 []string) ([]Node, err
 	return items, nil
 }
 
+const lockOperation = `-- name: LockOperation :one
+SELECT id, environment_id, scope_kind, scope_id, kind, asset_id, state, phase, payload, results, error, expected_revision, lease_owner, lease_until, created_at, updated_at, client_request_id FROM operations WHERE id=$1 FOR UPDATE
+`
+
+func (q *Queries) LockOperation(ctx context.Context, id string) (Operation, error) {
+	row := q.db.QueryRow(ctx, lockOperation, id)
+	var i Operation
+	err := row.Scan(
+		&i.ID,
+		&i.EnvironmentID,
+		&i.ScopeKind,
+		&i.ScopeID,
+		&i.Kind,
+		&i.AssetID,
+		&i.State,
+		&i.Phase,
+		&i.Payload,
+		&i.Results,
+		&i.Error,
+		&i.ExpectedRevision,
+		&i.LeaseOwner,
+		&i.LeaseUntil,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ClientRequestID,
+	)
+	return i, err
+}
+
 const makeCurrentAssets = `-- name: MakeCurrentAssets :exec
 UPDATE runtime_assets SET current=true WHERE instance_id=ANY($1::text[])
 `
@@ -1218,6 +1301,47 @@ WHERE a.instance_id=r."instanceId"
 func (q *Queries) ReserveResourceUpdates(ctx context.Context, dollar_1 []byte) error {
 	_, err := q.db.Exec(ctx, reserveResourceUpdates, dollar_1)
 	return err
+}
+
+const retryOperation = `-- name: RetryOperation :one
+UPDATE operations SET state='queued',phase=$2,payload=$3,expected_revision=$4,error=NULL,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 RETURNING id, environment_id, scope_kind, scope_id, kind, asset_id, state, phase, payload, results, error, expected_revision, lease_owner, lease_until, created_at, updated_at, client_request_id
+`
+
+type RetryOperationParams struct {
+	ID               string
+	Phase            string
+	Payload          []byte
+	ExpectedRevision int32
+}
+
+func (q *Queries) RetryOperation(ctx context.Context, arg RetryOperationParams) (Operation, error) {
+	row := q.db.QueryRow(ctx, retryOperation,
+		arg.ID,
+		arg.Phase,
+		arg.Payload,
+		arg.ExpectedRevision,
+	)
+	var i Operation
+	err := row.Scan(
+		&i.ID,
+		&i.EnvironmentID,
+		&i.ScopeKind,
+		&i.ScopeID,
+		&i.Kind,
+		&i.AssetID,
+		&i.State,
+		&i.Phase,
+		&i.Payload,
+		&i.Results,
+		&i.Error,
+		&i.ExpectedRevision,
+		&i.LeaseOwner,
+		&i.LeaseUntil,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ClientRequestID,
+	)
+	return i, err
 }
 
 const saveDesiredSpec = `-- name: SaveDesiredSpec :exec

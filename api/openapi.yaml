@@ -119,6 +119,11 @@ paths:
       operationId: getOperation
       responses:
         '200': {description: Operation, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+  /operations/{id}/retry:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: retryOperation
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
   /templates:
     get:
       operationId: listTemplates
@@ -427,7 +432,7 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, policies, prepare, activate, update, start, stop, force-stop, reboot, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
+        phase: {type: string, enum: [network, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
     ExecutionResult:

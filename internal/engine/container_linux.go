@@ -92,17 +92,13 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a.Asset.Id, id) }, true)
 	case api.NodePlanPhaseUpdate:
 		return c.update(ctx, container, env, a)
-	case api.NodePlanPhaseActivate, api.NodePlanPhaseStart:
+	case api.NodePlanPhaseStart:
 		if state == "stopped" || state == "prepared" || state == "created" {
 			return c.start(ctx, container, env, a)
 		}
 	case api.NodePlanPhaseStop, api.NodePlanPhaseForceStop:
 		if state == "running" || state == "suspended" || state == "created" {
 			err = c.stop(ctx, container, a, phase == api.NodePlanPhaseForceStop)
-		}
-	case api.NodePlanPhaseReboot:
-		if err = c.stop(ctx, container, a, false); err == nil {
-			return c.start(ctx, container, env, a)
 		}
 	case api.NodePlanPhaseSuspend, api.NodePlanPhaseResume:
 		var t containerd.Task
@@ -373,7 +369,7 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 			return "unknown", err
 		}
 		if status.Status == containerd.Stopped {
-			if err = c.disconnect(ctx, a); err != nil {
+			if err = c.disconnect(ctx, env, a); err != nil {
 				return "stopped", err
 			}
 			if _, err = task.Delete(ctx); err != nil {
@@ -399,7 +395,7 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 	// NewTask is the OCI created state. The entrypoint cannot run until all
 	// business interfaces, addresses, routes and DNS are ready.
 	if err = c.connect(ctx, task.Pid(), env, a); err != nil {
-		cleanup := errors.Join(c.disconnect(context.WithoutCancel(ctx), a), deleteCreated(context.WithoutCancel(ctx), task))
+		cleanup := errors.Join(c.disconnect(context.WithoutCancel(ctx), env, a), deleteCreated(context.WithoutCancel(ctx), task))
 		return "stopped", errors.Join(err, cleanup)
 	}
 	if err = task.Start(ctx); err != nil {
@@ -412,9 +408,16 @@ func deleteCreated(ctx context.Context, task containerd.Task) error {
 	return err
 }
 func (c *Containers) stop(ctx context.Context, container containerd.Container, a api.AssetExecution, force bool) error {
+	labels, err := container.Labels(ctx)
+	if err != nil {
+		return err
+	}
+	if err = json.Unmarshal([]byte(labels[networkLabel]), &a.Interfaces); err != nil {
+		return err
+	}
 	task, err := container.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		return c.disconnect(ctx, a)
+		return c.disconnect(ctx, labels[environmentLabel], a)
 	}
 	if err != nil {
 		return err
@@ -437,10 +440,6 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 		if force {
 			stopSignal = syscall.SIGKILL
 		} else {
-			labels, err := container.Labels(ctx)
-			if err != nil {
-				return err
-			}
 			if labels["netlab.stop-signal"] != "" {
 				stopSignal, err = signal.ParseSignal(labels["netlab.stop-signal"])
 				if err != nil {
@@ -467,7 +466,7 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 	if _, err = task.Delete(ctx); err != nil {
 		return err
 	}
-	return c.disconnect(ctx, a)
+	return c.disconnect(ctx, labels[environmentLabel], a)
 }
 func containerState(ctx context.Context, c containerd.Container) (string, error) {
 	t, err := c.Task(ctx, nil)

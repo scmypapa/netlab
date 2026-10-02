@@ -287,6 +287,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/operations/{id}/retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["retryOperation"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/templates": {
     parameters: {
       query?: never;
@@ -614,12 +632,10 @@ export interface components {
         | "network"
         | "policies"
         | "prepare"
-        | "activate"
         | "update"
         | "start"
         | "stop"
         | "force-stop"
-        | "reboot"
         | "suspend"
         | "resume"
         | "destroy"
@@ -1202,6 +1218,20 @@ export interface operations {
           "application/json": components["schemas"]["Operation"];
         };
       };
+    };
+  };
+  retryOperation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
     };
   };
   listTemplates: {

@@ -10,9 +10,13 @@ import (
 
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/environment"
 )
 
 func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Payload) error {
+	if op.Phase == "rolled-back" {
+		return errors.New(*p.Failure)
+	}
 	if op.Phase == "queued" {
 		if err := w.plan(ctx, op, p); err != nil {
 			return errors.Join(err, w.status(ctx, op, p, err))
@@ -27,16 +31,22 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		switch op.Phase {
 		case "network":
 			err = w.network(ctx, op, p, false)
-			next = "prepare"
+			next = "update"
 		case "prepare":
 			_, err = w.batch(ctx, op, p, api.NodePlanPhasePrepare, p.Targets)
 			next = "quiesce"
 		case "quiesce":
-			affected := append(slices.Clone(p.Old), p.Updates...)
+			affected := slices.Clone(p.Old)
+			for _, t := range p.Updates {
+				old := findInstance(p.Before, t.Execution.InstanceId)
+				if environment.RequiresStop(t.Execution.Template.Kind, old.Execution.Asset, t.Execution.Asset) || !reflect.DeepEqual(old.Execution.Interfaces, t.Execution.Interfaces) {
+					affected = append(affected, old)
+				}
+			}
 			// Uncreated leftovers are handled by destroy; only defined current instances need stopping.
 			affected = slices.DeleteFunc(affected, func(t Target) bool { return findInstance(p.Before, t.Execution.InstanceId).Execution.InstanceId == "" })
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseForceStop, affected)
-			next = "update"
+			next = "network"
 		case "update":
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseUpdate, p.Updates)
 			next = "activate"
@@ -120,8 +130,8 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		default:
 			return fmt.Errorf("未知执行阶段 %s", op.Phase)
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if ctx.Err() != nil || errors.Is(err, errPersistence) {
+			return errors.Join(err, ctx.Err())
 		}
 		if err != nil {
 			detail := fmt.Errorf("%s: %w", op.Phase, err)
@@ -220,7 +230,12 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 	if err != nil {
 		return err
 	}
-	if err = q.CommitEnvironment(ctx, queries.CommitEnvironmentParams{ID: row.ID, AppliedSpec: raw, Status: state}); err != nil {
+	if op.Kind == "start" && p.BeforeSpec != nil && len(p.Targets) == 0 && len(p.Updates) == 0 {
+		err = q.SetEnvironmentState(ctx, queries.SetEnvironmentStateParams{ID: row.ID, Status: state})
+	} else {
+		err = q.CommitEnvironment(ctx, queries.CommitEnvironmentParams{ID: row.ID, AppliedSpec: raw, Status: state})
+	}
+	if err != nil {
 		return err
 	}
 	p.Committed = true
@@ -233,7 +248,7 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 	// Configuration, instance ownership and the next phase share one commit.
 	if err = tx.Commit(ctx); err != nil {
 		p.Committed = false
-		return err
+		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	return nil
 }
@@ -246,9 +261,14 @@ func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) 
 	if err != nil {
 		return err
 	}
+	_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Before, p.Updates))
+	return err
+}
+
+func removedVolumes(beforeTargets, afterTargets []Target) []Target {
 	removed := []Target{}
-	for _, t := range p.Updates {
-		before := findInstance(p.Before, t.Execution.InstanceId)
+	for _, t := range afterTargets {
+		before := findInstance(beforeTargets, t.Execution.InstanceId)
 		if before.Execution.Asset.Volumes == nil {
 			continue
 		}
@@ -272,8 +292,7 @@ func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) 
 			removed = append(removed, t)
 		}
 	}
-	_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removed)
-	return err
+	return removed
 }
 
 func (w Worker) releaseDestroyed(ctx context.Context, results []api.ExecutionResult) error {
@@ -299,6 +318,10 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		original := []Target{}
 		for _, t := range p.Updates {
 			old := findInstance(before, t.Execution.InstanceId)
+			if old.Execution.Asset.Volumes != nil {
+				volumes := slices.Clone(*old.Execution.Asset.Volumes)
+				old.Execution.Asset.Volumes = &volumes
+			}
 			for _, r := range observed {
 				if r.InstanceId != t.Execution.InstanceId || r.Execution == nil {
 					continue
@@ -326,6 +349,10 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		updateError = errors.Join(updateError, restoreErr)
 	}
 	err = errors.Join(err, updateError)
+	if errors.Is(err, errPersistence) || ctx.Err() != nil {
+		return errors.Join(initial, err, ctx.Err())
+	}
+	var restored *api.EnvironmentSpec
 	if p.BeforeSpec != nil {
 		old := *p.BeforeSpec
 		old.Assets = slices.Clone(old.Assets)
@@ -353,38 +380,62 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 				err = errors.Join(err, fmt.Errorf("资产 %s 未恢复到 %s", t.Execution.Asset.Name, t.State))
 			}
 		}
+		restored = &old
 		if err == nil {
-			raw, marshalErr := resourceRecords(*op.EnvironmentID, before)
-			if marshalErr != nil {
-				return errors.Join(initial, marshalErr)
-			}
-			if saveErr := w.Queries.UpdateExecutions(ctx, raw); saveErr != nil {
-				return errors.Join(initial, saveErr)
-			}
-			if !reflect.DeepEqual(old, *p.BeforeSpec) {
-				raw, marshalErr = json.Marshal(old)
-				if marshalErr != nil {
-					return errors.Join(initial, marshalErr)
-				}
-				state, stateErr := runtimeState(ctx, w.Queries, *op.EnvironmentID)
-				if stateErr != nil {
-					return errors.Join(initial, stateErr)
-				}
-				message := initial.Error()
-				if saveErr := w.Queries.CommitEnvironment(ctx, queries.CommitEnvironmentParams{ID: *op.EnvironmentID, AppliedSpec: raw, Status: state, Error: &message}); saveErr != nil {
-					return errors.Join(initial, saveErr)
-				}
-				p.Committed = true
-			}
+			_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Updates, before))
 		}
 	} else {
 		err = errors.Join(err, w.network(ctx, op, p, true))
+	}
+	if errors.Is(err, errPersistence) || ctx.Err() != nil {
+		return errors.Join(initial, err, ctx.Err())
 	}
 	if err != nil {
 		message := errors.Join(initial, err).Error()
 		return errors.Join(initial, err, w.Queries.SetEnvironmentState(ctx, queries.SetEnvironmentStateParams{ID: *op.EnvironmentID, Status: "failed", Error: &message}))
 	}
-	return errors.Join(initial, w.status(ctx, op, p, initial))
+	tx, err := w.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	defer tx.Rollback(ctx)
+	q := w.Queries.WithTx(tx)
+	if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	raw, err := resourceRecords(*op.EnvironmentID, before)
+	if err != nil {
+		return err
+	}
+	if err = q.UpdateExecutions(ctx, raw); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	transactionWorker := w
+	transactionWorker.Queries = q
+	if restored != nil && !reflect.DeepEqual(*restored, *p.BeforeSpec) {
+		raw, err = json.Marshal(restored)
+		if err != nil {
+			return err
+		}
+		state, stateErr := runtimeState(ctx, q, *op.EnvironmentID)
+		if stateErr != nil {
+			return fmt.Errorf("%w: %v", errPersistence, stateErr)
+		}
+		message := initial.Error()
+		if err = q.CommitEnvironment(ctx, queries.CommitEnvironmentParams{ID: *op.EnvironmentID, AppliedSpec: raw, Status: state, Error: &message}); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		p.Committed = true
+	} else if err = transactionWorker.status(ctx, op, p, initial); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if err = transactionWorker.phase(ctx, op, p, "rolled-back"); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	return initial
 }
 
 func runtimeState(ctx context.Context, q *queries.Queries, id string) (string, error) {
@@ -413,17 +464,15 @@ func runtimeState(ctx context.Context, q *queries.Queries, id string) (string, e
 		}
 		return "stopped", nil
 	}
-	if len(states) == 1 {
-		for state := range states {
-			if state == "running" || state == "stopped" || state == "suspended" {
-				return state, nil
-			}
-		}
-	}
 	if states["unknown"] || states["absent"] || states["reserved"] {
 		return "unknown", nil
 	}
-	return "running", nil
+	for _, state := range []string{"running", "suspended", "stopped"} {
+		if states[state] {
+			return state, nil
+		}
+	}
+	return "unknown", nil
 }
 
 func (w Worker) status(ctx context.Context, op *queries.Operation, p *Payload, failure error) error {

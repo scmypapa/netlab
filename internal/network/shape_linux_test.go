@@ -35,6 +35,9 @@ func TestRealBidirectionalShape(t *testing.T) {
 	if _, err := netlink.LinkByName(ifbName(port)); err != nil {
 		t.Fatal("egress IFB was not created", err)
 	}
+	if err := Shape(name, port, []api.Policy{policy}); err != nil {
+		t.Fatal("repeat identical policy", err)
+	}
 	if err := Shape(name, port, nil); err != nil {
 		t.Fatal(err)
 	}

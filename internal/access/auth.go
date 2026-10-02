@@ -85,7 +85,7 @@ func (i Identity) Allows(permission, project, environment, asset string, owner *
 		return true
 	}
 	for _, g := range i.Grants {
-		match := (g.ScopeKind == "project" && g.ScopeID == project) || (g.ScopeKind == "environment" && g.ScopeID == environment) || (asset != "" && g.ScopeKind == "asset" && g.ScopeID == asset)
+		match := (g.ScopeKind == "project" && g.ScopeID == project) || (g.ScopeKind == "environment" && g.ScopeID == environment) || (asset != "" && g.ScopeKind == "asset" && g.ScopeID == environment+"/"+asset)
 		if match {
 			for _, p := range g.Permissions {
 				if p == permission {

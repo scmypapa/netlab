@@ -55,7 +55,8 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		return "unknown", err
 	}
 	defer d.Free()
-	if _, err = v.owned(d, env, a.Asset.Id); err != nil {
+	owner, err := v.owned(d, env, a.Asset.Id)
+	if err != nil {
 		return "unknown", err
 	}
 	state, err := vmState(d)
@@ -71,7 +72,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a.Asset.Id, id) }, true)
 	case api.NodePlanPhaseUpdate:
 		return v.update(ctx, d, env, a)
-	case api.NodePlanPhaseActivate, api.NodePlanPhaseStart:
+	case api.NodePlanPhaseStart:
 		if state == "stopped" {
 			err = d.Create()
 		}
@@ -86,8 +87,6 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if state != "stopped" {
 			err = d.Destroy()
 		}
-	case api.NodePlanPhaseReboot:
-		err = d.Reboot(0)
 	case api.NodePlanPhaseSuspend:
 		if state != "suspended" {
 			err = d.Suspend()
@@ -97,6 +96,9 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 			err = d.Resume()
 		}
 	case api.NodePlanPhaseDestroy:
+		if err = json.Unmarshal([]byte(owner.Execution), &a); err != nil {
+			return state, err
+		}
 		if state != "stopped" {
 			if err = d.Destroy(); err != nil {
 				return state, err
