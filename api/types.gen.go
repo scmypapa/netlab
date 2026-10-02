@@ -179,6 +179,43 @@ type AssetState struct {
 	State      string    `json:"state"`
 }
 
+// Blueprint defines model for Blueprint.
+type Blueprint struct {
+	AssetCount      int       `json:"assetCount"`
+	CreatedAt       time.Time `json:"createdAt"`
+	Id              string    `json:"id"`
+	LatestVersion   int       `json:"latestVersion"`
+	LatestVersionId string    `json:"latestVersionId"`
+	Name            string    `json:"name"`
+	NetworkCount    int       `json:"networkCount"`
+	ProjectId       string    `json:"projectId"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// BlueprintVersion defines model for BlueprintVersion.
+type BlueprintVersion struct {
+	AssetCount          int             `json:"assetCount"`
+	BlueprintId         string          `json:"blueprintId"`
+	CreatedAt           time.Time       `json:"createdAt"`
+	Id                  string          `json:"id"`
+	NetworkCount        int             `json:"networkCount"`
+	SourceEnvironmentId string          `json:"sourceEnvironmentId"`
+	SourceRevision      int             `json:"sourceRevision"`
+	Spec                EnvironmentSpec `json:"spec"`
+	Version             int             `json:"version"`
+	View                CanvasView      `json:"view"`
+}
+
+// BlueprintVersionSummary defines model for BlueprintVersionSummary.
+type BlueprintVersionSummary struct {
+	AssetCount   int       `json:"assetCount"`
+	BlueprintId  string    `json:"blueprintId"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Id           string    `json:"id"`
+	NetworkCount int       `json:"networkCount"`
+	Version      int       `json:"version"`
+}
+
 // CanvasView defines model for CanvasView.
 type CanvasView struct {
 	Collapsed *[]string         `json:"collapsed,omitempty"`
@@ -217,13 +254,13 @@ type ChangeRequest struct {
 
 // CreateEnvironment defines model for CreateEnvironment.
 type CreateEnvironment struct {
-	BlueprintVersionId *string         `json:"blueprintVersionId,omitempty"`
-	ClientRequestId    *string         `json:"clientRequestId,omitempty"`
-	ExternalReference  *string         `json:"externalReference,omitempty"`
-	Name               string          `json:"name"`
-	ProjectId          *string         `json:"projectId,omitempty"`
-	Run                *bool           `json:"run,omitempty"`
-	Spec               EnvironmentSpec `json:"spec"`
+	BlueprintVersionId *string          `json:"blueprintVersionId,omitempty"`
+	ClientRequestId    *string          `json:"clientRequestId,omitempty"`
+	ExternalReference  *string          `json:"externalReference,omitempty"`
+	Name               string           `json:"name"`
+	ProjectId          *string          `json:"projectId,omitempty"`
+	Run                *bool            `json:"run,omitempty"`
+	Spec               *EnvironmentSpec `json:"spec,omitempty"`
 }
 
 // Draft defines model for Draft.
@@ -234,20 +271,21 @@ type Draft struct {
 
 // Environment defines model for Environment.
 type Environment struct {
-	AppliedSpec       *EnvironmentSpec  `json:"appliedSpec,omitempty"`
-	CreatedAt         time.Time         `json:"createdAt"`
-	Draft             *Draft            `json:"draft,omitempty"`
-	Error             *string           `json:"error,omitempty"`
-	ExternalReference *string           `json:"externalReference,omitempty"`
-	Id                string            `json:"id"`
-	Name              string            `json:"name"`
-	OperationId       *string           `json:"operationId,omitempty"`
-	ProjectId         string            `json:"projectId"`
-	Revision          int               `json:"revision"`
-	Spec              EnvironmentSpec   `json:"spec"`
-	Status            EnvironmentStatus `json:"status"`
-	UpdatedAt         time.Time         `json:"updatedAt"`
-	View              CanvasView        `json:"view"`
+	AppliedSpec        *EnvironmentSpec  `json:"appliedSpec,omitempty"`
+	BlueprintVersionId *string           `json:"blueprintVersionId,omitempty"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	Draft              *Draft            `json:"draft,omitempty"`
+	Error              *string           `json:"error,omitempty"`
+	ExternalReference  *string           `json:"externalReference,omitempty"`
+	Id                 string            `json:"id"`
+	Name               string            `json:"name"`
+	OperationId        *string           `json:"operationId,omitempty"`
+	ProjectId          string            `json:"projectId"`
+	Revision           int               `json:"revision"`
+	Spec               EnvironmentSpec   `json:"spec"`
+	Status             EnvironmentStatus `json:"status"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
+	View               CanvasView        `json:"view"`
 }
 
 // EnvironmentStatus defines model for Environment.Status.
@@ -464,6 +502,20 @@ type Route struct {
 	NextHop     string `json:"nextHop"`
 }
 
+// SaveBlueprint defines model for SaveBlueprint.
+type SaveBlueprint struct {
+	ExpectedRevision int             `json:"expectedRevision"`
+	Name             string          `json:"name"`
+	Spec             EnvironmentSpec `json:"spec"`
+}
+
+// SaveBlueprintVersion defines model for SaveBlueprintVersion.
+type SaveBlueprintVersion struct {
+	EnvironmentId    string          `json:"environmentId"`
+	ExpectedRevision int             `json:"expectedRevision"`
+	Spec             EnvironmentSpec `json:"spec"`
+}
+
 // Template defines model for Template.
 type Template struct {
 	Error     *string         `json:"error,omitempty"`
@@ -509,6 +561,18 @@ type Limit = int
 // Accepted defines model for Accepted.
 type Accepted = Operation
 
+// ListBlueprintsParams defines parameters for ListBlueprints.
+type ListBlueprintsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListBlueprintVersionsParams defines parameters for ListBlueprintVersions.
+type ListBlueprintVersionsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListEnvironmentsParams defines parameters for ListEnvironments.
 type ListEnvironmentsParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -539,6 +603,9 @@ type ListTemplatesParams struct {
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// SaveBlueprintVersionJSONRequestBody defines body for SaveBlueprintVersion for application/json ContentType.
+type SaveBlueprintVersionJSONRequestBody = SaveBlueprintVersion
+
 // CreateEnvironmentJSONRequestBody defines body for CreateEnvironment for application/json ContentType.
 type CreateEnvironmentJSONRequestBody = CreateEnvironment
 
@@ -547,6 +614,9 @@ type EnvironmentActionJSONRequestBody = ActionRequest
 
 // AssetActionJSONRequestBody defines body for AssetAction for application/json ContentType.
 type AssetActionJSONRequestBody = ActionRequest
+
+// SaveEnvironmentBlueprintJSONRequestBody defines body for SaveEnvironmentBlueprint for application/json ContentType.
+type SaveEnvironmentBlueprintJSONRequestBody = SaveBlueprint
 
 // ChangeEnvironmentJSONRequestBody defines body for ChangeEnvironment for application/json ContentType.
 type ChangeEnvironmentJSONRequestBody = ChangeRequest

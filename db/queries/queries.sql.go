@@ -137,7 +137,7 @@ func (q *Queries) CreateCredential(ctx context.Context, arg CreateCredentialPara
 
 const createEnvironment = `-- name: CreateEnvironment :one
 INSERT INTO environments(id,project_id,owner_id,name,external_reference,spec,client_request_id)
-VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(project_id,client_request_id) DO NOTHING RETURNING id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at
+VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(project_id,client_request_id) DO NOTHING RETURNING id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id
 `
 
 type CreateEnvironmentParams struct {
@@ -179,6 +179,7 @@ func (q *Queries) CreateEnvironment(ctx context.Context, arg CreateEnvironmentPa
 		&i.ClientRequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BlueprintVersionID,
 	)
 	return i, err
 }
@@ -326,7 +327,7 @@ func (q *Queries) GetCredential(ctx context.Context, hash []byte) (Principal, er
 }
 
 const getEnvironment = `-- name: GetEnvironment :one
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at FROM environments WHERE id=$1
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE id=$1
 `
 
 func (q *Queries) GetEnvironment(ctx context.Context, id string) (Environment, error) {
@@ -350,12 +351,13 @@ func (q *Queries) GetEnvironment(ctx context.Context, id string) (Environment, e
 		&i.ClientRequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BlueprintVersionID,
 	)
 	return i, err
 }
 
 const getEnvironmentByRequest = `-- name: GetEnvironmentByRequest :one
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at FROM environments WHERE project_id=$1 AND client_request_id=$2
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE project_id=$1 AND client_request_id=$2
 `
 
 type GetEnvironmentByRequestParams struct {
@@ -384,6 +386,7 @@ func (q *Queries) GetEnvironmentByRequest(ctx context.Context, arg GetEnvironmen
 		&i.ClientRequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BlueprintVersionID,
 	)
 	return i, err
 }
@@ -575,7 +578,7 @@ func (q *Queries) GetTemplates(ctx context.Context, dollar_1 []string) ([]Templa
 }
 
 const listEnvironments = `-- name: ListEnvironments :many
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at FROM environments WHERE status<>'destroyed' AND
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE status<>'destroyed' AND
  ($1::boolean OR owner_id=$2 OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=$2 AND 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=project_id) OR (g.scope_kind='environment' AND g.scope_id=environments.id))))
@@ -621,6 +624,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsPara
 			&i.ClientRequestID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.BlueprintVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -931,7 +935,7 @@ func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOper
 }
 
 const lockEnvironment = `-- name: LockEnvironment :one
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at FROM environments WHERE id=$1 FOR UPDATE
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockEnvironment(ctx context.Context, id string) (Environment, error) {
@@ -955,6 +959,7 @@ func (q *Queries) LockEnvironment(ctx context.Context, id string) (Environment, 
 		&i.ClientRequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BlueprintVersionID,
 	)
 	return i, err
 }
