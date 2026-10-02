@@ -62,7 +62,7 @@ func machineCapabilities(c libvirtxml.DomainCaps) api.VmMachine {
 }
 
 func (v *VirtualMachines) hardwareCapabilities() (api.VmHardware, error) {
-	hardware := api.VmHardware{Machines: []api.VmMachine{}, CpuModes: []string{}, CpuModels: []string{}, NicModels: []string{}}
+	hardware := api.VmHardware{Machines: []api.VmMachine{}, CpuModes: []string{}, CpuModels: []string{}, NicModels: []string{}, DiskControllers: []string{}}
 	text, err := v.conn.GetCapabilities()
 	if err != nil {
 		return hardware, err
@@ -131,9 +131,14 @@ func (v *VirtualMachines) hardwareCapabilities() (api.VmHardware, error) {
 	if err != nil {
 		return hardware, err
 	}
-	for _, nic := range []struct{ device, model string }{{"virtio-net-pci", "virtio"}, {"e1000", "e1000"}, {"e1000e", "e1000e"}, {"rtl8139", "rtl8139"}} {
+	for _, nic := range []struct{ device, model string }{{"virtio-net-pci", "virtio"}, {"e1000", "e1000"}, {"e1000e", "e1000e"}, {"rtl8139", "rtl8139"}, {"vmxnet3", "vmxnet3"}} {
 		if strings.Contains(string(devices), "name \""+nic.device+"\"") {
 			hardware.NicModels = append(hardware.NicModels, nic.model)
+		}
+	}
+	for _, controller := range []struct{ device, model string }{{"lsi53c895a", "lsilogic"}, {"mptsas1068", "lsisas1068"}, {"pvscsi", "vmpvscsi"}, {"virtio-scsi-pci", "virtio-scsi"}} {
+		if strings.Contains(string(devices), "name \""+controller.device+"\"") {
+			hardware.DiskControllers = append(hardware.DiskControllers, controller.model)
 		}
 	}
 	return hardware, nil

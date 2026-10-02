@@ -598,10 +598,11 @@ type TemplateKind string
 
 // VmHardware defines model for VmHardware.
 type VmHardware struct {
-	CpuModels []string    `json:"cpuModels"`
-	CpuModes  []string    `json:"cpuModes"`
-	Machines  []VmMachine `json:"machines"`
-	NicModels []string    `json:"nicModels"`
+	CpuModels       []string    `json:"cpuModels"`
+	CpuModes        []string    `json:"cpuModes"`
+	DiskControllers []string    `json:"diskControllers"`
+	Machines        []VmMachine `json:"machines"`
+	NicModels       []string    `json:"nicModels"`
 }
 
 // VmMachine defines model for VmMachine.

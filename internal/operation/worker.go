@@ -203,7 +203,8 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 		if err = json.Unmarshal(n.Info, &info); err != nil {
 			return err
 		}
-		if n.State != "ready" || !supports(info, t, t.Resources.Cpu) {
+		metadataImport := t.Hardware == nil && t.Format != nil && (*t.Format == "ova" || *t.Format == "ovf")
+		if n.State != "ready" || !slices.Contains(info.Capabilities, string(t.Kind)) || (!metadataImport && !supports(info, t, t.Resources.Cpu)) {
 			continue
 		}
 		if err = w.phase(ctx, op, p, "prepare"); err != nil {

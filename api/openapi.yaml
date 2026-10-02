@@ -495,12 +495,13 @@ components:
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
     VmHardware:
       type: object
-      required: [machines, cpuModes, cpuModels, nicModels]
+      required: [machines, cpuModes, cpuModels, nicModels, diskControllers]
       properties:
         machines: {type: array, items: {$ref: '#/components/schemas/VmMachine'}}
         cpuModes: {type: array, items: {type: string}}
         cpuModels: {type: array, items: {type: string}}
         nicModels: {type: array, items: {type: string}}
+        diskControllers: {type: array, items: {type: string}}
     VmMachine:
       type: object
       required: [name, aliases, maxVcpus, firmware, secureBoot, tpm2, diskBuses, firmwareFiles]
