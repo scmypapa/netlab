@@ -19,6 +19,7 @@ export function CreateEnvironmentDialog({
   const [blueprintId, setBlueprintId] = useState(blueprint?.id ?? "blank");
   const [selectedVersion, setSelectedVersion] = useState(versionId ?? "");
   const [run, setRun] = useState(true);
+  const [clientRequestId] = useState(() => crypto.randomUUID());
   const blueprints = useQuery({
     queryKey: ["blueprints"],
     queryFn: api.blueprints,
@@ -39,12 +40,13 @@ export function CreateEnvironmentDialog({
     mutationFn: () =>
       api.createEnvironment({
         name,
+        clientRequestId,
         ...(blueprintId === "blank"
           ? { spec: { assets: [], networks: [] } }
           : {
+              projectId: selected!.projectId,
               blueprintVersionId: currentVersion!,
               run,
-              ...(run ? { clientRequestId: crypto.randomUUID() } : {}),
             }),
       }),
     onSuccess: (environment) => {
