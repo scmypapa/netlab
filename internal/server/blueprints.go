@@ -16,7 +16,7 @@ func (s *Server) listBlueprints(w http.ResponseWriter, r *http.Request, identity
 		return err
 	}
 	principal := identity.Principal.ID
-	rows, err := s.Queries.ListBlueprints(r.Context(), queries.ListBlueprintsParams{IsAdmin: identity.Administrator(), PrincipalID: &principal, Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search"))})
+	rows, err := s.Queries.ListBlueprints(r.Context(), queries.ListBlueprintsParams{IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search"))})
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,92 @@
  */
 
 export interface paths {
+  "/principals": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listPrincipals"];
+    put?: never;
+    post: operations["createUser"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/principals/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["updateUser"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service-tokens": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["createServiceToken"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/service-tokens/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["revokeServiceToken"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/grants": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["getEnvironmentGrants"];
+    put: operations["replaceEnvironmentGrants"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments": {
     parameters: {
       query?: never;
@@ -415,10 +501,79 @@ export interface components {
       cols: number;
       rows: number;
     };
+    /** @enum {string} */
+    Permission:
+      | "read"
+      | "operate"
+      | "compose"
+      | "manage"
+      | "session"
+      | "file"
+      | "observe"
+      | "network"
+      | "access";
+    ScopeGrant: {
+      /** @enum {string} */
+      scopeKind: "project" | "environment" | "asset";
+      scopeId: string;
+      permissions: components["schemas"]["Permission"][];
+    };
+    RolePreset: {
+      /** @enum {string} */
+      key: "viewer" | "operator" | "manager";
+      name: string;
+      permissions: components["schemas"]["Permission"][];
+    };
+    Principal: {
+      id: string;
+      name: string;
+      /** @enum {string} */
+      kind: "user" | "token";
+      administrator: boolean;
+      disabled: boolean;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      expiresAt?: string;
+    };
+    CreateUser: {
+      name: string;
+      /** Format: password */
+      password: string;
+    };
+    UpdateUser: {
+      name: string;
+      /** Format: password */
+      password?: string;
+      disabled: boolean;
+    };
+    CreateServiceToken: {
+      name: string;
+      grants: components["schemas"]["ScopeGrant"][];
+      /** Format: date-time */
+      expiresAt?: string;
+    };
+    IssuedServiceToken: {
+      principal: components["schemas"]["Principal"];
+      token: string;
+    };
+    EnvironmentGrant: {
+      principalId: string;
+      assetIds?: string[];
+      permissions: components["schemas"]["Permission"][];
+    };
+    EnvironmentSharing: {
+      grants: components["schemas"]["EnvironmentGrant"][];
+      inherited: components["schemas"]["EnvironmentGrant"][];
+      subjects: components["schemas"]["Principal"][];
+      ownerId?: string;
+    };
     Identity: {
       id: string;
       name: string;
       administrator: boolean;
+      roles?: components["schemas"]["RolePreset"][];
+      grants?: components["schemas"]["ScopeGrant"][];
     };
     Login: {
       name: string;
@@ -537,6 +692,10 @@ export interface components {
       spec: components["schemas"]["EnvironmentSpec"];
     };
     Environment: {
+      permissions?: components["schemas"]["Permission"][];
+      assetPermissions?: {
+        [key: string]: components["schemas"]["Permission"][];
+      };
       id: string;
       projectId: string;
       name: string;
@@ -822,6 +981,169 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listPrincipals: {
+    parameters: {
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+        search?: components["parameters"]["Search"];
+        kind?: "user" | "token";
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Accounts */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Principal"][];
+        };
+      };
+    };
+  };
+  createUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateUser"];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Principal"];
+        };
+      };
+    };
+  };
+  updateUser: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateUser"];
+      };
+    };
+    responses: {
+      /** @description Updated */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  createServiceToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateServiceToken"];
+      };
+    };
+    responses: {
+      /** @description Token returned once */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IssuedServiceToken"];
+        };
+      };
+    };
+  };
+  revokeServiceToken: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Revoked */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  getEnvironmentGrants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Environment sharing */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EnvironmentSharing"];
+        };
+      };
+    };
+  };
+  replaceEnvironmentGrants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EnvironmentGrant"][];
+      };
+    };
+    responses: {
+      /** @description Replaced */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   listEnvironments: {
     parameters: {
       query?: {

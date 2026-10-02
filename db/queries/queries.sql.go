@@ -335,18 +335,26 @@ func (q *Queries) FinishOperation(ctx context.Context, arg FinishOperationParams
 }
 
 const getCredential = `-- name: GetCredential :one
-SELECT p.id, p.name, p.kind, p.password_hash, p.administrator FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND (c.expires_at IS NULL OR c.expires_at>now())
+SELECT p.id, p.name, p.kind, p.password_hash, p.administrator, p.disabled, p.created_at,c.expires_at AS credential_expires_at FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND NOT p.disabled AND (c.expires_at IS NULL OR c.expires_at>now())
 `
 
-func (q *Queries) GetCredential(ctx context.Context, hash []byte) (Principal, error) {
+type GetCredentialRow struct {
+	Principal           Principal
+	CredentialExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetCredential(ctx context.Context, hash []byte) (GetCredentialRow, error) {
 	row := q.db.QueryRow(ctx, getCredential, hash)
-	var i Principal
+	var i GetCredentialRow
 	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Kind,
-		&i.PasswordHash,
-		&i.Administrator,
+		&i.Principal.ID,
+		&i.Principal.Name,
+		&i.Principal.Kind,
+		&i.Principal.PasswordHash,
+		&i.Principal.Administrator,
+		&i.Principal.Disabled,
+		&i.Principal.CreatedAt,
+		&i.CredentialExpiresAt,
 	)
 	return i, err
 }
@@ -621,7 +629,7 @@ func (q *Queries) GetOperationByRequest(ctx context.Context, arg GetOperationByR
 }
 
 const getPrincipalByName = `-- name: GetPrincipalByName :one
-SELECT id, name, kind, password_hash, administrator FROM principals WHERE name=$1
+SELECT id, name, kind, password_hash, administrator, disabled, created_at FROM principals WHERE name=$1
 `
 
 func (q *Queries) GetPrincipalByName(ctx context.Context, name string) (Principal, error) {
@@ -633,6 +641,8 @@ func (q *Queries) GetPrincipalByName(ctx context.Context, name string) (Principa
 		&i.Kind,
 		&i.PasswordHash,
 		&i.Administrator,
+		&i.Disabled,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -679,26 +689,37 @@ func (q *Queries) GetTemplates(ctx context.Context, dollar_1 []string) ([]Templa
 }
 
 const listEnvironments = `-- name: ListEnvironments :many
+WITH readable AS (
+ SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
+ ($5::boolean OR ($6::boolean AND e.owner_id=$7) OR EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=$7 AND 'read'=ANY(g.permissions) AND
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
+ FROM environments e WHERE e.status<>'destroyed'
+), visible AS (
+ SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.runtime_spec, e.full_read,CASE WHEN full_read THEN runtime_spec->'assets' ELSE
+ (SELECT jsonb_agg(a) FROM jsonb_array_elements(runtime_spec->'assets') a WHERE EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=$7 AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))) END AS visible_assets
+ FROM readable e
+)
 SELECT e.id,e.project_id,e.name,e.external_reference,e.revision,e.status,e.created_at,e.updated_at,
- COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'assets'),0)::integer AS asset_count,
- COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'networks'),0)::integer AS network_count
-FROM environments e WHERE e.status<>'destroyed' AND
- ($1::boolean OR e.owner_id=$2 OR EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$2 AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
- AND ($3::text='' OR e.name ILIKE '%'||$3||'%' OR e.external_reference ILIKE '%'||$3||'%')
- AND ($4::text='' OR e.status=$4)
- AND ($5::text='' OR (e.created_at,e.id)<(SELECT p.created_at,p.id FROM environments p WHERE p.id=$5))
- ORDER BY e.created_at DESC,e.id DESC LIMIT $6
+ COALESCE(jsonb_array_length(e.visible_assets),0)::integer AS asset_count,
+ (CASE WHEN full_read THEN COALESCE(jsonb_array_length(e.runtime_spec->'networks'),0) ELSE
+ (SELECT count(DISTINCT iface->>'networkId') FROM jsonb_array_elements(e.visible_assets) a CROSS JOIN LATERAL jsonb_array_elements(a->'interfaces') iface) END)::integer AS network_count
+FROM visible e WHERE (e.full_read OR jsonb_array_length(e.visible_assets)>0)
+ AND ($1::text='' OR e.name ILIKE '%'||$1||'%' OR e.external_reference ILIKE '%'||$1||'%')
+ AND ($2::text='' OR e.status=$2)
+ AND ($3::text='' OR (e.created_at,e.id)<(SELECT p.created_at,p.id FROM environments p WHERE p.id=$3))
+ ORDER BY e.created_at DESC,e.id DESC LIMIT $4
 `
 
 type ListEnvironmentsParams struct {
-	IsAdmin     bool
-	PrincipalID *string
 	Search      string
 	Status      string
 	Cursor      string
 	PageLimit   int32
+	IsAdmin     bool
+	IsUser      bool
+	PrincipalID *string
 }
 
 type ListEnvironmentsRow struct {
@@ -716,12 +737,13 @@ type ListEnvironmentsRow struct {
 
 func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error) {
 	rows, err := q.db.Query(ctx, listEnvironments,
-		arg.IsAdmin,
-		arg.PrincipalID,
 		arg.Search,
 		arg.Status,
 		arg.Cursor,
 		arg.PageLimit,
+		arg.IsAdmin,
+		arg.IsUser,
+		arg.PrincipalID,
 	)
 	if err != nil {
 		return nil, err
@@ -1009,16 +1031,17 @@ const listVisibleOperations = `-- name: ListVisibleOperations :many
 SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE ($1::text='' OR o.environment_id=$1)
 AND ($2::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=$2))
-AND ($3::boolean OR e.owner_id=$4 OR EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$4 AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
-ORDER BY o.created_at DESC,o.id DESC LIMIT $5
+AND ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=$5 AND 'read'=ANY(g.permissions) AND
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id))))
+ORDER BY o.created_at DESC,o.id DESC LIMIT $6
 `
 
 type ListVisibleOperationsParams struct {
 	EnvironmentID string
 	Cursor        string
 	IsAdmin       bool
+	IsUser        bool
 	PrincipalID   *string
 	PageLimit     int32
 }
@@ -1028,6 +1051,7 @@ func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOper
 		arg.EnvironmentID,
 		arg.Cursor,
 		arg.IsAdmin,
+		arg.IsUser,
 		arg.PrincipalID,
 		arg.PageLimit,
 	)

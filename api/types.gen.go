@@ -106,6 +106,19 @@ const (
 	OperationStateSucceeded        OperationState = "succeeded"
 )
 
+// Defines values for Permission.
+const (
+	PermissionAccess  Permission = "access"
+	PermissionCompose Permission = "compose"
+	PermissionFile    Permission = "file"
+	PermissionManage  Permission = "manage"
+	PermissionNetwork Permission = "network"
+	PermissionObserve Permission = "observe"
+	PermissionOperate Permission = "operate"
+	PermissionRead    Permission = "read"
+	PermissionSession Permission = "session"
+)
+
 // Defines values for PolicyAction.
 const (
 	Allow PolicyAction = "allow"
@@ -118,6 +131,26 @@ const (
 	Both    PolicyDirection = "both"
 	Egress  PolicyDirection = "egress"
 	Ingress PolicyDirection = "ingress"
+)
+
+// Defines values for PrincipalKind.
+const (
+	PrincipalKindToken PrincipalKind = "token"
+	PrincipalKindUser  PrincipalKind = "user"
+)
+
+// Defines values for RolePresetKey.
+const (
+	Manager  RolePresetKey = "manager"
+	Operator RolePresetKey = "operator"
+	Viewer   RolePresetKey = "viewer"
+)
+
+// Defines values for ScopeGrantScopeKind.
+const (
+	ScopeGrantScopeKindAsset       ScopeGrantScopeKind = "asset"
+	ScopeGrantScopeKindEnvironment ScopeGrantScopeKind = "environment"
+	ScopeGrantScopeKindProject     ScopeGrantScopeKind = "project"
 )
 
 // Defines values for TemplateFormat.
@@ -142,6 +175,12 @@ const (
 const (
 	Container TemplateKind = "container"
 	Vm        TemplateKind = "vm"
+)
+
+// Defines values for ListPrincipalsParamsKind.
+const (
+	ListPrincipalsParamsKindToken ListPrincipalsParamsKind = "token"
+	ListPrincipalsParamsKindUser  ListPrincipalsParamsKind = "user"
 )
 
 // ActionRequest defines model for ActionRequest.
@@ -277,6 +316,19 @@ type CreateEnvironment struct {
 	Spec               *EnvironmentSpec `json:"spec,omitempty"`
 }
 
+// CreateServiceToken defines model for CreateServiceToken.
+type CreateServiceToken struct {
+	ExpiresAt *time.Time   `json:"expiresAt,omitempty"`
+	Grants    []ScopeGrant `json:"grants"`
+	Name      string       `json:"name"`
+}
+
+// CreateUser defines model for CreateUser.
+type CreateUser struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
 // Draft defines model for Draft.
 type Draft struct {
 	BaseRevision int             `json:"baseRevision"`
@@ -285,21 +337,38 @@ type Draft struct {
 
 // Environment defines model for Environment.
 type Environment struct {
-	AppliedSpec        *EnvironmentSpec  `json:"appliedSpec,omitempty"`
-	BlueprintVersionId *string           `json:"blueprintVersionId,omitempty"`
-	CreatedAt          time.Time         `json:"createdAt"`
-	Draft              *Draft            `json:"draft,omitempty"`
-	Error              *string           `json:"error,omitempty"`
-	ExternalReference  *string           `json:"externalReference,omitempty"`
-	Id                 string            `json:"id"`
-	Name               string            `json:"name"`
-	OperationId        *string           `json:"operationId,omitempty"`
-	ProjectId          string            `json:"projectId"`
-	Revision           int               `json:"revision"`
-	Spec               EnvironmentSpec   `json:"spec"`
-	Status             EnvironmentStatus `json:"status"`
-	UpdatedAt          time.Time         `json:"updatedAt"`
-	View               CanvasView        `json:"view"`
+	AppliedSpec        *EnvironmentSpec         `json:"appliedSpec,omitempty"`
+	AssetPermissions   *map[string][]Permission `json:"assetPermissions,omitempty"`
+	BlueprintVersionId *string                  `json:"blueprintVersionId,omitempty"`
+	CreatedAt          time.Time                `json:"createdAt"`
+	Draft              *Draft                   `json:"draft,omitempty"`
+	Error              *string                  `json:"error,omitempty"`
+	ExternalReference  *string                  `json:"externalReference,omitempty"`
+	Id                 string                   `json:"id"`
+	Name               string                   `json:"name"`
+	OperationId        *string                  `json:"operationId,omitempty"`
+	Permissions        *[]Permission            `json:"permissions,omitempty"`
+	ProjectId          string                   `json:"projectId"`
+	Revision           int                      `json:"revision"`
+	Spec               EnvironmentSpec          `json:"spec"`
+	Status             EnvironmentStatus        `json:"status"`
+	UpdatedAt          time.Time                `json:"updatedAt"`
+	View               CanvasView               `json:"view"`
+}
+
+// EnvironmentGrant defines model for EnvironmentGrant.
+type EnvironmentGrant struct {
+	AssetIds    *[]string    `json:"assetIds,omitempty"`
+	Permissions []Permission `json:"permissions"`
+	PrincipalId string       `json:"principalId"`
+}
+
+// EnvironmentSharing defines model for EnvironmentSharing.
+type EnvironmentSharing struct {
+	Grants    []EnvironmentGrant `json:"grants"`
+	Inherited []EnvironmentGrant `json:"inherited"`
+	OwnerId   *string            `json:"ownerId,omitempty"`
+	Subjects  []Principal        `json:"subjects"`
 }
 
 // EnvironmentSpec defines model for EnvironmentSpec.
@@ -372,9 +441,11 @@ type HardwareNicModel string
 
 // Identity defines model for Identity.
 type Identity struct {
-	Administrator bool   `json:"administrator"`
-	Id            string `json:"id"`
-	Name          string `json:"name"`
+	Administrator bool          `json:"administrator"`
+	Grants        *[]ScopeGrant `json:"grants,omitempty"`
+	Id            string        `json:"id"`
+	Name          string        `json:"name"`
+	Roles         *[]RolePreset `json:"roles,omitempty"`
 }
 
 // Interface defines model for Interface.
@@ -384,6 +455,12 @@ type Interface struct {
 	Mac       string `json:"mac"`
 	NetworkId string `json:"networkId"`
 	Primary   bool   `json:"primary"`
+}
+
+// IssuedServiceToken defines model for IssuedServiceToken.
+type IssuedServiceToken struct {
+	Principal Principal `json:"principal"`
+	Token     string    `json:"token"`
 }
 
 // Login defines model for Login.
@@ -469,6 +546,9 @@ type Operation struct {
 // OperationState defines model for Operation.State.
 type OperationState string
 
+// Permission defines model for Permission.
+type Permission string
+
 // Point defines model for Point.
 type Point struct {
 	X float32 `json:"x"`
@@ -494,6 +574,20 @@ type PolicyAction string
 
 // PolicyDirection defines model for Policy.Direction.
 type PolicyDirection string
+
+// Principal defines model for Principal.
+type Principal struct {
+	Administrator bool          `json:"administrator"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	Disabled      bool          `json:"disabled"`
+	ExpiresAt     *time.Time    `json:"expiresAt,omitempty"`
+	Id            string        `json:"id"`
+	Kind          PrincipalKind `json:"kind"`
+	Name          string        `json:"name"`
+}
+
+// PrincipalKind defines model for Principal.Kind.
+type PrincipalKind string
 
 // Problem defines model for Problem.
 type Problem struct {
@@ -523,6 +617,16 @@ type Resources struct {
 	MemoryMiB int64 `json:"memoryMiB"`
 }
 
+// RolePreset defines model for RolePreset.
+type RolePreset struct {
+	Key         RolePresetKey `json:"key"`
+	Name        string        `json:"name"`
+	Permissions []Permission  `json:"permissions"`
+}
+
+// RolePresetKey defines model for RolePreset.Key.
+type RolePresetKey string
+
 // Route defines model for Route.
 type Route struct {
 	Destination string `json:"destination"`
@@ -543,6 +647,16 @@ type SaveBlueprintVersion struct {
 	ExpectedRevision int             `json:"expectedRevision"`
 	Spec             EnvironmentSpec `json:"spec"`
 }
+
+// ScopeGrant defines model for ScopeGrant.
+type ScopeGrant struct {
+	Permissions []Permission        `json:"permissions"`
+	ScopeId     string              `json:"scopeId"`
+	ScopeKind   ScopeGrantScopeKind `json:"scopeKind"`
+}
+
+// ScopeGrantScopeKind defines model for ScopeGrant.ScopeKind.
+type ScopeGrantScopeKind string
 
 // Template defines model for Template.
 type Template struct {
@@ -568,6 +682,13 @@ type TemplateState string
 
 // TemplateKind defines model for TemplateKind.
 type TemplateKind string
+
+// UpdateUser defines model for UpdateUser.
+type UpdateUser struct {
+	Disabled bool    `json:"disabled"`
+	Name     string  `json:"name"`
+	Password *string `json:"password,omitempty"`
+}
 
 // VmHardware defines model for VmHardware.
 type VmHardware struct {
@@ -643,6 +764,9 @@ type EnvironmentEventsParams struct {
 	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
 }
 
+// ReplaceEnvironmentGrantsJSONBody defines parameters for ReplaceEnvironmentGrants.
+type ReplaceEnvironmentGrantsJSONBody = []EnvironmentGrant
+
 // ListNodesParams defines parameters for ListNodes.
 type ListNodesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -656,6 +780,17 @@ type ListOperationsParams struct {
 	Cursor        *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit         *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// ListPrincipalsParams defines parameters for ListPrincipals.
+type ListPrincipalsParams struct {
+	Cursor *Cursor                   `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit                    `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search                   `form:"search,omitempty" json:"search,omitempty"`
+	Kind   *ListPrincipalsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+}
+
+// ListPrincipalsParamsKind defines parameters for ListPrincipals.
+type ListPrincipalsParamsKind string
 
 // ListTemplatesParams defines parameters for ListTemplates.
 type ListTemplatesParams struct {
@@ -687,11 +822,23 @@ type ChangeEnvironmentJSONRequestBody = ChangeRequest
 // SaveDraftJSONRequestBody defines body for SaveDraft for application/json ContentType.
 type SaveDraftJSONRequestBody = Draft
 
+// ReplaceEnvironmentGrantsJSONRequestBody defines body for ReplaceEnvironmentGrants for application/json ContentType.
+type ReplaceEnvironmentGrantsJSONRequestBody = ReplaceEnvironmentGrantsJSONBody
+
 // SaveViewJSONRequestBody defines body for SaveView for application/json ContentType.
 type SaveViewJSONRequestBody = CanvasView
 
 // RegisterNodeJSONRequestBody defines body for RegisterNode for application/json ContentType.
 type RegisterNodeJSONRequestBody = NodeRegistration
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = CreateUser
+
+// UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
+type UpdateUserJSONRequestBody = UpdateUser
+
+// CreateServiceTokenJSONRequestBody defines body for CreateServiceToken for application/json ContentType.
+type CreateServiceTokenJSONRequestBody = CreateServiceToken
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = Login

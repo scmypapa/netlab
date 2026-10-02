@@ -9,17 +9,23 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
+	"slices"
 	"time"
 )
 
 type Identity struct {
 	Principal queries.Principal
 	Grants    []queries.Grant
+	ExpiresAt *time.Time
 }
-type Service struct{ Queries *queries.Queries }
+type Service struct {
+	Pool    *pgxpool.Pool
+	Queries *queries.Queries
+}
 
 var ErrUnauthorized = errors.New("请先登录")
 var ErrForbidden = errors.New("无权执行此操作")
@@ -49,29 +55,59 @@ func (s Service) Login(ctx context.Context, login api.Login) (api.Identity, stri
 	if err != nil {
 		return api.Identity{}, "", err
 	}
-	if p.Kind != "user" || bcrypt.CompareHashAndPassword(p.PasswordHash, []byte(login.Password)) != nil {
+	if p.Kind != "user" || p.Disabled || bcrypt.CompareHashAndPassword(p.PasswordHash, []byte(login.Password)) != nil {
 		return api.Identity{}, "", ErrUnauthorized
 	}
-	raw := make([]byte, 32)
-	if _, err = rand.Read(raw); err != nil {
+	token, hash, err := newCredential()
+	if err != nil {
 		return api.Identity{}, "", err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return api.Identity{}, "", err
+	}
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	current, err := q.LockPrincipal(ctx, p.ID)
+	if err != nil {
+		return api.Identity{}, "", err
+	}
+	if current.Disabled || !slices.Equal(current.PasswordHash, p.PasswordHash) {
+		return api.Identity{}, "", ErrUnauthorized
+	}
+	if err = q.CreateCredential(ctx, queries.CreateCredentialParams{Hash: hash, PrincipalID: p.ID, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(12 * time.Hour), Valid: true}}); err != nil {
+		return api.Identity{}, "", err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return api.Identity{}, "", err
+	}
+	grants, err := s.Queries.GetGrants(ctx, p.ID)
+	return Profile(Identity{Principal: current, Grants: grants}), token, err
+}
+func newCredential() (string, []byte, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	hash := sha256.Sum256([]byte(token))
-	err = s.Queries.CreateCredential(ctx, queries.CreateCredentialParams{Hash: hash[:], PrincipalID: p.ID, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(12 * time.Hour), Valid: true}})
-	return api.Identity{Id: p.ID, Name: p.Name, Administrator: p.Administrator}, token, err
+	return token, hash[:], nil
 }
 func (s Service) Authenticate(ctx context.Context, token string) (Identity, error) {
 	hash := sha256.Sum256([]byte(token))
-	p, err := s.Queries.GetCredential(ctx, hash[:])
+	row, err := s.Queries.GetCredential(ctx, hash[:])
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Identity{}, ErrUnauthorized
 	}
 	if err != nil {
 		return Identity{}, err
 	}
-	grants, err := s.Queries.GetGrants(ctx, p.ID)
-	return Identity{Principal: p, Grants: grants}, err
+	grants, err := s.Queries.GetGrants(ctx, row.Principal.ID)
+	identity := Identity{Principal: row.Principal, Grants: grants}
+	if row.CredentialExpiresAt.Valid {
+		identity.ExpiresAt = &row.CredentialExpiresAt.Time
+	}
+	return identity, err
 }
 func (s Service) Logout(ctx context.Context, token string) error {
 	hash := sha256.Sum256([]byte(token))

@@ -240,10 +240,7 @@ func submit(ctx context.Context, q *queries.Queries, row queries.Environment, ki
 	return op, q.SetEnvironmentOperation(ctx, queries.SetEnvironmentOperationParams{ID: row.ID, OperationID: &op.ID, Status: state})
 }
 func (s Service) Action(ctx context.Context, identity access.Identity, id, asset string, request api.ActionRequest) (api.Operation, error) {
-	permission := "operate"
-	if request.Action == api.ActionRequestActionDestroy || request.Action == api.ActionRequestActionRebuild {
-		permission = "manage"
-	}
+	permission := access.OperationPermission(string(request.Action))
 	if _, err := s.Authorized(ctx, identity, id, permission, asset); err != nil {
 		return api.Operation{}, err
 	}

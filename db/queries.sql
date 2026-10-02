@@ -1,7 +1,7 @@
 -- name: GetPrincipalByName :one
 SELECT * FROM principals WHERE name=$1;
 -- name: GetCredential :one
-SELECT p.* FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND (c.expires_at IS NULL OR c.expires_at>now());
+SELECT sqlc.embed(p),c.expires_at AS credential_expires_at FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND NOT p.disabled AND (c.expires_at IS NULL OR c.expires_at>now());
 -- name: CreatePrincipal :exec
 INSERT INTO principals(id,name,kind,password_hash,administrator) VALUES ($1,$2,$3,$4,$5);
 -- name: CountPrincipals :one
@@ -15,13 +15,23 @@ SELECT * FROM grants WHERE principal_id=$1;
 -- name: PutGrant :exec
 INSERT INTO grants(principal_id,scope_kind,scope_id,permissions) VALUES($1,$2,$3,$4) ON CONFLICT(principal_id,scope_kind,scope_id) DO UPDATE SET permissions=EXCLUDED.permissions;
 -- name: ListEnvironments :many
-SELECT e.id,e.project_id,e.name,e.external_reference,e.revision,e.status,e.created_at,e.updated_at,
- COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'assets'),0)::integer AS asset_count,
- COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'networks'),0)::integer AS network_count
-FROM environments e WHERE e.status<>'destroyed' AND
- (sqlc.arg(is_admin)::boolean OR e.owner_id=sqlc.arg(principal_id) OR EXISTS
+WITH readable AS (
+ SELECT e.*,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
+ (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
+ FROM environments e WHERE e.status<>'destroyed'
+), visible AS (
+ SELECT e.*,CASE WHEN full_read THEN runtime_spec->'assets' ELSE
+ (SELECT jsonb_agg(a) FROM jsonb_array_elements(runtime_spec->'assets') a WHERE EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))) END AS visible_assets
+ FROM readable e
+)
+SELECT e.id,e.project_id,e.name,e.external_reference,e.revision,e.status,e.created_at,e.updated_at,
+ COALESCE(jsonb_array_length(e.visible_assets),0)::integer AS asset_count,
+ (CASE WHEN full_read THEN COALESCE(jsonb_array_length(e.runtime_spec->'networks'),0) ELSE
+ (SELECT count(DISTINCT iface->>'networkId') FROM jsonb_array_elements(e.visible_assets) a CROSS JOIN LATERAL jsonb_array_elements(a->'interfaces') iface) END)::integer AS network_count
+FROM visible e WHERE (e.full_read OR jsonb_array_length(e.visible_assets)>0)
  AND (sqlc.arg(search)::text='' OR e.name ILIKE '%'||sqlc.arg(search)||'%' OR e.external_reference ILIKE '%'||sqlc.arg(search)||'%')
  AND (sqlc.arg(status)::text='' OR e.status=sqlc.arg(status))
  AND (sqlc.arg(cursor)::text='' OR (e.created_at,e.id)<(SELECT p.created_at,p.id FROM environments p WHERE p.id=sqlc.arg(cursor)))
@@ -151,9 +161,9 @@ GROUP BY n.id ORDER BY n.id LIMIT sqlc.arg(page_limit);
 SELECT o.* FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))
 AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
-AND (sqlc.arg(is_admin)::boolean OR e.owner_id=sqlc.arg(principal_id) OR EXISTS
+AND (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id))))
 ORDER BY o.created_at DESC,o.id DESC LIMIT sqlc.arg(page_limit);
 -- name: SaveOperationProgress :execrows
 WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running' RETURNING environment_id,id,phase)

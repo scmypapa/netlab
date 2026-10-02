@@ -110,6 +110,8 @@ type Principal struct {
 	Kind          string
 	PasswordHash  []byte
 	Administrator bool
+	Disabled      bool
+	CreatedAt     pgtype.Timestamptz
 }
 
 type Project struct {

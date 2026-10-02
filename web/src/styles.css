@@ -15,6 +15,93 @@
   -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
 }
+.permission-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 12px;
+  padding: 12px 0;
+}
+.sharing-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.sharing-add > :first-child {
+  flex: 1;
+}
+.share-owner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+}
+.share-owner span {
+  margin-left: auto;
+  color: var(--muted);
+}
+.sharing-member {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+}
+.sharing-member.selected {
+  color: var(--accent);
+}
+.sharing-member > button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: 0;
+  padding: 8px 0;
+  text-align: left;
+  color: inherit;
+}
+.sharing-member > button span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sharing-edit {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  display: grid;
+  gap: 16px;
+}
+.sharing-inherited h3 {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.sharing-inherited > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+.sharing-inherited span {
+  color: var(--muted);
+}
+.token-secret {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+.token-secret code {
+  flex: 1;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.access-badge {
+  color: var(--muted);
+  font-size: 12px;
+}
 :root[data-mantine-color-scheme="dark"] {
   --page: #10171c;
   --surface: #182127;

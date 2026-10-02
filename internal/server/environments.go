@@ -19,7 +19,7 @@ func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request, identi
 		return err
 	}
 	principal := identity.Principal.ID
-	rows, err := s.Queries.ListEnvironments(r.Context(), queries.ListEnvironmentsParams{IsAdmin: identity.Administrator(), PrincipalID: &principal, Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Status: r.URL.Query().Get("status")})
+	rows, err := s.Queries.ListEnvironments(r.Context(), queries.ListEnvironmentsParams{IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Status: r.URL.Query().Get("status")})
 	if err != nil {
 		return err
 	}
@@ -44,19 +44,30 @@ func (s *Server) createEnvironment(w http.ResponseWriter, r *http.Request, ident
 }
 
 func (s *Server) getEnvironment(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
-	row, err := s.Environments.Authorized(r.Context(), identity, r.PathValue("id"), "read", "")
+	row, visible, err := s.Environments.Readable(r.Context(), identity, r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	result, err := environment.Record(row)
+	result, err := environment.VisibleRecord(row, visible)
 	if err != nil {
 		return err
 	}
+	permissions := identity.Permissions(row.ProjectID, row.ID, "", row.OwnerID)
+	result.Permissions = &permissions
+	assetPermissions := map[string][]api.Permission{}
+	spec := result.Spec
+	if result.AppliedSpec != nil {
+		spec = *result.AppliedSpec
+	}
+	for _, asset := range spec.Assets {
+		assetPermissions[asset.Id] = identity.Permissions(row.ProjectID, row.ID, asset.Id, row.OwnerID)
+	}
+	result.AssetPermissions = &assetPermissions
 	return writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
-	row, err := s.Environments.Authorized(r.Context(), identity, r.PathValue("id"), "read", "")
+	row, visible, err := s.Environments.Readable(r.Context(), identity, r.PathValue("id"))
 	if err != nil {
 		return err
 	}
@@ -66,6 +77,9 @@ func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identi
 	}
 	current := make(map[string]queries.RuntimeAsset, len(assets))
 	for _, asset := range assets {
+		if visible != nil && !visible[asset.AssetID] {
+			continue
+		}
 		previous, exists := current[asset.AssetID]
 		if asset.Current || !exists || (!previous.Current && asset.ObservedAt.Time.After(previous.ObservedAt.Time)) {
 			current[asset.AssetID] = asset
@@ -81,11 +95,13 @@ func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identi
 		if err != nil {
 			return err
 		}
-		record, err := environment.Operation(op)
-		if err != nil {
-			return err
+		if visible == nil || (op.AssetID != nil && visible[*op.AssetID]) {
+			record, err := environment.Operation(op)
+			if err != nil {
+				return err
+			}
+			result.Operation = &record
 		}
-		result.Operation = &record
 	}
 	return writeJSON(w, http.StatusOK, result)
 }
@@ -179,7 +195,7 @@ func (s *Server) listOperations(w http.ResponseWriter, r *http.Request, identity
 		return err
 	}
 	principal := identity.Principal.ID
-	rows, err := s.Queries.ListVisibleOperations(r.Context(), queries.ListVisibleOperationsParams{EnvironmentID: id, IsAdmin: identity.Administrator(), PrincipalID: &principal, Cursor: cursor, PageLimit: limit})
+	rows, err := s.Queries.ListVisibleOperations(r.Context(), queries.ListVisibleOperationsParams{EnvironmentID: id, IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Cursor: cursor, PageLimit: limit})
 	if err != nil {
 		return err
 	}

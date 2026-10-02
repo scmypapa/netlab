@@ -203,15 +203,16 @@ func (q *Queries) ListBlueprintVersions(ctx context.Context, arg ListBlueprintVe
 const listBlueprints = `-- name: ListBlueprints :many
 SELECT b.id, b.project_id, b.owner_id, b.name, b.version, b.created_at, b.updated_at,v.id AS latest_version_id,v.asset_count,v.network_count FROM blueprints b
 JOIN blueprint_versions v ON v.blueprint_id=b.id AND v.version=b.version
-WHERE ($1::boolean OR b.owner_id=$2 OR EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$2 AND g.scope_kind='project' AND g.scope_id=b.project_id AND 'read'=ANY(g.permissions)))
-AND ($3::text='' OR b.name ILIKE '%'||$3||'%')
-AND ($4::text='' OR (b.created_at,b.id)<(SELECT p.created_at,p.id FROM blueprints p WHERE p.id=$4))
-ORDER BY b.created_at DESC,b.id DESC LIMIT $5
+WHERE ($1::boolean OR ($2::boolean AND b.owner_id=$3) OR EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=$3 AND g.scope_kind='project' AND g.scope_id=b.project_id AND 'read'=ANY(g.permissions)))
+AND ($4::text='' OR b.name ILIKE '%'||$4||'%')
+AND ($5::text='' OR (b.created_at,b.id)<(SELECT p.created_at,p.id FROM blueprints p WHERE p.id=$5))
+ORDER BY b.created_at DESC,b.id DESC LIMIT $6
 `
 
 type ListBlueprintsParams struct {
 	IsAdmin     bool
+	IsUser      bool
 	PrincipalID *string
 	Search      string
 	Cursor      string
@@ -234,6 +235,7 @@ type ListBlueprintsRow struct {
 func (q *Queries) ListBlueprints(ctx context.Context, arg ListBlueprintsParams) ([]ListBlueprintsRow, error) {
 	rows, err := q.db.Query(ctx, listBlueprints,
 		arg.IsAdmin,
+		arg.IsUser,
 		arg.PrincipalID,
 		arg.Search,
 		arg.Cursor,
