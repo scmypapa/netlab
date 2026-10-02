@@ -1,0 +1,11 @@
+/.worktrees/
+/bin/
+/data/
+/web/node_modules/
+/web/dist/
+/web/test-results/
+/web/playwright-report/
+*.log
+.env
+design/*.png
+design/*.cjs

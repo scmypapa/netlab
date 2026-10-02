@@ -1,0 +1,310 @@
+openapi: 3.0.3
+info: {title: Netlab API, version: 1.0.0}
+servers: [{url: /api/v1}]
+security: [{bearer: []}]
+paths: {}
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer}
+  schemas:
+    Resources:
+      type: object
+      required: [cpu, memoryMiB, diskGiB]
+      properties:
+        cpu: {type: integer, minimum: 1}
+        memoryMiB: {type: integer, format: int64, minimum: 64}
+        diskGiB: {type: integer, format: int64, minimum: 1}
+    Hardware:
+      type: object
+      required: [firmware, machine, diskBus, nicModel]
+      properties:
+        firmware: {type: string, enum: [bios, uefi]}
+        machine: {type: string}
+        diskBus: {type: string, enum: [ide, sata, scsi, virtio]}
+        nicModel: {type: string, enum: [virtio, e1000, e1000e, rtl8139]}
+        cpuModel: {type: string}
+        secureBoot: {type: boolean}
+        tpm: {type: boolean}
+        guestAgent: {type: boolean}
+        firmwareCode: {type: string}
+        firmwareVars: {type: string}
+    Volume:
+      type: object
+      required: [id, mountPath, sizeGiB]
+      properties:
+        id: {type: string}
+        mountPath: {type: string}
+        sizeGiB: {type: integer, format: int64}
+        retain: {type: boolean}
+    Template:
+      type: object
+      required: [id, name, kind, os, version, source, resources]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {type: string, enum: [container, vm]}
+        os: {type: string}
+        version: {type: integer}
+        source: {type: string}
+        format: {type: string, enum: [oci, docker, qcow2, raw, vmdk, ova, iso]}
+        resources: {$ref: '#/components/schemas/Resources'}
+        hardware: {$ref: '#/components/schemas/Hardware'}
+        volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
+        state: {type: string, enum: [importing, ready, failed]}
+        error: {type: string}
+    Network:
+      type: object
+      required: [id, name, cidr]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        cidr: {type: string}
+        gateway: {type: string}
+        dnsAssetId: {type: string}
+        dnsServers: {type: array, items: {type: string}}
+        mtu: {type: integer}
+    Interface:
+      type: object
+      required: [id, networkId, mac, address, primary]
+      properties:
+        id: {type: string}
+        networkId: {type: string}
+        mac: {type: string}
+        address: {type: string}
+        primary: {type: boolean}
+    Asset:
+      type: object
+      required: [id, name, templateId, resources, interfaces]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        templateId: {type: string}
+        resources: {$ref: '#/components/schemas/Resources'}
+        interfaces: {type: array, items: {$ref: '#/components/schemas/Interface'}}
+        volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
+        parameters: {type: object, additionalProperties: {type: string}}
+    Route:
+      type: object
+      required: [networkId, destination, nextHop]
+      properties:
+        networkId: {type: string}
+        destination: {type: string}
+        nextHop: {type: string}
+    Policy:
+      type: object
+      required: [id, networkId, direction, action]
+      properties:
+        id: {type: string}
+        networkId: {type: string}
+        direction: {type: string, enum: [ingress, egress, both]}
+        action: {type: string, enum: [allow, deny, shape]}
+        protocol: {type: string}
+        source: {type: string}
+        destination: {type: string}
+        delayMs: {type: integer}
+        lossPercent: {type: number}
+        bandwidthKbps: {type: integer}
+    EnvironmentSpec:
+      type: object
+      required: [assets, networks]
+      properties:
+        assets: {type: array, items: {$ref: '#/components/schemas/Asset'}}
+        networks: {type: array, items: {$ref: '#/components/schemas/Network'}}
+        routes: {type: array, items: {$ref: '#/components/schemas/Route'}}
+        policies: {type: array, items: {$ref: '#/components/schemas/Policy'}}
+    Point:
+      type: object
+      required: [x, y]
+      properties:
+        x: {type: number}
+        y: {type: number}
+    CanvasView:
+      type: object
+      properties:
+        positions: {type: object, additionalProperties: {$ref: '#/components/schemas/Point'}}
+        collapsed: {type: array, items: {type: string}}
+    Draft:
+      type: object
+      required: [baseRevision, spec]
+      properties:
+        baseRevision: {type: integer}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    Environment:
+      type: object
+      required: [id, projectId, name, revision, status, spec, view, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        name: {type: string}
+        externalReference: {type: string}
+        revision: {type: integer}
+        status: {type: string, enum: [draft, deploying, running, stopped, suspended, changing, destroying, destroyed, failed, unknown]}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+        appliedSpec: {$ref: '#/components/schemas/EnvironmentSpec'}
+        view: {$ref: '#/components/schemas/CanvasView'}
+        draft: {$ref: '#/components/schemas/Draft'}
+        operationId: {type: string}
+        error: {type: string}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    AssetState:
+      type: object
+      required: [assetId, instanceId, nodeId, state, observedAt]
+      properties:
+        assetId: {type: string}
+        instanceId: {type: string}
+        nodeId: {type: string}
+        state: {type: string}
+        error: {type: string}
+        observedAt: {type: string, format: date-time}
+    EnvironmentState:
+      type: object
+      required: [id, status, revision, assets, updatedAt]
+      properties:
+        id: {type: string}
+        status: {type: string}
+        revision: {type: integer}
+        assets: {type: array, items: {$ref: '#/components/schemas/AssetState'}}
+        operation: {$ref: '#/components/schemas/Operation'}
+        updatedAt: {type: string, format: date-time}
+    Operation:
+      type: object
+      required: [id, environmentId, kind, state, phase, completed, total, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        environmentId: {type: string}
+        kind: {type: string}
+        state: {type: string, enum: [queued, running, succeeded, failed, partially_applied]}
+        phase: {type: string}
+        completed: {type: integer}
+        total: {type: integer}
+        error: {type: string}
+        results: {type: array, items: {$ref: '#/components/schemas/ExecutionResult'}}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    Node:
+      type: object
+      required: [id, name, endpoint, capacity, reserved, capabilities, slots, observedAt]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        endpoint: {type: string}
+        capacity: {$ref: '#/components/schemas/Resources'}
+        reserved: {$ref: '#/components/schemas/Resources'}
+        capabilities: {type: array, items: {type: string}}
+        slots: {type: integer}
+        observedAt: {type: string, format: date-time}
+        state: {type: string}
+        override: {$ref: '#/components/schemas/Resources'}
+    ResolvedInterface:
+      type: object
+      required: [id, networkId, mac, address, prefix, primary, portName, mtu]
+      properties:
+        id: {type: string}
+        networkId: {type: string}
+        mac: {type: string}
+        address: {type: string}
+        prefix: {type: integer}
+        primary: {type: boolean}
+        portName: {type: string}
+        mtu: {type: integer}
+        gateway: {type: string}
+        dns: {type: array, items: {type: string}}
+    AssetExecution:
+      type: object
+      required: [asset, template, instanceId, interfaces]
+      properties:
+        asset: {$ref: '#/components/schemas/Asset'}
+        template: {$ref: '#/components/schemas/Template'}
+        instanceId: {type: string}
+        previousInstanceId: {type: string}
+        interfaces: {type: array, items: {$ref: '#/components/schemas/ResolvedInterface'}}
+    NodePlan:
+      type: object
+      required: [operationId, environmentId, phase, assets, spec]
+      properties:
+        operationId: {type: string}
+        environmentId: {type: string}
+        phase: {type: string, enum: [network, prepare, activate, start, stop, force-stop, reboot, suspend, resume, destroy, remove-network, inspect]}
+        assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    ExecutionResult:
+      type: object
+      required: [assetId, instanceId, state, observedAt]
+      properties:
+        assetId: {type: string}
+        instanceId: {type: string}
+        state: {type: string}
+        error: {type: string}
+        observedAt: {type: string, format: date-time}
+    NodeResult:
+      type: object
+      required: [results]
+      properties:
+        results: {type: array, items: {$ref: '#/components/schemas/ExecutionResult'}}
+        error: {type: string}
+    NodeInfo:
+      type: object
+      required: [id, name, capacity, capabilities, slots]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        capacity: {$ref: '#/components/schemas/Resources'}
+        capabilities: {type: array, items: {type: string}}
+        slots: {type: integer}
+        firmware: {type: array, items: {type: string}}
+    CreateEnvironment:
+      type: object
+      required: [name, spec]
+      properties:
+        name: {type: string}
+        projectId: {type: string}
+        externalReference: {type: string}
+        blueprintVersionId: {type: string}
+        clientRequestId: {type: string}
+        run: {type: boolean}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    ActionRequest:
+      type: object
+      required: [action]
+      properties:
+        action: {type: string, enum: [start, stop, force-stop, reboot, suspend, resume, rebuild, destroy]}
+        expectedRevision: {type: integer}
+        clientRequestId: {type: string}
+    ChangeRequest:
+      type: object
+      required: [expectedRevision, spec, apply]
+      properties:
+        expectedRevision: {type: integer}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+        apply: {type: boolean}
+        clientRequestId: {type: string}
+    ChangeItem:
+      type: object
+      required: [id, name, kind, effect]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {type: string, enum: [asset, network]}
+        effect: {type: string, enum: [add, update, replace, remove]}
+        requiresStop: {type: boolean}
+        dataEffect: {type: string}
+    ChangePreview:
+      type: object
+      required: [revision, changes]
+      properties:
+        revision: {type: integer}
+        changes: {type: array, items: {$ref: '#/components/schemas/ChangeItem'}}
+    NodeRegistration:
+      type: object
+      required: [name, endpoint]
+      properties:
+        name: {type: string}
+        endpoint: {type: string}
+    Problem:
+      type: object
+      required: [status, title, detail]
+      properties:
+        status: {type: integer}
+        title: {type: string}
+        detail: {type: string}
