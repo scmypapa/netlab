@@ -14,6 +14,7 @@ import type {
   Asset,
   EnvironmentSpec,
   Network,
+  Schema,
   Template,
 } from "../../api/client";
 import { LoadMore, type CursorPagination } from "../../foundation/LoadMore";
@@ -52,6 +53,9 @@ export function AssetEditor({
   );
   const [disk, setDisk] = useState(asset?.resources.diskGiB ?? 20);
   const [advanced, setAdvanced] = useState(false);
+  const [restartPolicy, setRestartPolicy] = useState<Schema<"RestartPolicy">>(
+    asset?.restartPolicy ?? "never",
+  );
   const [guestOpen, setGuestOpen] = useState(Boolean(asset?.guest));
   const [hostname, setHostname] = useState(asset?.guest?.hostname ?? "");
   const [username, setUsername] = useState(asset?.guest?.username ?? "");
@@ -83,6 +87,7 @@ export function AssetEditor({
       name,
       templateId,
       resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
+      restartPolicy: template?.kind === "container" ? restartPolicy : undefined,
       guest: initialized
         ? {
             hostname: hostname.trim() || undefined,
@@ -173,6 +178,21 @@ export function AssetEditor({
             onChange={(value) => setMemoryGiB(Number(value))}
           />
         </div>
+        {template?.kind === "container" && (
+          <Select
+            label="进程退出后"
+            value={restartPolicy}
+            onChange={(value) =>
+              setRestartPolicy(value as Schema<"RestartPolicy">)
+            }
+            allowDeselect={false}
+            data={[
+              { value: "never", label: "保持停止" },
+              { value: "on-failure", label: "异常退出时重启" },
+              { value: "always", label: "自动重启" },
+            ]}
+          />
+        )}
         <button
           className="disclosure"
           type="button"

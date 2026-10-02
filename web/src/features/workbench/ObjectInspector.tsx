@@ -13,6 +13,7 @@ import {
   Power,
   RotateCcw,
   SquareTerminal,
+  SquareChartGantt,
   Trash2,
   X,
 } from "lucide-react";
@@ -39,12 +40,14 @@ export function ObjectInspector({
   canOperate,
   canManage,
   canConnect,
+  canObserve,
   onClose,
   onEdit,
   onRemove,
   onDuplicate,
   onAction,
   onConnect,
+  onLogs,
   onSelect,
 }: {
   asset?: Asset;
@@ -57,12 +60,14 @@ export function ObjectInspector({
   canOperate: boolean;
   canManage: boolean;
   canConnect: boolean;
+  canObserve: boolean;
   onClose: () => void;
   onEdit: () => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onAction: (action: Schema<"ActionRequest">["action"]) => void;
   onConnect: (kind: Schema<"ConsoleKind">) => void;
+  onLogs: () => void;
   onSelect: (id: string) => void;
 }) {
   const assetState = state?.assets.find((item) => item.assetId === asset?.id);
@@ -97,7 +102,9 @@ export function ObjectInspector({
           {network && <span className="muted mono">{network.cidr}</span>}
         </div>
       </div>
-      {(editing || (assetState && (canOperate || canManage || canConnect))) && (
+      {(editing ||
+        (assetState &&
+          (canOperate || canManage || canConnect || canObserve))) && (
         <div className="inspector-actions">
           {editing ? (
             <Button
@@ -144,6 +151,7 @@ export function ObjectInspector({
             (asset &&
               (canOperate ||
                 canManage ||
+                (canObserve && template?.kind === "container") ||
                 (canConnect && template?.kind === "vm")))) && (
             <Menu position="bottom-end">
               <Menu.Target>
@@ -180,6 +188,14 @@ export function ObjectInspector({
                 ) : (
                   asset && (
                     <>
+                      {canObserve && template?.kind === "container" && (
+                        <Menu.Item
+                          leftSection={<SquareChartGantt size={15} />}
+                          onClick={onLogs}
+                        >
+                          进程日志
+                        </Menu.Item>
+                      )}
                       {canConnect && template?.kind === "vm" && (
                         <Menu.Item
                           leftSection={<SquareTerminal size={15} />}

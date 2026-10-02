@@ -66,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 		"POST /api/v1/environments/{id}/actions":                  s.environmentAction,
 		"POST /api/v1/environments/{id}/assets/{assetId}/actions": s.environmentAction,
 		"GET /api/v1/environments/{id}/assets/{assetId}/console":  s.assetConsole,
+		"GET /api/v1/environments/{id}/assets/{assetId}/logs":     s.assetLogs,
 		"POST /api/v1/environments/{id}/changes":                  s.environmentChanges,
 		"PUT /api/v1/environments/{id}/view":                      s.saveView,
 		"PUT /api/v1/environments/{id}/draft":                     s.saveDraft,

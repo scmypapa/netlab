@@ -42,6 +42,12 @@ async function request<T>(
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  await checkResponse(response);
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+async function checkResponse(response: Response) {
   if (!response.ok) {
     const problem = (await response
       .json()
@@ -54,8 +60,54 @@ async function request<T>(
       problem.detail || problem.title || response.statusText,
     );
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+}
+
+async function assetLogs(
+  id: string,
+  assetId: string,
+  options: { stream: string; tail: number; follow: boolean },
+  signal: AbortSignal,
+  receive: (chunk: Schema<"LogChunk">) => void,
+  connected: () => void,
+) {
+  const params = new URLSearchParams({
+    stream: options.stream,
+    tail: String(options.tail),
+    follow: String(options.follow),
+  });
+  const response = await fetch(
+    `/api/v1/environments/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}/logs?${params}`,
+    { credentials: "same-origin", signal },
+  );
+  await checkResponse(response);
+  connected();
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      let boundary: number;
+      while ((boundary = pending.indexOf("\n\n")) >= 0) {
+        const event = pending.slice(0, boundary);
+        pending = pending.slice(boundary + 2);
+        const data = event
+          .split("\n")
+          .find((line) => line.startsWith("data: "));
+        if (!data) continue;
+        if (event.startsWith("event: stream-error"))
+          throw new Error(
+            (JSON.parse(data.slice(6)) as Schema<"Problem">).detail,
+          );
+        if (event.startsWith("event: output"))
+          receive(JSON.parse(data.slice(6)) as Schema<"LogChunk">);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export type ListOptions = {
@@ -83,6 +135,7 @@ function list<T>(
 }
 
 export const api = {
+  assetLogs,
   principals: (options?: ListOptions) =>
     list<Principal>("/principals", options),
   createUser: (body: Schema<"CreateUser">) =>

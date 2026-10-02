@@ -359,6 +359,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/assets/{assetId}/logs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Container stdout/stderr as output events. Initial tail is bounded to 1 MiB per stream; follow continues until disconnected or access is revoked. */
+    get: operations["assetLogs"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/operations": {
     parameters: {
       query?: never;
@@ -671,7 +691,19 @@ export interface components {
       parameters?: {
         [key: string]: string;
       };
+      restartPolicy?: components["schemas"]["RestartPolicy"];
       guest?: components["schemas"]["GuestSettings"];
+    };
+    /**
+     * @description Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
+     * @default never
+     * @enum {string}
+     */
+    RestartPolicy: "never" | "on-failure" | "always";
+    LogChunk: {
+      /** @enum {string} */
+      stream: "stdout" | "stderr";
+      data: string;
     };
     GuestSettings: {
       hostname?: string;
@@ -1589,6 +1621,40 @@ export interface operations {
         content?: never;
       };
       /** @description Asset has no running instance */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  assetLogs: {
+    parameters: {
+      query?: {
+        tail?: number;
+        stream?: "all" | "stdout" | "stderr";
+        follow?: boolean;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Log stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "text/event-stream": components["schemas"]["LogChunk"];
+        };
+      };
+      /** @description Asset is not a container */
       409: {
         headers: {
           [name: string]: unknown;
