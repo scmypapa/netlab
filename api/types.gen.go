@@ -493,16 +493,17 @@ type Network struct {
 
 // Node defines model for Node.
 type Node struct {
-	Capabilities []string   `json:"capabilities"`
-	Capacity     Resources  `json:"capacity"`
-	Endpoint     string     `json:"endpoint"`
-	Id           string     `json:"id"`
-	Name         string     `json:"name"`
-	ObservedAt   time.Time  `json:"observedAt"`
-	Override     *Resources `json:"override,omitempty"`
-	Reserved     Resources  `json:"reserved"`
-	Slots        int        `json:"slots"`
-	State        *string    `json:"state,omitempty"`
+	Capabilities []string    `json:"capabilities"`
+	Capacity     Resources   `json:"capacity"`
+	Endpoint     string      `json:"endpoint"`
+	Id           string      `json:"id"`
+	Name         string      `json:"name"`
+	ObservedAt   time.Time   `json:"observedAt"`
+	Override     *Resources  `json:"override,omitempty"`
+	Reserved     Resources   `json:"reserved"`
+	Slots        int         `json:"slots"`
+	State        *string     `json:"state,omitempty"`
+	VmHardware   *VmHardware `json:"vmHardware,omitempty"`
 }
 
 // NodeInfo defines model for NodeInfo.

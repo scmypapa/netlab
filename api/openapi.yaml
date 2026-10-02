@@ -542,6 +542,7 @@ components:
         capacity: {$ref: '#/components/schemas/Resources'}
         reserved: {$ref: '#/components/schemas/Resources'}
         capabilities: {type: array, items: {type: string}}
+        vmHardware: {$ref: '#/components/schemas/VmHardware'}
         slots: {type: integer}
         observedAt: {type: string, format: date-time}
         state: {type: string}
