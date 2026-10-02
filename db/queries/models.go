@@ -8,6 +8,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Blueprint struct {
+	ID        string
+	ProjectID string
+	OwnerID   *string
+	Name      string
+	Version   int32
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+type BlueprintVersion struct {
+	ID                  string
+	BlueprintID         string
+	Version             int32
+	Spec                []byte
+	View                []byte
+	AssetCount          int32
+	NetworkCount        int32
+	SourceEnvironmentID string
+	SourceRevision      int32
+	CreatedAt           pgtype.Timestamptz
+}
+
 type Credential struct {
 	Hash        []byte
 	PrincipalID string
@@ -16,23 +39,24 @@ type Credential struct {
 }
 
 type Environment struct {
-	ID                string
-	ProjectID         string
-	OwnerID           *string
-	Name              string
-	ExternalReference *string
-	Revision          int32
-	Status            string
-	Spec              []byte
-	AppliedSpec       []byte
-	View              []byte
-	Draft             []byte
-	NetworkNodeID     *string
-	OperationID       *string
-	Error             *string
-	ClientRequestID   *string
-	CreatedAt         pgtype.Timestamptz
-	UpdatedAt         pgtype.Timestamptz
+	ID                 string
+	ProjectID          string
+	OwnerID            *string
+	Name               string
+	ExternalReference  *string
+	Revision           int32
+	Status             string
+	Spec               []byte
+	AppliedSpec        []byte
+	View               []byte
+	Draft              []byte
+	NetworkNodeID      *string
+	OperationID        *string
+	Error              *string
+	ClientRequestID    *string
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	BlueprintVersionID *string
 }
 
 type Event struct {

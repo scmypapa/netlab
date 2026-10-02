@@ -46,6 +46,7 @@ func Templates(ctx context.Context, q *queries.Queries, assets []api.Asset) (map
 }
 func Record(row queries.Environment) (api.Environment, error) {
 	result := api.Environment{Id: row.ID, Name: row.Name, ProjectId: row.ProjectID, ExternalReference: row.ExternalReference, Revision: int(row.Revision), Status: api.EnvironmentStatus(row.Status), OperationId: row.OperationID, Error: row.Error, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
+	result.BlueprintVersionId = row.BlueprintVersionID
 	if err := json.Unmarshal(row.Spec, &result.Spec); err != nil {
 		return result, err
 	}
@@ -151,11 +152,15 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, err
 		}
 	}
-	templates, err := Templates(ctx, s.Queries, request.Spec.Assets)
+	inputSpec, view, err := s.CreationSpec(ctx, identity, request)
 	if err != nil {
 		return api.Environment{}, err
 	}
-	spec, err := Normalize(request.Spec, templates)
+	templates, err := Templates(ctx, s.Queries, inputSpec.Assets)
+	if err != nil {
+		return api.Environment{}, err
+	}
+	spec, err := Normalize(inputSpec, templates)
 	if err != nil {
 		return api.Environment{}, err
 	}
@@ -186,6 +191,19 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	}
 	if err != nil {
 		return api.Environment{}, err
+	}
+	if request.BlueprintVersionId != nil {
+		if err = q.SetEnvironmentBlueprint(ctx, queries.SetEnvironmentBlueprintParams{ID: row.ID, BlueprintVersionID: request.BlueprintVersionId}); err != nil {
+			return api.Environment{}, err
+		}
+		row.BlueprintVersionID = request.BlueprintVersionId
+		row.View, err = json.Marshal(view)
+		if err != nil {
+			return api.Environment{}, err
+		}
+		if err = q.SaveView(ctx, queries.SaveViewParams{ID: row.ID, View: row.View}); err != nil {
+			return api.Environment{}, err
+		}
 	}
 	if request.Run != nil && *request.Run {
 		op, createErr := submit(ctx, q, row, "start", nil, spec, request.ClientRequestId)

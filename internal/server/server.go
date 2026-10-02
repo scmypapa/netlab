@@ -67,6 +67,12 @@ func (s *Server) Handler() http.Handler {
 		"POST /api/v1/templates":                                  s.createTemplate,
 		"GET /api/v1/nodes":                                       s.listNodes,
 		"POST /api/v1/nodes":                                      s.registerNode,
+		"GET /api/v1/blueprints":                                  s.listBlueprints,
+		"GET /api/v1/blueprints/{id}":                             s.getBlueprint,
+		"GET /api/v1/blueprints/{id}/versions":                    s.listBlueprintVersions,
+		"GET /api/v1/blueprint-versions/{id}":                     s.getBlueprintVersion,
+		"POST /api/v1/environments/{id}/blueprints":               s.saveEnvironmentBlueprint,
+		"POST /api/v1/blueprints/{id}/versions":                   s.saveBlueprintVersion,
 	}
 	for pattern, handler := range routes {
 		mux.HandleFunc(pattern, s.authorize(handler))
