@@ -188,26 +188,30 @@ func (n *OVS) Attach(ctx context.Context, device, logicalPort, environmentID, as
 	}
 	return transact(ctx, n.client, append(ops, more...))
 }
-func (n *OVS) Detach(ctx context.Context, device, instanceID string) error {
+func (n *OVS) Detach(ctx context.Context, device, environmentID, assetID, instanceID string) (bool, error) {
 	p := &Port{Name: device}
 	if err := n.client.Get(ctx, p); err == client.ErrNotFound {
-		return nil
+		return true, nil
 	} else if err != nil {
-		return err
+		return false, err
+	}
+	if p.ExternalIDs["netlab.environment"] != environmentID || p.ExternalIDs["netlab.asset"] != assetID {
+		return false, fmt.Errorf("OVS port %s belongs to another asset", device)
 	}
 	if p.ExternalIDs["netlab.instance"] != instanceID {
-		return fmt.Errorf("OVS port %s belongs to another instance", device)
+		return false, nil
 	}
 	b := &Bridge{Name: n.bridge}
 	ops, err := n.client.Where(b).Mutate(b, model.Mutation{Field: &b.Ports, Mutator: ovsdb.MutateOperationDelete, Value: []string{p.UUID}})
 	if err != nil {
-		return err
+		return false, err
 	}
 	more, err := n.client.Where(p).Delete()
 	if err != nil {
-		return err
+		return false, err
 	}
-	return transact(ctx, n.client, append(ops, more...))
+	err = transact(ctx, n.client, append(ops, more...))
+	return err == nil, err
 }
 func objectName(prefix, env, id string) string {
 	return prefix + "_" + strings.ReplaceAll(env, "-", "") + "_" + strings.ReplaceAll(id, "-", "")

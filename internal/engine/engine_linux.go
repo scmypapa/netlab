@@ -156,7 +156,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				return
 			}
 			defer func() { <-e.slots }()
-			unlock := e.lock(a.InstanceId)
+			unlock := e.lock(plan.EnvironmentId + "/" + a.Asset.Id)
 			defer unlock()
 			var state string
 			var err error

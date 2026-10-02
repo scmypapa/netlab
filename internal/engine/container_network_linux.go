@@ -103,15 +103,19 @@ func (c *Containers) connect(ctx context.Context, pid uint32, env string, a api.
 	}
 	return nil
 }
-func (c *Containers) disconnect(ctx context.Context, a api.AssetExecution) error {
+func (c *Containers) disconnect(ctx context.Context, env string, a api.AssetExecution) error {
 	var errs []error
 	for _, i := range a.Interfaces {
 		name := deviceName(i.PortName)
-		if err := network.ClearShape(name, i.PortName); err != nil {
+		owned, err := c.ovs.Detach(ctx, name, env, a.Asset.Id, a.InstanceId)
+		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if err := c.ovs.Detach(ctx, name, a.InstanceId); err != nil {
+		if !owned {
+			continue
+		}
+		if err := network.ClearShape(name, i.PortName); err != nil {
 			errs = append(errs, err)
 			continue
 		}

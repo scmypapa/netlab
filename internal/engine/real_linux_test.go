@@ -158,44 +158,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := container.Task(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	handle, err := ns.GetNS(fmt.Sprintf("/proc/%d/ns/net", task.Pid()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer handle.Close()
-	if err = handle.Do(func(_ ns.NetNS) error {
-		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
-			conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp4", "192.168.82.10:80")
-			if err != nil {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-			conn.SetDeadline(time.Now().Add(5 * time.Second))
-			_, err = io.WriteString(conn, "GET / HTTP/1.1\r\nHost: web\r\nConnection: close\r\n\r\n")
-			if err != nil {
-				conn.Close()
-				return err
-			}
-			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
-			if err == nil {
-				resp.Body.Close()
-				conn.Close()
-				if resp.StatusCode == 200 {
-					return nil
-				}
-				return fmt.Errorf("HTTP %d", resp.StatusCode)
-			}
-			conn.Close()
-			time.Sleep(100 * time.Millisecond)
-		}
-		return fmt.Errorf("container service not responding")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	checkContainerHTTP(t, ctx, container, "192.168.82.10:80")
 	apply(api.NodePlanPhaseSuspend, "suspended")
 	apply(api.NodePlanPhaseResume, "running")
 	execContainer(t, ctx, container, "printf writable >/netlab-marker; printf durable >/usr/share/nginx/html/data-marker")
@@ -277,14 +240,45 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if _, err = e.container.Execute(ctx, env, api.NodePlanPhasePrepare, replacement); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseActivate, replacement); err != nil {
+		t.Fatal(err)
+	}
+	webContainer, err := e.container.client.LoadContainer(ctx, plan.Assets[0].InstanceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.shape(ctx, env, replacement, map[string][]api.Policy{"lan": policies}); err != nil {
+		t.Fatal(err)
+	}
+	checkContainerHTTP(t, ctx, webContainer, "192.168.82.32:80")
+	t.Log("replacement HTTP responds with shaping before old instance cleanup")
+	if detached, err := e.container.ovs.Detach(ctx, deviceName(replacement.Interfaces[0].PortName), env, "another-asset", replacement.InstanceId); err == nil || detached {
+		t.Fatal("port cleanup crossed the asset ownership boundary")
+	}
 	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseDestroy, client); err != nil {
 		t.Fatal(err)
 	}
+	device, err := netlink.LinkByName(deviceName(replacement.Interfaces[0].PortName))
+	if err != nil {
+		t.Fatal("old instance cleanup deleted the replacement interface", err)
+	}
+	qdiscs, err := netlink.QdiscList(device)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shaped, redirected := false, false
+	for _, qdisc := range qdiscs {
+		if netem, ok := qdisc.(*netlink.Netem); ok {
+			shaped = shaped || netem.Latency > 0
+		}
+		redirected = redirected || qdisc.Type() == "ingress"
+	}
+	if !shaped || !redirected {
+		t.Fatal("old instance cleanup cleared the replacement traffic policy")
+	}
+	checkContainerHTTP(t, ctx, webContainer, "192.168.82.32:80")
 	if _, err = os.Stat(filepath.Join(e.container.volumeDir(env, client.Asset.Id, "web-content"), "data-marker")); err != nil {
 		t.Fatal("destroying the old instance removed the replacement volume", err)
-	}
-	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseActivate, replacement); err != nil {
-		t.Fatal(err)
 	}
 	newContainer, err := e.container.client.LoadContainer(ctx, replacement.InstanceId)
 	if err != nil {
@@ -454,6 +448,48 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	}
 	if _, err = os.Stat(vm.volumePath(env, a.Asset.Id, "data")); !os.IsNotExist(err) {
 		t.Fatal("VM destroy left its installed data disk behind", err)
+	}
+}
+
+func checkContainerHTTP(t *testing.T, ctx context.Context, container containerd.Container, address string) {
+	t.Helper()
+	task, err := container.Task(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := ns.GetNS(fmt.Sprintf("/proc/%d/ns/net", task.Pid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	if err = handle.Do(func(_ ns.NetNS) error {
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+			conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp4", address)
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			conn.SetDeadline(time.Now().Add(5 * time.Second))
+			_, err = io.WriteString(conn, "GET / HTTP/1.1\r\nHost: web\r\nConnection: close\r\n\r\n")
+			if err != nil {
+				conn.Close()
+				return err
+			}
+			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			if err == nil {
+				resp.Body.Close()
+				conn.Close()
+				if resp.StatusCode == 200 {
+					return nil
+				}
+				return fmt.Errorf("HTTP %d", resp.StatusCode)
+			}
+			conn.Close()
+			time.Sleep(100 * time.Millisecond)
+		}
+		return fmt.Errorf("container service %s not responding", address)
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
