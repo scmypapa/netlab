@@ -61,8 +61,8 @@ function task(instance) {
 const pid = instance => task(instance).pid
 function kill(instance, signal) { wsl('ctr', '-n', 'netlab', 'tasks', 'kill', '--signal', signal, instance) }
 function emit(instance, marker, count = 1) {
-  const indices = Array.from({ length: count }, (_, index) => index + 1).join(' ')
-  wsl('ctr', '-n', 'netlab', 'tasks', 'exec', '--exec-id', randomUUID(), instance, 'sh', '-ec', `for i in ${indices}; do printf '${marker}-%s-out\\n' "$i" > /proc/1/fd/1; printf '${marker}-%s-err\\n' "$i" > /proc/1/fd/2; done`)
+  const output = stream => Array.from({ length: count }, (_, index) => `${marker}-${index + 1}-${stream}\\n`).join('')
+  wsl('ctr', '-n', 'netlab', 'tasks', 'exec', '--exec-id', randomUUID(), instance, 'sh', '-ec', `printf '${output('out')}' > /proc/1/fd/1; printf '${output('err')}' > /proc/1/fd/2`)
 }
 const logsPath = (name, query) => `/environments/${environment.id}/assets/${assets.get(name).id}/logs?${query}`
 const chunks = text => text.split('\n').filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)))
