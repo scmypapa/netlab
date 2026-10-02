@@ -229,6 +229,22 @@ try {
   })
   const [a, b] = environments
   let originalA, originalB, translatedA, translatedB, limited
+  await step('VPN 创建提交失败后恢复现场并释放本次地址和端口', async () => {
+    const publicKey = Buffer.from(generateKeyPairSync('x25519').publicKey.export({ format: 'jwk' }).x, 'base64url').toString('base64')
+    trigger = `netlab_vpn_test_${runId}`
+    sql(`BEGIN; CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.environment_id='${a.id}' AND NEW.applied THEN RAISE EXCEPTION 'vpn acceptance access commit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER ${trigger} BEFORE UPDATE OF applied ON vpn_access FOR EACH ROW EXECUTE FUNCTION ${trigger}(); COMMIT;`)
+    const current = await detail(a)
+    const failed = await finished((await api(`/environments/${a.id}/vpn-access`, 'POST', { name: 'failed-create', publicKey, mode: 'translated', networkIds: current.spec.networks.slice(0, 2).map(item => item.id), expectedRevision: current.revision })).id)
+    assert.equal(failed.state, 'failed')
+    assert.equal(failed.phase, 'rolled-back', failed.error)
+    assert.match(failed.error, /vpn acceptance access commit failure/)
+    sql(`DROP TRIGGER ${trigger} ON vpn_access; DROP FUNCTION ${trigger}();`); trigger = undefined
+    assert.equal(sql(`SELECT count(*) FROM service_ports WHERE environment_id='${a.id}' AND purpose='vpn'; SELECT count(*) FROM vpn_aliases WHERE environment_id='${a.id}';`).trim(), '0\n0')
+    for (const id of workers.keys()) assert.ok(!(await node(id, 'ip', 'netns', 'list')).includes(vpnName(a)), '失败创建仍有活动 VPN namespace')
+    const failedPeer = (await peers(a)).find(item => item.publicKey === publicKey)
+    assert.equal(failedPeer.state, 'failed')
+    await completed((await api(`/environments/${a.id}/vpn-access/${failedPeer.id}?expectedRevision=${current.revision}`, 'DELETE')).id)
+  })
   await step('original 双栈连接与 translated 同客户端访问重叠环境', async () => {
     originalA = await connect(a, 'original', (await detail(a)).spec.networks.slice(0, 2), 'oa')
     originalB = await connect(b, 'original', (await detail(b)).spec.networks.slice(0, 2), 'ob')
@@ -263,6 +279,20 @@ try {
     await local('ip', '-n', limited.ns, 'route', 'del', denied, 'dev', limited.iface)
     await configure(limited)
     await together([originalA, translatedA, limited].map(client => traffic(client)))
+  })
+  await step('网关 Agent 停止和重启保持原 VPN 配置及真实访问', async () => {
+    const before = translatedA.connection
+    await node(translatedA.owner, 'systemctl', 'stop', 'netlab-node-dev.service')
+    try {
+      await together([originalA, translatedA, translatedB].map(client => traffic(client)))
+    } finally {
+      await node(translatedA.owner, 'systemctl', 'start', 'netlab-node-dev.service')
+    }
+    const deadline = Date.now() + 15_000
+    while (Date.now() < deadline && !(await api('/nodes')).find(item => item.id === translatedA.owner && item.state === 'ready')) await delay(200)
+    assert.ok((await api('/nodes')).find(item => item.id === translatedA.owner && item.state === 'ready'), '网关节点未恢复接入')
+    assert.deepEqual(await api(`/environments/${a.id}/vpn-access/${translatedA.id}/connection`), before)
+    await together([originalA, translatedA, limited, translatedB].map(client => traffic(client)))
   })
   await step('真实父提交失败恢复原 spec、Peer、地址及数据面', async () => {
     const before = await detail(a), oldPeers = await peers(a), oldConnection = translatedA.connection
@@ -352,7 +382,7 @@ try {
 } finally {
   const failures = []
   const clean = async (name, run) => { try { await run() } catch (error) { failures.push({ name, error: safe(error) }) } }
-  if (trigger) await clean('删除本次故障 trigger', () => sql(`DROP TRIGGER ${trigger} ON environments; DROP FUNCTION ${trigger}();`))
+  if (trigger) await clean('删除本次故障 trigger', () => sql(`DROP TRIGGER IF EXISTS ${trigger} ON environments; DROP TRIGGER IF EXISTS ${trigger} ON vpn_access; DROP FUNCTION ${trigger}();`))
   for (const env of environments) await clean(`清理环境 ${env.id}`, () => destroy(env))
   for (const id of principals) await clean(`撤销测试 Token ${id}`, () => api(`/service-tokens/${id}`, 'DELETE'))
   for (const ns of namespaces) await clean(`删除测试 namespace ${ns}`, () => local('ip', 'netns', 'delete', ns))
