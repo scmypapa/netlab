@@ -138,9 +138,14 @@ func gatewayModels(plan api.NodePlan, router *Router, prefix netip.Prefix, chass
 
 func (n *OVN) ApplyServices(ctx context.Context, plan api.NodePlan) error {
 	router := &Router{Name: objectName("lr", plan.EnvironmentId, "gateway")}
-	if err := n.client.Get(ctx, router); err != nil {
+	var routers []Router
+	if err := n.client.Where(router).List(ctx, &routers); err != nil {
 		return fmt.Errorf("environment router: %w", err)
 	}
+	if len(routers) != 1 {
+		return fmt.Errorf("environment router %s: expected one match, found %d", router.Name, len(routers))
+	}
+	router = &routers[0]
 	port := &RouterPort{Name: objectName("access_rp", plan.EnvironmentId, "gateway")}
 	if err := n.client.Get(ctx, port); err == nil {
 		for index, id := range router.Ports {
