@@ -19,17 +19,13 @@ func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request, identi
 		return err
 	}
 	principal := identity.Principal.ID
-	rows, err := s.Queries.ListEnvironments(r.Context(), queries.ListEnvironmentsParams{IsAdmin: identity.Administrator(), PrincipalID: &principal, Cursor: cursor, PageLimit: limit})
+	rows, err := s.Queries.ListEnvironments(r.Context(), queries.ListEnvironmentsParams{IsAdmin: identity.Administrator(), PrincipalID: &principal, Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Status: r.URL.Query().Get("status")})
 	if err != nil {
 		return err
 	}
-	result := make([]api.Environment, 0, len(rows))
+	result := make([]api.EnvironmentSummary, 0, len(rows))
 	for _, row := range rows {
-		item, err := environment.Record(row)
-		if err != nil {
-			return err
-		}
-		result = append(result, item)
+		result = append(result, api.EnvironmentSummary{Id: row.ID, ProjectId: row.ProjectID, Name: row.Name, ExternalReference: row.ExternalReference, Revision: int(row.Revision), Status: api.EnvironmentStatus(row.Status), AssetCount: int(row.AssetCount), NetworkCount: int(row.NetworkCount), CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time})
 	}
 	return writeJSON(w, http.StatusOK, result)
 }

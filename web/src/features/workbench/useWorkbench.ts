@@ -1,9 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, type EnvironmentSpec, type Schema } from "../../api/client";
+import { useDebouncedValue } from "@mantine/hooks";
+import { useCursorList } from "../../foundation/useCursorList";
 
 export function useWorkbench(id: string) {
   const client = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [spec, setSpec] = useState<EnvironmentSpec>({
+    assets: [],
+    networks: [],
+  });
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [search] = useDebouncedValue(templateSearch, 250);
   const environment = useQuery({
     queryKey: ["environment", id],
     queryFn: () => api.environment(id),
@@ -16,28 +25,61 @@ export function useWorkbench(id: string) {
         ? 1500
         : 6000,
   });
-  const templates = useQuery({
-    queryKey: ["templates"],
-    queryFn: api.templates,
-    refetchInterval: (query) =>
-      query.state.data?.some((template) => template.state === "importing")
-        ? 2500
-        : false,
-  });
-  const operations = useQuery({
-    queryKey: ["operations", id],
-    queryFn: () => api.operations(id),
-    refetchInterval:
-      state.data?.operation &&
-      ["queued", "running"].includes(state.data.operation.state)
-        ? 1500
-        : false,
-  });
-  const [editing, setEditing] = useState(false);
-  const [spec, setSpec] = useState<EnvironmentSpec>({
-    assets: [],
-    networks: [],
-  });
+  const catalog = useCursorList(
+    ["templates", "picker", { search }],
+    (page) => api.templates({ ...page, search }),
+    {
+      refetchInterval: (items) =>
+        items.some((template) => template.state === "importing") ? 2500 : false,
+    },
+  );
+  const currentSpec = editing
+    ? spec
+    : (environment.data?.appliedSpec ?? environment.data?.spec);
+  const ids = [
+    ...new Set(currentSpec?.assets.map((asset) => asset.templateId) ?? []),
+  ].sort();
+  const usedTemplates = useCursorList(
+    ["templates", "used", ids],
+    (page) => api.templates({ ...page, ids }),
+    { enabled: ids.length > 0 },
+  );
+  useEffect(() => {
+    if (
+      usedTemplates.hasNextPage &&
+      !usedTemplates.isFetchingNextPage &&
+      !usedTemplates.isFetchNextPageError
+    )
+      void usedTemplates.fetchNextPage();
+  }, [
+    usedTemplates.hasNextPage,
+    usedTemplates.isFetchingNextPage,
+    usedTemplates.isFetchNextPageError,
+    usedTemplates.fetchNextPage,
+  ]);
+  const templates = {
+    ...catalog,
+    data: [
+      ...new Map(
+        [...(usedTemplates.data ?? []), ...(catalog.data ?? [])].map((item) => [
+          item.id,
+          item,
+        ]),
+      ).values(),
+    ],
+    error: usedTemplates.error ?? catalog.error,
+  };
+  const operations = useCursorList(
+    ["operations", id],
+    (page) => api.operations(id, page),
+    {
+      refetchInterval:
+        state.data?.operation &&
+        ["queued", "running"].includes(state.data.operation.state)
+          ? 1500
+          : false,
+    },
+  );
   const [baseRevision, setBaseRevision] = useState(0);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["environment", id] });
@@ -129,6 +171,8 @@ export function useWorkbench(id: string) {
     environment,
     state,
     templates,
+    templateSearch,
+    setTemplateSearch,
     operations,
     editing,
     setEditing,

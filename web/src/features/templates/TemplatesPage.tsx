@@ -6,7 +6,8 @@ import {
   Switch,
   TextInput,
 } from "@mantine/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useDebouncedValue } from "@mantine/hooks";
 import { Box, Boxes, Monitor, Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -14,6 +15,8 @@ import { api, type Template } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
+import { LoadMore } from "../../foundation/LoadMore";
+import { useCursorList } from "../../foundation/useCursorList";
 import { BlueprintsPanel } from "./BlueprintsPanel";
 
 export function TemplatesPage() {
@@ -48,25 +51,21 @@ export function TemplatesPage() {
 }
 
 function AssetTemplatesPanel() {
-  const templates = useQuery({
-    queryKey: ["templates"],
-    queryFn: api.templates,
-    refetchInterval: (query) =>
-      query.state.data?.some((template) => template.state === "importing")
-        ? 2500
-        : false,
-  });
   const [kind, setKind] = useState("all");
   const [query, setQuery] = useState("");
+  const [search] = useDebouncedValue(query, 250);
+  const selectedKind = kind === "all" ? "" : kind;
+  const templates = useCursorList(
+    ["templates", { search, kind: selectedKind }],
+    (page) => api.templates({ ...page, search, kind: selectedKind }),
+    {
+      refetchInterval: (items) =>
+        items.some((template) => template.state === "importing") ? 2500 : false,
+    },
+  );
   const [creating, setCreating] = useState(false);
   const client = useQueryClient();
-  const items = (templates.data ?? []).filter(
-    (item) =>
-      (kind === "all" || item.kind === kind) &&
-      `${item.name} ${item.os}`
-        .toLocaleLowerCase()
-        .includes(query.toLocaleLowerCase()),
-  );
+  const items = templates.data ?? [];
   return (
     <>
       <div className="collection-toolbar">
@@ -175,6 +174,7 @@ function AssetTemplatesPanel() {
           />
         )
       )}
+      <LoadMore list={templates} />
       <Drawer
         opened={creating}
         onClose={() => setCreating(false)}

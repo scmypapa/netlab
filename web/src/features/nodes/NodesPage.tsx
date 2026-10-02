@@ -1,20 +1,24 @@
 import { Button, Modal, TextInput } from "@mantine/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useDebouncedValue } from "@mantine/hooks";
 import { Cpu, Plus, Search, Server } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime, memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
+import { LoadMore } from "../../foundation/LoadMore";
+import { useCursorList } from "../../foundation/useCursorList";
 
 export function NodesPage() {
-  const nodes = useQuery({
-    queryKey: ["nodes"],
-    queryFn: api.nodes,
-    refetchInterval: 15_000,
-  });
   const client = useQueryClient();
   const [query, setQuery] = useState("");
+  const [search] = useDebouncedValue(query, 250);
+  const nodes = useCursorList(
+    ["nodes", { search }],
+    (page) => api.nodes({ ...page, search }),
+    { refetchInterval: 15_000 },
+  );
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
@@ -25,9 +29,7 @@ export function NodesPage() {
       void client.invalidateQueries({ queryKey: ["nodes"] });
     },
   });
-  const items = (nodes.data ?? []).filter((node) =>
-    node.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-  );
+  const items = nodes.data ?? [];
   return (
     <main className="collection-page">
       <div className="page-heading">
@@ -44,7 +46,7 @@ export function NodesPage() {
       <div className="collection-toolbar">
         <div className="section-label">
           <Server size={16} />
-          {items.length} 个节点
+          计算节点
         </div>
         <TextInput
           aria-label="搜索节点"
@@ -140,6 +142,7 @@ export function NodesPage() {
           />
         )
       )}
+      <LoadMore list={nodes} />
       <Modal
         opened={adding}
         onClose={() => setAdding(false)}

@@ -19,7 +19,11 @@ func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request, identity 
 	if err != nil {
 		return err
 	}
-	rows, err := s.Queries.ListTemplatePage(r.Context(), queries.ListTemplatePageParams{Cursor: cursor, PageLimit: limit})
+	ids := []string{}
+	if raw := r.URL.Query().Get("ids"); raw != "" {
+		ids = strings.Split(raw, ",")
+	}
+	rows, err := s.Queries.ListTemplatePage(r.Context(), queries.ListTemplatePageParams{Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Kind: r.URL.Query().Get("kind"), Ids: ids})
 	if err != nil {
 		return err
 	}
@@ -113,7 +117,7 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request, identity acce
 	if err != nil {
 		return err
 	}
-	rows, err := s.Queries.ListNodePage(r.Context(), queries.ListNodePageParams{Cursor: cursor, PageLimit: limit})
+	rows, err := s.Queries.ListNodePage(r.Context(), queries.ListNodePageParams{Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search"))})
 	if err != nil {
 		return err
 	}

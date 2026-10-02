@@ -632,24 +632,47 @@ func (q *Queries) GetTemplates(ctx context.Context, dollar_1 []string) ([]Templa
 }
 
 const listEnvironments = `-- name: ListEnvironments :many
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE status<>'destroyed' AND
- ($1::boolean OR owner_id=$2 OR EXISTS
+SELECT e.id,e.project_id,e.name,e.external_reference,e.revision,e.status,e.created_at,e.updated_at,
+ COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'assets'),0)::integer AS asset_count,
+ COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'networks'),0)::integer AS network_count
+FROM environments e WHERE e.status<>'destroyed' AND
+ ($1::boolean OR e.owner_id=$2 OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=$2 AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=project_id) OR (g.scope_kind='environment' AND g.scope_id=environments.id))))
- AND ($3::text='' OR id<$3) ORDER BY id DESC LIMIT $4
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
+ AND ($3::text='' OR e.name ILIKE '%'||$3||'%' OR e.external_reference ILIKE '%'||$3||'%')
+ AND ($4::text='' OR e.status=$4)
+ AND ($5::text='' OR (e.created_at,e.id)<(SELECT p.created_at,p.id FROM environments p WHERE p.id=$5))
+ ORDER BY e.created_at DESC,e.id DESC LIMIT $6
 `
 
 type ListEnvironmentsParams struct {
 	IsAdmin     bool
 	PrincipalID *string
+	Search      string
+	Status      string
 	Cursor      string
 	PageLimit   int32
 }
 
-func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]Environment, error) {
+type ListEnvironmentsRow struct {
+	ID                string
+	ProjectID         string
+	Name              string
+	ExternalReference *string
+	Revision          int32
+	Status            string
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	AssetCount        int32
+	NetworkCount      int32
+}
+
+func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsParams) ([]ListEnvironmentsRow, error) {
 	rows, err := q.db.Query(ctx, listEnvironments,
 		arg.IsAdmin,
 		arg.PrincipalID,
+		arg.Search,
+		arg.Status,
 		arg.Cursor,
 		arg.PageLimit,
 	)
@@ -657,28 +680,20 @@ func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsPara
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Environment{}
+	items := []ListEnvironmentsRow{}
 	for rows.Next() {
-		var i Environment
+		var i ListEnvironmentsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,
-			&i.OwnerID,
 			&i.Name,
 			&i.ExternalReference,
 			&i.Revision,
 			&i.Status,
-			&i.Spec,
-			&i.AppliedSpec,
-			&i.View,
-			&i.Draft,
-			&i.NetworkNodeID,
-			&i.OperationID,
-			&i.Error,
-			&i.ClientRequestID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.BlueprintVersionID,
+			&i.AssetCount,
+			&i.NetworkCount,
 		); err != nil {
 			return nil, err
 		}
@@ -693,11 +708,14 @@ func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsPara
 const listNodePage = `-- name: ListNodePage :many
 SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,COALESCE(sum(a.disk_gib),0)::bigint AS reserved_disk
 FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
-WHERE ($1::text='' OR n.id>$1) GROUP BY n.id ORDER BY n.id LIMIT $2
+WHERE ($1::text='' OR n.id>$1)
+AND ($2::text='' OR n.name ILIKE '%'||$2||'%')
+GROUP BY n.id ORDER BY n.id LIMIT $3
 `
 
 type ListNodePageParams struct {
 	Cursor    string
+	Search    string
 	PageLimit int32
 }
 
@@ -715,7 +733,7 @@ type ListNodePageRow struct {
 }
 
 func (q *Queries) ListNodePage(ctx context.Context, arg ListNodePageParams) ([]ListNodePageRow, error) {
-	rows, err := q.db.Query(ctx, listNodePage, arg.Cursor, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listNodePage, arg.Cursor, arg.Search, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -874,16 +892,30 @@ func (q *Queries) ListRuntimeAssets(ctx context.Context, environmentID string) (
 }
 
 const listTemplatePage = `-- name: ListTemplatePage :many
-SELECT id, definition, created_at FROM templates WHERE ($1::text='' OR id>$1) ORDER BY id LIMIT $2
+SELECT t.id, t.definition, t.created_at FROM templates t
+WHERE ($1::text='' OR (t.created_at,t.id)<(SELECT p.created_at,p.id FROM templates p WHERE p.id=$1))
+AND ($2::text='' OR t.definition->>'name' ILIKE '%'||$2||'%' OR t.definition->>'os' ILIKE '%'||$2||'%')
+AND ($3::text='' OR t.definition->>'kind'=$3)
+AND (cardinality($4::text[])=0 OR t.id=ANY($4::text[]))
+ORDER BY t.created_at DESC,t.id DESC LIMIT $5
 `
 
 type ListTemplatePageParams struct {
 	Cursor    string
+	Search    string
+	Kind      string
+	Ids       []string
 	PageLimit int32
 }
 
 func (q *Queries) ListTemplatePage(ctx context.Context, arg ListTemplatePageParams) ([]Template, error) {
-	rows, err := q.db.Query(ctx, listTemplatePage, arg.Cursor, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listTemplatePage,
+		arg.Cursor,
+		arg.Search,
+		arg.Kind,
+		arg.Ids,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

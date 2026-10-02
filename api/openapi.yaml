@@ -6,9 +6,9 @@ paths:
   /environments:
     get:
       operationId: listEnvironments
-      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Search'}, {name: status, in: query, schema: {$ref: '#/components/schemas/EnvironmentStatus'}}]
       responses:
-        '200': {description: Environments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Environment'}}}}}
+        '200': {description: Environment summaries, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/EnvironmentSummary'}}}}}
     post:
       operationId: createEnvironment
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateEnvironment'}}}}
@@ -72,7 +72,7 @@ paths:
   /blueprints:
     get:
       operationId: listBlueprints
-      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Search'}]
       responses:
         '200': {description: Environment blueprints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Blueprint'}}}}}
   /blueprints/{id}:
@@ -127,7 +127,12 @@ paths:
   /templates:
     get:
       operationId: listTemplates
-      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Search'}
+        - {name: kind, in: query, schema: {$ref: '#/components/schemas/TemplateKind'}}
+        - {name: ids, in: query, style: form, explode: false, schema: {type: array, items: {type: string}}}
       responses:
         '200': {description: Templates, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Template'}}}}}
     post:
@@ -138,7 +143,7 @@ paths:
   /nodes:
     get:
       operationId: listNodes
-      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Search'}]
       responses:
         '200': {description: Nodes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Node'}}}}}
     post:
@@ -167,6 +172,7 @@ components:
     Id: {name: id, in: path, required: true, schema: {type: string}}
     Cursor: {name: cursor, in: query, schema: {type: string}}
     Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+    Search: {name: search, in: query, schema: {type: string}}
   responses:
     Accepted:
       description: Accepted
@@ -222,7 +228,7 @@ components:
       properties:
         id: {type: string}
         name: {type: string}
-        kind: {type: string, enum: [container, vm]}
+        kind: {$ref: '#/components/schemas/TemplateKind'}
         os: {type: string}
         version: {type: integer}
         source: {type: string}
@@ -319,13 +325,33 @@ components:
         externalReference: {type: string}
         blueprintVersionId: {type: string}
         revision: {type: integer}
-        status: {type: string, enum: [draft, deploying, running, stopped, suspended, changing, destroying, destroyed, failed, unknown]}
+        status: {$ref: '#/components/schemas/EnvironmentStatus'}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
         appliedSpec: {$ref: '#/components/schemas/EnvironmentSpec'}
         view: {$ref: '#/components/schemas/CanvasView'}
         draft: {$ref: '#/components/schemas/Draft'}
         operationId: {type: string}
         error: {type: string}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    TemplateKind:
+      type: string
+      enum: [container, vm]
+    EnvironmentStatus:
+      type: string
+      enum: [draft, deploying, running, stopped, suspended, changing, destroying, destroyed, failed, unknown]
+    EnvironmentSummary:
+      type: object
+      required: [id, projectId, name, revision, status, assetCount, networkCount, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        name: {type: string}
+        externalReference: {type: string}
+        revision: {type: integer}
+        status: {$ref: '#/components/schemas/EnvironmentStatus'}
+        assetCount: {type: integer}
+        networkCount: {type: integer}
         createdAt: {type: string, format: date-time}
         updatedAt: {type: string, format: date-time}
     AssetState:

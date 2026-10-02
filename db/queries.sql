@@ -15,11 +15,17 @@ SELECT * FROM grants WHERE principal_id=$1;
 -- name: PutGrant :exec
 INSERT INTO grants(principal_id,scope_kind,scope_id,permissions) VALUES($1,$2,$3,$4) ON CONFLICT(principal_id,scope_kind,scope_id) DO UPDATE SET permissions=EXCLUDED.permissions;
 -- name: ListEnvironments :many
-SELECT * FROM environments WHERE status<>'destroyed' AND
- (sqlc.arg(is_admin)::boolean OR owner_id=sqlc.arg(principal_id) OR EXISTS
+SELECT e.id,e.project_id,e.name,e.external_reference,e.revision,e.status,e.created_at,e.updated_at,
+ COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'assets'),0)::integer AS asset_count,
+ COALESCE(jsonb_array_length(COALESCE(e.applied_spec,e.spec)->'networks'),0)::integer AS network_count
+FROM environments e WHERE e.status<>'destroyed' AND
+ (sqlc.arg(is_admin)::boolean OR e.owner_id=sqlc.arg(principal_id) OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
- ((g.scope_kind='project' AND g.scope_id=project_id) OR (g.scope_kind='environment' AND g.scope_id=environments.id))))
- AND (sqlc.arg(cursor)::text='' OR id<sqlc.arg(cursor)) ORDER BY id DESC LIMIT sqlc.arg(page_limit);
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
+ AND (sqlc.arg(search)::text='' OR e.name ILIKE '%'||sqlc.arg(search)||'%' OR e.external_reference ILIKE '%'||sqlc.arg(search)||'%')
+ AND (sqlc.arg(status)::text='' OR e.status=sqlc.arg(status))
+ AND (sqlc.arg(cursor)::text='' OR (e.created_at,e.id)<(SELECT p.created_at,p.id FROM environments p WHERE p.id=sqlc.arg(cursor)))
+ ORDER BY e.created_at DESC,e.id DESC LIMIT sqlc.arg(page_limit);
 -- name: GetEnvironment :one
 SELECT * FROM environments WHERE id=$1;
 -- name: GetEnvironmentByRequest :one
@@ -129,11 +135,18 @@ UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r."memory
 FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu integer,"memoryMiB" bigint,"diskGiB" bigint)
 WHERE a.instance_id=r."instanceId";
 -- name: ListTemplatePage :many
-SELECT * FROM templates WHERE (sqlc.arg(cursor)::text='' OR id>sqlc.arg(cursor)) ORDER BY id LIMIT sqlc.arg(page_limit);
+SELECT t.* FROM templates t
+WHERE (sqlc.arg(cursor)::text='' OR (t.created_at,t.id)<(SELECT p.created_at,p.id FROM templates p WHERE p.id=sqlc.arg(cursor)))
+AND (sqlc.arg(search)::text='' OR t.definition->>'name' ILIKE '%'||sqlc.arg(search)||'%' OR t.definition->>'os' ILIKE '%'||sqlc.arg(search)||'%')
+AND (sqlc.arg(kind)::text='' OR t.definition->>'kind'=sqlc.arg(kind))
+AND (cardinality(sqlc.arg(ids)::text[])=0 OR t.id=ANY(sqlc.arg(ids)::text[]))
+ORDER BY t.created_at DESC,t.id DESC LIMIT sqlc.arg(page_limit);
 -- name: ListNodePage :many
 SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,COALESCE(sum(a.disk_gib),0)::bigint AS reserved_disk
 FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
-WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor)) GROUP BY n.id ORDER BY n.id LIMIT sqlc.arg(page_limit);
+WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor))
+AND (sqlc.arg(search)::text='' OR n.name ILIKE '%'||sqlc.arg(search)||'%')
+GROUP BY n.id ORDER BY n.id LIMIT sqlc.arg(page_limit);
 -- name: ListVisibleOperations :many
 SELECT o.* FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))

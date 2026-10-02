@@ -1,5 +1,5 @@
 import { ActionIcon, Button, TextInput } from "@mantine/core";
-import { useQuery } from "@tanstack/react-query";
+import { useDebouncedValue } from "@mantine/hooks";
 import { ArrowUpRight, Layers3, Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -7,24 +7,21 @@ import { api } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
+import { LoadMore } from "../../foundation/LoadMore";
+import { useCursorList } from "../../foundation/useCursorList";
 import { CreateEnvironmentDialog } from "./CreateEnvironmentDialog";
 
 export function EnvironmentsPage() {
-  const environments = useQuery({
-    queryKey: ["environments"],
-    queryFn: api.environments,
-  });
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
-  const [creating, setCreating] = useState(false);
-  const items = (environments.data ?? []).filter(
-    (item) =>
-      item.status !== "destroyed" &&
-      (filter === "all" || item.status === filter) &&
-      `${item.name} ${item.externalReference ?? ""}`
-        .toLocaleLowerCase()
-        .includes(query.toLocaleLowerCase()),
+  const [search] = useDebouncedValue(query, 250);
+  const status = filter === "all" ? "" : filter;
+  const environments = useCursorList(
+    ["environments", { search, status }],
+    (page) => api.environments({ ...page, search, status }),
   );
+  const [creating, setCreating] = useState(false);
+  const items = environments.data ?? [];
   return (
     <main className="collection-page">
       <div className="page-heading">
@@ -53,15 +50,6 @@ export function EnvironmentsPage() {
               onClick={() => setFilter(value)}
             >
               {label}
-              {value === "all" && environments.data && (
-                <span>
-                  {
-                    environments.data.filter(
-                      (item) => item.status !== "destroyed",
-                    ).length
-                  }
-                </span>
-              )}
             </button>
           ))}
         </div>
@@ -113,11 +101,8 @@ export function EnvironmentsPage() {
                     <Status value={environment.status} />
                   </td>
                   <td className="numeric">
-                    {environment.spec.assets.length}
-                    <span className="muted">
-                      {" "}
-                      / {environment.spec.networks.length}
-                    </span>
+                    {environment.assetCount}
+                    <span className="muted"> / {environment.networkCount}</span>
                   </td>
                   <td className="muted">{dateTime(environment.updatedAt)}</td>
                   <td className="table-action">
@@ -150,6 +135,7 @@ export function EnvironmentsPage() {
           />
         )
       )}
+      <LoadMore list={environments} />
       {creating && (
         <CreateEnvironmentDialog onClose={() => setCreating(false)} />
       )}

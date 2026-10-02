@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { EnvironmentSpec, Operation } from "../../api/client";
 import { actionLabels, dateTime } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
+import { LoadMore, type CursorPagination } from "../../foundation/LoadMore";
 
 const phaseLabels: Record<string, string> = {
   pending: "等待调度",
@@ -25,10 +26,12 @@ export function TaskTray({
   operations,
   spec,
   operation,
+  pagination,
 }: {
   operations: Operation[];
   spec: EnvironmentSpec;
   operation?: Operation;
+  pagination: CursorPagination;
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
@@ -84,6 +87,7 @@ export function TaskTray({
                 暂无任务
               </div>
             )}
+            <LoadMore list={pagination} />
           </div>
           {shown && (
             <div className="task-detail">

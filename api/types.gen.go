@@ -124,17 +124,17 @@ const (
 	Vmdk   TemplateFormat = "vmdk"
 )
 
-// Defines values for TemplateKind.
-const (
-	Container TemplateKind = "container"
-	Vm        TemplateKind = "vm"
-)
-
 // Defines values for TemplateState.
 const (
 	Failed    TemplateState = "failed"
 	Importing TemplateState = "importing"
 	Ready     TemplateState = "ready"
+)
+
+// Defines values for TemplateKind.
+const (
+	Container TemplateKind = "container"
+	Vm        TemplateKind = "vm"
 )
 
 // ActionRequest defines model for ActionRequest.
@@ -286,9 +286,6 @@ type Environment struct {
 	View               CanvasView        `json:"view"`
 }
 
-// EnvironmentStatus defines model for Environment.Status.
-type EnvironmentStatus string
-
 // EnvironmentSpec defines model for EnvironmentSpec.
 type EnvironmentSpec struct {
 	Assets   []Asset   `json:"assets"`
@@ -305,6 +302,23 @@ type EnvironmentState struct {
 	Revision  int          `json:"revision"`
 	Status    string       `json:"status"`
 	UpdatedAt time.Time    `json:"updatedAt"`
+}
+
+// EnvironmentStatus defines model for EnvironmentStatus.
+type EnvironmentStatus string
+
+// EnvironmentSummary defines model for EnvironmentSummary.
+type EnvironmentSummary struct {
+	AssetCount        int               `json:"assetCount"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	ExternalReference *string           `json:"externalReference,omitempty"`
+	Id                string            `json:"id"`
+	Name              string            `json:"name"`
+	NetworkCount      int               `json:"networkCount"`
+	ProjectId         string            `json:"projectId"`
+	Revision          int               `json:"revision"`
+	Status            EnvironmentStatus `json:"status"`
+	UpdatedAt         time.Time         `json:"updatedAt"`
 }
 
 // ExecutionResult defines model for ExecutionResult.
@@ -533,11 +547,11 @@ type Template struct {
 // TemplateFormat defines model for Template.Format.
 type TemplateFormat string
 
-// TemplateKind defines model for Template.Kind.
-type TemplateKind string
-
 // TemplateState defines model for Template.State.
 type TemplateState string
+
+// TemplateKind defines model for TemplateKind.
+type TemplateKind string
 
 // Volume defines model for Volume.
 type Volume struct {
@@ -556,6 +570,9 @@ type Id = string
 // Limit defines model for Limit.
 type Limit = int
 
+// Search defines model for Search.
+type Search = string
+
 // Accepted defines model for Accepted.
 type Accepted = Operation
 
@@ -563,6 +580,7 @@ type Accepted = Operation
 type ListBlueprintsParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search `form:"search,omitempty" json:"search,omitempty"`
 }
 
 // ListBlueprintVersionsParams defines parameters for ListBlueprintVersions.
@@ -573,8 +591,10 @@ type ListBlueprintVersionsParams struct {
 
 // ListEnvironmentsParams defines parameters for ListEnvironments.
 type ListEnvironmentsParams struct {
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *Cursor            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit             `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search            `form:"search,omitempty" json:"search,omitempty"`
+	Status *EnvironmentStatus `form:"status,omitempty" json:"status,omitempty"`
 }
 
 // EnvironmentEventsParams defines parameters for EnvironmentEvents.
@@ -586,6 +606,7 @@ type EnvironmentEventsParams struct {
 type ListNodesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search `form:"search,omitempty" json:"search,omitempty"`
 }
 
 // ListOperationsParams defines parameters for ListOperations.
@@ -597,8 +618,11 @@ type ListOperationsParams struct {
 
 // ListTemplatesParams defines parameters for ListTemplates.
 type ListTemplatesParams struct {
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *Cursor       `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit        `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search       `form:"search,omitempty" json:"search,omitempty"`
+	Kind   *TemplateKind `form:"kind,omitempty" json:"kind,omitempty"`
+	Ids    *[]string     `form:"ids,omitempty" json:"ids,omitempty"`
 }
 
 // SaveBlueprintVersionJSONRequestBody defines body for SaveBlueprintVersion for application/json ContentType.

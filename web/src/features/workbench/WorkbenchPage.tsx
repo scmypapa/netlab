@@ -159,6 +159,7 @@ export function WorkbenchPage() {
   };
   const errors = [
     workbench.environment.error,
+    workbench.templates.error,
     workbench.state.error,
     workbench.action.error,
     workbench.saveDraft.error,
@@ -562,12 +563,16 @@ export function WorkbenchPage() {
       <TaskTray
         operations={workbench.operations.data ?? []}
         operation={operation}
+        pagination={workbench.operations}
         spec={spec}
       />
       {editor === "asset" && (
         <AssetEditor
           asset={editingObject ? asset : undefined}
           templates={templates}
+          pagination={workbench.templates}
+          search={workbench.templateSearch}
+          onSearch={workbench.setTemplateSearch}
           spec={spec}
           onSave={updateAsset}
           onClose={() => setEditor(undefined)}
