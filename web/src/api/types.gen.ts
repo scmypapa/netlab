@@ -799,6 +799,7 @@ export interface components {
       capacity: components["schemas"]["Resources"];
       reserved: components["schemas"]["Resources"];
       capabilities: string[];
+      vmHardware?: components["schemas"]["VmHardware"];
       slots: number;
       /** Format: date-time */
       observedAt: string;
