@@ -115,6 +115,7 @@ func (v *VPN) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, 
 		v.mu.Unlock()
 	}
 	next := previous
+	next.Networks = slices.Clone(plan.Spec.Networks)
 	var err error
 	if next.Peers, err = assignVPNPeers(previous, plan.Vpn.Peers); err != nil {
 		return api.NodeVPNResult{}, err
@@ -324,6 +325,22 @@ func (v *VPN) connect(ctx context.Context, environment string, handle ns.NetNS, 
 		}
 		if err = netlink.LinkSetUp(wg); err != nil {
 			return err
+		}
+		desired := make(map[string]bool, len(record.Networks))
+		for _, network := range record.Networks {
+			desired[netip.MustParsePrefix(network.Cidr).Masked().String()] = true
+		}
+		routes, err := netlink.RouteList(peer, netlink.FAMILY_ALL)
+		if err != nil {
+			return err
+		}
+		for _, route := range routes {
+			if route.Gw == nil || (route.Dst != nil && desired[route.Dst.String()]) {
+				continue
+			}
+			if err = netlink.RouteDel(&route); err != nil {
+				return err
+			}
 		}
 		for _, network := range record.Networks {
 			prefix := netip.MustParsePrefix(network.Cidr)
