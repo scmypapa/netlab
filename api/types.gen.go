@@ -933,6 +933,7 @@ type VPNMode string
 
 // VPNPeer defines model for VPNPeer.
 type VPNPeer struct {
+	Addresses *[]string  `json:"addresses,omitempty"`
 	Id        string     `json:"id"`
 	Mode      VPNMode    `json:"mode"`
 	Name      string     `json:"name"`

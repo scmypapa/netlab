@@ -577,6 +577,7 @@ components:
         publicKey: {type: string}
         mode: {$ref: '#/components/schemas/VPNMode'}
         routes: {type: array, items: {$ref: '#/components/schemas/VPNRoute'}}
+        addresses: {type: array, items: {type: string}}
     CreateVPNAccess:
       type: object
       required: [name, publicKey, networkIds, expectedRevision]
@@ -593,7 +594,6 @@ components:
         - type: object
           required: [state, createdAt, operationId]
           properties:
-            addresses: {type: array, items: {type: string}}
             state: {type: string, enum: [pending, active, revoking, failed]}
             operationId: {type: string}
             error: {type: string}
