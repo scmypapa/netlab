@@ -217,7 +217,13 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	oldPort := plan.Assets[2].Interfaces[0].PortName
+	plan.Assets[2].Interfaces = append([]api.ResolvedInterface(nil), plan.Assets[2].Interfaces...)
+	plan.Assets[2].Interfaces[0].PortName = uuid.NewString()
 	apply(api.NodePlanPhaseForceStop, "stopped")
+	if output, err := exec.Command("ovs-vsctl", "--columns=name", "--format=csv", "--data=bare", "--no-headings", "find", "Interface", "external_ids:iface-id="+oldPort).Output(); err != nil || len(output) > 0 {
+		t.Fatalf("stop left the installed interface behind: %s %v", output, err)
+	}
 	retained := true
 	addedVolumes := append(append([]api.Volume{}, volumes...), api.Volume{Id: "temporary", MountPath: "/netlab-temporary", SizeGiB: 1}, api.Volume{Id: "retained", MountPath: "/netlab-retained", SizeGiB: 1, Retain: &retained})
 	plan.Assets[2].Asset.Volumes = &addedVolumes
@@ -285,8 +291,14 @@ func TestRealMixedLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	execContainer(t, ctx, newContainer, "test $(cat /usr/share/nginx/html/data-marker) = durable")
-	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseDestroy, replacement); err != nil {
+	stale := replacement
+	stale.Interfaces = nil
+	stale.Asset.Volumes = nil
+	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseDestroy, stale); err != nil {
 		t.Fatal(err)
+	}
+	if output, err := exec.Command("ovs-vsctl", "--columns=name", "--format=csv", "--data=bare", "--no-headings", "find", "Interface", "external_ids:iface-id="+replacement.Interfaces[0].PortName).Output(); err != nil || len(output) > 0 {
+		t.Fatalf("destroy left the installed interface behind: %s %v", output, err)
 	}
 	apply(api.NodePlanPhaseDestroy, "destroyed")
 	apply(api.NodePlanPhaseRemoveNetwork, "")

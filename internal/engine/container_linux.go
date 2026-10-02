@@ -412,6 +412,13 @@ func deleteCreated(ctx context.Context, task containerd.Task) error {
 	return err
 }
 func (c *Containers) stop(ctx context.Context, container containerd.Container, a api.AssetExecution, force bool) error {
+	labels, err := container.Labels(ctx)
+	if err != nil {
+		return err
+	}
+	if err = json.Unmarshal([]byte(labels[networkLabel]), &a.Interfaces); err != nil {
+		return err
+	}
 	task, err := container.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
 		return c.disconnect(ctx, a)
@@ -437,10 +444,6 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 		if force {
 			stopSignal = syscall.SIGKILL
 		} else {
-			labels, err := container.Labels(ctx)
-			if err != nil {
-				return err
-			}
 			if labels["netlab.stop-signal"] != "" {
 				stopSignal, err = signal.ParseSignal(labels["netlab.stop-signal"])
 				if err != nil {
