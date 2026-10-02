@@ -104,6 +104,37 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 	if err = json.Unmarshal([]byte(owner.Execution), &execution); err != nil {
 		return nil, err
 	}
+	hardware := *execution.Template.Hardware
+	hardware.Machine = config.OS.Type.Machine
+	hardware.DiskBus = api.HardwareDiskBus(config.Devices.Disks[0].Target.Bus)
+	hardware.Firmware = api.Bios
+	hardware.FirmwareCode, hardware.FirmwareVars = nil, nil
+	secureBoot := false
+	if config.OS.Loader != nil {
+		hardware.FirmwareCode = ptr(config.OS.Loader.Path)
+		secureBoot = config.OS.Loader.Secure == "yes"
+		if config.OS.Loader.Type == "pflash" {
+			hardware.Firmware = api.Uefi
+		}
+	}
+	if config.OS.NVRam != nil {
+		hardware.FirmwareVars = ptr(config.OS.NVRam.Template)
+	}
+	hardware.SecureBoot = &secureBoot
+	hardware.Tpm = ptr(len(config.Devices.TPMs) > 0)
+	guestAgent := false
+	for _, channel := range config.Devices.Channels {
+		guestAgent = guestAgent || channel.Target != nil && channel.Target.VirtIO != nil && channel.Target.VirtIO.Name == "org.qemu.guest_agent.0"
+	}
+	hardware.GuestAgent = &guestAgent
+	if len(config.Devices.Interfaces) > 0 {
+		hardware.NicModel = api.HardwareNicModel(config.Devices.Interfaces[0].Model.Type)
+	}
+	hardware.CpuModel = ptr(config.CPU.Mode)
+	if config.CPU.Model != nil {
+		hardware.CpuModel = ptr(config.CPU.Model.Value)
+	}
+	execution.Template.Hardware = &hardware
 	execution.Asset.Resources.Cpu = int(config.VCPU.Value)
 	info, err := domain.GetInfo()
 	if err != nil {
