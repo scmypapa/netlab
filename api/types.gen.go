@@ -75,19 +75,20 @@ const (
 
 // Defines values for NodePlanPhase.
 const (
-	NodePlanPhaseActivate      NodePlanPhase = "activate"
-	NodePlanPhaseDestroy       NodePlanPhase = "destroy"
-	NodePlanPhaseForceStop     NodePlanPhase = "force-stop"
-	NodePlanPhaseInspect       NodePlanPhase = "inspect"
-	NodePlanPhaseNetwork       NodePlanPhase = "network"
-	NodePlanPhasePrepare       NodePlanPhase = "prepare"
-	NodePlanPhaseReboot        NodePlanPhase = "reboot"
-	NodePlanPhaseRemoveNetwork NodePlanPhase = "remove-network"
-	NodePlanPhaseResume        NodePlanPhase = "resume"
-	NodePlanPhaseStart         NodePlanPhase = "start"
-	NodePlanPhaseStop          NodePlanPhase = "stop"
-	NodePlanPhaseSuspend       NodePlanPhase = "suspend"
-	NodePlanPhaseUpdate        NodePlanPhase = "update"
+	NodePlanPhaseActivate       NodePlanPhase = "activate"
+	NodePlanPhaseCleanupVolumes NodePlanPhase = "cleanup-volumes"
+	NodePlanPhaseDestroy        NodePlanPhase = "destroy"
+	NodePlanPhaseForceStop      NodePlanPhase = "force-stop"
+	NodePlanPhaseInspect        NodePlanPhase = "inspect"
+	NodePlanPhaseNetwork        NodePlanPhase = "network"
+	NodePlanPhasePrepare        NodePlanPhase = "prepare"
+	NodePlanPhaseReboot         NodePlanPhase = "reboot"
+	NodePlanPhaseRemoveNetwork  NodePlanPhase = "remove-network"
+	NodePlanPhaseResume         NodePlanPhase = "resume"
+	NodePlanPhaseStart          NodePlanPhase = "start"
+	NodePlanPhaseStop           NodePlanPhase = "stop"
+	NodePlanPhaseSuspend        NodePlanPhase = "suspend"
+	NodePlanPhaseUpdate         NodePlanPhase = "update"
 )
 
 // Defines values for OperationState.
