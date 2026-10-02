@@ -216,7 +216,12 @@ export function ObjectInspector({
                             重启
                           </Menu.Item>
                           <Menu.Item
-                            disabled={busy}
+                            disabled={
+                              busy ||
+                              !["running", "suspended"].includes(
+                                assetState?.state ?? "",
+                              )
+                            }
                             onClick={() =>
                               onAction(
                                 assetState?.state === "suspended"

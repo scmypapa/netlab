@@ -326,6 +326,15 @@ export function WorkbenchPage() {
                     {canOperate && (
                       <>
                         <Menu.Divider />
+                        {status === "suspended" && (
+                          <Menu.Item
+                            onClick={() =>
+                              workbench.action.mutate({ action: "stop" })
+                            }
+                          >
+                            停止环境
+                          </Menu.Item>
+                        )}
                         <Menu.Item
                           disabled={busy || status !== "running"}
                           onClick={() =>
