@@ -129,6 +129,10 @@ func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
 	if err != nil {
 		return nil, err
 	}
+	// OVN routers have no schema name index; Netlab assigns stable router names.
+	db.SetIndexes(map[string][]model.ClientIndex{
+		"Logical_Router": {{Columns: []model.ColumnKey{{Column: "name"}}}},
+	})
 	c, err := connect(ctx, endpoint, db, tables)
 	if err != nil {
 		return nil, err
