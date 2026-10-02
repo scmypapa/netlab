@@ -33,7 +33,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		}
 		p, err := netip.ParsePrefix(n.Cidr)
 		if err != nil {
-			return spec, Invalid("网段 %s：%w", n.Name, err)
+			return spec, Invalid("网段 %s：%v", n.Name, err)
 		}
 		p = p.Masked()
 		n.Cidr = p.String()

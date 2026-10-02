@@ -56,6 +56,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["environmentEvents"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/actions": {
     parameters: {
       query?: never;
@@ -436,7 +454,7 @@ export interface components {
     };
     Operation: {
       id: string;
-      environmentId: string;
+      environmentId?: string;
       kind: string;
       /** @enum {string} */
       state:
@@ -491,6 +509,7 @@ export interface components {
         | "network"
         | "prepare"
         | "activate"
+        | "update"
         | "start"
         | "stop"
         | "force-stop"
@@ -498,6 +517,7 @@ export interface components {
         | "suspend"
         | "resume"
         | "destroy"
+        | "cleanup-volumes"
         | "remove-network"
         | "inspect";
       assets: components["schemas"]["AssetExecution"][];
@@ -508,6 +528,7 @@ export interface components {
       instanceId: string;
       state: string;
       error?: string;
+      execution?: components["schemas"]["AssetExecution"];
       /** Format: date-time */
       observedAt: string;
     };
@@ -589,6 +610,8 @@ export interface components {
   };
   parameters: {
     Id: string;
+    Cursor: string;
+    Limit: number;
   };
   requestBodies: never;
   headers: never;
@@ -598,7 +621,10 @@ export type $defs = Record<string, never>;
 export interface operations {
   listEnvironments: {
     parameters: {
-      query?: never;
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -680,6 +706,30 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["EnvironmentState"];
+        };
+      };
+    };
+  };
+  environmentEvents: {
+    parameters: {
+      query?: never;
+      header?: {
+        "Last-Event-ID"?: number;
+      };
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Committed environment events */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "text/event-stream": string;
         };
       };
     };
@@ -820,6 +870,8 @@ export interface operations {
     parameters: {
       query?: {
         environmentId?: string;
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
       };
       header?: never;
       path?: never;
@@ -862,7 +914,10 @@ export interface operations {
   };
   listTemplates: {
     parameters: {
-      query?: never;
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -906,7 +961,10 @@ export interface operations {
   };
   listNodes: {
     parameters: {
-      query?: never;
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
       header?: never;
       path?: never;
       cookie?: never;
