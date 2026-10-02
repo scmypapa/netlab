@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -65,6 +66,21 @@ func TestRealMixedLifecycle(t *testing.T) {
 	web := api.Asset{Id: "web", Name: "Web", TemplateId: "nginx", Resources: containerResources, Interfaces: interfaces("web-nic", "192.168.82.10", "02:00:00:82:00:10"), Volumes: &volumes}
 	vm := api.Asset{Id: "vm", Name: "VM", TemplateId: "bios", Resources: vmResources, Interfaces: interfaces("vm-nic", "192.168.82.20", "02:00:00:82:00:20")}
 	assets := []api.AssetExecution{{Asset: web, Template: api.Template{Id: "nginx", Name: "Nginx", Kind: api.Container, Source: archive, Resources: containerResources}, InstanceId: uuid.NewString(), Interfaces: resolve(web.Interfaces[0])}, {Asset: vm, Template: api.Template{Id: "bios", Name: "BIOS", Kind: api.Vm, Source: base, Os: "linux", Resources: vmResources, Hardware: &api.Hardware{Firmware: api.Bios, Machine: "pc-i440fx-8.2", DiskBus: api.HardwareDiskBusIde, NicModel: api.HardwareNicModelE1000}}, InstanceId: uuid.NewString(), Interfaces: resolve(vm.Interfaces[0])}}
+	assets[1].Template.Hardware.Machine = "pc"
+	prepared, err := e.PrepareTemplate(ctx, assets[1].Template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, err := e.vm.domainCapabilities("pc")
+	if err != nil || prepared.Hardware.Machine != native.Machine || prepared.Hardware.Machine == "pc" || *prepared.Hardware.CpuModel != "host-model" {
+		t.Fatalf("BIOS machine alias was not pinned: %+v %v", prepared.Hardware, err)
+	}
+	assets[1].Template = prepared
+	info, err := e.Info()
+	if err != nil || info.VmHardware == nil || len(info.VmHardware.Machines) == 0 || !slices.Contains(info.VmHardware.CpuModes, "host-model") || !slices.Contains(info.VmHardware.NicModels, "e1000") {
+		t.Fatalf("node did not report native virtual hardware: %+v %v", info.VmHardware, err)
+	}
+	t.Logf("native hardware: %d machines, %d CPU models, %d NIC models; BIOS pc=%s", len(info.VmHardware.Machines), len(info.VmHardware.CpuModels), len(info.VmHardware.NicModels), prepared.Hardware.Machine)
 	clientAsset := web
 	clientAsset.Id = "client"
 	clientAsset.Name = "Client"
@@ -110,6 +126,15 @@ func TestRealMixedLifecycle(t *testing.T) {
 	apply(api.NodePlanPhaseNetwork, "")
 	apply(api.NodePlanPhasePrepare, "")
 	apply(api.NodePlanPhaseActivate, "running")
+	domain, err := e.vm.conn.LookupDomainByUUIDString(assets[1].InstanceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualVM, observeErr := e.vm.observedExecution(domain)
+	domain.Free()
+	if observeErr != nil || actualVM.Template.Hardware.Machine != prepared.Hardware.Machine || actualVM.Template.Hardware.Firmware != api.Bios || actualVM.Template.Hardware.DiskBus != api.HardwareDiskBusIde || actualVM.Template.Hardware.NicModel != api.HardwareNicModelE1000 || actualVM.Template.Hardware.CpuModel == nil || *actualVM.Template.Hardware.CpuModel == "host-model" {
+		t.Fatalf("BIOS hardware was not read from the active domain: %+v %v", actualVM, observeErr)
+	}
 	logicalSwitchIDs := func() string {
 		t.Helper()
 		output, err := exec.Command("ovn-nbctl", "--db=unix:/run/ovn/ovnnb_db.sock", "--columns=_uuid", "--format=csv", "--data=bare", "--no-headings", "find", "Logical_Switch", "external_ids:netlab.environment="+env).Output()
@@ -336,6 +361,22 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	volumes := []api.Volume{{Id: "data", MountPath: "/data", SizeGiB: 1}}
 	a := api.AssetExecution{Asset: api.Asset{Id: "modern", Name: "UEFI", Resources: api.Resources{Cpu: 1, MemoryMiB: 512, DiskGiB: 1}, Volumes: &volumes}, InstanceId: uuid.NewString(), Template: api.Template{Id: "modern", Source: base, Hardware: &api.Hardware{Firmware: api.Uefi, Machine: "pc-q35-8.2", DiskBus: api.HardwareDiskBusSata, NicModel: api.HardwareNicModelE1000e, SecureBoot: &yes, Tpm: &yes}}}
 	a.Template.Kind = api.Vm
+	a.Template.Hardware.Machine = "q35"
+	executor := &Engine{vm: vm, slots: make(chan struct{}, 1), locks: make(map[string]*objectLock)}
+	prepared, err := executor.PrepareTemplate(ctx, a.Template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, err := vm.domainCapabilities("q35")
+	if err != nil || prepared.Hardware.Machine != native.Machine || prepared.Hardware.Machine == "q35" {
+		t.Fatalf("UEFI machine alias was not pinned: %+v %v", prepared.Hardware, err)
+	}
+	a.Template = prepared
+	profile := vm.hardware.Machines[slices.IndexFunc(vm.hardware.Machines, func(m api.VmMachine) bool { return m.Name == prepared.Hardware.Machine })]
+	if !profile.SecureBoot || !profile.Tpm2 || !slices.Contains(profile.Firmware, "uefi") || !slices.Contains(profile.DiskBuses, "sata") {
+		t.Fatalf("native q35 hardware profile omitted supported devices: %+v", profile)
+	}
+	t.Logf("native UEFI q35=%s, secure boot=%v, TPM2=%v", prepared.Hardware.Machine, profile.SecureBoot, profile.Tpm2)
 	defer func() {
 		if _, err := vm.Execute(context.Background(), env, api.NodePlanPhaseDestroy, a); err != nil {
 			t.Errorf("cleanup: %v", err)
@@ -369,6 +410,10 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 		return config
 	}
 	before := readConfig()
+	actualHardware, err := vm.observedExecution(domain)
+	if err != nil || actualHardware.Template.Hardware.Machine != before.OS.Type.Machine || actualHardware.Template.Hardware.Firmware != api.Uefi || !*actualHardware.Template.Hardware.SecureBoot || !*actualHardware.Template.Hardware.Tpm || actualHardware.Template.Hardware.FirmwareCode == nil || *actualHardware.Template.Hardware.FirmwareCode != before.OS.Loader.Path {
+		t.Fatalf("UEFI hardware was not observed from the native domain: %+v %v", actualHardware, err)
+	}
 	a.Asset.Resources = api.Resources{Cpu: 2, MemoryMiB: 640, DiskGiB: 2}
 	updatedVolumes := []api.Volume{{Id: "data", MountPath: "/data", SizeGiB: 2}, {Id: "temporary", MountPath: "/temporary", SizeGiB: 1}}
 	a.Asset.Volumes = &updatedVolumes
@@ -412,7 +457,6 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	badHardware.Machine = "unsupported-machine"
 	failed.Template.Hardware = &badHardware
 	failed.Asset.Resources = api.Resources{Cpu: 3, MemoryMiB: 700, DiskGiB: 3}
-	executor := &Engine{vm: vm, slots: make(chan struct{}, 1), locks: make(map[string]*objectLock)}
 	result := executor.Execute(ctx, api.NodePlan{OperationId: uuid.NewString(), EnvironmentId: env, Phase: api.NodePlanPhaseUpdate, Assets: []api.AssetExecution{failed}})
 	actual := result.Results[0]
 	if actual.Error != nil {

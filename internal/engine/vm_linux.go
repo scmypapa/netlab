@@ -26,6 +26,7 @@ type VirtualMachines struct {
 	conn         *libvirt.Connect
 	data, bridge string
 	sources      sync.Map
+	hardware     api.VmHardware
 }
 
 func NewVirtualMachines(uri, data, bridge string) (*VirtualMachines, error) {
@@ -33,7 +34,12 @@ func NewVirtualMachines(uri, data, bridge string) (*VirtualMachines, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &VirtualMachines{conn: c, data: data, bridge: bridge}, nil
+	v := &VirtualMachines{conn: c, data: data, bridge: bridge}
+	if v.hardware, err = v.hardwareCapabilities(); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return v, nil
 }
 func (v *VirtualMachines) Close() { v.conn.Close() }
 func noDomain(err error) bool {

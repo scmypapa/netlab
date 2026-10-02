@@ -117,13 +117,11 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 	if e.vm != nil {
 		caps = append(caps, "vm")
 	}
-	fw := []string{}
-	for _, file := range []string{"/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd"} {
-		if _, err := os.Stat(file); err == nil {
-			fw = append(fw, file)
-		}
+	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
+	if e.vm != nil {
+		info.VmHardware = &e.vm.hardware
 	}
-	return api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Slots: cap(e.slots), Capabilities: caps, Firmware: &fw, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}, nil
+	return info, nil
 }
 func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult {
 	unlocked := e.lock(plan.EnvironmentId)
@@ -243,6 +241,10 @@ func (e *Engine) PrepareTemplate(ctx context.Context, t api.Template) (api.Templ
 	case api.Vm:
 		if e.vm == nil {
 			return t, errors.New("virtual machine runtime not configured")
+		}
+		t, err = e.vm.pinHardware(t)
+		if err != nil {
+			break
 		}
 		var path string
 		path, err = e.vm.source(ctx, t)

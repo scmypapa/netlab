@@ -378,7 +378,26 @@ components:
         capacity: {$ref: '#/components/schemas/Resources'}
         capabilities: {type: array, items: {type: string}}
         slots: {type: integer}
+        vmHardware: {$ref: '#/components/schemas/VmHardware'}
+    VmHardware:
+      type: object
+      required: [machines, cpuModes, cpuModels, nicModels]
+      properties:
+        machines: {type: array, items: {$ref: '#/components/schemas/VmMachine'}}
+        cpuModes: {type: array, items: {type: string}}
+        cpuModels: {type: array, items: {type: string}}
+        nicModels: {type: array, items: {type: string}}
+    VmMachine:
+      type: object
+      required: [name, maxVcpus, firmware, secureBoot, tpm2, diskBuses, firmwareFiles]
+      properties:
+        name: {type: string}
+        maxVcpus: {type: integer}
         firmware: {type: array, items: {type: string}}
+        secureBoot: {type: boolean}
+        tpm2: {type: boolean}
+        diskBuses: {type: array, items: {type: string}}
+        firmwareFiles: {type: array, items: {type: string}}
     CreateEnvironment:
       type: object
       required: [name, spec]
