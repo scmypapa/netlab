@@ -12,7 +12,7 @@
 
 ## 当前事实
 
-2026-10-02：独立仓库 `D:\newgz\netlab` 已建立，分支 `codex/standalone-network-core`。本地 PostgreSQL、控制面和 WSL 节点常驻运行；现有 YINYU 平台与生产节点未修改。
+2026-10-02：独立仓库位于 `D:\newgz\netlab`，远端为私有仓库 [scmypapa/netlab](https://github.com/scmypapa/netlab)，默认分支 `main`。实现从 `codex/standalone-network-core` 汇入；现有 YINYU 平台与生产节点未修改。本地执行环境的最新状态见下方验证记录。
 
 | 模块 | 实现与验证 |
 | --- | --- |
