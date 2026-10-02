@@ -37,6 +37,13 @@ const (
 	ChangeItemKindNetwork ChangeItemKind = "network"
 )
 
+// Defines values for ConsoleKind.
+const (
+	Serial   ConsoleKind = "serial"
+	Terminal ConsoleKind = "terminal"
+	Vnc      ConsoleKind = "vnc"
+)
+
 // Defines values for EnvironmentStatus.
 const (
 	EnvironmentStatusChanging   EnvironmentStatus = "changing"
@@ -250,6 +257,15 @@ type ChangeRequest struct {
 	Spec             EnvironmentSpec `json:"spec"`
 }
 
+// ConsoleKind defines model for ConsoleKind.
+type ConsoleKind string
+
+// ConsoleResize defines model for ConsoleResize.
+type ConsoleResize struct {
+	Cols int `json:"cols"`
+	Rows int `json:"rows"`
+}
+
 // CreateEnvironment defines model for CreateEnvironment.
 type CreateEnvironment struct {
 	BlueprintVersionId *string          `json:"blueprintVersionId,omitempty"`
@@ -403,12 +419,12 @@ type Node struct {
 
 // NodeInfo defines model for NodeInfo.
 type NodeInfo struct {
-	Capabilities []string  `json:"capabilities"`
-	Capacity     Resources `json:"capacity"`
-	Firmware     *[]string `json:"firmware,omitempty"`
-	Id           string    `json:"id"`
-	Name         string    `json:"name"`
-	Slots        int       `json:"slots"`
+	Capabilities []string    `json:"capabilities"`
+	Capacity     Resources   `json:"capacity"`
+	Id           string      `json:"id"`
+	Name         string      `json:"name"`
+	Slots        int         `json:"slots"`
+	VmHardware   *VmHardware `json:"vmHardware,omitempty"`
 }
 
 // NodePlan defines model for NodePlan.
@@ -553,6 +569,26 @@ type TemplateState string
 // TemplateKind defines model for TemplateKind.
 type TemplateKind string
 
+// VmHardware defines model for VmHardware.
+type VmHardware struct {
+	CpuModels []string    `json:"cpuModels"`
+	CpuModes  []string    `json:"cpuModes"`
+	Machines  []VmMachine `json:"machines"`
+	NicModels []string    `json:"nicModels"`
+}
+
+// VmMachine defines model for VmMachine.
+type VmMachine struct {
+	Aliases       []string `json:"aliases"`
+	DiskBuses     []string `json:"diskBuses"`
+	Firmware      []string `json:"firmware"`
+	FirmwareFiles []string `json:"firmwareFiles"`
+	MaxVcpus      int      `json:"maxVcpus"`
+	Name          string   `json:"name"`
+	SecureBoot    bool     `json:"secureBoot"`
+	Tpm2          bool     `json:"tpm2"`
+}
+
 // Volume defines model for Volume.
 type Volume struct {
 	Id        string `json:"id"`
@@ -595,6 +631,11 @@ type ListEnvironmentsParams struct {
 	Limit  *Limit             `form:"limit,omitempty" json:"limit,omitempty"`
 	Search *Search            `form:"search,omitempty" json:"search,omitempty"`
 	Status *EnvironmentStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// AssetConsoleParams defines parameters for AssetConsole.
+type AssetConsoleParams struct {
+	Kind ConsoleKind `form:"kind" json:"kind"`
 }
 
 // EnvironmentEventsParams defines parameters for EnvironmentEvents.

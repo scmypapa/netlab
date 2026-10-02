@@ -41,8 +41,8 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		OnPoweroff: "destroy", OnReboot: "restart", OnCrash: "destroy", Devices: &libvirtxml.DomainDeviceList{},
 	}
 	if h.CpuModel != nil && *h.CpuModel != "" {
-		if *h.CpuModel == "host-passthrough" {
-			d.CPU.Mode = "host-passthrough"
+		if *h.CpuModel == "host-passthrough" || *h.CpuModel == "host-model" {
+			d.CPU.Mode = *h.CpuModel
 		} else {
 			d.CPU.Mode = "custom"
 			d.CPU.Match = "exact"

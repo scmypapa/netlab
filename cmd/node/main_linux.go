@@ -19,9 +19,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/engine"
+	"netlab.local/core/internal/stream"
 )
 
 func main() {
@@ -76,6 +78,21 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/console", func(w http.ResponseWriter, r *http.Request) {
+		console, err := executor.OpenConsole(r.Context(), r.PathValue("environmentId"), r.PathValue("assetId"), r.PathValue("instanceId"), api.ConsoleKind(r.URL.Query().Get("kind")))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		defer console.Close()
+		socket, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"binary"}})
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		socket.SetReadLimit(1 << 20)
+		stream.Console(r.Context(), socket, console, console.Resize)
+	})
 	mux.HandleFunc("GET /node/v1/info", func(w http.ResponseWriter, r *http.Request) { value, err := executor.Info(); respond(w, value, err) })
 	mux.HandleFunc("GET /node/v1/inventory", func(w http.ResponseWriter, r *http.Request) {
 		value, err := executor.Inventory(r.Context(), r.URL.Query().Get("environmentId"))

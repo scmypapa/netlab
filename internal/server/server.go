@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,6 +31,8 @@ type Server struct {
 	Environments environment.Service
 	Nodes        *transport.Client
 	Web          http.Handler
+	consoleMu    sync.Mutex
+	consoles     map[*websocket.Conn]consoleOwner
 }
 
 func New(pool *pgxpool.Pool, nodes *transport.Client, web http.Handler) *Server {
@@ -55,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 		"GET /api/v1/environments/{id}/state":                     s.environmentState,
 		"POST /api/v1/environments/{id}/actions":                  s.environmentAction,
 		"POST /api/v1/environments/{id}/assets/{assetId}/actions": s.environmentAction,
+		"GET /api/v1/environments/{id}/assets/{assetId}/console":  s.assetConsole,
 		"POST /api/v1/environments/{id}/changes":                  s.environmentChanges,
 		"PUT /api/v1/environments/{id}/view":                      s.saveView,
 		"PUT /api/v1/environments/{id}/draft":                     s.saveDraft,

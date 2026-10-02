@@ -351,6 +351,53 @@ func (q *Queries) GetCredential(ctx context.Context, hash []byte) (Principal, er
 	return i, err
 }
 
+const getCurrentAsset = `-- name: GetCurrentAsset :one
+SELECT a.environment_id, a.asset_id, a.instance_id, a.node_id, a.execution, a.state, a.cpu, a.memory_mib, a.disk_gib, a.current, a.error, a.observed_at,n.endpoint FROM runtime_assets a JOIN nodes n ON n.id=a.node_id
+WHERE a.environment_id=$1 AND a.asset_id=$2 AND a.current
+`
+
+type GetCurrentAssetParams struct {
+	EnvironmentID string
+	AssetID       string
+}
+
+type GetCurrentAssetRow struct {
+	EnvironmentID string
+	AssetID       string
+	InstanceID    string
+	NodeID        string
+	Execution     []byte
+	State         string
+	Cpu           int32
+	MemoryMib     int64
+	DiskGib       int64
+	Current       bool
+	Error         *string
+	ObservedAt    pgtype.Timestamptz
+	Endpoint      string
+}
+
+func (q *Queries) GetCurrentAsset(ctx context.Context, arg GetCurrentAssetParams) (GetCurrentAssetRow, error) {
+	row := q.db.QueryRow(ctx, getCurrentAsset, arg.EnvironmentID, arg.AssetID)
+	var i GetCurrentAssetRow
+	err := row.Scan(
+		&i.EnvironmentID,
+		&i.AssetID,
+		&i.InstanceID,
+		&i.NodeID,
+		&i.Execution,
+		&i.State,
+		&i.Cpu,
+		&i.MemoryMib,
+		&i.DiskGib,
+		&i.Current,
+		&i.Error,
+		&i.ObservedAt,
+		&i.Endpoint,
+	)
+	return i, err
+}
+
 const getEnvironment = `-- name: GetEnvironment :one
 SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id FROM environments WHERE id=$1
 `

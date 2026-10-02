@@ -203,7 +203,7 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 		if err = json.Unmarshal(n.Info, &info); err != nil {
 			return err
 		}
-		if n.State != "ready" || !slices.Contains(info.Capabilities, string(t.Kind)) {
+		if n.State != "ready" || !supports(info, t, t.Resources.Cpu) {
 			continue
 		}
 		if err = w.phase(ctx, op, p, "prepare"); err != nil {

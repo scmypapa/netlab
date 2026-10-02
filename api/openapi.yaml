@@ -107,6 +107,15 @@ paths:
       operationId: assetAction
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ActionRequest'}}}}
       responses: {'202': {$ref: '#/components/responses/Accepted'}}
+  /environments/{id}/assets/{assetId}/console:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: assetConsole
+      description: WebSocket. Binary messages carry terminal or RFB bytes; terminal text messages contain ConsoleResize.
+      parameters: [{name: kind, in: query, required: true, schema: {$ref: '#/components/schemas/ConsoleKind'}}]
+      responses: {'101': {description: Connected}, '409': {description: Asset has no running instance}}
   /operations:
     get:
       operationId: listOperations
@@ -180,6 +189,15 @@ components:
   securitySchemes:
     bearer: {type: http, scheme: bearer}
   schemas:
+    ConsoleKind:
+      type: string
+      enum: [terminal, serial, vnc]
+    ConsoleResize:
+      type: object
+      required: [cols, rows]
+      properties:
+        cols: {type: integer, minimum: 1, maximum: 1000}
+        rows: {type: integer, minimum: 1, maximum: 1000}
     Identity:
       type: object
       required: [id, name, administrator]
@@ -460,7 +478,27 @@ components:
         capacity: {$ref: '#/components/schemas/Resources'}
         capabilities: {type: array, items: {type: string}}
         slots: {type: integer}
+        vmHardware: {$ref: '#/components/schemas/VmHardware'}
+    VmHardware:
+      type: object
+      required: [machines, cpuModes, cpuModels, nicModels]
+      properties:
+        machines: {type: array, items: {$ref: '#/components/schemas/VmMachine'}}
+        cpuModes: {type: array, items: {type: string}}
+        cpuModels: {type: array, items: {type: string}}
+        nicModels: {type: array, items: {type: string}}
+    VmMachine:
+      type: object
+      required: [name, aliases, maxVcpus, firmware, secureBoot, tpm2, diskBuses, firmwareFiles]
+      properties:
+        name: {type: string}
+        aliases: {type: array, items: {type: string}}
+        maxVcpus: {type: integer}
         firmware: {type: array, items: {type: string}}
+        secureBoot: {type: boolean}
+        tpm2: {type: boolean}
+        diskBuses: {type: array, items: {type: string}}
+        firmwareFiles: {type: array, items: {type: string}}
     CreateEnvironment:
       type: object
       required: [name]
