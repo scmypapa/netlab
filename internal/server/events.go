@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 	if _, err := s.Environments.Authorized(r.Context(), identity, id, "read", ""); err != nil {
 		return err
 	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	r = r.WithContext(ctx)
+	release, err := s.trackConnection(ctx, &accessConnection{
+		principal: identity.Principal.ID, environment: id, credential: credential(r), permission: "read", close: cancel,
+	})
+	if err != nil {
+		return err
+	}
+	defer release()
 	var cursor int64
 	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
 		value, err := strconv.ParseInt(raw, 10, 64)

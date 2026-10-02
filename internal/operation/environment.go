@@ -45,7 +45,7 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			}
 			// Uncreated leftovers are handled by destroy; only defined current instances need stopping.
 			affected = slices.DeleteFunc(affected, func(t Target) bool { return findInstance(p.Before, t.Execution.InstanceId).Execution.InstanceId == "" })
-			_, err = w.batch(ctx, op, p, api.NodePlanPhaseForceStop, affected)
+			_, err = w.batch(ctx, op, p, api.NodePlanPhaseStop, affected)
 			next = "network"
 		case "update":
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseUpdate, p.Updates)
@@ -312,7 +312,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	before := slices.Clone(p.Before)
 	var updateError error
 	if len(p.Updates) > 0 {
-		_, updateError = w.batch(ctx, op, p, api.NodePlanPhaseForceStop, p.Updates)
+		_, updateError = w.batch(ctx, op, p, api.NodePlanPhaseStop, p.Updates)
 		observed, inspectErr := w.batch(ctx, op, p, api.NodePlanPhaseInspect, p.Updates)
 		updateError = errors.Join(updateError, inspectErr)
 		original := []Target{}

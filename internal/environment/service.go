@@ -239,6 +239,20 @@ func submit(ctx context.Context, q *queries.Queries, row queries.Environment, ki
 	}
 	return op, q.SetEnvironmentOperation(ctx, queries.SetEnvironmentOperationParams{ID: row.ID, OperationID: &op.ID, Status: state})
 }
+func existingRequest(ctx context.Context, q *queries.Queries, id string, requestID *string, kind, asset string) (api.Operation, error) {
+	previous, err := q.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: requestID})
+	if err != nil {
+		return api.Operation{}, err
+	}
+	target := ""
+	if previous.AssetID != nil {
+		target = *previous.AssetID
+	}
+	if previous.Kind != kind || target != asset {
+		return api.Operation{}, ErrConflict
+	}
+	return Operation(previous)
+}
 func (s Service) Action(ctx context.Context, identity access.Identity, id, asset string, request api.ActionRequest) (api.Operation, error) {
 	permission := access.OperationPermission(string(request.Action))
 	if _, err := s.Authorized(ctx, identity, id, permission, asset); err != nil {
@@ -255,9 +269,9 @@ func (s Service) Action(ctx context.Context, identity access.Identity, id, asset
 		return api.Operation{}, err
 	}
 	if request.ClientRequestId != nil {
-		previous, err := q.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: request.ClientRequestId})
+		previous, err := existingRequest(ctx, q, id, request.ClientRequestId, string(request.Action), asset)
 		if err == nil {
-			return Operation(previous)
+			return previous, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return api.Operation{}, err
@@ -310,10 +324,9 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		return api.ChangePreview{}, nil, err
 	}
 	if request.Apply && request.ClientRequestId != nil {
-		previous, err := s.Queries.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: request.ClientRequestId})
+		previous, err := existingRequest(ctx, s.Queries, id, request.ClientRequestId, "change", "")
 		if err == nil {
-			op, err := Operation(previous)
-			return api.ChangePreview{}, &op, err
+			return api.ChangePreview{}, &previous, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return api.ChangePreview{}, nil, err
@@ -353,10 +366,9 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		return preview, nil, err
 	}
 	if request.ClientRequestId != nil {
-		previous, err := q.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: request.ClientRequestId})
+		previous, err := existingRequest(ctx, q, id, request.ClientRequestId, "change", "")
 		if err == nil {
-			op, err := Operation(previous)
-			return preview, &op, err
+			return preview, &previous, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return preview, nil, err

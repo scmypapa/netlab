@@ -2,10 +2,44 @@ package server
 
 import (
 	"context"
+	"time"
 
-	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 )
+
+type accessConnection struct {
+	principal, environment, asset, credential, permission string
+	close                                                 func()
+}
+
+func (s *Server) trackConnection(ctx context.Context, owner *accessConnection) (func(), error) {
+	s.connectionMu.Lock()
+	if s.connections == nil {
+		s.connections = map[*accessConnection]struct{}{}
+	}
+	s.connections[owner] = struct{}{}
+	s.connectionMu.Unlock()
+	remove := func() { s.connectionMu.Lock(); delete(s.connections, owner); s.connectionMu.Unlock() }
+	// Register before re-reading grants, so concurrent revocation cannot miss the connection.
+	identity, err := s.Access.Authenticate(ctx, owner.credential)
+	if err == nil {
+		_, err = s.Environments.Authorized(ctx, identity, owner.environment, owner.permission, owner.asset)
+	}
+	if err != nil {
+		remove()
+		return nil, err
+	}
+	var timer *time.Timer
+	if identity.ExpiresAt != nil {
+		timer = time.AfterFunc(time.Until(*identity.ExpiresAt), owner.close)
+	}
+	return func() {
+		if timer != nil {
+			timer.Stop()
+		}
+		remove()
+	}, nil
+}
 
 func (s *Server) AccessUpdates(ctx context.Context) (func() error, error) {
 	connection, err := pgx.ConnectConfig(ctx, s.Pool.Config().ConnConfig.Copy())
@@ -29,29 +63,33 @@ func (s *Server) AccessUpdates(ctx context.Context) (func() error, error) {
 }
 
 func (s *Server) refreshSessions(ctx context.Context, principalID string) {
-	s.consoleMu.Lock()
-	connections := map[*websocket.Conn]consoleOwner{}
-	for connection, owner := range s.consoles {
+	s.connectionMu.Lock()
+	connections := []*accessConnection{}
+	for owner := range s.connections {
 		if owner.principal == principalID {
-			connections[connection] = owner
+			connections = append(connections, owner)
 		}
 	}
-	s.consoleMu.Unlock()
-	for connection, owner := range connections {
+	s.connectionMu.Unlock()
+	for _, owner := range connections {
 		identity, err := s.Access.Authenticate(ctx, owner.credential)
 		if err == nil {
-			_, err = s.Environments.Authorized(ctx, identity, owner.environment, "session", owner.asset)
+			_, err = s.Environments.Authorized(ctx, identity, owner.environment, owner.permission, owner.asset)
 		}
 		if err != nil {
-			go connection.Close(websocket.StatusPolicyViolation, "访问授权已更新")
+			go owner.close()
 		}
 	}
 }
 
 func (s *Server) Close() {
-	s.consoleMu.Lock()
-	defer s.consoleMu.Unlock()
-	for connection := range s.consoles {
-		connection.CloseNow()
+	s.connectionMu.Lock()
+	connections := make([]*accessConnection, 0, len(s.connections))
+	for connection := range s.connections {
+		connections = append(connections, connection)
+	}
+	s.connectionMu.Unlock()
+	for _, connection := range connections {
+		connection.close()
 	}
 }

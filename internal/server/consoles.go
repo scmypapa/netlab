@@ -5,15 +5,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/coder/websocket"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/stream"
 )
-
-type consoleOwner struct{ principal, environment, asset, credential string }
 
 func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	id, asset := r.PathValue("id"), r.PathValue("assetId")
@@ -38,27 +35,14 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 		return httpError{http.StatusBadGateway, err.Error()}
 	}
 	defer backend.CloseNow()
-	s.consoleMu.Lock()
-	if s.consoles == nil {
-		s.consoles = map[*websocket.Conn]consoleOwner{}
-	}
-	s.consoles[backend] = consoleOwner{identity.Principal.ID, id, asset, credential(r)}
-	s.consoleMu.Unlock()
-	defer func() { s.consoleMu.Lock(); delete(s.consoles, backend); s.consoleMu.Unlock() }()
-	// Register before re-reading grants, so a concurrent revocation cannot miss this socket.
-	identity, err = s.Access.Authenticate(r.Context(), credential(r))
+	release, err := s.trackConnection(r.Context(), &accessConnection{
+		principal: identity.Principal.ID, environment: id, asset: asset, credential: credential(r), permission: "session",
+		close: func() { backend.Close(websocket.StatusPolicyViolation, "访问授权已更新") },
+	})
 	if err != nil {
 		return err
 	}
-	if _, err = s.Environments.Authorized(r.Context(), identity, id, "session", asset); err != nil {
-		return err
-	}
-	if identity.ExpiresAt != nil {
-		timer := time.AfterFunc(time.Until(*identity.ExpiresAt), func() {
-			backend.Close(websocket.StatusPolicyViolation, "访问凭据已到期")
-		})
-		defer timer.Stop()
-	}
+	defer release()
 	frontend, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"binary"}})
 	if err != nil {
 		return nil

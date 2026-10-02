@@ -149,6 +149,17 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	call("PUT", "/environments/env-a/grants", admin, []api.EnvironmentGrant{{PrincipalId: user.Id, Permissions: []api.Permission{api.PermissionRead, api.PermissionOperate, api.PermissionSession}, AssetIds: &assets}}, 204)
+	if _, err = pool.Exec(ctx, `UPDATE operations SET kind='stop',client_request_id=CASE WHEN asset_id='one' THEN 'one-request' ELSE 'two-request' END WHERE asset_id IS NOT NULL`); err != nil {
+		t.Fatal(err)
+	}
+	oneRequest, twoRequest := "one-request", "two-request"
+	var repeated api.Operation
+	if err = json.Unmarshal(call("POST", "/environments/env-a/assets/one/actions", userSession, api.ActionRequest{Action: api.ActionRequestActionStop, ClientRequestId: &oneRequest}, 202), &repeated); err != nil || repeated.Id != "operation-one" {
+		t.Fatalf("same target request did not reuse its task: %v %+v", err, repeated)
+	}
+	call("POST", "/environments/env-a/assets/one/actions", userSession, api.ActionRequest{Action: api.ActionRequestActionStop, ClientRequestId: &twoRequest}, 409)
+	call("POST", "/environments/env-a/assets/one/actions", userSession, api.ActionRequest{Action: api.ActionRequestActionStart, ClientRequestId: &oneRequest}, 409)
+	call("POST", "/environments/env-a/changes", admin, api.ChangeRequest{Apply: true, ClientRequestId: &oneRequest}, 409)
 	var scoped api.Environment
 	if err = json.Unmarshal(call("GET", "/environments/env-a", userSession, nil, 200), &scoped); err != nil {
 		t.Fatal(err)

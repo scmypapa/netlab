@@ -33,6 +33,9 @@ func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request, identity 
 		if err = json.Unmarshal(row.Definition, &item); err != nil {
 			return err
 		}
+		if !identity.Administrator() {
+			item.Source = ""
+		}
 		result = append(result, item)
 	}
 	return writeJSON(w, http.StatusOK, result)

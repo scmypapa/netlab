@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,8 +30,8 @@ type Server struct {
 	Environments environment.Service
 	Nodes        *transport.Client
 	Web          http.Handler
-	consoleMu    sync.Mutex
-	consoles     map[*websocket.Conn]consoleOwner
+	connectionMu sync.Mutex
+	connections  map[*accessConnection]struct{}
 }
 
 func New(pool *pgxpool.Pool, nodes *transport.Client, web http.Handler) *Server {
