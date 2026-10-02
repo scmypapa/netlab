@@ -335,7 +335,7 @@ func (w Worker) releaseDestroyed(ctx context.Context, results []api.ExecutionRes
 
 func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload) error {
 	initial := errors.New(*p.Failure)
-	if p.BeforeSpec != nil && environment.ServiceOnly(*p.BeforeSpec, p.Spec) {
+	if op.Kind == "change" && p.BeforeSpec != nil && environment.ServiceOnly(*p.BeforeSpec, p.Spec) {
 		if _, err := w.serviceRules(ctx, op, p, *p.BeforeSpec, p.BeforeBindings); err != nil {
 			return errors.Join(initial, err)
 		}
@@ -423,6 +423,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		}
 		oldPlan := *p
 		oldPlan.Spec = old
+		oldPlan.Bindings = p.BeforeBindings
 		oldPlan.Targets = before
 		oldPlan.Updates = nil
 		oldPlan.Unchanged = nil

@@ -370,7 +370,7 @@ func (w Worker) network(ctx context.Context, op *queries.Operation, p *Payload, 
 	if len(nodes) == 0 {
 		return errors.New("环境网络所属节点不存在")
 	}
-	result, err := w.Client.Execute(ctx, nodes[0].Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec, Gateway: p.Gateway})
+	result, err := w.Client.Execute(ctx, nodes[0].Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec, Gateway: p.Gateway, Services: &p.Bindings})
 	if err != nil {
 		return err
 	}

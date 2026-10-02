@@ -210,7 +210,8 @@ try {
     assert.equal(failed.phase, 'rolled-back', failed.error)
     assert.match(failed.error, /address already in use|端口.*占用|bind/i)
     assert.equal((await detail(a)).revision, before.revision)
-    assert.deepEqual(await services(a), beforeServices)
+    const definition = ({ updatedAt, ...binding }) => binding
+    assert.deepEqual((await services(a)).map(definition), beforeServices.map(definition))
     assert.equal(await http(webA), a.id)
     const exited = once(occupied, 'exit')
     occupied.stdin.end()
@@ -244,8 +245,10 @@ try {
     const deadline = Date.now() + 15_000
     while (!(await api('/nodes')).every(node => node.state === 'ready') && Date.now() < deadline) await delay(250)
     assert.equal(await http(webA), a.id)
-    const bound = wsl('ss', '-lntup')
-    assert.ok(bound.includes(`:${webA.port}`) && bound.includes(`:${vmUDP.port}`), '节点没有恢复已应用端口占有')
+    for (const endpoint of [webA, vmUDP]) {
+      const type = endpoint.protocol === 'tcp' ? 'SOCK_STREAM' : 'SOCK_DGRAM'
+      assert.throws(() => wsl('python3', '-c', `import socket; s=socket.socket(socket.AF_INET,socket.${type}); s.bind(("0.0.0.0",${endpoint.port}))`), /Address already in use/, '节点没有恢复已应用端口占有')
+    }
   })
   await step('撤销现存TCP/UDP连接并重新使用端口', async () => {
     const agent = new Agent({ keepAlive: true })
