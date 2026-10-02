@@ -70,6 +70,34 @@ paths:
       operationId: listEnvironmentServices
       responses:
         '200': {description: Applied service endpoints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ServiceEndpoint'}}}}}
+  /environments/{id}/vpn-access:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listVPNAccess
+      responses:
+        '200': {description: VPN access, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/VPNAccess'}}}}}
+    post:
+      operationId: createVPNAccess
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateVPNAccess'}}}}
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
+  /environments/{id}/vpn-access/{accessId}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: accessId, in: path, required: true, schema: {type: string}}
+    delete:
+      operationId: revokeVPNAccess
+      parameters:
+        - {name: expectedRevision, in: query, required: true, schema: {type: integer}}
+        - {name: clientRequestId, in: query, schema: {type: string}}
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
+  /environments/{id}/vpn-access/{accessId}/connection:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: accessId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: getVPNConnection
+      responses:
+        '200': {description: Applied WireGuard connection, content: {application/json: {schema: {$ref: '#/components/schemas/VPNConnection'}}}}
   /environments/{id}/assets/{assetId}/services:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -530,6 +558,75 @@ components:
     ServiceProtocol:
       type: string
       enum: [tcp, udp]
+    VPNMode:
+      type: string
+      enum: [original, translated]
+    VPNRoute:
+      type: object
+      required: [networkId, cidr, accessCidr]
+      properties:
+        networkId: {type: string}
+        cidr: {type: string}
+        accessCidr: {type: string}
+    VPNPeer:
+      type: object
+      required: [id, name, publicKey, mode, routes]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        publicKey: {type: string}
+        mode: {$ref: '#/components/schemas/VPNMode'}
+        routes: {type: array, items: {$ref: '#/components/schemas/VPNRoute'}}
+    CreateVPNAccess:
+      type: object
+      required: [name, publicKey, networkIds, expectedRevision]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 100}
+        publicKey: {type: string}
+        networkIds: {type: array, minItems: 1, items: {type: string}}
+        mode: {$ref: '#/components/schemas/VPNMode', default: original}
+        expectedRevision: {type: integer}
+        clientRequestId: {type: string}
+    VPNAccess:
+      allOf:
+        - {$ref: '#/components/schemas/VPNPeer'}
+        - type: object
+          required: [state, createdAt, operationId]
+          properties:
+            address: {type: string}
+            state: {type: string, enum: [pending, active, revoking, failed]}
+            operationId: {type: string}
+            error: {type: string}
+            createdAt: {type: string, format: date-time}
+    VPNConnection:
+      type: object
+      required: [endpoint, publicKey, address, allowedIPs, mtu]
+      properties:
+        endpoint: {type: string}
+        publicKey: {type: string}
+        address: {type: string}
+        allowedIPs: {type: array, items: {type: string}}
+        mtu: {type: integer}
+    NodeVPNPlan:
+      type: object
+      required: [listenPort, peers]
+      properties:
+        listenPort: {type: integer}
+        peers: {type: array, items: {$ref: '#/components/schemas/VPNPeer'}}
+    NodeVPNPeer:
+      type: object
+      required: [id, address]
+      properties:
+        id: {type: string}
+        address: {type: string}
+    NodeVPNResult:
+      type: object
+      required: [publicKey, listenPort, peers, mtu]
+      properties:
+        publicKey: {type: string}
+        listenPort: {type: integer}
+        peers: {type: array, items: {$ref: '#/components/schemas/NodeVPNPeer'}}
+        mtu: {type: integer}
     ServiceNetwork:
       type: object
       required: [cidr, address]
@@ -691,11 +788,12 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, services, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
+        phase: {type: string, enum: [network, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
         gateway: {$ref: '#/components/schemas/ServiceGateway'}
         services: {type: array, items: {$ref: '#/components/schemas/NodeServiceBinding'}}
+        vpn: {$ref: '#/components/schemas/NodeVPNPlan'}
     ExecutionResult:
       type: object
       required: [assetId, instanceId, state, observedAt]
@@ -722,6 +820,7 @@ components:
         results: {type: array, items: {$ref: '#/components/schemas/ExecutionResult'}}
         error: {type: string}
         services: {type: array, items: {$ref: '#/components/schemas/NodeServiceBinding'}}
+        vpn: {$ref: '#/components/schemas/NodeVPNResult'}
     NodeInfo:
       type: object
       required: [id, name, capacity, capabilities, slots]
@@ -733,6 +832,7 @@ components:
         slots: {type: integer}
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
         serviceNetwork: {$ref: '#/components/schemas/ServiceNetwork'}
+        accessAddress: {type: string}
     VmHardware:
       type: object
       required: [machines, cpuModes, cpuModels, nicModels, diskControllers]

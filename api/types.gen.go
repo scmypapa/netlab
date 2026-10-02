@@ -104,6 +104,7 @@ const (
 	NodePlanPhaseStop           NodePlanPhase = "stop"
 	NodePlanPhaseSuspend        NodePlanPhase = "suspend"
 	NodePlanPhaseUpdate         NodePlanPhase = "update"
+	NodePlanPhaseVpn            NodePlanPhase = "vpn"
 )
 
 // Defines values for OperationState.
@@ -196,9 +197,9 @@ const (
 
 // Defines values for TemplateState.
 const (
-	Failed    TemplateState = "failed"
-	Importing TemplateState = "importing"
-	Ready     TemplateState = "ready"
+	TemplateStateFailed    TemplateState = "failed"
+	TemplateStateImporting TemplateState = "importing"
+	TemplateStateReady     TemplateState = "ready"
 )
 
 // Defines values for TemplateDiskBus.
@@ -213,6 +214,20 @@ const (
 const (
 	Container TemplateKind = "container"
 	Vm        TemplateKind = "vm"
+)
+
+// Defines values for VPNAccessState.
+const (
+	VPNAccessStateActive   VPNAccessState = "active"
+	VPNAccessStateFailed   VPNAccessState = "failed"
+	VPNAccessStatePending  VPNAccessState = "pending"
+	VPNAccessStateRevoking VPNAccessState = "revoking"
+)
+
+// Defines values for VPNMode.
+const (
+	Original   VPNMode = "original"
+	Translated VPNMode = "translated"
 )
 
 // Defines values for AssetLogsParamsStream.
@@ -386,6 +401,16 @@ type CreateServiceToken struct {
 type CreateUser struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
+}
+
+// CreateVPNAccess defines model for CreateVPNAccess.
+type CreateVPNAccess struct {
+	ClientRequestId  *string  `json:"clientRequestId,omitempty"`
+	ExpectedRevision int      `json:"expectedRevision"`
+	Mode             *VPNMode `json:"mode,omitempty"`
+	Name             string   `json:"name"`
+	NetworkIds       []string `json:"networkIds"`
+	PublicKey        string   `json:"publicKey"`
 }
 
 // Draft defines model for Draft.
@@ -575,6 +600,7 @@ type Node struct {
 
 // NodeInfo defines model for NodeInfo.
 type NodeInfo struct {
+	AccessAddress  *string         `json:"accessAddress,omitempty"`
 	Capabilities   []string        `json:"capabilities"`
 	Capacity       Resources       `json:"capacity"`
 	Id             string          `json:"id"`
@@ -601,6 +627,7 @@ type NodePlan struct {
 	Phase         NodePlanPhase         `json:"phase"`
 	Services      *[]NodeServiceBinding `json:"services,omitempty"`
 	Spec          EnvironmentSpec       `json:"spec"`
+	Vpn           *NodeVPNPlan          `json:"vpn,omitempty"`
 }
 
 // NodePlanPhase defines model for NodePlan.Phase.
@@ -617,6 +644,7 @@ type NodeResult struct {
 	Error    *string               `json:"error,omitempty"`
 	Results  []ExecutionResult     `json:"results"`
 	Services *[]NodeServiceBinding `json:"services,omitempty"`
+	Vpn      *NodeVPNResult        `json:"vpn,omitempty"`
 }
 
 // NodeServiceBinding defines model for NodeServiceBinding.
@@ -628,6 +656,26 @@ type NodeServiceBinding struct {
 	Protocol      ServiceProtocol `json:"protocol"`
 	TargetAddress string          `json:"targetAddress"`
 	TargetPort    int             `json:"targetPort"`
+}
+
+// NodeVPNPeer defines model for NodeVPNPeer.
+type NodeVPNPeer struct {
+	Address string `json:"address"`
+	Id      string `json:"id"`
+}
+
+// NodeVPNPlan defines model for NodeVPNPlan.
+type NodeVPNPlan struct {
+	ListenPort int       `json:"listenPort"`
+	Peers      []VPNPeer `json:"peers"`
+}
+
+// NodeVPNResult defines model for NodeVPNResult.
+type NodeVPNResult struct {
+	ListenPort int           `json:"listenPort"`
+	Mtu        int           `json:"mtu"`
+	Peers      []NodeVPNPeer `json:"peers"`
+	PublicKey  string        `json:"publicKey"`
 }
 
 // Operation defines model for Operation.
@@ -854,6 +902,51 @@ type UpdateUser struct {
 	Password *string `json:"password,omitempty"`
 }
 
+// VPNAccess defines model for VPNAccess.
+type VPNAccess struct {
+	Address     *string        `json:"address,omitempty"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	Error       *string        `json:"error,omitempty"`
+	Id          string         `json:"id"`
+	Mode        VPNMode        `json:"mode"`
+	Name        string         `json:"name"`
+	OperationId string         `json:"operationId"`
+	PublicKey   string         `json:"publicKey"`
+	Routes      []VPNRoute     `json:"routes"`
+	State       VPNAccessState `json:"state"`
+}
+
+// VPNAccessState defines model for VPNAccess.State.
+type VPNAccessState string
+
+// VPNConnection defines model for VPNConnection.
+type VPNConnection struct {
+	Address    string   `json:"address"`
+	AllowedIPs []string `json:"allowedIPs"`
+	Endpoint   string   `json:"endpoint"`
+	Mtu        int      `json:"mtu"`
+	PublicKey  string   `json:"publicKey"`
+}
+
+// VPNMode defines model for VPNMode.
+type VPNMode string
+
+// VPNPeer defines model for VPNPeer.
+type VPNPeer struct {
+	Id        string     `json:"id"`
+	Mode      VPNMode    `json:"mode"`
+	Name      string     `json:"name"`
+	PublicKey string     `json:"publicKey"`
+	Routes    []VPNRoute `json:"routes"`
+}
+
+// VPNRoute defines model for VPNRoute.
+type VPNRoute struct {
+	AccessCidr string `json:"accessCidr"`
+	Cidr       string `json:"cidr"`
+	NetworkId  string `json:"networkId"`
+}
+
 // VmHardware defines model for VmHardware.
 type VmHardware struct {
 	CpuModels       []string    `json:"cpuModels"`
@@ -948,6 +1041,12 @@ type RevokeServiceParams struct {
 	ClientRequestId  *string `form:"clientRequestId,omitempty" json:"clientRequestId,omitempty"`
 }
 
+// RevokeVPNAccessParams defines parameters for RevokeVPNAccess.
+type RevokeVPNAccessParams struct {
+	ExpectedRevision int     `form:"expectedRevision" json:"expectedRevision"`
+	ClientRequestId  *string `form:"clientRequestId,omitempty" json:"clientRequestId,omitempty"`
+}
+
 // ListNodesParams defines parameters for ListNodes.
 type ListNodesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -1011,6 +1110,9 @@ type ReplaceEnvironmentGrantsJSONRequestBody = ReplaceEnvironmentGrantsJSONBody
 
 // SaveViewJSONRequestBody defines body for SaveView for application/json ContentType.
 type SaveViewJSONRequestBody = CanvasView
+
+// CreateVPNAccessJSONRequestBody defines body for CreateVPNAccess for application/json ContentType.
+type CreateVPNAccessJSONRequestBody = CreateVPNAccess
 
 // RegisterNodeJSONRequestBody defines body for RegisterNode for application/json ContentType.
 type RegisterNodeJSONRequestBody = NodeRegistration

@@ -160,6 +160,62 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/vpn-access": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["listVPNAccess"];
+    put?: never;
+    post: operations["createVPNAccess"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/vpn-access/{accessId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        accessId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["revokeVPNAccess"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/vpn-access/{accessId}/connection": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        accessId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["getVPNConnection"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/assets/{assetId}/services": {
     parameters: {
       query?: never;
@@ -816,6 +872,59 @@ export interface components {
     };
     /** @enum {string} */
     ServiceProtocol: "tcp" | "udp";
+    /** @enum {string} */
+    VPNMode: "original" | "translated";
+    VPNRoute: {
+      networkId: string;
+      cidr: string;
+      accessCidr: string;
+    };
+    VPNPeer: {
+      id: string;
+      name: string;
+      publicKey: string;
+      mode: components["schemas"]["VPNMode"];
+      routes: components["schemas"]["VPNRoute"][];
+    };
+    CreateVPNAccess: {
+      name: string;
+      publicKey: string;
+      networkIds: string[];
+      /** @default original */
+      mode: components["schemas"]["VPNMode"];
+      expectedRevision: number;
+      clientRequestId?: string;
+    };
+    VPNAccess: components["schemas"]["VPNPeer"] & {
+      address?: string;
+      /** @enum {string} */
+      state: "pending" | "active" | "revoking" | "failed";
+      operationId: string;
+      error?: string;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    VPNConnection: {
+      endpoint: string;
+      publicKey: string;
+      address: string;
+      allowedIPs: string[];
+      mtu: number;
+    };
+    NodeVPNPlan: {
+      listenPort: number;
+      peers: components["schemas"]["VPNPeer"][];
+    };
+    NodeVPNPeer: {
+      id: string;
+      address: string;
+    };
+    NodeVPNResult: {
+      publicKey: string;
+      listenPort: number;
+      peers: components["schemas"]["NodeVPNPeer"][];
+      mtu: number;
+    };
     ServiceNetwork: {
       cidr: string;
       address: string;
@@ -974,6 +1083,7 @@ export interface components {
       phase:
         | "network"
         | "services"
+        | "vpn"
         | "policies"
         | "prepare"
         | "update"
@@ -990,6 +1100,7 @@ export interface components {
       spec: components["schemas"]["EnvironmentSpec"];
       gateway?: components["schemas"]["ServiceGateway"];
       services?: components["schemas"]["NodeServiceBinding"][];
+      vpn?: components["schemas"]["NodeVPNPlan"];
     };
     ExecutionResult: {
       environmentId?: string;
@@ -1012,6 +1123,7 @@ export interface components {
       results: components["schemas"]["ExecutionResult"][];
       error?: string;
       services?: components["schemas"]["NodeServiceBinding"][];
+      vpn?: components["schemas"]["NodeVPNResult"];
     };
     NodeInfo: {
       id: string;
@@ -1021,6 +1133,7 @@ export interface components {
       slots: number;
       vmHardware?: components["schemas"]["VmHardware"];
       serviceNetwork?: components["schemas"]["ServiceNetwork"];
+      accessAddress?: string;
     };
     VmHardware: {
       machines: components["schemas"]["VmMachine"][];
@@ -1427,6 +1540,87 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ServiceEndpoint"][];
+        };
+      };
+    };
+  };
+  listVPNAccess: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description VPN access */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VPNAccess"][];
+        };
+      };
+    };
+  };
+  createVPNAccess: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateVPNAccess"];
+      };
+    };
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  revokeVPNAccess: {
+    parameters: {
+      query: {
+        expectedRevision: number;
+        clientRequestId?: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        accessId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  getVPNConnection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        accessId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Applied WireGuard connection */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VPNConnection"];
         };
       };
     };
