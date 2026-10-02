@@ -1,5 +1,6 @@
 import { ActionIcon, Button, TextInput } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, Layers3, Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -12,6 +13,13 @@ import { useCursorList } from "../../foundation/useCursorList";
 import { CreateEnvironmentDialog } from "./CreateEnvironmentDialog";
 
 export function EnvironmentsPage() {
+  const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const canCreate =
+    identity.data?.administrator ||
+    identity.data?.grants?.some(
+      (grant) =>
+        grant.scopeKind === "project" && grant.permissions.includes("compose"),
+    );
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [search] = useDebouncedValue(query, 250);
@@ -28,12 +36,14 @@ export function EnvironmentsPage() {
         <div>
           <h1>环境</h1>
         </div>
-        <Button
-          leftSection={<Plus size={16} />}
-          onClick={() => setCreating(true)}
-        >
-          新建环境
-        </Button>
+        {canCreate && (
+          <Button
+            leftSection={<Plus size={16} />}
+            onClick={() => setCreating(true)}
+          >
+            新建环境
+          </Button>
+        )}
       </div>
       <div className="collection-toolbar">
         <div className="filter-tabs" role="group" aria-label="环境状态">
@@ -128,9 +138,13 @@ export function EnvironmentsPage() {
             title={
               query || filter !== "all"
                 ? "没有匹配的环境"
-                : "创建你的第一个环境"
+                : canCreate
+                  ? "创建你的第一个环境"
+                  : "暂无环境"
             }
-            action={!query && filter === "all" ? "新建环境" : undefined}
+            action={
+              canCreate && !query && filter === "all" ? "新建环境" : undefined
+            }
             onAction={() => setCreating(true)}
           />
         )

@@ -14,6 +14,10 @@ export type Node = Schema<"Node">;
 export type Operation = Schema<"Operation">;
 export type EnvironmentState = Schema<"EnvironmentState">;
 export type Identity = Schema<"Identity">;
+export type Principal = Schema<"Principal">;
+export type Permission = Schema<"Permission">;
+export type RolePreset = Schema<"RolePreset">;
+export type EnvironmentGrant = Schema<"EnvironmentGrant">;
 
 export class ApiError extends Error {
   constructor(
@@ -79,6 +83,19 @@ function list<T>(
 }
 
 export const api = {
+  principals: (options?: ListOptions) =>
+    list<Principal>("/principals", options),
+  createUser: (body: Schema<"CreateUser">) =>
+    request<Principal>("/principals", "POST", body),
+  updateUser: (id: string, body: Schema<"UpdateUser">) =>
+    request<void>(`/principals/${id}`, "PUT", body),
+  createToken: (body: Schema<"CreateServiceToken">) =>
+    request<Schema<"IssuedServiceToken">>("/service-tokens", "POST", body),
+  revokeToken: (id: string) => request<void>(`/service-tokens/${id}`, "DELETE"),
+  sharing: (id: string) =>
+    request<Schema<"EnvironmentSharing">>(`/environments/${id}/grants`),
+  replaceSharing: (id: string, body: EnvironmentGrant[]) =>
+    request<void>(`/environments/${id}/grants`, "PUT", body),
   identity: () => request<Identity>("/identity"),
   login: (name: string, password: string) =>
     request<Identity>("/sessions/login", "POST", { name, password }),

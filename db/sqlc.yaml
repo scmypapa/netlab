@@ -1,7 +1,7 @@
 version: '2'
 sql:
   - engine: postgresql
-    queries: [queries.sql, blueprints.sql]
+    queries: [queries.sql, blueprints.sql, access.sql]
     schema: migrations
     gen:
       go:

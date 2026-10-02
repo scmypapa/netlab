@@ -18,6 +18,7 @@ import {
   Network,
   Server,
   Sun,
+  UsersRound,
 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
@@ -37,6 +38,11 @@ const NodesPage = lazy(() =>
 const WorkbenchPage = lazy(() =>
   import("../features/workbench/WorkbenchPage").then((module) => ({
     default: module.WorkbenchPage,
+  })),
+);
+const AccountsPage = lazy(() =>
+  import("../features/access/AccountsPage").then((module) => ({
+    default: module.AccountsPage,
   })),
 );
 
@@ -84,10 +90,12 @@ export function App() {
             <Boxes size={17} />
             模板
           </NavLink>
-          <NavLink to="/resources">
-            <Server size={17} />
-            资源
-          </NavLink>
+          {identity.data?.administrator && (
+            <NavLink to="/resources">
+              <Server size={17} />
+              资源
+            </NavLink>
+          )}
         </nav>
         <div className="global-tools">
           <ActionIcon
@@ -109,6 +117,15 @@ export function App() {
               </button>
             </Menu.Target>
             <Menu.Dropdown>
+              {identity.data?.administrator && (
+                <Menu.Item
+                  component={NavLink}
+                  to="/accounts"
+                  leftSection={<UsersRound size={15} />}
+                >
+                  访问管理
+                </Menu.Item>
+              )}
               <Menu.Item
                 leftSection={<LogOut size={15} />}
                 onClick={() => logout.mutate()}
@@ -124,6 +141,7 @@ export function App() {
           <Route path="/environments/:id" element={<WorkbenchPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/resources" element={<NodesPage />} />
+          <Route path="/accounts" element={<AccountsPage />} />
           <Route path="*" element={<EnvironmentsPage />} />
         </Routes>
       </Suspense>

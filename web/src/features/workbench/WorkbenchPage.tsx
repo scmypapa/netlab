@@ -16,6 +16,7 @@ import {
   Search,
   Save,
   Trash2,
+  UsersRound,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -23,6 +24,7 @@ import type { Asset, Network as NetworkModel, Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
 import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
+import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ObjectInspector } from "./ObjectInspector";
 import { TaskTray } from "./TaskTray";
@@ -46,12 +48,16 @@ export function WorkbenchPage() {
   const [savingBlueprint, setSavingBlueprint] = useState(false);
   const [connections, setConnections] = useState<ConsoleTab[]>([]);
   const [selectedConnection, setSelectedConnection] = useState("");
+  const [sharing, setSharing] = useState(false);
   const [context, setContext] = useState<{
     x: number;
     y: number;
     id: string;
   }>();
   const environment = workbench.environment.data;
+  const canCompose = environment?.permissions?.includes("compose");
+  const canOperate = environment?.permissions?.includes("operate");
+  const canManage = environment?.permissions?.includes("manage");
   const templates = workbench.templates.data ?? [];
   const spec = workbench.editing
     ? workbench.spec
@@ -217,6 +223,15 @@ export function WorkbenchPage() {
           {workbench.editing && <span className="edit-indicator">调整中</span>}
         </div>
         <div className="environment-actions">
+          {environment.permissions?.includes("manage") && (
+            <ActionIcon
+              variant="default"
+              aria-label="共享环境"
+              onClick={() => setSharing(true)}
+            >
+              <UsersRound size={18} />
+            </ActionIcon>
+          )}
           {workbench.editing ? (
             <>
               <Button
@@ -261,71 +276,87 @@ export function WorkbenchPage() {
             </>
           ) : (
             <>
-              <Button
-                variant="default"
-                leftSection={<Pencil size={15} />}
-                onClick={workbench.beginEdit}
-                disabled={busy || status === "destroyed"}
-              >
-                {environment.draft ? "继续调整" : "调整环境"}
-              </Button>
-              <Button
-                leftSection={
-                  activeAction === "start" ? <Play size={15} /> : undefined
-                }
-                loading={workbench.action.isPending}
-                disabled={busy || status === "destroyed"}
-                onClick={() =>
-                  workbench.action.mutate({ action: activeAction })
-                }
-              >
-                {activeAction === "start"
-                  ? "运行"
-                  : activeAction === "resume"
-                    ? "继续运行"
-                    : "停止"}
-              </Button>
-              <Menu position="bottom-end">
-                <Menu.Target>
-                  <ActionIcon variant="default" aria-label="环境操作">
-                    <MoreHorizontal size={18} />
-                  </ActionIcon>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item
-                    leftSection={<Save size={15} />}
-                    onClick={() => setSavingBlueprint(true)}
-                  >
-                    保存为环境模板
-                  </Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Item
-                    disabled={busy || status !== "running"}
-                    onClick={() =>
-                      workbench.action.mutate({ action: "suspend" })
-                    }
-                  >
-                    暂停环境
-                  </Menu.Item>
-                  <Menu.Item
-                    disabled={busy || status !== "running"}
-                    onClick={() =>
-                      workbench.action.mutate({ action: "reboot" })
-                    }
-                  >
-                    重启环境
-                  </Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Item
-                    color="red"
-                    disabled={busy || status === "destroyed"}
-                    leftSection={<Trash2 size={15} />}
-                    onClick={() => setDestroying(true)}
-                  >
-                    销毁环境
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
+              {canCompose && (
+                <Button
+                  variant="default"
+                  leftSection={<Pencil size={15} />}
+                  onClick={workbench.beginEdit}
+                  disabled={busy || status === "destroyed"}
+                >
+                  {environment.draft ? "继续调整" : "调整环境"}
+                </Button>
+              )}
+              {canOperate && (
+                <Button
+                  leftSection={
+                    activeAction === "start" ? <Play size={15} /> : undefined
+                  }
+                  loading={workbench.action.isPending}
+                  disabled={busy || status === "destroyed"}
+                  onClick={() =>
+                    workbench.action.mutate({ action: activeAction })
+                  }
+                >
+                  {activeAction === "start"
+                    ? "运行"
+                    : activeAction === "resume"
+                      ? "继续运行"
+                      : "停止"}
+                </Button>
+              )}
+              {(canCompose || canOperate || canManage) && (
+                <Menu position="bottom-end">
+                  <Menu.Target>
+                    <ActionIcon variant="default" aria-label="环境操作">
+                      <MoreHorizontal size={18} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    {canCompose && (
+                      <Menu.Item
+                        leftSection={<Save size={15} />}
+                        onClick={() => setSavingBlueprint(true)}
+                      >
+                        保存为环境模板
+                      </Menu.Item>
+                    )}
+                    {canOperate && (
+                      <>
+                        <Menu.Divider />
+                        <Menu.Item
+                          disabled={busy || status !== "running"}
+                          onClick={() =>
+                            workbench.action.mutate({ action: "suspend" })
+                          }
+                        >
+                          暂停环境
+                        </Menu.Item>
+                        <Menu.Item
+                          disabled={busy || status !== "running"}
+                          onClick={() =>
+                            workbench.action.mutate({ action: "reboot" })
+                          }
+                        >
+                          重启环境
+                        </Menu.Item>
+                      </>
+                    )}
+                    {canManage && (
+                      <>
+                        <Menu.Divider />
+                        <Menu.Item
+                          color="red"
+                          disabled={busy || status === "destroyed"}
+                          leftSection={<Trash2 size={15} />}
+                          onClick={() => setDestroying(true)}
+                        >
+                          销毁环境
+                        </Menu.Item>
+                      </>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
+              )}
             </>
           )}
         </div>
@@ -602,6 +633,12 @@ export function WorkbenchPage() {
         pagination={workbench.operations}
         spec={spec}
       />
+      {sharing && (
+        <SharingDrawer
+          environment={environment}
+          onClose={() => setSharing(false)}
+        />
+      )}
       {editor === "asset" && (
         <AssetEditor
           asset={editingObject ? asset : undefined}

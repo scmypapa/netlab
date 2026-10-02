@@ -37,7 +37,7 @@ type Server struct {
 
 func New(pool *pgxpool.Pool, nodes *transport.Client, web http.Handler) *Server {
 	q := queries.New(pool)
-	return &Server{Pool: pool, Queries: q, Access: access.Service{Queries: q}, Environments: environment.Service{Pool: pool, Queries: q}, Nodes: nodes, Web: web}
+	return &Server{Pool: pool, Queries: q, Access: access.Service{Pool: pool, Queries: q}, Environments: environment.Service{Pool: pool, Queries: q}, Nodes: nodes, Web: web}
 }
 
 type endpoint func(http.ResponseWriter, *http.Request, access.Identity) error
@@ -51,6 +51,13 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/principals":                                  s.listPrincipals,
+		"POST /api/v1/principals":                                 s.createUser,
+		"PUT /api/v1/principals/{id}":                             s.updateUser,
+		"POST /api/v1/service-tokens":                             s.createToken,
+		"DELETE /api/v1/service-tokens/{id}":                      s.revokeToken,
+		"GET /api/v1/environments/{id}/grants":                    s.getSharing,
+		"PUT /api/v1/environments/{id}/grants":                    s.replaceSharing,
 		"GET /api/v1/identity":                                    s.identity,
 		"POST /api/v1/sessions/logout":                            s.logout,
 		"GET /api/v1/environments":                                s.listEnvironments,
@@ -160,6 +167,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var problem httpError
 	var pg *pgconn.PgError
 	var validation *environment.ValidationError
+	var accessInput access.InputError
 	switch {
 	case errors.As(err, &problem):
 		status, detail = problem.status, problem.detail
@@ -173,6 +181,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, detail = http.StatusConflict, err.Error()
 	case errors.As(err, &validation):
 		status, detail = http.StatusBadRequest, validation.Error()
+	case errors.As(err, &accessInput):
+		status, detail = http.StatusBadRequest, accessInput.Error()
 	case errors.As(err, &pg) && pg.Code == "23505":
 		status, detail = http.StatusConflict, "对象或请求已存在"
 	case errors.Is(err, context.DeadlineExceeded):
@@ -199,7 +209,7 @@ func pagination(r *http.Request) (string, int32, error) {
 }
 
 func (s *Server) identity(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
-	return writeJSON(w, http.StatusOK, api.Identity{Id: identity.Principal.ID, Name: identity.Principal.Name, Administrator: identity.Administrator()})
+	return writeJSON(w, http.StatusOK, access.Profile(identity))
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) error {
 	var input api.Login

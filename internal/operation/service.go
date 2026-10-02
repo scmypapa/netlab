@@ -28,12 +28,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	} else {
 		envService = environment.Service{Pool: s.Pool, Queries: s.Queries}
-		permission, asset := "compose", ""
-		if row.Kind == "destroy" || row.Kind == "rebuild" {
-			permission = "manage"
-		} else if row.Kind != "change" && row.Kind != "start" {
-			permission = "operate"
-		}
+		permission, asset := access.OperationPermission(row.Kind), ""
 		if row.AssetID != nil {
 			asset = *row.AssetID
 		}
