@@ -32,7 +32,7 @@ func enumValues(enums []libvirtxml.DomainCapsEnum, name string) []string {
 }
 
 func machineCapabilities(c libvirtxml.DomainCaps) api.VmMachine {
-	m := api.VmMachine{Name: c.Machine, Firmware: []string{}, DiskBuses: []string{}, FirmwareFiles: []string{}}
+	m := api.VmMachine{Name: c.Machine, Aliases: []string{}, Firmware: []string{}, DiskBuses: []string{}, FirmwareFiles: []string{}}
 	if c.VCPU != nil {
 		m.MaxVcpus = int(c.VCPU.Max)
 	}
@@ -71,7 +71,7 @@ func (v *VirtualMachines) hardwareCapabilities() (api.VmHardware, error) {
 	if err = caps.Unmarshal(text); err != nil {
 		return hardware, err
 	}
-	machines := map[string]bool{}
+	machines := map[string][]string{}
 	for _, guest := range caps.Guests {
 		if guest.OSType != "hvm" || guest.Arch.Name != "x86_64" {
 			continue
@@ -81,18 +81,29 @@ func (v *VirtualMachines) hardwareCapabilities() (api.VmHardware, error) {
 				continue
 			}
 			for _, m := range append(slices.Clone(guest.Arch.Machines), domain.Machines...) {
-				if m.Canonical == "" && (strings.HasPrefix(m.Name, "pc-i440fx-") || strings.HasPrefix(m.Name, "pc-q35-")) {
-					machines[m.Name] = true
+				name := m.Canonical
+				if name == "" {
+					name = m.Name
+				}
+				if strings.HasPrefix(name, "pc-i440fx-") || strings.HasPrefix(name, "pc-q35-") {
+					aliases := machines[name]
+					if name != m.Name && !slices.Contains(aliases, m.Name) {
+						aliases = append(aliases, m.Name)
+					}
+					machines[name] = aliases
 				}
 			}
 		}
 	}
-	for machine := range machines {
+	for machine, aliases := range machines {
 		caps, err := v.domainCapabilities(machine)
 		if err != nil {
 			return hardware, fmt.Errorf("machine %s capabilities: %w", machine, err)
 		}
-		hardware.Machines = append(hardware.Machines, machineCapabilities(caps))
+		capability := machineCapabilities(caps)
+		capability.Aliases = append(capability.Aliases, aliases...)
+		sort.Strings(capability.Aliases)
+		hardware.Machines = append(hardware.Machines, capability)
 	}
 	sort.Slice(hardware.Machines, func(i, j int) bool { return hardware.Machines[i].Name < hardware.Machines[j].Name })
 	current, err := v.domainCapabilities("")

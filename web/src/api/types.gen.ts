@@ -253,6 +253,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/assets/{assetId}/console": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    /** @description WebSocket. Binary messages carry terminal or RFB bytes; terminal text messages contain ConsoleResize. */
+    get: operations["assetConsole"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/operations": {
     parameters: {
       query?: never;
@@ -389,6 +409,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** @enum {string} */
+    ConsoleKind: "terminal" | "serial" | "vnc";
+    ConsoleResize: {
+      cols: number;
+      rows: number;
+    };
     Identity: {
       id: string;
       name: string;
@@ -664,7 +690,23 @@ export interface components {
       capacity: components["schemas"]["Resources"];
       capabilities: string[];
       slots: number;
-      firmware?: string[];
+      vmHardware?: components["schemas"]["VmHardware"];
+    };
+    VmHardware: {
+      machines: components["schemas"]["VmMachine"][];
+      cpuModes: string[];
+      cpuModels: string[];
+      nicModels: string[];
+    };
+    VmMachine: {
+      name: string;
+      aliases: string[];
+      maxVcpus: number;
+      firmware: string[];
+      secureBoot: boolean;
+      tpm2: boolean;
+      diskBuses: string[];
+      firmwareFiles: string[];
     };
     CreateEnvironment: {
       name: string;
@@ -1172,6 +1214,36 @@ export interface operations {
     };
     responses: {
       202: components["responses"]["Accepted"];
+    };
+  };
+  assetConsole: {
+    parameters: {
+      query: {
+        kind: components["schemas"]["ConsoleKind"];
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Connected */
+      101: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Asset has no running instance */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
     };
   };
   listOperations: {

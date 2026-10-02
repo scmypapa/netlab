@@ -236,7 +236,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		score := 2.0
 		for _, n := range locked {
 			c, ok := capacity[n.ID]
-			if !ok || !slices.Contains(infos[n.ID].Capabilities, string(t.Execution.Template.Kind)) {
+			if !ok || !supports(infos[n.ID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
 				continue
 			}
 			u := add(used[n.ID], requirement)
@@ -255,7 +255,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if t.Execution.PreviousInstanceId != nil && t.Execution.Asset.Volumes != nil && len(*t.Execution.Asset.Volumes) > 0 {
 			old := findInstance(p.Before, *t.Execution.PreviousInstanceId)
 			c, ok := capacity[old.NodeID]
-			if !ok || !fits(add(used[old.NodeID], requirement), c) || !slices.Contains(infos[old.NodeID].Capabilities, string(t.Execution.Template.Kind)) {
+			if !ok || !fits(add(used[old.NodeID], requirement), c) || !supports(infos[old.NodeID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
 				return fmt.Errorf("资产 %s 的数据卷所在节点容量不足", t.Execution.Asset.Name)
 			}
 			best = old.NodeID
