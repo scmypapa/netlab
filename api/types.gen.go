@@ -75,7 +75,6 @@ const (
 
 // Defines values for NodePlanPhase.
 const (
-	NodePlanPhaseActivate       NodePlanPhase = "activate"
 	NodePlanPhaseCleanupVolumes NodePlanPhase = "cleanup-volumes"
 	NodePlanPhaseDestroy        NodePlanPhase = "destroy"
 	NodePlanPhaseForceStop      NodePlanPhase = "force-stop"
@@ -83,7 +82,6 @@ const (
 	NodePlanPhaseNetwork        NodePlanPhase = "network"
 	NodePlanPhasePolicies       NodePlanPhase = "policies"
 	NodePlanPhasePrepare        NodePlanPhase = "prepare"
-	NodePlanPhaseReboot         NodePlanPhase = "reboot"
 	NodePlanPhaseRemoveNetwork  NodePlanPhase = "remove-network"
 	NodePlanPhaseResume         NodePlanPhase = "resume"
 	NodePlanPhaseStart          NodePlanPhase = "start"

@@ -92,17 +92,13 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a.Asset.Id, id) }, true)
 	case api.NodePlanPhaseUpdate:
 		return c.update(ctx, container, env, a)
-	case api.NodePlanPhaseActivate, api.NodePlanPhaseStart:
+	case api.NodePlanPhaseStart:
 		if state == "stopped" || state == "prepared" || state == "created" {
 			return c.start(ctx, container, env, a)
 		}
 	case api.NodePlanPhaseStop, api.NodePlanPhaseForceStop:
 		if state == "running" || state == "suspended" || state == "created" {
 			err = c.stop(ctx, container, a, phase == api.NodePlanPhaseForceStop)
-		}
-	case api.NodePlanPhaseReboot:
-		if err = c.stop(ctx, container, a, false); err == nil {
-			return c.start(ctx, container, env, a)
 		}
 	case api.NodePlanPhaseSuspend, api.NodePlanPhaseResume:
 		var t containerd.Task

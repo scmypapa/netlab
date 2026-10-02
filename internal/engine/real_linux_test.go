@@ -109,7 +109,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	}
 	apply(api.NodePlanPhaseNetwork, "")
 	apply(api.NodePlanPhasePrepare, "")
-	apply(api.NodePlanPhaseActivate, "running")
+	apply(api.NodePlanPhaseStart, "running")
 	logicalSwitchIDs := func() string {
 		t.Helper()
 		output, err := exec.Command("ovn-nbctl", "--db=unix:/run/ovn/ovnnb_db.sock", "--columns=_uuid", "--format=csv", "--data=bare", "--no-headings", "find", "Logical_Switch", "external_ids:netlab.environment="+env).Output()
@@ -240,7 +240,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if _, err = e.container.Execute(ctx, env, api.NodePlanPhasePrepare, replacement); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseActivate, replacement); err != nil {
+	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseStart, replacement); err != nil {
 		t.Fatal(err)
 	}
 	webContainer, err := e.container.client.LoadContainer(ctx, plan.Assets[0].InstanceId)
@@ -341,7 +341,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 			t.Errorf("cleanup: %v", err)
 		}
 	}()
-	for _, phase := range []api.NodePlanPhase{api.NodePlanPhasePrepare, api.NodePlanPhaseActivate, api.NodePlanPhaseSuspend, api.NodePlanPhaseResume, api.NodePlanPhaseForceStop} {
+	for _, phase := range []api.NodePlanPhase{api.NodePlanPhasePrepare, api.NodePlanPhaseStart, api.NodePlanPhaseSuspend, api.NodePlanPhaseResume, api.NodePlanPhaseForceStop} {
 		state, err := vm.Execute(ctx, env, phase, a)
 		if err != nil {
 			t.Fatalf("%s: %v", phase, err)

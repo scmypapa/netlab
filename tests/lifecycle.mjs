@@ -112,7 +112,10 @@ try {
     const network = { id: randomUUID(), name: 'LAN', cidr: '10.76.0.0/24' }
     const web = asset('web', container.id, network.id)
     web.volumes = [{ id: randomUUID(), mountPath: '/var/netlab', sizeGiB: 1 }]
-    const value = await api('/environments', 'POST', { name: 'Lifecycle Blueprint Source', spec: { networks: [network], assets: [web, asset('client', container.id, network.id), asset('VM', vm.id, network.id)] } })
+    const value = await api('/environments', 'POST', { name: 'Lifecycle Blueprint Source', spec: {
+      networks: [network], assets: [web, asset('client', container.id, network.id), asset('VM', vm.id, network.id)],
+      policies: [{ id: randomUUID(), networkId: network.id, direction: 'both', action: 'shape', delayMs: 2 }],
+    } })
     report.environmentIds.push(value.id)
     const blueprint = await api(`/environments/${value.id}/blueprints`, 'POST', { name: 'Mixed Lifecycle', expectedRevision: value.revision, spec: value.spec })
     const next = structuredClone(value.spec)
@@ -145,7 +148,7 @@ try {
     }))
   })
   const [a, b] = environments
-  await step('OVN 真实跨容器 HTTP 通信', async () => {
+  await step('OVN 双向流控下首次跨容器 HTTP 通信', async () => {
     const actual = await state(a.id)
     const client = actual.assets.find(s => s.assetId === a.spec.assets.find(x => x.name === 'client').id)
     const address = a.spec.assets.find(x => x.name === 'web').interfaces[0].address
