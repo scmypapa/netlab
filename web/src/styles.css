@@ -1280,7 +1280,7 @@ a.object-link:hover strong {
     top: 56px;
     right: 0;
     bottom: 0;
-    width: min(304px, calc(100% - 32px));
+    width: 100%;
     z-index: 8;
     box-shadow: -12px 0 30px #17344415;
   }

@@ -10,6 +10,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStore,
   type NodeProps,
   type OnConnect,
 } from "@xyflow/react";
@@ -133,6 +134,8 @@ export function TopologyCanvas({
 
 function FocusSelection({ selection }: { selection?: string }) {
   const { getNode, setCenter, getViewport } = useReactFlow<TopologyNode>();
+  const width = useStore((state) => state.width);
+  const height = useStore((state) => state.height);
   useEffect(() => {
     if (!selection) return;
     const frame = requestAnimationFrame(() => {
@@ -143,7 +146,7 @@ function FocusSelection({ selection }: { selection?: string }) {
         });
     });
     return () => cancelAnimationFrame(frame);
-  }, [selection, getNode, setCenter, getViewport]);
+  }, [selection, getNode, setCenter, getViewport, width, height]);
   return null;
 }
 
