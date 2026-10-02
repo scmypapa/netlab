@@ -9,12 +9,45 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Box, Boxes, Monitor, Plus, Search } from "lucide-react";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type Template } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
+import { BlueprintsPanel } from "./BlueprintsPanel";
 
 export function TemplatesPage() {
+  const [params, setParams] = useSearchParams();
+  const section =
+    params.get("tab") === "environments" ? "environments" : "assets";
+  return (
+    <main className="collection-page">
+      <div className="page-heading">
+        <h1>模板</h1>
+        <div className="view-switch" role="group" aria-label="模板分类">
+          {[
+            ["assets", "资产模板"],
+            ["environments", "环境模板"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              className={section === value ? "selected" : ""}
+              aria-pressed={section === value}
+              onClick={() =>
+                setParams(value === "assets" ? {} : { tab: value })
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {section === "assets" ? <AssetTemplatesPanel /> : <BlueprintsPanel />}
+    </main>
+  );
+}
+
+function AssetTemplatesPanel() {
   const templates = useQuery({
     queryKey: ["templates"],
     queryFn: api.templates,
@@ -35,18 +68,7 @@ export function TemplatesPage() {
         .includes(query.toLocaleLowerCase()),
   );
   return (
-    <main className="collection-page">
-      <div className="page-heading">
-        <div>
-          <h1>资产模板</h1>
-        </div>
-        <Button
-          leftSection={<Plus size={16} />}
-          onClick={() => setCreating(true)}
-        >
-          导入模板
-        </Button>
-      </div>
+    <>
       <div className="collection-toolbar">
         <div className="filter-tabs" role="group" aria-label="模板类型">
           {[
@@ -71,6 +93,12 @@ export function TemplatesPage() {
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
         />
+        <Button
+          leftSection={<Plus size={16} />}
+          onClick={() => setCreating(true)}
+        >
+          导入模板
+        </Button>
       </div>
       <ErrorMessage error={templates.error} />
       {templates.isPending ? (
@@ -161,7 +189,7 @@ export function TemplatesPage() {
           }}
         />
       </Drawer>
-    </main>
+    </>
   );
 }
 

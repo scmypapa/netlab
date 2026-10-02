@@ -86,6 +86,32 @@ async function fixture(page: Page) {
       },
     },
   ];
+  const blueprints = [
+    {
+      id: "training",
+      projectId: "default",
+      name: "混合组网模板",
+      latestVersionId: "training-v2",
+      latestVersion: 2,
+      assetCount: 2,
+      networkCount: 1,
+      createdAt: environment.createdAt,
+      updatedAt: environment.updatedAt,
+    },
+  ];
+  const versions = [1, 2].map((version) => ({
+    id: `training-v${version}`,
+    blueprintId: "training",
+    version,
+    assetCount: version,
+    networkCount: 1,
+    createdAt: environment.createdAt,
+    spec: { ...spec, assets: spec.assets.slice(0, version) },
+    view: { positions: {} },
+    sourceEnvironmentId: "env",
+    sourceRevision: 1,
+  }));
+  let createdEnvironment: typeof environment | undefined;
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
@@ -95,8 +121,36 @@ async function fixture(page: Page) {
     let status = 200;
     if (path === "/identity")
       response = { id: "user", name: "operator", administrator: true };
-    else if (path === "/environments") response = [environment];
+    else if (path === "/environments" && request.method() === "POST") {
+      const version = versions.find(
+        (item) => item.id === body.blueprintVersionId,
+      );
+      createdEnvironment = {
+        ...environment,
+        id: "env-created",
+        name: body.name,
+        status: body.run ? "deploying" : "draft",
+        spec: version?.spec ?? body.spec,
+        appliedSpec: version?.spec ?? body.spec,
+      };
+      response = createdEnvironment;
+      status = 201;
+    } else if (path === "/environments")
+      response = [
+        environment,
+        ...(createdEnvironment ? [createdEnvironment] : []),
+      ];
     else if (path === "/environments/env") response = environment;
+    else if (path === "/environments/env-created")
+      response = createdEnvironment;
+    else if (path === "/environments/env-created/state")
+      response = {
+        id: "env-created",
+        revision: 1,
+        status: createdEnvironment!.status,
+        assets: [],
+        updatedAt: environment.updatedAt,
+      };
     else if (path === "/environments/env/state")
       response = {
         id: "env",
@@ -112,7 +166,62 @@ async function fixture(page: Page) {
         updatedAt: environment.updatedAt,
       };
     else if (path === "/templates") response = templates;
-    else if (path === "/nodes")
+    else if (path === "/blueprints") response = blueprints;
+    else if (
+      path === "/blueprints/training/versions" &&
+      request.method() === "POST"
+    ) {
+      const version = {
+        ...versions[1],
+        id: "training-v3",
+        version: 3,
+        spec: body.spec,
+        assetCount: body.spec.assets.length,
+        networkCount: body.spec.networks.length,
+      };
+      versions.push(version);
+      Object.assign(blueprints[0], {
+        latestVersionId: version.id,
+        latestVersion: 3,
+        assetCount: version.assetCount,
+        networkCount: version.networkCount,
+      });
+      response = version;
+      status = 201;
+    } else if (path === "/blueprints/training/versions")
+      response = versions.map(
+        ({
+          id,
+          blueprintId,
+          version,
+          assetCount,
+          networkCount,
+          createdAt,
+        }) => ({
+          id,
+          blueprintId,
+          version,
+          assetCount,
+          networkCount,
+          createdAt,
+        }),
+      );
+    else if (path.startsWith("/blueprint-versions/"))
+      response = versions.find((item) => item.id === path.split("/").at(-1));
+    else if (path === "/environments/env/blueprints") {
+      const blueprint = {
+        ...blueprints[0],
+        id: "saved",
+        name: body.name,
+        latestVersionId: "saved-v1",
+        latestVersion: 1,
+        assetCount: body.spec.assets.length,
+        networkCount: body.spec.networks.length,
+      };
+      blueprints.push(blueprint);
+      response = blueprint;
+      status = 201;
+    } else if (path === "/nodes")
       response = [
         {
           id: "node",
@@ -245,4 +354,145 @@ test("working area fits supported widths and both themes", async ({ page }) => {
     "dark",
   );
   await page.screenshot({ path: "test-results/workbench-dark.png" });
+});
+
+test("saving an edited environment creates a template or appends a version without applying the draft", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "移除资产", exact: true }).click();
+  await page.getByRole("button", { name: "草稿操作", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "保存为环境模板", exact: true })
+    .click();
+  await page.getByRole("textbox", { name: "模板名称" }).fill("Web 环境模板");
+  await page.getByRole("button", { name: "保存模板", exact: true }).click();
+  await expect(page.getByText("v1 已保存", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await expect(page.getByText("调整中", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "草稿操作", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "保存为环境模板", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "现有模板新版本", exact: true })
+    .click();
+  await page.getByRole("textbox", { name: "环境模板" }).click();
+  await page
+    .getByRole("option", { name: "混合组网模板 · v2", exact: true })
+    .click();
+  await page.getByRole("button", { name: "保存模板", exact: true }).click();
+  await expect(page.getByText("v3 已保存", { exact: true })).toBeVisible();
+  const writes = calls.filter((call) => call.method === "POST");
+  expect(writes).toEqual([
+    {
+      method: "POST",
+      path: "/environments/env/blueprints",
+      body: expect.objectContaining({
+        name: "Web 环境模板",
+        expectedRevision: 1,
+        spec: expect.objectContaining({
+          assets: [expect.objectContaining({ id: "web" })],
+        }),
+      }),
+    },
+    {
+      method: "POST",
+      path: "/blueprints/training/versions",
+      body: expect.objectContaining({
+        environmentId: "env",
+        expectedRevision: 1,
+        spec: expect.objectContaining({
+          assets: [expect.objectContaining({ id: "web" })],
+        }),
+      }),
+    },
+  ]);
+});
+
+test("template details create and run the selected immutable version", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.goto("/templates?tab=environments");
+  await page.getByRole("button", { name: "混合组网模板", exact: true }).click();
+  await page.getByRole("textbox", { name: "版本", exact: true }).click();
+  await page.getByRole("option", { name: /^v1 ·/ }).click();
+  await expect(page.locator(".blueprint-objects")).toContainText("web-01");
+  await expect(page.locator(".blueprint-objects")).not.toContainText(
+    "windows-01",
+  );
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({ path: `test-results/blueprint-${width}.png` });
+  }
+  await page.getByRole("button", { name: "创建环境", exact: true }).click();
+  await page.getByRole("textbox", { name: "环境名称" }).fill("独立 Web 环境");
+  await page.getByRole("button", { name: "创建并运行", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "独立 Web 环境", exact: true }),
+  ).toBeVisible();
+  const create = calls.find(
+    (call) => call.path === "/environments" && call.method === "POST",
+  );
+  expect(create?.body).toEqual({
+    name: "独立 Web 环境",
+    blueprintVersionId: "training-v1",
+    run: true,
+    clientRequestId: expect.any(String),
+  });
+  expect(
+    calls.some((call) => call.path === "/blueprint-versions/training-v1"),
+  ).toBe(true);
+  expect(calls.some((call) => call.path.endsWith("/actions"))).toBe(false);
+});
+
+test("the shared creation dialog also creates an empty environment", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.goto("/environments");
+  await page.getByRole("button", { name: "新建环境", exact: true }).click();
+  await page.getByRole("textbox", { name: "环境名称" }).fill("空白实验环境");
+  await page.getByRole("button", { name: "创建环境", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "空白实验环境", exact: true }),
+  ).toBeVisible();
+  expect(calls.find((call) => call.method === "POST")?.body).toEqual({
+    name: "空白实验环境",
+    spec: { assets: [], networks: [] },
+  });
+});
+
+test("the environment list selects a template without starting it", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto("/environments");
+  await page.getByRole("button", { name: "新建环境", exact: true }).click();
+  await page.getByRole("textbox", { name: "环境模板", exact: true }).click();
+  await page.getByRole("option", { name: "混合组网模板", exact: true }).click();
+  await page.getByLabel("创建后运行", { exact: true }).uncheck();
+  await page.getByRole("textbox", { name: "环境名称" }).fill("待运行模板环境");
+  await page.screenshot({ path: "test-results/blueprint-create-390.png" });
+  await page.getByRole("button", { name: "创建环境", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "待运行模板环境", exact: true }),
+  ).toBeVisible();
+  expect(calls.find((call) => call.method === "POST")?.body).toEqual({
+    name: "待运行模板环境",
+    blueprintVersionId: "training-v2",
+    run: false,
+  });
 });

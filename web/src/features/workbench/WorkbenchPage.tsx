@@ -14,6 +14,7 @@ import {
   Play,
   Plus,
   Search,
+  Save,
   Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -21,6 +22,7 @@ import { Link, useParams } from "react-router-dom";
 import type { Asset, Network as NetworkModel } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
+import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ObjectInspector } from "./ObjectInspector";
 import { TaskTray } from "./TaskTray";
@@ -38,6 +40,7 @@ export function WorkbenchPage() {
   const [editor, setEditor] = useState<"asset" | "network">();
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
+  const [savingBlueprint, setSavingBlueprint] = useState(false);
   const [context, setContext] = useState<{
     x: number;
     y: number;
@@ -212,6 +215,12 @@ export function WorkbenchPage() {
                   </ActionIcon>
                 </Menu.Target>
                 <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={<Save size={15} />}
+                    onClick={() => setSavingBlueprint(true)}
+                  >
+                    保存为环境模板
+                  </Menu.Item>
                   <Menu.Item onClick={() => workbench.saveDraft.mutate()}>
                     返回现场
                   </Menu.Item>
@@ -258,6 +267,13 @@ export function WorkbenchPage() {
                   </ActionIcon>
                 </Menu.Target>
                 <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={<Save size={15} />}
+                    onClick={() => setSavingBlueprint(true)}
+                  >
+                    保存为环境模板
+                  </Menu.Item>
+                  <Menu.Divider />
                   <Menu.Item
                     disabled={busy || status !== "running"}
                     onClick={() =>
@@ -563,6 +579,15 @@ export function WorkbenchPage() {
           spec={spec}
           onSave={updateNetwork}
           onClose={() => setEditor(undefined)}
+        />
+      )}
+      {savingBlueprint && (
+        <SaveBlueprintDialog
+          environmentId={environment.id}
+          environmentName={environment.name}
+          expectedRevision={environment.revision}
+          spec={spec}
+          onClose={() => setSavingBlueprint(false)}
         />
       )}
       <Modal
