@@ -525,16 +525,12 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 	}
 	results := []api.ExecutionResult{}
 	for _, item := range items {
-		labels, err := item.Labels(ctx)
+		labels, spec, err := containerMetadata(ctx, item)
 		if err != nil {
 			return results, err
 		}
 		if labels[assetLabel] == "" {
 			continue
-		}
-		spec, err := item.Spec(ctx)
-		if err != nil {
-			return results, err
 		}
 		if !managedContainer(spec, c.data, labels[environmentLabel], item.ID()) {
 			continue

@@ -13,22 +13,32 @@ import (
 	"strings"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/oci"
 	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 	"netlab.local/core/api"
 )
 
+// LoadContainer and Containers already read metadata; another Get can race deletion.
+func containerMetadata(ctx context.Context, container containerd.Container) (map[string]string, *oci.Spec, error) {
+	info, err := container.Info(ctx, containerd.WithoutRefreshedMetadata)
+	if err != nil {
+		return nil, nil, err
+	}
+	var spec oci.Spec
+	if err = json.Unmarshal(info.Spec.GetValue(), &spec); err != nil {
+		return nil, nil, err
+	}
+	return info.Labels, &spec, nil
+}
+
 func (c *Containers) observedExecution(ctx context.Context, container containerd.Container) (*api.AssetExecution, error) {
-	labels, err := container.Labels(ctx)
+	labels, spec, err := containerMetadata(ctx, container)
 	if err != nil {
 		return nil, err
 	}
 	var execution api.AssetExecution
 	if err = json.Unmarshal([]byte(labels[executionLabel]), &execution); err != nil {
-		return nil, err
-	}
-	spec, err := container.Spec(ctx)
-	if err != nil {
 		return nil, err
 	}
 	execution.Asset.Resources.Cpu = int(*spec.Linux.Resources.CPU.Quota / int64(*spec.Linux.Resources.CPU.Period))

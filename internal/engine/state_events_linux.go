@@ -230,16 +230,12 @@ func (e *Engine) containerObservation(ctx context.Context, id string) (api.Execu
 	if err != nil {
 		return api.ExecutionResult{}, err
 	}
-	labels, err := container.Labels(ctx)
+	labels, spec, err := containerMetadata(ctx, container)
 	if err != nil {
 		return api.ExecutionResult{}, err
 	}
 	if labels[environmentLabel] == "" || labels[assetLabel] == "" {
 		return api.ExecutionResult{}, nil
-	}
-	spec, err := container.Spec(ctx)
-	if err != nil {
-		return api.ExecutionResult{}, err
 	}
 	if !managedContainer(spec, e.cfg.DataDir, labels[environmentLabel], id) {
 		return api.ExecutionResult{}, nil
@@ -266,9 +262,16 @@ func (e *Engine) vmObservation(connection *libvirt.Connect, id string) (api.Exec
 	defer domain.Free()
 	owner, err := e.vm.owned(domain, "", "")
 	if err != nil {
+		var failure libvirt.Error
+		if errors.As(err, &failure) && !noDomain(err) {
+			return api.ExecutionResult{}, err
+		}
 		return api.ExecutionResult{}, nil // Other libvirt domains are outside this node's managed objects.
 	}
 	state, err := vmState(domain)
+	if noDomain(err) {
+		return api.ExecutionResult{}, nil
+	}
 	r := api.ExecutionResult{EnvironmentId: ptr(owner.Environment), AssetId: owner.Asset, InstanceId: owner.Instance, State: state, ObservedAt: time.Now().UTC()}
 	if err != nil {
 		r.Error = ptr(err.Error())

@@ -312,6 +312,9 @@ func (v *VirtualMachines) Inventory(env string) ([]api.ExecutionResult, error) {
 		xmlDesc, err := d.GetXMLDesc(0)
 		if err != nil {
 			d.Free()
+			if noDomain(err) {
+				continue
+			}
 			return results, err
 		}
 		var config libvirtxml.Domain
