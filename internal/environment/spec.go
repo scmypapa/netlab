@@ -74,6 +74,11 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		if !ok {
 			return spec, Invalid("资产 %s 引用的模板不存在", a.Name)
 		}
+		if a.RestartPolicy != nil {
+			if t.Kind != api.Container || (*a.RestartPolicy != api.Never && *a.RestartPolicy != api.OnFailure && *a.RestartPolicy != api.Always) {
+				return spec, Invalid("资产 %s 的容器重启策略无效", a.Name)
+			}
+		}
 		if a.Volumes == nil && t.Volumes != nil {
 			volumes := slices.Clone(*t.Volumes)
 			a.Volumes = &volumes
@@ -233,6 +238,7 @@ func Resolve(spec api.EnvironmentSpec, asset api.Asset, previous []api.ResolvedI
 
 func RequiresStop(kind api.TemplateKind, before, after api.Asset) bool {
 	before.Resources = after.Resources
+	before.RestartPolicy = after.RestartPolicy
 	return string(kind) == "vm" || !reflect.DeepEqual(before, after)
 }
 

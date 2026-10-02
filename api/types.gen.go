@@ -81,6 +81,12 @@ const (
 	HardwareNicModelVmxnet3 HardwareNicModel = "vmxnet3"
 )
 
+// Defines values for LogChunkStream.
+const (
+	LogChunkStreamStderr LogChunkStream = "stderr"
+	LogChunkStreamStdout LogChunkStream = "stdout"
+)
+
 // Defines values for NodePlanPhase.
 const (
 	NodePlanPhaseCleanupVolumes NodePlanPhase = "cleanup-volumes"
@@ -140,6 +146,13 @@ const (
 	PrincipalKindUser  PrincipalKind = "user"
 )
 
+// Defines values for RestartPolicy.
+const (
+	Always    RestartPolicy = "always"
+	Never     RestartPolicy = "never"
+	OnFailure RestartPolicy = "on-failure"
+)
+
 // Defines values for RolePresetKey.
 const (
 	Manager  RolePresetKey = "manager"
@@ -194,6 +207,13 @@ const (
 	Vm        TemplateKind = "vm"
 )
 
+// Defines values for AssetLogsParamsStream.
+const (
+	AssetLogsParamsStreamAll    AssetLogsParamsStream = "all"
+	AssetLogsParamsStreamStderr AssetLogsParamsStream = "stderr"
+	AssetLogsParamsStreamStdout AssetLogsParamsStream = "stdout"
+)
+
 // Defines values for ListPrincipalsParamsKind.
 const (
 	ListPrincipalsParamsKindToken ListPrincipalsParamsKind = "token"
@@ -218,8 +238,11 @@ type Asset struct {
 	Name       string             `json:"name"`
 	Parameters *map[string]string `json:"parameters,omitempty"`
 	Resources  Resources          `json:"resources"`
-	TemplateId string             `json:"templateId"`
-	Volumes    *[]Volume          `json:"volumes,omitempty"`
+
+	// RestartPolicy Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
+	RestartPolicy *RestartPolicy `json:"restartPolicy,omitempty"`
+	TemplateId    string         `json:"templateId"`
+	Volumes       *[]Volume      `json:"volumes,omitempty"`
 }
 
 // AssetExecution defines model for AssetExecution.
@@ -489,6 +512,15 @@ type IssuedServiceToken struct {
 	Token     string    `json:"token"`
 }
 
+// LogChunk defines model for LogChunk.
+type LogChunk struct {
+	Data   string         `json:"data"`
+	Stream LogChunkStream `json:"stream"`
+}
+
+// LogChunkStream defines model for LogChunk.Stream.
+type LogChunkStream string
+
 // Login defines model for Login.
 type Login struct {
 	Name     string `json:"name"`
@@ -644,6 +676,9 @@ type Resources struct {
 	DiskGiB   int64 `json:"diskGiB"`
 	MemoryMiB int64 `json:"memoryMiB"`
 }
+
+// RestartPolicy Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
+type RestartPolicy string
 
 // RolePreset defines model for RolePreset.
 type RolePreset struct {
@@ -807,6 +842,16 @@ type ListEnvironmentsParams struct {
 type AssetConsoleParams struct {
 	Kind ConsoleKind `form:"kind" json:"kind"`
 }
+
+// AssetLogsParams defines parameters for AssetLogs.
+type AssetLogsParams struct {
+	Tail   *int                   `form:"tail,omitempty" json:"tail,omitempty"`
+	Stream *AssetLogsParamsStream `form:"stream,omitempty" json:"stream,omitempty"`
+	Follow *bool                  `form:"follow,omitempty" json:"follow,omitempty"`
+}
+
+// AssetLogsParamsStream defines parameters for AssetLogs.
+type AssetLogsParamsStream string
 
 // EnvironmentEventsParams defines parameters for EnvironmentEvents.
 type EnvironmentEventsParams struct {

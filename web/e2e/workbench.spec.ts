@@ -890,3 +890,69 @@ test("ordinary asset editing retains VM specifications while source is hidden", 
       },
     });
 });
+
+test("container logs distinguish stderr and switch the requested stream", async ({
+  page,
+}) => {
+  await fixture(page);
+  const queries: string[] = [];
+  await page.route(
+    "**/api/v1/environments/env/assets/web/logs?**",
+    async (route) => {
+      const stream = new URL(route.request().url()).searchParams.get("stream")!;
+      queries.push(stream);
+      const chunks = [
+        { stream: "stdout", data: "request complete\n" },
+        { stream: "stderr", data: "worker failed\n" },
+      ].filter((chunk) => stream === "all" || chunk.stream === stream);
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: chunks
+          .map((chunk) => `event: output\ndata: ${JSON.stringify(chunk)}\n\n`)
+          .join(""),
+      });
+    },
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "进程日志", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "web-01 · 进程日志" });
+  await expect(drawer.getByLabel("容器日志")).toContainText("request complete");
+  await expect(drawer.getByLabel("容器日志")).toContainText("worker failed");
+  await drawer.getByText("错误", { exact: true }).click();
+  await expect.poll(() => [...new Set(queries)]).toEqual(["all", "stderr"]);
+  await expect(drawer.getByLabel("容器日志")).not.toContainText(
+    "request complete",
+  );
+  await expect(drawer.getByLabel("容器日志")).toContainText("worker failed");
+});
+
+test("container restart policy is edited with the ordinary asset draft", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑资产" });
+  await editor
+    .getByRole("textbox", { name: "进程退出后", exact: true })
+    .click();
+  await page
+    .getByRole("option", { name: "异常退出时重启", exact: true })
+    .click();
+  await editor.getByRole("button", { name: "更新资产", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect
+    .poll(() => calls.find((call) => call.path.endsWith("/draft"))?.body)
+    .toMatchObject({
+      spec: {
+        assets: [{ id: "web", restartPolicy: "on-failure" }, { id: "windows" }],
+      },
+    });
+});

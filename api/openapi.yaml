@@ -154,6 +154,20 @@ paths:
       description: WebSocket. Binary messages carry terminal or RFB bytes; terminal text messages contain ConsoleResize.
       parameters: [{name: kind, in: query, required: true, schema: {$ref: '#/components/schemas/ConsoleKind'}}]
       responses: {'101': {description: Connected}, '409': {description: Asset has no running instance}}
+  /environments/{id}/assets/{assetId}/logs:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: assetLogs
+      description: Container stdout/stderr as output events. Initial tail is bounded to 1 MiB per stream; follow continues until disconnected or access is revoked.
+      parameters:
+        - {name: tail, in: query, schema: {type: integer, minimum: 0, maximum: 10000, default: 200}}
+        - {name: stream, in: query, schema: {type: string, enum: [all, stdout, stderr], default: all}}
+        - {name: follow, in: query, schema: {type: boolean, default: false}}
+      responses:
+        '200': {description: Log stream, content: {text/event-stream: {schema: {$ref: '#/components/schemas/LogChunk'}}}}
+        '409': {description: Asset is not a container}
   /operations:
     get:
       operationId: listOperations
@@ -411,7 +425,19 @@ components:
         interfaces: {type: array, items: {$ref: '#/components/schemas/Interface'}}
         volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
         parameters: {type: object, additionalProperties: {type: string}}
+        restartPolicy: {$ref: '#/components/schemas/RestartPolicy'}
         guest: {$ref: '#/components/schemas/GuestSettings'}
+    RestartPolicy:
+      type: string
+      enum: [never, on-failure, always]
+      default: never
+      description: Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
+    LogChunk:
+      type: object
+      required: [stream, data]
+      properties:
+        stream: {type: string, enum: [stdout, stderr]}
+        data: {type: string}
     GuestSettings:
       type: object
       properties:

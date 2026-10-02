@@ -65,6 +65,12 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.Close()
 		return nil, errors.New("no compute runtime configured")
 	}
+	if e.container != nil {
+		if err = e.superviseContainers(); err != nil {
+			e.Close()
+			return nil, err
+		}
+	}
 	return e, nil
 }
 func (e *Engine) Close() {
@@ -180,6 +186,9 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			}
 			if err == nil && (plan.Phase == api.NodePlanPhasePolicies || (plan.Phase == api.NodePlanPhaseStart && state == "running")) {
 				err = e.shape(ctx, plan.EnvironmentId, a, policies)
+				if err == nil && a.Template.Kind == api.Container {
+					err = e.container.savePolicies(ctx, a.InstanceId, plan.Spec.Policies)
+				}
 			}
 			r := executionResult(a, state, err)
 			if plan.Phase == api.NodePlanPhaseUpdate || plan.Phase == api.NodePlanPhaseInspect {

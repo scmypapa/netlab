@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/engine"
+	"netlab.local/core/internal/logfile"
 	"netlab.local/core/internal/stream"
 )
 
@@ -78,6 +79,43 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/logs", func(w http.ResponseWriter, r *http.Request) {
+		options, err := logfile.Parse(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		reader, err := executor.OpenLogs(r.Context(), r.PathValue("environmentId"), r.PathValue("assetId"), r.PathValue("instanceId"), options)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		defer reader.Close()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-store")
+		control := http.NewResponseController(w)
+		if _, err = fmt.Fprint(w, ": connected\n\n"); err != nil {
+			return
+		}
+		if err = control.Flush(); err != nil {
+			return
+		}
+		err = reader.Read(r.Context(), func(chunk api.LogChunk) error {
+			raw, err := json.Marshal(chunk)
+			if err != nil {
+				return err
+			}
+			if _, err = fmt.Fprintf(w, "event: output\ndata: %s\n\n", raw); err != nil {
+				return err
+			}
+			return control.Flush()
+		})
+		if err != nil && r.Context().Err() == nil {
+			raw, _ := json.Marshal(api.Problem{Status: 500, Title: "Log stream failed", Detail: err.Error()})
+			fmt.Fprintf(w, "event: stream-error\ndata: %s\n\n", raw)
+			control.Flush()
+		}
+	})
 	mux.HandleFunc("GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/console", func(w http.ResponseWriter, r *http.Request) {
 		console, err := executor.OpenConsole(r.Context(), r.PathValue("environmentId"), r.PathValue("assetId"), r.PathValue("instanceId"), api.ConsoleKind(r.URL.Query().Get("kind")))
 		if err != nil {

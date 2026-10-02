@@ -27,6 +27,7 @@ import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
 import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ObjectInspector } from "./ObjectInspector";
+import { LogDrawer } from "./LogDrawer";
 import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
 import { connectAsset, networkColors, topology } from "./topology";
@@ -51,6 +52,7 @@ export function WorkbenchPage() {
   const [connections, setConnections] = useState<ConsoleTab[]>([]);
   const [selectedConnection, setSelectedConnection] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [logging, setLogging] = useState<Asset>();
   const [context, setContext] = useState<{
     x: number;
     y: number;
@@ -620,6 +622,7 @@ export function WorkbenchPage() {
             canOperate={allows(environment, "operate", asset?.id)}
             canManage={allows(environment, "manage", asset?.id)}
             canConnect={allows(environment, "session", asset?.id)}
+            canObserve={allows(environment, "observe", asset?.id)}
             onClose={() => setSelection(undefined)}
             onEdit={editObject}
             onRemove={remove}
@@ -630,6 +633,7 @@ export function WorkbenchPage() {
                 : workbench.action.mutate({ action, assetId: asset?.id })
             }
             onConnect={connect}
+            onLogs={() => setLogging(asset)}
             onSelect={setSelection}
           />
         )}
@@ -657,6 +661,13 @@ export function WorkbenchPage() {
         <SharingDrawer
           environment={environment}
           onClose={() => setSharing(false)}
+        />
+      )}
+      {logging && (
+        <LogDrawer
+          environmentId={id}
+          asset={logging}
+          onClose={() => setLogging(undefined)}
         />
       )}
       {editor === "asset" && (

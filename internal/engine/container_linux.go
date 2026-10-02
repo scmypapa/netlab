@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
@@ -39,10 +38,15 @@ const networkLabel = "netlab.interfaces"
 const executionLabel = "netlab.execution"
 
 type Containers struct {
-	client *containerd.Client
-	data   string
-	ovs    *network.OVS
-	images sync.Map
+	client   *containerd.Client
+	data     string
+	ovs      *network.OVS
+	images   sync.Map
+	ctx      context.Context
+	cancel   context.CancelFunc
+	watching sync.Map
+	watches  sync.WaitGroup
+	restart  func(context.Context, string, uint32, uint32) error
 }
 
 func NewContainers(ctx context.Context, socket, data string, ovs *network.OVS) (*Containers, error) {
@@ -54,9 +58,10 @@ func NewContainers(ctx context.Context, socket, data string, ovs *network.OVS) (
 		c.Close()
 		return nil, err
 	}
-	return &Containers{client: c, data: data, ovs: ovs}, nil
+	ctx, cancel := context.WithCancel(ctx)
+	return &Containers{client: c, data: data, ovs: ovs, ctx: namespaces.WithNamespace(ctx, "netlab"), cancel: cancel}, nil
 }
-func (c *Containers) Close() { c.client.Close() }
+func (c *Containers) Close() { c.cancel(); c.watches.Wait(); c.client.Close() }
 func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution) (string, error) {
 	ctx = namespaces.WithNamespace(ctx, "netlab")
 	if phase == api.NodePlanPhasePrepare {
@@ -97,9 +102,10 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 			return c.start(ctx, container, env, a)
 		}
 	case api.NodePlanPhaseStop, api.NodePlanPhaseForceStop:
-		if state == "running" || state == "suspended" || state == "created" {
-			err = c.stop(ctx, container, a, phase == api.NodePlanPhaseForceStop)
+		if _, err = container.SetLabels(ctx, map[string]string{desiredLabel: "stopped"}); err != nil {
+			return state, err
 		}
+		err = c.stop(ctx, container, a, phase == api.NodePlanPhaseForceStop)
 	case api.NodePlanPhaseSuspend, api.NodePlanPhaseResume:
 		var t containerd.Task
 		t, err = container.Task(ctx, nil)
@@ -111,6 +117,9 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 			}
 		}
 	case api.NodePlanPhaseDestroy:
+		if _, err = container.SetLabels(ctx, map[string]string{desiredLabel: "stopped"}); err != nil {
+			return state, err
+		}
 		if err = c.stop(ctx, container, a, true); err != nil {
 			return state, err
 		}
@@ -179,7 +188,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	if err != nil {
 		return "absent", err
 	}
-	labels := map[string]string{environmentLabel: env, assetLabel: a.Asset.Id, networkLabel: string(networkJSON), executionLabel: string(executionJSON), "netlab.volumes": string(volumeJSON), "netlab.stop-signal": config.Config.StopSignal}
+	labels := map[string]string{environmentLabel: env, assetLabel: a.Asset.Id, networkLabel: string(networkJSON), executionLabel: string(executionJSON), desiredLabel: "stopped", "netlab.volumes": string(volumeJSON), "netlab.stop-signal": config.Config.StopSignal}
 	opts := []oci.SpecOpts{oci.WithImageConfig(image), oci.WithHostname(a.Asset.Name), oci.WithMemoryLimit(uint64(a.Asset.Resources.MemoryMiB) << 20), oci.WithMounts(mounts), cpuLimit(a.Asset.Resources.Cpu)}
 	if a.Asset.Parameters != nil {
 		envs := []string{}
@@ -363,6 +372,9 @@ func (c *Containers) initializeVolumes(ctx context.Context, container containerd
 	})
 }
 func (c *Containers) start(ctx context.Context, container containerd.Container, env string, a api.AssetExecution) (string, error) {
+	if _, err := container.SetLabels(ctx, map[string]string{desiredLabel: "running", restartErrorLabel: ""}); err != nil {
+		return "unknown", err
+	}
 	if task, err := container.Task(ctx, nil); err == nil {
 		status, err := task.Status(ctx)
 		if err != nil {
@@ -379,16 +391,21 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 			if err = c.connect(ctx, task.Pid(), env, a); err != nil {
 				return "created", err
 			}
+			if err = c.watch(task); err != nil {
+				return "created", err
+			}
 			if err = task.Start(ctx); err != nil {
 				return "created", err
 			}
+			return containerState(ctx, container)
+		} else {
 			return containerState(ctx, container)
 		}
 	} else if !errdefs.IsNotFound(err) {
 		return "unknown", err
 	}
 	dir := instanceDir(c.data, env, a.InstanceId)
-	task, err := container.NewTask(ctx, cio.LogFile(filepath.Join(dir, "stdout.log")))
+	task, err := container.NewTask(ctx, containerLogFiles(dir))
 	if err != nil {
 		return "stopped", err
 	}
@@ -397,6 +414,9 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 	if err = c.connect(ctx, task.Pid(), env, a); err != nil {
 		cleanup := errors.Join(c.disconnect(context.WithoutCancel(ctx), env, a), deleteCreated(context.WithoutCancel(ctx), task))
 		return "stopped", errors.Join(err, cleanup)
+	}
+	if err = c.watch(task); err != nil {
+		return "created", err
 	}
 	if err = task.Start(ctx); err != nil {
 		return "created", err
@@ -512,7 +532,17 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 		if labels[assetLabel] == "" {
 			continue
 		}
+		spec, err := item.Spec(ctx)
+		if err != nil {
+			return results, err
+		}
+		if !managedContainer(spec, c.data, labels[environmentLabel], item.ID()) {
+			continue
+		}
 		state, err := containerState(ctx, item)
+		if labels[restartErrorLabel] != "" {
+			err = errors.Join(err, errors.New(labels[restartErrorLabel]))
+		}
 		r := api.ExecutionResult{AssetId: labels[assetLabel], InstanceId: item.ID(), State: state, ObservedAt: time.Now().UTC()}
 		var observeErr error
 		r.Execution, observeErr = c.observedExecution(ctx, item)
