@@ -130,6 +130,9 @@ func shapeOutput(link netlink.Link, policies []api.Policy) error {
 			return fmt.Errorf("create traffic class: %w", err)
 		}
 		if i == -1 {
+			if err = netlink.QdiscAdd(netlink.NewNetem(netlink.QdiscAttrs{LinkIndex: index, Parent: classID}, netlink.NetemQdiscAttrs{Limit: 10000})); err != nil {
+				return fmt.Errorf("create default traffic queue: %w", err)
+			}
 			continue
 		}
 		p := policies[i]
