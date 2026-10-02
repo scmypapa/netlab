@@ -154,6 +154,13 @@ try {
     const address = a.spec.assets.find(x => x.name === 'web').interfaces[0].address
     const output = inContainer(client.instanceId, 'curl', '-sf', `http://${address}`)
     assert.ok(output.includes('Welcome to nginx'))
+    for (const environment of environments) {
+      const actual = await state(environment.id)
+      const web = actual.assets.find(s => s.assetId === environment.spec.assets.find(x => x.name === 'web').id)
+      const client = actual.assets.find(s => s.assetId === environment.spec.assets.find(x => x.name === 'client').id)
+      inContainer(web.instanceId, 'sh', '-c', `printf %s ${environment.id} > /usr/share/nginx/html/environment-id`)
+      assert.equal(inContainer(client.instanceId, 'curl', '-sf', '--max-time', '8', `http://${environment.spec.assets[0].interfaces[0].address}/environment-id`), environment.id)
+    }
   })
   await step('容器与 KVM 暂停、恢复', async () => {
     await action(a.id, 'suspend')
@@ -206,6 +213,8 @@ try {
     const web = before.spec.assets.find(x => x.name === 'web')
     const oldWeb = previous.assets.find(x => x.assetId === web.id)
     inContainer(oldWeb.instanceId, 'sh', '-c', 'printf netlab-lifecycle > /var/netlab/proof')
+    const other = await state(b.id)
+    inContainer(other.assets.find(x => x.assetId === b.spec.assets[0].id).instanceId, 'sh', '-c', 'test ! -e /var/netlab/proof')
     await action(a.id, 'rebuild', web.id)
     const replaced = await state(a.id)
     const newWeb = replaced.assets.find(x => x.assetId === web.id)

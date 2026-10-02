@@ -321,13 +321,24 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	if err != nil {
 		return results, err
 	}
+	tx, err := w.Pool.Begin(ctx)
+	if err != nil {
+		return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
+	}
+	defer tx.Rollback(ctx)
+	q := w.Queries.WithTx(tx)
 	if phase != api.NodePlanPhaseCleanupVolumes {
-		if err = w.Queries.ApplyAssetResults(ctx, raw); err != nil {
+		if err = q.ApplyAssetResults(ctx, raw); err != nil {
 			return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
 		}
 	}
-	if err = w.phase(ctx, op, p, op.Phase); err != nil {
+	transactionWorker := w
+	transactionWorker.Queries = q
+	if err = transactionWorker.phase(ctx, op, p, op.Phase); err != nil {
 		return results, errors.Join(executionErr, err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
 	}
 	return results, executionErr
 }

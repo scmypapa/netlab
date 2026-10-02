@@ -31,7 +31,7 @@ func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) (int64, erro
 const applyAssetResults = `-- name: ApplyAssetResults :exec
 UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
 FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,state text,error text,"observedAt" timestamptz)
-WHERE a.instance_id=r."instanceId" AND a.observed_at<=r."observedAt"
+WHERE a.instance_id=r."instanceId"
 `
 
 func (q *Queries) ApplyAssetResults(ctx context.Context, dollar_1 []byte) error {
