@@ -45,12 +45,6 @@ const (
 	Vnc      ConsoleKind = "vnc"
 )
 
-// Defines values for CreateServiceProtocol.
-const (
-	CreateServiceProtocolTcp CreateServiceProtocol = "tcp"
-	CreateServiceProtocolUdp CreateServiceProtocol = "udp"
-)
-
 // Defines values for EnvironmentStatus.
 const (
 	EnvironmentStatusChanging   EnvironmentStatus = "changing"
@@ -105,6 +99,7 @@ const (
 	NodePlanPhasePrepare        NodePlanPhase = "prepare"
 	NodePlanPhaseRemoveNetwork  NodePlanPhase = "remove-network"
 	NodePlanPhaseResume         NodePlanPhase = "resume"
+	NodePlanPhaseServices       NodePlanPhase = "services"
 	NodePlanPhaseStart          NodePlanPhase = "start"
 	NodePlanPhaseStop           NodePlanPhase = "stop"
 	NodePlanPhaseSuspend        NodePlanPhase = "suspend"
@@ -174,16 +169,10 @@ const (
 	ScopeGrantScopeKindProject     ScopeGrantScopeKind = "project"
 )
 
-// Defines values for ServiceEndpointProtocol.
+// Defines values for ServiceProtocol.
 const (
-	ServiceEndpointProtocolTcp ServiceEndpointProtocol = "tcp"
-	ServiceEndpointProtocolUdp ServiceEndpointProtocol = "udp"
-)
-
-// Defines values for ServiceExposureProtocol.
-const (
-	Tcp ServiceExposureProtocol = "tcp"
-	Udp ServiceExposureProtocol = "udp"
+	Tcp ServiceProtocol = "tcp"
+	Udp ServiceProtocol = "udp"
 )
 
 // Defines values for TemplateFormat.
@@ -378,16 +367,13 @@ type CreateEnvironment struct {
 
 // CreateService defines model for CreateService.
 type CreateService struct {
-	ClientRequestId  *string               `json:"clientRequestId,omitempty"`
-	ExpectedRevision int                   `json:"expectedRevision"`
-	InterfaceId      *string               `json:"interfaceId,omitempty"`
-	ListenPort       *int                  `json:"listenPort,omitempty"`
-	Protocol         CreateServiceProtocol `json:"protocol"`
-	TargetPort       int                   `json:"targetPort"`
+	ClientRequestId  *string         `json:"clientRequestId,omitempty"`
+	ExpectedRevision int             `json:"expectedRevision"`
+	InterfaceId      *string         `json:"interfaceId,omitempty"`
+	ListenPort       *int            `json:"listenPort,omitempty"`
+	Protocol         ServiceProtocol `json:"protocol"`
+	TargetPort       int             `json:"targetPort"`
 }
-
-// CreateServiceProtocol defines model for CreateService.Protocol.
-type CreateServiceProtocol string
 
 // CreateServiceToken defines model for CreateServiceToken.
 type CreateServiceToken struct {
@@ -589,12 +575,13 @@ type Node struct {
 
 // NodeInfo defines model for NodeInfo.
 type NodeInfo struct {
-	Capabilities []string    `json:"capabilities"`
-	Capacity     Resources   `json:"capacity"`
-	Id           string      `json:"id"`
-	Name         string      `json:"name"`
-	Slots        int         `json:"slots"`
-	VmHardware   *VmHardware `json:"vmHardware,omitempty"`
+	Capabilities   []string        `json:"capabilities"`
+	Capacity       Resources       `json:"capacity"`
+	Id             string          `json:"id"`
+	Name           string          `json:"name"`
+	ServiceNetwork *ServiceNetwork `json:"serviceNetwork,omitempty"`
+	Slots          int             `json:"slots"`
+	VmHardware     *VmHardware     `json:"vmHardware,omitempty"`
 }
 
 // NodeObservation defines model for NodeObservation.
@@ -607,11 +594,13 @@ type NodeObservation struct {
 
 // NodePlan defines model for NodePlan.
 type NodePlan struct {
-	Assets        []AssetExecution `json:"assets"`
-	EnvironmentId string           `json:"environmentId"`
-	OperationId   string           `json:"operationId"`
-	Phase         NodePlanPhase    `json:"phase"`
-	Spec          EnvironmentSpec  `json:"spec"`
+	Assets        []AssetExecution      `json:"assets"`
+	EnvironmentId string                `json:"environmentId"`
+	Gateway       *ServiceGateway       `json:"gateway,omitempty"`
+	OperationId   string                `json:"operationId"`
+	Phase         NodePlanPhase         `json:"phase"`
+	Services      *[]NodeServiceBinding `json:"services,omitempty"`
+	Spec          EnvironmentSpec       `json:"spec"`
 }
 
 // NodePlanPhase defines model for NodePlan.Phase.
@@ -627,6 +616,17 @@ type NodeRegistration struct {
 type NodeResult struct {
 	Error   *string           `json:"error,omitempty"`
 	Results []ExecutionResult `json:"results"`
+}
+
+// NodeServiceBinding defines model for NodeServiceBinding.
+type NodeServiceBinding struct {
+	AssetId       string          `json:"assetId"`
+	Id            string          `json:"id"`
+	InterfaceId   string          `json:"interfaceId"`
+	ListenPort    int             `json:"listenPort"`
+	Protocol      ServiceProtocol `json:"protocol"`
+	TargetAddress string          `json:"targetAddress"`
+	TargetPort    int             `json:"targetPort"`
 }
 
 // Operation defines model for Operation.
@@ -765,32 +765,41 @@ type ScopeGrantScopeKind string
 
 // ServiceEndpoint defines model for ServiceEndpoint.
 type ServiceEndpoint struct {
-	Address     string                  `json:"address"`
-	AssetId     string                  `json:"assetId"`
-	Id          string                  `json:"id"`
-	InterfaceId string                  `json:"interfaceId"`
-	ListenPort  *int                    `json:"listenPort,omitempty"`
-	Port        int                     `json:"port"`
-	Protocol    ServiceEndpointProtocol `json:"protocol"`
-	TargetPort  int                     `json:"targetPort"`
-	UpdatedAt   time.Time               `json:"updatedAt"`
+	Address     string          `json:"address"`
+	AssetId     string          `json:"assetId"`
+	Id          string          `json:"id"`
+	InterfaceId string          `json:"interfaceId"`
+	ListenPort  *int            `json:"listenPort,omitempty"`
+	Port        int             `json:"port"`
+	Protocol    ServiceProtocol `json:"protocol"`
+	TargetPort  int             `json:"targetPort"`
+	UpdatedAt   time.Time       `json:"updatedAt"`
 }
-
-// ServiceEndpointProtocol defines model for ServiceEndpoint.Protocol.
-type ServiceEndpointProtocol string
 
 // ServiceExposure defines model for ServiceExposure.
 type ServiceExposure struct {
-	AssetId     string                  `json:"assetId"`
-	Id          string                  `json:"id"`
-	InterfaceId string                  `json:"interfaceId"`
-	ListenPort  *int                    `json:"listenPort,omitempty"`
-	Protocol    ServiceExposureProtocol `json:"protocol"`
-	TargetPort  int                     `json:"targetPort"`
+	AssetId     string          `json:"assetId"`
+	Id          string          `json:"id"`
+	InterfaceId string          `json:"interfaceId"`
+	ListenPort  *int            `json:"listenPort,omitempty"`
+	Protocol    ServiceProtocol `json:"protocol"`
+	TargetPort  int             `json:"targetPort"`
 }
 
-// ServiceExposureProtocol defines model for ServiceExposure.Protocol.
-type ServiceExposureProtocol string
+// ServiceGateway defines model for ServiceGateway.
+type ServiceGateway struct {
+	Address string `json:"address"`
+	NodeId  string `json:"nodeId"`
+}
+
+// ServiceNetwork defines model for ServiceNetwork.
+type ServiceNetwork struct {
+	Address string `json:"address"`
+	Cidr    string `json:"cidr"`
+}
+
+// ServiceProtocol defines model for ServiceProtocol.
+type ServiceProtocol string
 
 // Template defines model for Template.
 type Template struct {

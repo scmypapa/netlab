@@ -505,7 +505,7 @@ components:
         id: {type: string}
         assetId: {type: string}
         interfaceId: {type: string}
-        protocol: {type: string, enum: [tcp, udp]}
+        protocol: {$ref: '#/components/schemas/ServiceProtocol'}
         targetPort: {type: integer, minimum: 1, maximum: 65535}
         listenPort: {type: integer, minimum: 1, maximum: 65535}
     ServiceEndpoint:
@@ -522,11 +522,37 @@ components:
       required: [protocol, targetPort, expectedRevision]
       properties:
         interfaceId: {type: string}
-        protocol: {type: string, enum: [tcp, udp]}
+        protocol: {$ref: '#/components/schemas/ServiceProtocol'}
         targetPort: {type: integer, minimum: 1, maximum: 65535}
         listenPort: {type: integer, minimum: 1, maximum: 65535}
         expectedRevision: {type: integer}
         clientRequestId: {type: string}
+    ServiceProtocol:
+      type: string
+      enum: [tcp, udp]
+    ServiceNetwork:
+      type: object
+      required: [cidr, address]
+      properties:
+        cidr: {type: string}
+        address: {type: string}
+    ServiceGateway:
+      type: object
+      required: [nodeId, address]
+      properties:
+        nodeId: {type: string}
+        address: {type: string}
+    NodeServiceBinding:
+      type: object
+      required: [id, assetId, interfaceId, protocol, targetAddress, targetPort, listenPort]
+      properties:
+        id: {type: string}
+        assetId: {type: string}
+        interfaceId: {type: string}
+        protocol: {$ref: '#/components/schemas/ServiceProtocol'}
+        targetAddress: {type: string}
+        targetPort: {type: integer}
+        listenPort: {type: integer}
     Point:
       type: object
       required: [x, y]
@@ -665,9 +691,11 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
+        phase: {type: string, enum: [network, services, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+        gateway: {$ref: '#/components/schemas/ServiceGateway'}
+        services: {type: array, items: {$ref: '#/components/schemas/NodeServiceBinding'}}
     ExecutionResult:
       type: object
       required: [assetId, instanceId, state, observedAt]
@@ -703,6 +731,7 @@ components:
         capabilities: {type: array, items: {type: string}}
         slots: {type: integer}
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
+        serviceNetwork: {$ref: '#/components/schemas/ServiceNetwork'}
     VmHardware:
       type: object
       required: [machines, cpuModes, cpuModels, nicModels, diskControllers]

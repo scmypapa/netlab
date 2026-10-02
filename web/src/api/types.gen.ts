@@ -796,8 +796,7 @@ export interface components {
       id: string;
       assetId: string;
       interfaceId: string;
-      /** @enum {string} */
-      protocol: "tcp" | "udp";
+      protocol: components["schemas"]["ServiceProtocol"];
       targetPort: number;
       listenPort?: number;
     };
@@ -809,12 +808,30 @@ export interface components {
     };
     CreateService: {
       interfaceId?: string;
-      /** @enum {string} */
-      protocol: "tcp" | "udp";
+      protocol: components["schemas"]["ServiceProtocol"];
       targetPort: number;
       listenPort?: number;
       expectedRevision: number;
       clientRequestId?: string;
+    };
+    /** @enum {string} */
+    ServiceProtocol: "tcp" | "udp";
+    ServiceNetwork: {
+      cidr: string;
+      address: string;
+    };
+    ServiceGateway: {
+      nodeId: string;
+      address: string;
+    };
+    NodeServiceBinding: {
+      id: string;
+      assetId: string;
+      interfaceId: string;
+      protocol: components["schemas"]["ServiceProtocol"];
+      targetAddress: string;
+      targetPort: number;
+      listenPort: number;
     };
     Point: {
       x: number;
@@ -956,6 +973,7 @@ export interface components {
       /** @enum {string} */
       phase:
         | "network"
+        | "services"
         | "policies"
         | "prepare"
         | "update"
@@ -970,6 +988,8 @@ export interface components {
         | "inspect";
       assets: components["schemas"]["AssetExecution"][];
       spec: components["schemas"]["EnvironmentSpec"];
+      gateway?: components["schemas"]["ServiceGateway"];
+      services?: components["schemas"]["NodeServiceBinding"][];
     };
     ExecutionResult: {
       environmentId?: string;
@@ -999,6 +1019,7 @@ export interface components {
       capabilities: string[];
       slots: number;
       vmHardware?: components["schemas"]["VmHardware"];
+      serviceNetwork?: components["schemas"]["ServiceNetwork"];
     };
     VmHardware: {
       machines: components["schemas"]["VmMachine"][];
