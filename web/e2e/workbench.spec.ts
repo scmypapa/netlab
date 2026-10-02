@@ -47,7 +47,7 @@ async function fixture(page: Page) {
   };
   const environment = {
     id: "env",
-    projectId: "default",
+    projectId: "lab-project",
     name: "混合环境",
     revision: 1,
     status: "running",
@@ -89,7 +89,7 @@ async function fixture(page: Page) {
   const blueprints = [
     {
       id: "training",
-      projectId: "default",
+      projectId: "lab-project",
       name: "混合组网模板",
       latestVersionId: "training-v2",
       latestVersion: 2,
@@ -128,6 +128,7 @@ async function fixture(page: Page) {
       createdEnvironment = {
         ...environment,
         id: "env-created",
+        projectId: body.projectId ?? "default",
         name: body.name,
         status: body.run ? "deploying" : "draft",
         spec: version?.spec ?? body.spec,
@@ -419,6 +420,21 @@ test("template details create and run the selected immutable version", async ({
   page,
 }) => {
   const calls = await fixture(page);
+  const attempts: unknown[] = [];
+  await page.route("**/api/v1/environments", async (route) => {
+    if (route.request().method() === "POST") {
+      attempts.push(route.request().postDataJSON());
+      if (attempts.length === 1) {
+        await route.fulfill({
+          status: 502,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "连接中断，请重试" }),
+        });
+        return;
+      }
+    }
+    await route.fallback();
+  });
   await page.goto("/templates?tab=environments");
   await page.getByRole("button", { name: "混合组网模板", exact: true }).click();
   await page.getByRole("textbox", { name: "版本", exact: true }).click();
@@ -440,6 +456,10 @@ test("template details create and run the selected immutable version", async ({
   await page.getByRole("textbox", { name: "环境名称" }).fill("独立 Web 环境");
   await page.getByRole("button", { name: "创建并运行", exact: true }).click();
   await expect(
+    page.getByText("连接中断，请重试", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "创建并运行", exact: true }).click();
+  await expect(
     page.getByRole("heading", { name: "独立 Web 环境", exact: true }),
   ).toBeVisible();
   const create = calls.find(
@@ -447,10 +467,12 @@ test("template details create and run the selected immutable version", async ({
   );
   expect(create?.body).toEqual({
     name: "独立 Web 环境",
+    projectId: "lab-project",
     blueprintVersionId: "training-v1",
     run: true,
     clientRequestId: expect.any(String),
   });
+  expect(attempts).toEqual([create?.body, create?.body]);
   expect(
     calls.some((call) => call.path === "/blueprint-versions/training-v1"),
   ).toBe(true);
@@ -470,6 +492,7 @@ test("the shared creation dialog also creates an empty environment", async ({
   ).toBeVisible();
   expect(calls.find((call) => call.method === "POST")?.body).toEqual({
     name: "空白实验环境",
+    clientRequestId: expect.any(String),
     spec: { assets: [], networks: [] },
   });
 });
@@ -492,6 +515,8 @@ test("the environment list selects a template without starting it", async ({
   ).toBeVisible();
   expect(calls.find((call) => call.method === "POST")?.body).toEqual({
     name: "待运行模板环境",
+    projectId: "lab-project",
+    clientRequestId: expect.any(String),
     blueprintVersionId: "training-v2",
     run: false,
   });
