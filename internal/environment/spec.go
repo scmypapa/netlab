@@ -245,9 +245,12 @@ func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]
 	for _, a := range after.Assets {
 		old, ok := oldAssets[a.Id]
 		effect := api.Add
+		networkChanged := false
 		if ok {
 			delete(oldAssets, a.Id)
-			if reflect.DeepEqual(old, a) {
+			previous := Resolve(before, old, nil)
+			networkChanged = !reflect.DeepEqual(previous, Resolve(after, a, previous))
+			if reflect.DeepEqual(old, a) && !networkChanged {
 				continue
 			}
 			effect = api.Update
@@ -255,7 +258,7 @@ func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]
 				effect = api.Replace
 			}
 		}
-		needsStop := ok && (effect == api.Replace || RequiresStop(templates[a.TemplateId].Kind, old, a))
+		needsStop := ok && (effect == api.Replace || networkChanged || RequiresStop(templates[a.TemplateId].Kind, old, a))
 		result.Changes = append(result.Changes, api.ChangeItem{Id: a.Id, Name: a.Name, Kind: api.ChangeItemKindAsset, Effect: effect, RequiresStop: &needsStop})
 	}
 	for _, a := range oldAssets {

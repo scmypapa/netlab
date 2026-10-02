@@ -231,6 +231,9 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 	return errors.New("没有可准备该模板的节点")
 }
 func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, phase api.NodePlanPhase, targets []Target) ([]api.ExecutionResult, error) {
+	if len(targets) == 0 {
+		return []api.ExecutionResult{}, nil
+	}
 	grouped := map[string][]api.AssetExecution{}
 	endpoints := map[string]string{}
 	for _, t := range targets {

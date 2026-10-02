@@ -464,17 +464,15 @@ func runtimeState(ctx context.Context, q *queries.Queries, id string) (string, e
 		}
 		return "stopped", nil
 	}
-	if len(states) == 1 {
-		for state := range states {
-			if state == "running" || state == "stopped" || state == "suspended" {
-				return state, nil
-			}
-		}
-	}
 	if states["unknown"] || states["absent"] || states["reserved"] {
 		return "unknown", nil
 	}
-	return "running", nil
+	for _, state := range []string{"running", "suspended", "stopped"} {
+		if states[state] {
+			return state, nil
+		}
+	}
+	return "unknown", nil
 }
 
 func (w Worker) status(ctx context.Context, op *queries.Operation, p *Payload, failure error) error {
