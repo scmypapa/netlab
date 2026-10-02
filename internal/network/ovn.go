@@ -57,7 +57,7 @@ func (n *OVN) Remove(ctx context.Context, environmentID string) error {
 }
 func (n *OVN) deleteOperations(ctx context.Context, environmentID string) ([]ovsdb.Operation, error) {
 	var ops []ovsdb.Operation
-	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "DHCP_Options", "Logical_Router", "Logical_Router_Port", "Logical_Router_Static_Route", "ACL", "Load_Balancer", "Gateway_Chassis"} {
+	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "DHCP_Options", "Logical_Router", "Logical_Router_Port", "Logical_Router_Static_Route", "ACL", "Load_Balancer"} {
 		v, err := ovsdb.NewOvsMap(map[string]string{"netlab.environment": environmentID})
 		if err != nil {
 			return nil, err

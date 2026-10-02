@@ -48,13 +48,12 @@ type Router struct {
 	ExternalIDs   map[string]string `ovsdb:"external_ids"`
 }
 type RouterPort struct {
-	UUID           string            `ovsdb:"_uuid"`
-	Name           string            `ovsdb:"name"`
-	MAC            string            `ovsdb:"mac"`
-	Networks       []string          `ovsdb:"networks"`
-	IPv6RA         map[string]string `ovsdb:"ipv6_ra_configs"`
-	GatewayChassis []string          `ovsdb:"gateway_chassis"`
-	ExternalIDs    map[string]string `ovsdb:"external_ids"`
+	UUID        string            `ovsdb:"_uuid"`
+	Name        string            `ovsdb:"name"`
+	MAC         string            `ovsdb:"mac"`
+	Networks    []string          `ovsdb:"networks"`
+	IPv6RA      map[string]string `ovsdb:"ipv6_ra_configs"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
 }
 type Route struct {
 	UUID        string            `ovsdb:"_uuid"`
@@ -89,13 +88,6 @@ type LoadBalancer struct {
 	VIPs        map[string]string `ovsdb:"vips"`
 	ExternalIDs map[string]string `ovsdb:"external_ids"`
 }
-type GatewayChassis struct {
-	UUID        string            `ovsdb:"_uuid"`
-	Name        string            `ovsdb:"name"`
-	ChassisName string            `ovsdb:"chassis_name"`
-	Priority    int               `ovsdb:"priority"`
-	ExternalIDs map[string]string `ovsdb:"external_ids"`
-}
 type Port struct {
 	UUID        string            `ovsdb:"_uuid"`
 	Name        string            `ovsdb:"name"`
@@ -123,7 +115,7 @@ func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
 	tables := map[string]model.Model{
 		"Logical_Switch": &Switch{}, "Logical_Switch_Port": &SwitchPort{}, "DHCP_Options": &DHCP{},
 		"Logical_Router": &Router{}, "Logical_Router_Port": &RouterPort{}, "Logical_Router_Static_Route": &Route{}, "ACL": &ACL{},
-		"Load_Balancer": &LoadBalancer{}, "Gateway_Chassis": &GatewayChassis{},
+		"Load_Balancer": &LoadBalancer{},
 	}
 	db, err := model.NewClientDBModel("OVN_Northbound", tables)
 	if err != nil {

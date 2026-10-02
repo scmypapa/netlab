@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -65,10 +64,6 @@ func (n *OVS) EnsureProvider(ctx context.Context, nodeID string) (string, error)
 		}
 		root.ExternalIDs["ovn-bridge-mappings"] += network + ":" + ProviderBridge
 	}
-	cms := root.ExternalIDs["ovn-cms-options"]
-	if !slices.Contains(strings.Split(cms, ","), "enable-chassis-as-gw") {
-		root.ExternalIDs["ovn-cms-options"] = strings.Trim(cms+",enable-chassis-as-gw", ",")
-	}
 	updated, err := n.client.Where(root).Update(root, &root.Bridges, &root.ExternalIDs)
 	if err != nil {
 		return "", err
@@ -107,18 +102,18 @@ func gatewayModels(plan api.NodePlan, router *Router, prefix netip.Prefix, chass
 		return ids
 	}
 	switchName := objectName("access", plan.EnvironmentId, "provider")
-	routerPort := &RouterPort{UUID: "access_router_port", Name: objectName("access_rp", plan.EnvironmentId, "gateway"), MAC: routerMAC(address), Networks: []string{netip.PrefixFrom(address, prefix.Bits()).String()}, GatewayChassis: []string{"access_chassis"}, ExternalIDs: owner()}
+	routerPort := &RouterPort{UUID: "access_router_port", Name: objectName("access_rp", plan.EnvironmentId, "gateway"), MAC: routerMAC(address), Networks: []string{netip.PrefixFrom(address, prefix.Bits()).String()}, ExternalIDs: owner()}
 	routerSwitchPort := &SwitchPort{UUID: "access_router_switch_port", Name: objectName("access_sp", plan.EnvironmentId, "gateway"), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": routerPort.Name}, ExternalIDs: owner()}
 	localPort := &SwitchPort{UUID: "access_localnet", Name: objectName("access_localnet", plan.EnvironmentId, "provider"), Type: "localnet", Addresses: []string{"unknown"}, Options: map[string]string{"network_name": providerNetwork(plan.Gateway.NodeId)}, ExternalIDs: owner()}
 	switchModel := &Switch{UUID: "access_switch", Name: switchName, Ports: []string{routerSwitchPort.UUID, localPort.UUID}, ExternalIDs: owner()}
-	chassisModel := &GatewayChassis{UUID: "access_chassis", Name: objectName("access_chassis", plan.EnvironmentId, "gateway"), ChassisName: chassis, Priority: 100, ExternalIDs: owner()}
 	router.Ports = append(router.Ports, routerPort.UUID)
 	if router.Options == nil {
 		router.Options = map[string]string{}
 	}
-	// The selected guest-side router IP makes replies return to the same OVN gateway.
+	// LB return SNAT requires a gateway router; L2 stays distributed across workers.
+	router.Options["chassis"] = chassis
 	router.Options["lb_force_snat_ip"] = "router_ip"
-	models := []model.Model{switchModel, routerPort, routerSwitchPort, localPort, chassisModel}
+	models := []model.Model{switchModel, routerPort, routerSwitchPort, localPort}
 	if plan.Services != nil {
 		for index, service := range *plan.Services {
 			if service.ListenPort == 0 {
@@ -188,7 +183,7 @@ func (n *OVN) gatewayDeleteOperations(environmentID string) ([]ovsdb.Operation, 
 		return nil, err
 	}
 	var ops []ovsdb.Operation
-	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "Logical_Router_Port", "Load_Balancer", "Gateway_Chassis"} {
+	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "Logical_Router_Port", "Load_Balancer"} {
 		ops = append(ops, ovsdb.Operation{Op: ovsdb.OperationDelete, Table: table, Where: []ovsdb.Condition{{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: value}}})
 	}
 	return ops, nil

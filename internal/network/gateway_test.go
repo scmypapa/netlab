@@ -20,10 +20,6 @@ func TestServiceGatewayNativeModels(t *testing.T) {
 	var lb *LoadBalancer
 	for _, model := range models {
 		switch current := model.(type) {
-		case *GatewayChassis:
-			if current.ChassisName != "real-ovs-system-id" {
-				t.Fatal("gateway used the business node ID as an OVN chassis")
-			}
 		case *LoadBalancer:
 			if lb != nil {
 				t.Fatal("unallocated auto port was compiled as an OVN VIP")
@@ -31,7 +27,7 @@ func TestServiceGatewayNativeModels(t *testing.T) {
 			lb = current
 		}
 	}
-	if lb == nil || lb.VIPs["100.127.0.2:24443"] != "192.168.10.2:443" || router.Options["lb_force_snat_ip"] != "router_ip" {
+	if lb == nil || lb.VIPs["100.127.0.2:24443"] != "192.168.10.2:443" || router.Options["lb_force_snat_ip"] != "router_ip" || router.Options["chassis"] != "real-ovs-system-id" {
 		t.Fatal("native mapping or return SNAT was not configured")
 	}
 	if len(router.LoadBalancers) != 1 || len(router.Ports) != 1 {
