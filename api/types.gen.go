@@ -272,11 +272,12 @@ type EnvironmentState struct {
 
 // ExecutionResult defines model for ExecutionResult.
 type ExecutionResult struct {
-	AssetId    string    `json:"assetId"`
-	Error      *string   `json:"error,omitempty"`
-	InstanceId string    `json:"instanceId"`
-	ObservedAt time.Time `json:"observedAt"`
-	State      string    `json:"state"`
+	AssetId    string          `json:"assetId"`
+	Error      *string         `json:"error,omitempty"`
+	Execution  *AssetExecution `json:"execution,omitempty"`
+	InstanceId string          `json:"instanceId"`
+	ObservedAt time.Time       `json:"observedAt"`
+	State      string          `json:"state"`
 }
 
 // Hardware defines model for Hardware.
@@ -495,15 +496,46 @@ type Volume struct {
 	SizeGiB   int64  `json:"sizeGiB"`
 }
 
+// Cursor defines model for Cursor.
+type Cursor = string
+
 // Id defines model for Id.
 type Id = string
+
+// Limit defines model for Limit.
+type Limit = int
 
 // Accepted defines model for Accepted.
 type Accepted = Operation
 
+// ListEnvironmentsParams defines parameters for ListEnvironments.
+type ListEnvironmentsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// EnvironmentEventsParams defines parameters for EnvironmentEvents.
+type EnvironmentEventsParams struct {
+	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
+}
+
+// ListNodesParams defines parameters for ListNodes.
+type ListNodesParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListOperationsParams defines parameters for ListOperations.
 type ListOperationsParams struct {
 	EnvironmentId *string `form:"environmentId,omitempty" json:"environmentId,omitempty"`
+	Cursor        *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit         *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListTemplatesParams defines parameters for ListTemplates.
+type ListTemplatesParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateEnvironmentJSONRequestBody defines body for CreateEnvironment for application/json ContentType.

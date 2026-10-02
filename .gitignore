@@ -1,4 +1,5 @@
 /.worktrees/
+/.codegraph/
 /bin/
 /data/
 /web/node_modules/

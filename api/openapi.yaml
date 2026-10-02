@@ -6,6 +6,7 @@ paths:
   /environments:
     get:
       operationId: listEnvironments
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
       responses:
         '200': {description: Environments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Environment'}}}}}
     post:
@@ -25,6 +26,13 @@ paths:
       operationId: getEnvironmentState
       responses:
         '200': {description: State, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentState'}}}}
+  /environments/{id}/events:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: environmentEvents
+      parameters: [{name: Last-Event-ID, in: header, schema: {type: integer, format: int64}}]
+      responses:
+        '200': {description: Committed environment events, content: {text/event-stream: {schema: {type: string}}}}
   /environments/{id}/actions:
     parameters: [{$ref: '#/components/parameters/Id'}]
     post:
@@ -65,7 +73,7 @@ paths:
   /operations:
     get:
       operationId: listOperations
-      parameters: [{name: environmentId, in: query, schema: {type: string}}]
+      parameters: [{name: environmentId, in: query, schema: {type: string}}, {$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
       responses:
         '200': {description: Operations, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Operation'}}}}}
   /operations/{id}:
@@ -77,6 +85,7 @@ paths:
   /templates:
     get:
       operationId: listTemplates
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
       responses:
         '200': {description: Templates, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Template'}}}}}
     post:
@@ -87,6 +96,7 @@ paths:
   /nodes:
     get:
       operationId: listNodes
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
       responses:
         '200': {description: Nodes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Node'}}}}}
     post:
@@ -113,6 +123,8 @@ paths:
 components:
   parameters:
     Id: {name: id, in: path, required: true, schema: {type: string}}
+    Cursor: {name: cursor, in: query, schema: {type: string}}
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
   responses:
     Accepted:
       description: Accepted
@@ -362,6 +374,7 @@ components:
         instanceId: {type: string}
         state: {type: string}
         error: {type: string}
+        execution: {$ref: '#/components/schemas/AssetExecution'}
         observedAt: {type: string, format: date-time}
     NodeResult:
       type: object

@@ -2,7 +2,6 @@ package environment
 
 import (
 	"crypto/rand"
-	"fmt"
 	"net"
 	"net/netip"
 	"reflect"
@@ -30,11 +29,11 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			n.Id = uuid.NewString()
 		}
 		if _, ok := networks[n.Id]; ok {
-			return spec, fmt.Errorf("网段 %s 的标识重复", n.Name)
+			return spec, Invalid("网段 %s 的标识重复", n.Name)
 		}
 		p, err := netip.ParsePrefix(n.Cidr)
 		if err != nil {
-			return spec, fmt.Errorf("网段 %s：%w", n.Name, err)
+			return spec, Invalid("网段 %s：%w", n.Name, err)
 		}
 		p = p.Masked()
 		n.Cidr = p.String()
@@ -42,11 +41,11 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		if n.Gateway != nil {
 			gateway, err = netip.ParseAddr(*n.Gateway)
 			if err != nil {
-				return spec, err
+				return spec, Invalid("网段 %s 的网关地址无效", n.Name)
 			}
 		}
 		if !usable(p, gateway) {
-			return spec, fmt.Errorf("网段 %s 没有可用网关地址", n.Name)
+			return spec, Invalid("网段 %s 没有可用网关地址", n.Name)
 		}
 		g := gateway.String()
 		n.Gateway = &g
@@ -55,7 +54,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			n.Mtu = &mtu
 		}
 		if *n.Mtu < 1280 || *n.Mtu > 9000 {
-			return spec, fmt.Errorf("网段 %s 的 MTU 应在 1280–9000 之间", n.Name)
+			return spec, Invalid("网段 %s 的 MTU 应在 1280–9000 之间", n.Name)
 		}
 		networks[n.Id] = *n
 		prefixes[n.Id] = p
@@ -68,12 +67,12 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			a.Id = uuid.NewString()
 		}
 		if assetIDs[a.Id] {
-			return spec, fmt.Errorf("资产 %s 的标识重复", a.Name)
+			return spec, Invalid("资产 %s 的标识重复", a.Name)
 		}
 		assetIDs[a.Id] = true
 		t, ok := templates[a.TemplateId]
 		if !ok {
-			return spec, fmt.Errorf("资产 %s 引用的模板不存在", a.Name)
+			return spec, Invalid("资产 %s 引用的模板不存在", a.Name)
 		}
 		if strings.TrimSpace(a.Name) == "" {
 			a.Name = t.Name
@@ -88,7 +87,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			a.Resources.DiskGiB = t.Resources.DiskGiB
 		}
 		if a.Resources.Cpu < 1 || a.Resources.MemoryMiB < 64 || a.Resources.DiskGiB < 1 {
-			return spec, fmt.Errorf("资产 %s 的资源规格无效", a.Name)
+			return spec, Invalid("资产 %s 的资源规格无效", a.Name)
 		}
 		primary := 0
 		for j := range a.Interfaces {
@@ -97,12 +96,12 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 				nic.Id = uuid.NewString()
 			}
 			if interfaceIDs[nic.Id] {
-				return spec, fmt.Errorf("资产 %s 的接口标识重复", a.Name)
+				return spec, Invalid("资产 %s 的接口标识重复", a.Name)
 			}
 			interfaceIDs[nic.Id] = true
 			p, ok := prefixes[nic.NetworkId]
 			if !ok {
-				return spec, fmt.Errorf("资产 %s 的接口引用了不存在的网段", a.Name)
+				return spec, Invalid("资产 %s 的接口引用了不存在的网段", a.Name)
 			}
 			if nic.Primary {
 				primary++
@@ -117,26 +116,26 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			}
 			mac, err := net.ParseMAC(nic.Mac)
 			if err != nil || len(mac) != 6 {
-				return spec, fmt.Errorf("资产 %s 的 MAC 地址无效", a.Name)
+				return spec, Invalid("资产 %s 的 MAC 地址无效", a.Name)
 			}
 			nic.Mac = mac.String()
 			if macs[nic.NetworkId+"/"+nic.Mac] {
-				return spec, fmt.Errorf("网段内 MAC 地址 %s 重复", nic.Mac)
+				return spec, Invalid("网段内 MAC 地址 %s 重复", nic.Mac)
 			}
 			macs[nic.NetworkId+"/"+nic.Mac] = true
 			if nic.Address != "" {
 				addr, err := netip.ParseAddr(nic.Address)
 				if err != nil || !usable(p, addr) {
-					return spec, fmt.Errorf("资产 %s 的地址 %s 不属于可用网段", a.Name, nic.Address)
+					return spec, Invalid("资产 %s 的地址 %s 不属于可用网段", a.Name, nic.Address)
 				}
 				if addresses[nic.NetworkId][addr] {
-					return spec, fmt.Errorf("地址 %s 已占用", nic.Address)
+					return spec, Invalid("地址 %s 已占用", nic.Address)
 				}
 				addresses[nic.NetworkId][addr] = true
 			}
 		}
 		if primary > 1 {
-			return spec, fmt.Errorf("资产 %s 只能有一个默认出口", a.Name)
+			return spec, Invalid("资产 %s 只能有一个默认出口", a.Name)
 		}
 		if primary == 0 && len(a.Interfaces) > 0 {
 			a.Interfaces[0].Primary = true
@@ -154,7 +153,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 				addr = addr.Next()
 			}
 			if !usable(p, addr) {
-				return spec, fmt.Errorf("网段 %s 没有可用地址", networks[nic.NetworkId].Name)
+				return spec, Invalid("网段 %s 没有可用地址", networks[nic.NetworkId].Name)
 			}
 			nic.Address = addr.String()
 			addresses[nic.NetworkId][addr] = true
@@ -173,7 +172,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 				}
 			}
 			if !found {
-				return spec, fmt.Errorf("网段 %s 的 DNS 资产未接入该网段", n.Name)
+				return spec, Invalid("网段 %s 的 DNS 资产未接入该网段", n.Name)
 			}
 		}
 	}

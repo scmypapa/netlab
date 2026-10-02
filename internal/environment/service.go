@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -117,7 +116,19 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 		return api.Environment{}, access.ErrForbidden
 	}
 	if strings.TrimSpace(request.Name) == "" {
-		return api.Environment{}, fmt.Errorf("请输入环境名称")
+		return api.Environment{}, Invalid("请输入环境名称")
+	}
+	if request.ClientRequestId != nil {
+		previous, err := s.Queries.GetEnvironmentByRequest(ctx, queries.GetEnvironmentByRequestParams{ProjectID: project, ClientRequestID: request.ClientRequestId})
+		if err == nil {
+			if !identity.Allows("read", previous.ProjectID, previous.ID, "", previous.OwnerID) {
+				return api.Environment{}, access.ErrForbidden
+			}
+			return Record(previous)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return api.Environment{}, err
+		}
 	}
 	templates, err := Templates(ctx, s.Queries, request.Spec.Assets)
 	if err != nil {
@@ -197,13 +208,25 @@ func (s Service) Action(ctx context.Context, identity access.Identity, id, asset
 	if err != nil {
 		return api.Operation{}, err
 	}
+	if request.ClientRequestId != nil {
+		previous, err := q.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: request.ClientRequestId})
+		if err == nil {
+			return Operation(previous)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return api.Operation{}, err
+		}
+	}
+	if row.Status == "destroyed" {
+		return api.Operation{}, Invalid("环境已销毁")
+	}
 	if request.ExpectedRevision != nil && *request.ExpectedRevision != int(row.Revision) {
 		return api.Operation{}, ErrConflict
 	}
 	switch request.Action {
 	case api.ActionRequestActionStart, api.ActionRequestActionStop, api.ActionRequestActionForceStop, api.ActionRequestActionReboot, api.ActionRequestActionSuspend, api.ActionRequestActionResume, api.ActionRequestActionRebuild, api.ActionRequestActionDestroy:
 	default:
-		return api.Operation{}, fmt.Errorf("未知资产动作")
+		return api.Operation{}, Invalid("未知资产动作")
 	}
 	record, err := Record(row)
 	if err != nil {
@@ -240,7 +263,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if err != nil {
 		return api.ChangePreview{}, nil, err
 	}
-	if int(row.Revision) != request.ExpectedRevision {
+	if request.Apply && int(row.Revision) != request.ExpectedRevision {
 		return api.ChangePreview{}, nil, ErrConflict
 	}
 	templates, err := Templates(ctx, s.Queries, request.Spec.Assets)
@@ -259,7 +282,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if current.AppliedSpec != nil {
 		before = *current.AppliedSpec
 	}
-	preview := Diff(request.ExpectedRevision, before, spec)
+	preview := Diff(int(row.Revision), before, spec)
 	if !request.Apply {
 		return preview, nil, nil
 	}
@@ -273,8 +296,21 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if err != nil {
 		return preview, nil, err
 	}
+	if request.ClientRequestId != nil {
+		previous, err := q.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: request.ClientRequestId})
+		if err == nil {
+			op, err := Operation(previous)
+			return preview, &op, err
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return preview, nil, err
+		}
+	}
 	if int(row.Revision) != request.ExpectedRevision {
 		return preview, nil, ErrConflict
+	}
+	if row.Status == "destroyed" {
+		return preview, nil, Invalid("环境已销毁")
 	}
 	if row.AppliedSpec == nil {
 		raw, marshalErr := json.Marshal(spec)

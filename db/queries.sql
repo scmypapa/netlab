@@ -123,3 +123,23 @@ UPDATE runtime_assets SET current=true WHERE instance_id=ANY($1::text[]);
 UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r."memoryMiB",disk_gib=r."diskGiB"
 FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu integer,"memoryMiB" bigint,"diskGiB" bigint)
 WHERE a.instance_id=r."instanceId";
+-- name: ListTemplatePage :many
+SELECT * FROM templates WHERE (sqlc.arg(cursor)::text='' OR id>sqlc.arg(cursor)) ORDER BY id LIMIT sqlc.arg(page_limit);
+-- name: ListNodePage :many
+SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,COALESCE(sum(a.disk_gib),0)::bigint AS reserved_disk
+FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
+WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor)) GROUP BY n.id ORDER BY n.id LIMIT sqlc.arg(page_limit);
+-- name: ListVisibleOperations :many
+SELECT o.* FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))
+AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
+AND (sqlc.arg(is_admin)::boolean OR e.owner_id=sqlc.arg(principal_id) OR EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
+ORDER BY o.created_at DESC,o.id DESC LIMIT sqlc.arg(page_limit);
+-- name: SaveOperationProgress :execrows
+UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running';
+-- name: ReserveResourceUpdates :exec
+UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r."memoryMiB"),disk_gib=GREATEST(a.disk_gib,r."diskGiB")
+FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu integer,"memoryMiB" bigint,"diskGiB" bigint)
+WHERE a.instance_id=r."instanceId";
