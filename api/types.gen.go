@@ -81,6 +81,7 @@ const (
 	NodePlanPhaseForceStop      NodePlanPhase = "force-stop"
 	NodePlanPhaseInspect        NodePlanPhase = "inspect"
 	NodePlanPhaseNetwork        NodePlanPhase = "network"
+	NodePlanPhasePolicies       NodePlanPhase = "policies"
 	NodePlanPhasePrepare        NodePlanPhase = "prepare"
 	NodePlanPhaseReboot         NodePlanPhase = "reboot"
 	NodePlanPhaseRemoveNetwork  NodePlanPhase = "remove-network"

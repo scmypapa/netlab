@@ -507,6 +507,7 @@ export interface components {
       /** @enum {string} */
       phase:
         | "network"
+        | "policies"
         | "prepare"
         | "activate"
         | "update"

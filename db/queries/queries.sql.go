@@ -137,7 +137,7 @@ func (q *Queries) CreateCredential(ctx context.Context, arg CreateCredentialPara
 
 const createEnvironment = `-- name: CreateEnvironment :one
 INSERT INTO environments(id,project_id,owner_id,name,external_reference,spec,client_request_id)
-VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at
+VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(project_id,client_request_id) DO NOTHING RETURNING id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at
 `
 
 type CreateEnvironmentParams struct {
@@ -406,6 +406,42 @@ func (q *Queries) GetGrants(ctx context.Context, principalID string) ([]Grant, e
 			&i.ScopeKind,
 			&i.ScopeID,
 			&i.Permissions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getNodeReservations = `-- name: GetNodeReservations :many
+SELECT node_id,COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM runtime_assets WHERE node_id=ANY($1::text[]) GROUP BY node_id
+`
+
+type GetNodeReservationsRow struct {
+	NodeID    string
+	Cpu       int64
+	MemoryMib int64
+	DiskGib   int64
+}
+
+func (q *Queries) GetNodeReservations(ctx context.Context, dollar_1 []string) ([]GetNodeReservationsRow, error) {
+	rows, err := q.db.Query(ctx, getNodeReservations, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetNodeReservationsRow{}
+	for rows.Next() {
+		var i GetNodeReservationsRow
+		if err := rows.Scan(
+			&i.NodeID,
+			&i.Cpu,
+			&i.MemoryMib,
+			&i.DiskGib,
 		); err != nil {
 			return nil, err
 		}
@@ -1176,7 +1212,8 @@ func (q *Queries) SaveDraft(ctx context.Context, arg SaveDraftParams) error {
 }
 
 const saveOperationProgress = `-- name: SaveOperationProgress :execrows
-UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running'
+WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running' RETURNING environment_id,id,phase)
+INSERT INTO events(environment_id,kind,payload) SELECT environment_id,'operation.progress',jsonb_build_object('operationId',id,'phase',phase) FROM changed
 `
 
 type SaveOperationProgressParams struct {

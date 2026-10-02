@@ -26,7 +26,7 @@ SELECT * FROM environments WHERE id=$1;
 SELECT * FROM environments WHERE project_id=$1 AND client_request_id=$2;
 -- name: CreateEnvironment :one
 INSERT INTO environments(id,project_id,owner_id,name,external_reference,spec,client_request_id)
-VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *;
+VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(project_id,client_request_id) DO NOTHING RETURNING *;
 -- name: SaveView :exec
 UPDATE environments SET view=$2,updated_at=now() WHERE id=$1;
 -- name: SaveDraft :exec
@@ -138,8 +138,11 @@ AND (sqlc.arg(is_admin)::boolean OR e.owner_id=sqlc.arg(principal_id) OR EXISTS
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id))))
 ORDER BY o.created_at DESC,o.id DESC LIMIT sqlc.arg(page_limit);
 -- name: SaveOperationProgress :execrows
-UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running';
+WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running' RETURNING environment_id,id,phase)
+INSERT INTO events(environment_id,kind,payload) SELECT environment_id,'operation.progress',jsonb_build_object('operationId',id,'phase',phase) FROM changed;
 -- name: ReserveResourceUpdates :exec
 UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r."memoryMiB"),disk_gib=GREATEST(a.disk_gib,r."diskGiB")
 FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu integer,"memoryMiB" bigint,"diskGiB" bigint)
 WHERE a.instance_id=r."instanceId";
+-- name: GetNodeReservations :many
+SELECT node_id,COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM runtime_assets WHERE node_id=ANY($1::text[]) GROUP BY node_id;

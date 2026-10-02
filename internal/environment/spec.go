@@ -74,6 +74,10 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		if !ok {
 			return spec, Invalid("资产 %s 引用的模板不存在", a.Name)
 		}
+		if a.Volumes == nil && t.Volumes != nil {
+			volumes := slices.Clone(*t.Volumes)
+			a.Volumes = &volumes
+		}
 		if strings.TrimSpace(a.Name) == "" {
 			a.Name = t.Name
 		}

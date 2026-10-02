@@ -153,6 +153,16 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 		owner = &identity.Principal.ID
 	}
 	row, err := q.CreateEnvironment(ctx, queries.CreateEnvironmentParams{ID: uuid.NewString(), ProjectID: project, OwnerID: owner, Name: strings.TrimSpace(request.Name), ExternalReference: request.ExternalReference, Spec: raw, ClientRequestID: request.ClientRequestId})
+	if errors.Is(err, pgx.ErrNoRows) && request.ClientRequestId != nil {
+		row, err = q.GetEnvironmentByRequest(ctx, queries.GetEnvironmentByRequestParams{ProjectID: project, ClientRequestID: request.ClientRequestId})
+		if err != nil {
+			return api.Environment{}, err
+		}
+		if !identity.Allows("read", row.ProjectID, row.ID, "", row.OwnerID) {
+			return api.Environment{}, access.ErrForbidden
+		}
+		return Record(row)
+	}
 	if err != nil {
 		return api.Environment{}, err
 	}
@@ -262,6 +272,16 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	row, err := s.Authorized(ctx, identity, id, "compose", "")
 	if err != nil {
 		return api.ChangePreview{}, nil, err
+	}
+	if request.Apply && request.ClientRequestId != nil {
+		previous, err := s.Queries.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: request.ClientRequestId})
+		if err == nil {
+			op, err := Operation(previous)
+			return api.ChangePreview{}, &op, err
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return api.ChangePreview{}, nil, err
+		}
 	}
 	if request.Apply && int(row.Revision) != request.ExpectedRevision {
 		return api.ChangePreview{}, nil, ErrConflict
