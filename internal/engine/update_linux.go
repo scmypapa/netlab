@@ -157,21 +157,27 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 	desired.OS.Loader = current.OS.Loader
 	desired.OS.NVRam = current.OS.NVRam
 	desired.Devices.TPMs = current.Devices.TPMs
-	desired.Devices.Disks[0] = current.Devices.Disks[0]
-	// Runtime data belongs to the existing instance; redefining hardware never
-	// recreates its system disk or firmware/TPM state.
-	disk := current.Devices.Disks[0].Source.File.File
-	image, err := domain.GetBlockInfo(disk, 0)
+	sizes, err := systemDiskSizes(a)
 	if err != nil {
 		return "unknown", err
 	}
-	size := a.Asset.Resources.DiskGiB * (1 << 30)
-	if size < int64(image.Capacity) {
-		return "unknown", fmt.Errorf("system disks can be expanded; shrinking would discard guest data")
-	}
-	if int64(image.Capacity) != size {
-		err = command(ctx, "qemu-img", "resize", disk, fmt.Sprintf("%d", size))
+	for index, definition := range *a.Template.Disks {
+		disk, err := domainDisk(current, definition.Id)
 		if err != nil {
+			return "unknown", err
+		}
+		desired.Devices.Disks[index].Source = disk.Source
+		info, err := domain.GetBlockInfo(disk.Source.File.File, 0)
+		if err != nil {
+			return "unknown", err
+		}
+		if sizes[index]*(1<<30) < int64(info.Capacity) {
+			return "unknown", fmt.Errorf("system disk %s cannot be shrunk without discarding guest data", definition.Id)
+		}
+	}
+	// Redefining hardware preserves every installed image disk and firmware/TPM state.
+	for index := range sizes {
+		if err = expandDisk(ctx, desired.Devices.Disks[index].Source.File.File, sizes[index]); err != nil {
 			return "unknown", err
 		}
 	}

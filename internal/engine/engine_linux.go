@@ -242,19 +242,7 @@ func (e *Engine) PrepareTemplate(ctx context.Context, t api.Template) (api.Templ
 		if e.vm == nil {
 			return t, errors.New("virtual machine runtime not configured")
 		}
-		t, err = e.vm.pinHardware(t)
-		if err != nil {
-			break
-		}
-		var path string
-		path, err = e.vm.source(ctx, t)
-		if err == nil {
-			var image diskImage
-			image, err = inspectImage(ctx, path)
-			if err == nil {
-				t.Resources.DiskGiB = max(t.Resources.DiskGiB, (image.VirtualSize+(1<<30)-1)/(1<<30))
-			}
-		}
+		t, err = e.vm.prepareTemplate(ctx, t)
 	default:
 		err = fmt.Errorf("invalid template kind %s", t.Kind)
 	}

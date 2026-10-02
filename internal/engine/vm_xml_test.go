@@ -22,7 +22,8 @@ func TestVMHardwareProfiles(t *testing.T) {
 		{"modern", api.Uefi, "pc-q35-8.2", api.HardwareDiskBusSata, api.HardwareNicModelE1000e, true, true},
 	} {
 		t.Run(profile.name, func(t *testing.T) {
-			exec := api.AssetExecution{InstanceId: "8193951c-e317-49ee-95e9-5c4228938d18", Asset: api.Asset{Id: "vm", Name: "Guest", Resources: api.Resources{Cpu: 2, MemoryMiB: 4096, DiskGiB: 20}}, Template: api.Template{Hardware: &api.Hardware{Firmware: profile.firmware, Machine: profile.machine, DiskBus: profile.bus, NicModel: profile.nic, Tpm: &profile.tpm, SecureBoot: &profile.secure}}, Interfaces: []api.ResolvedInterface{{Id: "business", PortName: "8f23044c-3a85-4a5b-9740-95a79973f655", Mac: "02:00:01:02:03:04", Mtu: 1400}}}
+			disks := []api.TemplateDisk{{Id: "boot", SizeGiB: 20, Bus: api.TemplateDiskBus(profile.bus), BootOrder: 1}}
+			exec := api.AssetExecution{InstanceId: "8193951c-e317-49ee-95e9-5c4228938d18", Asset: api.Asset{Id: "vm", Name: "Guest", Resources: api.Resources{Cpu: 2, MemoryMiB: 4096, DiskGiB: 20}}, Template: api.Template{Disks: &disks, Hardware: &api.Hardware{Firmware: profile.firmware, Machine: profile.machine, DiskBus: profile.bus, NicModel: profile.nic, Tpm: &profile.tpm, SecureBoot: &profile.secure}}, Interfaces: []api.ResolvedInterface{{Id: "business", PortName: "8f23044c-3a85-4a5b-9740-95a79973f655", Mac: "02:00:01:02:03:04", Mtu: 1400}}}
 			document, err := DomainXML("environment", "/var/lib/netlab/environments/environment/instances/instance", "br-int", exec)
 			if err != nil {
 				t.Fatal(err)

@@ -207,7 +207,8 @@ components:
         firmware: {type: string, enum: [bios, uefi]}
         machine: {type: string}
         diskBus: {type: string, enum: [ide, sata, scsi, virtio]}
-        nicModel: {type: string, enum: [virtio, e1000, e1000e, rtl8139]}
+        diskController: {type: string}
+        nicModel: {type: string, enum: [virtio, e1000, e1000e, rtl8139, vmxnet3]}
         cpuModel: {type: string}
         secureBoot: {type: boolean}
         tpm: {type: boolean}
@@ -222,6 +223,17 @@ components:
         mountPath: {type: string}
         sizeGiB: {type: integer, format: int64}
         retain: {type: boolean}
+    TemplateDisk:
+      type: object
+      required: [id, sizeGiB, bus, bootOrder]
+      properties:
+        id: {type: string}
+        sizeGiB: {type: integer, format: int64, minimum: 1}
+        bus: {type: string, enum: [ide, sata, scsi, virtio]}
+        bootOrder: {type: integer, minimum: 1}
+        controllerModel: {type: string}
+        controllerIndex: {type: integer, minimum: 0}
+        controllerUnit: {type: integer, minimum: 0}
     Template:
       type: object
       required: [id, name, kind, os, version, source, resources]
@@ -232,9 +244,11 @@ components:
         os: {type: string}
         version: {type: integer}
         source: {type: string}
-        format: {type: string, enum: [oci, docker, qcow2, raw, vmdk, ova, iso]}
+        format: {type: string, enum: [oci, docker, qcow2, raw, vmdk, ova, ovf, iso]}
         resources: {$ref: '#/components/schemas/Resources'}
         hardware: {$ref: '#/components/schemas/Hardware'}
+        disks: {type: array, items: {$ref: '#/components/schemas/TemplateDisk'}}
+        nicModels: {type: array, items: {type: string}}
         volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
         state: {type: string, enum: [importing, ready, failed]}
         error: {type: string}

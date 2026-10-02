@@ -8,9 +8,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,27 +135,28 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	if err := os.MkdirAll(dir, 0711); err != nil {
 		return "absent", err
 	}
-	source, err := v.source(ctx, a.Template)
+	template, err := v.prepareTemplate(ctx, a.Template)
 	if err != nil {
 		return "absent", err
 	}
-	image, err := inspectImage(ctx, source)
+	a.Template = template
+	sizes, err := systemDiskSizes(a)
 	if err != nil {
 		return "absent", err
 	}
-	format := image.Format
-	if a.Asset.Resources.DiskGiB*(1<<30) < image.VirtualSize {
-		return "absent", fmt.Errorf("requested system disk is smaller than the template disk")
-	}
-	disk := filepath.Join(dir, "system.qcow2")
-	if _, err = os.Stat(disk); errors.Is(err, os.ErrNotExist) {
-		if err = command(ctx, "qemu-img", "create", "-f", "qcow2", "-F", format, "-b", source, disk); err != nil {
+	for index, size := range sizes {
+		disk := systemDiskPath(dir, index)
+		source := systemDiskPath(filepath.Join(v.data, "artifacts", a.Template.Id, fmt.Sprint(a.Template.Version)), index)
+		if _, err = os.Stat(disk); errors.Is(err, os.ErrNotExist) {
+			if err = command(ctx, "qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", source, disk); err != nil {
+				return "absent", err
+			}
+		} else if err != nil {
 			return "absent", err
 		}
-	}
-	// Resize only upwards; guest partition expansion is a separate observed action.
-	if err = command(ctx, "qemu-img", "resize", disk, fmt.Sprintf("%dG", a.Asset.Resources.DiskGiB)); err != nil {
-		return "absent", err
+		if err = expandDisk(ctx, disk, size); err != nil {
+			return "absent", err
+		}
 	}
 	if a.Asset.Volumes != nil {
 		if err = v.prepareVolumes(ctx, env, a.Asset.Id, *a.Asset.Volumes); err != nil {
@@ -175,71 +173,6 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	}
 	defer d.Free()
 	return vmState(d)
-}
-func (v *VirtualMachines) source(ctx context.Context, t api.Template) (string, error) {
-	u, err := url.Parse(t.Source)
-	if err != nil {
-		return "", err
-	}
-	if u.Scheme == "" || u.Scheme == "file" {
-		path := t.Source
-		if u.Scheme == "file" {
-			path = u.Path
-		}
-		path, err = filepath.Abs(path)
-		if err != nil {
-			return "", err
-		}
-		if _, err = os.Stat(path); err != nil {
-			return "", err
-		}
-		return path, nil
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("invalid VM artifact source scheme")
-	}
-	lock, _ := v.sources.LoadOrStore(t.Id, &sync.Mutex{})
-	m := lock.(*sync.Mutex)
-	m.Lock()
-	defer m.Unlock()
-	path := filepath.Join(v.data, "artifacts", t.Id, fmt.Sprint(t.Version), "image")
-	if _, err = os.Stat(path); err == nil {
-		return path, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	if err = os.MkdirAll(filepath.Dir(path), 0711); err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.Source, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("artifact download: HTTP %d", resp.StatusCode)
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), "download-")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(f.Name())
-	_, copyErr := io.Copy(f, resp.Body)
-	closeErr := f.Close()
-	if err = errors.Join(copyErr, closeErr); err != nil {
-		return "", err
-	}
-	if err = os.Chmod(f.Name(), 0640); err != nil {
-		return "", err
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return "", err
-	}
-	return path, nil
 }
 func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
 	if err := os.RemoveAll(instanceDir(v.data, env, a.InstanceId)); err != nil {
@@ -437,18 +370,34 @@ func command(ctx context.Context, name string, args ...string) error {
 }
 
 type diskImage struct {
-	Format      string `json:"format"`
-	VirtualSize int64  `json:"virtual-size"`
+	Format          string `json:"format"`
+	VirtualSize     int64  `json:"virtual-size"`
+	BackingFilename string `json:"backing-filename"`
 }
 
 func inspectImage(ctx context.Context, path string) (diskImage, error) {
 	var image diskImage
-	output, err := exec.CommandContext(ctx, "qemu-img", "info", "--output=json", path).Output()
+	output, err := exec.CommandContext(ctx, "qemu-img", "info", "--output=json", path).CombinedOutput()
 	if err != nil {
-		return image, fmt.Errorf("qemu image inspection: %w", err)
+		return image, fmt.Errorf("qemu image inspection: %w: %s", err, output)
 	}
 	if err = json.Unmarshal(output, &image); err != nil {
 		return image, err
 	}
 	return image, nil
+}
+
+func expandDisk(ctx context.Context, path string, sizeGiB int64) error {
+	image, err := inspectImage(ctx, path)
+	if err != nil {
+		return err
+	}
+	size := sizeGiB * (1 << 30)
+	if size < image.VirtualSize {
+		return fmt.Errorf("disk %s cannot be shrunk without discarding guest data", filepath.Base(path))
+	}
+	if size > image.VirtualSize {
+		return command(ctx, "qemu-img", "resize", path, fmt.Sprint(size))
+	}
+	return nil
 }
