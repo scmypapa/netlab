@@ -87,6 +87,7 @@ const (
 	NodePlanPhaseStart         NodePlanPhase = "start"
 	NodePlanPhaseStop          NodePlanPhase = "stop"
 	NodePlanPhaseSuspend       NodePlanPhase = "suspend"
+	NodePlanPhaseUpdate        NodePlanPhase = "update"
 )
 
 // Defines values for OperationState.
@@ -385,7 +386,7 @@ type NodeResult struct {
 type Operation struct {
 	Completed     int                `json:"completed"`
 	CreatedAt     time.Time          `json:"createdAt"`
-	EnvironmentId string             `json:"environmentId"`
+	EnvironmentId *string            `json:"environmentId,omitempty"`
 	Error         *string            `json:"error,omitempty"`
 	Id            string             `json:"id"`
 	Kind          string             `json:"kind"`

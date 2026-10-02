@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: netlab
+      POSTGRES_USER: netlab
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: [127.0.0.1:15433:5432]
+    volumes: [netlab-pg:/var/lib/postgresql/data]
+  metrics:
+    image: victoriametrics/victoria-metrics:v1.126.0
+    command: [-retentionPeriod=30d]
+    ports: [127.0.0.1:18428:8428]
+    volumes: [netlab-metrics:/victoria-metrics-data]
+volumes:
+  netlab-pg:
+  netlab-metrics:
