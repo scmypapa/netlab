@@ -60,7 +60,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.Close()
 		return nil, err
 	}
-	if e.vpn, err = network.NewVPN(cfg.DataDir, e.ovs, e.ovn); err != nil {
+	if e.vpn, err = network.NewVPN(ctx, cfg.DataDir, e.ovs, e.ovn); err != nil {
 		e.Close()
 		return nil, err
 	}

@@ -40,6 +40,9 @@ func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 	}
 	if n.vpnRecord != nil {
 		if record := n.vpnRecord(plan.EnvironmentId); record != nil && len(record.Peers) > 0 {
+			if err := vpnRangeConflict(*record, plan); err != nil {
+				return err
+			}
 			record.Networks = plan.Spec.Networks
 			var router *Router
 			for _, item := range models {

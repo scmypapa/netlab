@@ -115,32 +115,77 @@ func assignVPNPeers(record vpnRecord, peers []api.VPNPeer) ([]vpnPeer, error) {
 	used := map[string]bool{}
 	for _, peer := range record.Peers {
 		previous[peer.Peer.Id] = peer
-		for _, address := range peer.Addresses {
-			used[address] = true
-		}
 	}
 	result := make([]vpnPeer, 0, len(peers))
 	for _, peer := range peers {
-		item, exists := previous[peer.Id]
+		item := previous[peer.Id]
 		item.Peer = peer
-		if !exists {
-			for _, value := range record.Clients {
-				prefix := netip.MustParsePrefix(value)
-				address := prefix.Addr().Next().Next()
-				for address.IsValid() && prefix.Contains(address) && used[netip.PrefixFrom(address, address.BitLen()).String()] {
-					address = address.Next()
-				}
-				if !address.IsValid() || !prefix.Contains(address) {
-					return nil, fmt.Errorf("VPN client address space exhausted")
-				}
-				cidr := netip.PrefixFrom(address, address.BitLen()).String()
-				item.Addresses = append(item.Addresses, cidr)
-				used[cidr] = true
+		item.Peer.Addresses = nil
+		if peer.Addresses != nil {
+			item.Addresses = slices.Clone(*peer.Addresses)
+		}
+		for index, value := range item.Addresses {
+			address, err := netip.ParsePrefix(value)
+			if err != nil || address.Bits() != address.Addr().BitLen() {
+				return nil, fmt.Errorf("VPN peer %s requires host addresses", peer.Id)
 			}
+			inPool := false
+			for _, pool := range record.Clients {
+				prefix := netip.MustParsePrefix(pool)
+				if prefix.Contains(address.Addr()) && address.Addr() != prefix.Addr() && address.Addr() != prefix.Addr().Next() && (!address.Addr().Is4() || prefix.Contains(address.Addr().Next())) {
+					inPool = true
+				}
+			}
+			value = address.String()
+			item.Addresses[index] = value
+			if !inPool || used[value] {
+				return nil, fmt.Errorf("VPN peer %s address %s is outside its client pools or already assigned", peer.Id, value)
+			}
+			used[value] = true
 		}
 		result = append(result, item)
 	}
+	for index := range result {
+		item := &result[index]
+		for _, value := range record.Clients {
+			prefix := netip.MustParsePrefix(value)
+			if slices.ContainsFunc(item.Addresses, func(value string) bool { return netip.MustParsePrefix(value).Addr().Is4() == prefix.Addr().Is4() }) {
+				continue
+			}
+			address := prefix.Addr().Next().Next()
+			for address.IsValid() && prefix.Contains(address) && used[netip.PrefixFrom(address, address.BitLen()).String()] {
+				address = address.Next()
+			}
+			if !address.IsValid() || !prefix.Contains(address) || (address.Is4() && !prefix.Contains(address.Next())) {
+				return nil, fmt.Errorf("VPN client address space exhausted")
+			}
+			cidr := netip.PrefixFrom(address, address.BitLen()).String()
+			item.Addresses = append(item.Addresses, cidr)
+			used[cidr] = true
+		}
+	}
 	return result, nil
+}
+
+func vpnRangeConflict(record vpnRecord, plan api.NodePlan) error {
+	for _, value := range append(slices.Clone(record.Transit), record.Clients...) {
+		reserved := netip.MustParsePrefix(value)
+		for _, network := range plan.Spec.Networks {
+			if reserved.Overlaps(netip.MustParsePrefix(network.Cidr)) {
+				return fmt.Errorf("network %s (%s) overlaps active VPN range %s", network.Name, network.Cidr, value)
+			}
+		}
+		if plan.Vpn != nil {
+			for _, peer := range plan.Vpn.Peers {
+				for _, route := range peer.Routes {
+					if reserved.Overlaps(netip.MustParsePrefix(route.AccessCidr)) {
+						return fmt.Errorf("VPN access range %s overlaps client or transit range %s", route.AccessCidr, value)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func vpnModels(environment string, record *vpnRecord, router *Router, chassis string) []model.Model {

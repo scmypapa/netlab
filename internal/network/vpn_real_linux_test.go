@@ -46,7 +46,7 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 	}
 	ovn.chassis = roots[0].ExternalIDs["system-id"]
 	directory := t.TempDir()
-	vpn, err := NewVPN(directory, ovs, ovn)
+	vpn, err := NewVPN(ctx, directory, ovs, ovn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 	if err = check("100.100.218.10:8087"); err != nil {
 		t.Fatalf("remaining network stopped working: %v", err)
 	}
-	vpn, err = NewVPN(directory, ovs, ovn)
+	vpn, err = NewVPN(ctx, directory, ovs, ovn)
 	if err != nil {
 		t.Fatal(err)
 	}

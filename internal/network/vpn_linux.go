@@ -34,7 +34,7 @@ type VPN struct {
 	records   map[string]vpnRecord
 }
 
-func NewVPN(directory string, ovs *OVS, ovn *OVN) (*VPN, error) {
+func NewVPN(ctx context.Context, directory string, ovs *OVS, ovn *OVN) (*VPN, error) {
 	v := &VPN{directory: filepath.Join(directory, "vpn"), ovs: ovs, ovn: ovn, records: map[string]vpnRecord{}}
 	if err := os.MkdirAll(v.directory, 0700); err != nil {
 		return nil, err
@@ -65,6 +65,18 @@ func NewVPN(directory string, ovs *OVS, ovn *OVN) (*VPN, error) {
 			return nil
 		}
 		return &record
+	}
+	for environment, record := range v.records {
+		if len(record.Peers) == 0 {
+			continue
+		}
+		if err := v.apply(ctx, environment, &record, record); err != nil {
+			return nil, fmt.Errorf("restore VPN environment %s: %w", environment, err)
+		}
+		if err := v.writeRecord(environment, record); err != nil {
+			return nil, err
+		}
+		v.records[environment] = record
 	}
 	return v, nil
 }
@@ -117,7 +129,17 @@ func (v *VPN) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, 
 	next := previous
 	next.Networks = slices.Clone(plan.Spec.Networks)
 	var err error
-	if next.Peers, err = assignVPNPeers(previous, plan.Vpn.Peers); err != nil {
+	if len(plan.Vpn.Peers) > 0 {
+		if err = vpnRangeConflict(previous, plan); err != nil {
+			if len(previous.Peers) > 0 {
+				return api.NodeVPNResult{}, err
+			}
+			if next.Transit, next.Clients, err = vpnRanges(plan); err != nil {
+				return api.NodeVPNResult{}, err
+			}
+		}
+	}
+	if next.Peers, err = assignVPNPeers(next, plan.Vpn.Peers); err != nil {
 		return api.NodeVPNResult{}, err
 	}
 	next.ListenPort = plan.Vpn.ListenPort
@@ -433,7 +455,7 @@ func clearChangedVPNConnections(previous, next vpnRecord) error {
 	changed := vpnConnections{}
 	for _, peer := range previous.Peers {
 		value, exists := current[peer.Peer.Id]
-		if exists && peer.Peer.PublicKey == value.Peer.PublicKey && peer.Peer.Mode == value.Peer.Mode && reflect.DeepEqual(peer.Peer.Routes, value.Peer.Routes) {
+		if exists && peer.Peer.PublicKey == value.Peer.PublicKey && peer.Peer.Mode == value.Peer.Mode && slices.Equal(peer.Addresses, value.Addresses) && reflect.DeepEqual(peer.Peer.Routes, value.Peer.Routes) {
 			continue
 		}
 		for _, value := range peer.Addresses {
