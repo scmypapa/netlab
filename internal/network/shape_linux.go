@@ -36,34 +36,33 @@ func Shape(device, port string, policies []api.Policy) error {
 	if err = shapeOutput(link, incoming); err != nil {
 		return err
 	}
+	if err = clearInput(link, port); err != nil {
+		return fmt.Errorf("clear outgoing traffic policy: %w", err)
+	}
 	if len(outgoing) == 0 {
-		return clearInput(link, port)
+		return nil
 	}
 	name := ifbName(port)
-	ifb, err := netlink.LinkByName(name)
-	var missing netlink.LinkNotFoundError
-	if errors.As(err, &missing) {
-		ifb = &netlink.Ifb{LinkAttrs: netlink.LinkAttrs{Name: name, MTU: link.Attrs().MTU}}
-		if err = netlink.LinkAdd(ifb); err != nil {
-			return err
-		}
-		ifb, err = netlink.LinkByName(name)
+	ifb := &netlink.Ifb{LinkAttrs: netlink.LinkAttrs{Name: name, MTU: link.Attrs().MTU}}
+	if err = netlink.LinkAdd(ifb); err != nil {
+		return err
 	}
+	output, err := netlink.LinkByName(name)
 	if err != nil {
 		return err
 	}
-	if err = netlink.LinkSetUp(ifb); err != nil {
+	if err = netlink.LinkSetUp(output); err != nil {
 		return err
 	}
 	ingress := &netlink.Ingress{QdiscAttrs: netlink.QdiscAttrs{LinkIndex: link.Attrs().Index, Parent: netlink.HANDLE_INGRESS, Handle: netlink.MakeHandle(0xffff, 0)}}
-	if err = netlink.QdiscReplace(ingress); err != nil {
-		return err
+	if err = netlink.QdiscAdd(ingress); err != nil {
+		return fmt.Errorf("attach traffic ingress: %w", err)
 	}
-	filter := &netlink.MatchAll{FilterAttrs: netlink.FilterAttrs{LinkIndex: link.Attrs().Index, Parent: netlink.HANDLE_INGRESS, Priority: 1, Protocol: unix.ETH_P_ALL}, Actions: []netlink.Action{netlink.NewMirredAction(ifb.Attrs().Index)}}
-	if err = netlink.FilterReplace(filter); err != nil {
-		return err
+	filter := &netlink.MatchAll{FilterAttrs: netlink.FilterAttrs{LinkIndex: link.Attrs().Index, Parent: netlink.HANDLE_INGRESS, Priority: 1, Protocol: unix.ETH_P_ALL}, Actions: []netlink.Action{netlink.NewMirredAction(output.Attrs().Index)}}
+	if err = netlink.FilterAdd(filter); err != nil {
+		return fmt.Errorf("redirect outgoing traffic: %w", err)
 	}
-	return shapeOutput(ifb, outgoing)
+	return shapeOutput(output, outgoing)
 }
 func ClearShape(device, port string) error {
 	link, err := netlink.LinkByName(device)

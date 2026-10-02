@@ -20,6 +20,7 @@ import (
 	"github.com/containerd/containerd/cio"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/google/uuid"
+	"github.com/vishvananda/netlink"
 	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 	"netlab.local/core/api"
@@ -109,6 +110,48 @@ func TestRealMixedLifecycle(t *testing.T) {
 	apply(api.NodePlanPhaseNetwork, "")
 	apply(api.NodePlanPhasePrepare, "")
 	apply(api.NodePlanPhaseActivate, "running")
+	logicalSwitchIDs := func() string {
+		t.Helper()
+		output, err := exec.Command("ovn-nbctl", "--db=unix:/run/ovn/ovnnb_db.sock", "--columns=_uuid", "--format=csv", "--data=bare", "--no-headings", "find", "Logical_Switch", "external_ids:netlab.environment="+env).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(output)
+	}
+	beforePolicies := logicalSwitchIDs()
+	delay := 8
+	policies := []api.Policy{{Id: "slow-lan", NetworkId: "lan", Direction: api.Both, Action: api.Shape, DelayMs: &delay}}
+	plan.Spec.Policies = &policies
+	apply(api.NodePlanPhasePolicies, "running")
+	apply(api.NodePlanPhasePolicies, "running")
+	for _, asset := range plan.Assets {
+		devices, err := e.devices(ctx, env, asset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range devices {
+			device, err := netlink.LinkByName(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			qdiscs, err := netlink.QdiscList(device)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, qdisc := range qdiscs {
+				found = found || qdisc.Type() == "netem"
+			}
+			if !found {
+				t.Fatalf("policies batch did not apply netem to %s", name)
+			}
+		}
+	}
+	if beforePolicies != logicalSwitchIDs() {
+		t.Fatal("node policies batch rewrote the owner's OVN network")
+	}
+	plan.Spec.Policies = nil
+	apply(api.NodePlanPhasePolicies, "running")
 	// Verify the image entrypoint is serving HTTP inside its already-configured
 	// business network, rather than only treating container task state as readiness.
 	container, err := e.container.client.LoadContainer(ctx, clientExecution.InstanceId)
