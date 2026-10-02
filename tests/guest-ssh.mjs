@@ -17,10 +17,12 @@ export function guestKey() {
 }
 
 export async function guestSSH(clientInstance, instanceId, address, key) {
-  const task = wsl('ctr', '-n', 'netlab', 'tasks', 'list').split('\n').find(line => line.trim().split(/\s+/)[0] === clientInstance)
-  const pid = task?.trim().split(/\s+/)[1]
-  assert.match(pid || '', /^\d+$/, '客户端没有真实containerd进程')
-  const network = (...args) => wsl('nsenter', `--net=/proc/${pid}/ns/net`, ...args)
+  const network = (...args) => {
+    const task = wsl('ctr', '-n', 'netlab', 'tasks', 'list').split('\n').find(line => line.trim().split(/\s+/)[0] === clientInstance)
+    const pid = task?.trim().split(/\s+/)[1]
+    assert.match(pid || '', /^\d+$/, '客户端没有真实containerd进程')
+    return wsl('nsenter', `--net=/proc/${pid}/ns/net`, ...args)
+  }
   const hosts = `${key.path}.hosts`
   const run = (...command) => network('ssh', '-i', key.path, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', `UserKnownHostsFile=${hosts}`, '-o', `HostKeyAlias=${instanceId}`, '-o', 'ConnectTimeout=3', `netlab@${address()}`, ...command)
   const ready = async () => {

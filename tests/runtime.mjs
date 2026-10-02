@@ -108,9 +108,13 @@ try {
     const empty = await fetch(`${base}/api/v1${logsPath('always', 'tail=0')}`, { headers: { Cookie: cookie }, signal: AbortSignal.timeout(10_000) })
     assert.equal(empty.status, 200)
     assert.deepEqual(chunks(await empty.text()), [])
+    wsl('ctr', '-n', 'netlab', 'tasks', 'exec', '--exec-id', randomUUID(), current.instanceId, 'sh', '-ec', "(head -c 32767 /dev/zero | tr '\\000' a; printf '中🙂\\n') > /proc/1/fd/1")
+    const unicode = await fetch(`${base}/api/v1${logsPath('always', 'tail=1&stream=stdout')}`, { headers: { Cookie: cookie }, signal: AbortSignal.timeout(10_000) })
+    assert.equal(unicode.status, 200)
+    assert.ok(chunks(await unicode.text()).map(chunk => chunk.data).join('') === `${'a'.repeat(32767)}中🙂\n`, 'UTF-8读取边界损坏了中文或emoji')
   })
   await step('日志实时跟随和授权撤销关闭', async () => {
-    const token = await api('/service-tokens', 'POST', { name: 'Runtime log test', grants: [{ scopeKind: 'asset', scopeId: `${environment.id}/${assets.get('always').id}`, permissions: ['read', 'observe'] }] })
+    const token = await api('/service-tokens', 'POST', { name: `Runtime log test ${environment.id}`, grants: [{ scopeKind: 'asset', scopeId: `${environment.id}/${assets.get('always').id}`, permissions: ['read', 'observe'] }] })
     const abort = new AbortController()
     const timeout = setTimeout(() => abort.abort(), 10_000)
     try {
