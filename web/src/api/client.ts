@@ -172,6 +172,24 @@ export const api = {
   saveBlueprintVersion: (id: string, body: Schema<"SaveBlueprintVersion">) =>
     request<BlueprintVersion>(`/blueprints/${id}/versions`, "POST", body),
   state: (id: string) => request<EnvironmentState>(`/environments/${id}/state`),
+  vpnAccess: (id: string) =>
+    request<Schema<"VPNAccess">[]>(`/environments/${id}/vpn-access`),
+  createVPNAccess: (id: string, body: Schema<"CreateVPNAccess">) =>
+    request<Operation>(`/environments/${id}/vpn-access`, "POST", body),
+  revokeVPNAccess: (
+    id: string,
+    accessId: string,
+    expectedRevision: number,
+    clientRequestId: string,
+  ) =>
+    request<Operation>(
+      `/environments/${id}/vpn-access/${accessId}?${new URLSearchParams({ expectedRevision: String(expectedRevision), clientRequestId })}`,
+      "DELETE",
+    ),
+  vpnConnection: (id: string, accessId: string) =>
+    request<Schema<"VPNConnection">>(
+      `/environments/${id}/vpn-access/${accessId}/connection`,
+    ),
   services: (id: string) =>
     request<Schema<"ServiceEndpoint">[]>(`/environments/${id}/services`),
   exposeService: (id: string, assetId: string, body: Schema<"CreateService">) =>

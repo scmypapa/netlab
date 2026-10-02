@@ -17,6 +17,7 @@ import {
   Save,
   Trash2,
   UsersRound,
+  KeyRound,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -33,6 +34,8 @@ import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
 import { connectAsset, networkColors, topology } from "./topology";
 import { useWorkbench } from "./useWorkbench";
+import { useVPNAccess } from "./useVPNAccess";
+import { VPNDrawer } from "./VPNDrawer";
 import { consoleKey, type ConsoleTab } from "./consoles";
 import { allows } from "../access/permissions";
 
@@ -55,12 +58,21 @@ export function WorkbenchPage() {
   const [sharing, setSharing] = useState(false);
   const [logging, setLogging] = useState<Asset>();
   const [serving, setServing] = useState<string>();
+  const [vpnOpened, setVPNOpened] = useState(false);
   const [context, setContext] = useState<{
     x: number;
     y: number;
     id: string;
   }>();
   const environment = workbench.environment.data;
+  const vpn = useVPNAccess(
+    id,
+    vpnOpened,
+    environment,
+    workbench.operations.data ?? [],
+    workbench.state.data?.operation,
+    workbench.refresh,
+  );
   const canCompose = allows(environment, "compose");
   const canOperate = allows(environment, "operate");
   const canManage = allows(environment, "manage");
@@ -243,6 +255,15 @@ export function WorkbenchPage() {
           {workbench.editing && <span className="edit-indicator">调整中</span>}
         </div>
         <div className="environment-actions">
+          {environment.permissions?.includes("access") && (
+            <ActionIcon
+              variant="default"
+              aria-label="VPN"
+              onClick={() => setVPNOpened(true)}
+            >
+              <KeyRound size={18} />
+            </ActionIcon>
+          )}
           {environment.permissions?.includes("manage") && (
             <ActionIcon
               variant="default"
@@ -683,6 +704,19 @@ export function WorkbenchPage() {
         <SharingDrawer
           environment={environment}
           onClose={() => setSharing(false)}
+        />
+      )}
+      {vpnOpened && environment.permissions?.includes("access") && (
+        <VPNDrawer
+          vpn={vpn}
+          networks={environment.appliedSpec?.networks ?? []}
+          busy={
+            busy ||
+            status === "destroyed" ||
+            operation?.state === "queued" ||
+            operation?.state === "running"
+          }
+          onClose={() => setVPNOpened(false)}
         />
       )}
       {logging && (

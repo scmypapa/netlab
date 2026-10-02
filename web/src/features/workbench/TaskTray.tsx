@@ -18,6 +18,7 @@ const phaseLabels: Record<string, string> = {
   placing: "分配资源",
   network: "配置网络",
   services: "应用服务入口",
+  vpn: "配置 VPN",
   "revoke-services": "撤销服务入口",
   prepare: "准备资产",
   activate: "启动资产",

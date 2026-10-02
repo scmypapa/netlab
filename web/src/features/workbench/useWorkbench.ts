@@ -88,6 +88,7 @@ export function useWorkbench(id: string) {
           operationChanged = false;
           void client.invalidateQueries({ queryKey: ["operations", id] });
           void client.invalidateQueries({ queryKey: ["services", id] });
+          void client.invalidateQueries({ queryKey: ["vpn-access", id] });
           void client.invalidateQueries({ queryKey: ["environments"] });
         }
       }, 100);
@@ -115,6 +116,7 @@ export function useWorkbench(id: string) {
     void client.invalidateQueries({ queryKey: ["state", id] });
     void client.invalidateQueries({ queryKey: ["operations", id] });
     void client.invalidateQueries({ queryKey: ["services", id] });
+    void client.invalidateQueries({ queryKey: ["vpn-access", id] });
     void client.invalidateQueries({ queryKey: ["environments"] });
   };
   useEffect(() => {
@@ -126,6 +128,7 @@ export function useWorkbench(id: string) {
     ) {
       void client.invalidateQueries({ queryKey: ["environment", id] });
       void client.invalidateQueries({ queryKey: ["services", id] });
+      void client.invalidateQueries({ queryKey: ["vpn-access", id] });
     }
   }, [state.data, environment.data, client, id]);
   const beginEdit = () => {
@@ -249,5 +252,6 @@ export function useWorkbench(id: string) {
     exposeService,
     revokeService,
     saveView,
+    refresh,
   };
 }
