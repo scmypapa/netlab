@@ -3,16 +3,21 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { verifyConsoles } from './consoles.mjs'
+import { verifyAccess } from './access.mjs'
+import { verifyLinuxGuest } from './linux-guest.mjs'
+import { guestKey, guestSSH } from './guest-ssh.mjs'
 
 const base = process.env.NETLAB_TEST_URL || 'http://127.0.0.1:8090'
 const password = process.env.NETLAB_TEST_PASSWORD
 const endpoint = process.env.NETLAB_TEST_NODE
-const vmSource = process.env.NETLAB_TEST_VM_SOURCE
+const vmSource = process.env.NETLAB_TEST_VM_SOURCE || '/var/lib/netlab-dev/templates/ubuntu-24.04.qcow2'
 const containerSource = process.env.NETLAB_TEST_CONTAINER_SOURCE || 'docker.io/library/nginx:1.27.5'
 const report = { startedAt: new Date().toISOString(), environmentIds: [], steps: [] }
 let cookie
 let baseline
+let key
 const instances = new Set()
+const guests = new Map()
 
 async function api(path, method = 'GET', body) {
   const response = await fetch(`${base}/api/v1${path}`, {
@@ -66,18 +71,33 @@ async function state(id) {
   return value
 }
 
+async function connectVM(environment) {
+  const actual = await state(environment.id)
+  const vm = environment.spec.assets.find(item => item.name === 'VM')
+  const client = environment.spec.assets.find(item => item.name === 'client')
+  const connection = await guestSSH(
+    actual.assets.find(item => item.assetId === client.id).instanceId,
+    actual.assets.find(item => item.assetId === vm.id).instanceId,
+    () => vm.interfaces[0].address, key,
+  )
+  assert.match(connection.run('cat', '/etc/os-release'), /VERSION_ID="24\.04"/)
+  guests.set(environment.id, connection)
+  return connection
+}
+
 function inContainer(instance, ...args) {
   return execFileSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', 'ctr', '-n', 'netlab', 'tasks', 'exec', '--exec-id', randomUUID(), instance, ...args], { encoding: 'utf8', timeout: 15_000 })
 }
 
 async function template(kind, source, hardware) {
   const value = await api('/templates', 'POST', {
-    id: randomUUID(), name: `API ${kind}`, kind, os: kind === 'container' ? 'linux' : 'hardware-fixture',
-    version: 1, source, resources: { cpu: 1, memoryMiB: 256, diskGiB: 2 }, ...(hardware ? { hardware } : {}),
+    id: randomUUID(), name: `API ${kind}`, kind, os: kind === 'container' ? 'linux' : 'Ubuntu 24.04',
+    version: 1, source, resources: kind === 'container' ? { cpu: 1, memoryMiB: 256, diskGiB: 2 } : { cpu: 2, memoryMiB: 1024, diskGiB: 8 },
+    ...(kind === 'vm' ? { initialization: 'cloud-init' } : {}), ...(hardware ? { hardware } : {}),
   })
   const deadline = Date.now() + 120_000
   while (Date.now() < deadline) {
-    const current = (await api('/templates?limit=500')).find(t => t.id === value.id)
+    const current = (await api(`/templates?ids=${value.id}`)).find(t => t.id === value.id)
     assert.notEqual(current.state, 'failed', current.error)
     if (current.state === 'ready') return current
     await delay(200)
@@ -85,8 +105,8 @@ async function template(kind, source, hardware) {
   throw new Error(`模板 ${value.name} 准备超时`)
 }
 
-function asset(name, templateId, networkId) {
-  return { id: randomUUID(), name, templateId, resources: { cpu: 1, memoryMiB: 256, diskGiB: 2 },
+function asset(name, templateId, networkId, resources = { cpu: 1, memoryMiB: 256, diskGiB: 2 }) {
+  return { id: randomUUID(), name, templateId, resources,
     interfaces: [{ id: randomUUID(), networkId, mac: '', address: '', primary: true }] }
 }
 
@@ -105,16 +125,19 @@ try {
     assert.ok(node.capabilities.includes('container') && node.capabilities.includes('vm'))
     baseline = await api('/nodes')
   })
-  const [container, vm] = await step('准备 OCI 与 BIOS KVM 模板', () => Promise.all([
+  const [container, vm] = await step('准备 OCI 与 Ubuntu BIOS KVM 模板', () => Promise.all([
     template('container', containerSource),
-    template('vm', vmSource, { firmware: 'bios', machine: 'pc', diskBus: 'ide', nicModel: 'e1000' }),
+    template('vm', vmSource, { firmware: 'bios', machine: 'pc', diskBus: 'virtio', nicModel: 'virtio' }),
   ]))
   const seed = await step('保存环境模板、追加版本与读取历史版本', async () => {
+    key = guestKey()
     const network = { id: randomUUID(), name: 'LAN', cidr: '10.76.0.0/24' }
     const web = asset('web', container.id, network.id)
+    const machine = asset('VM', vm.id, network.id, vm.resources)
+    machine.guest = { username: 'netlab', sshAuthorizedKeys: [key.publicKey] }
     web.volumes = [{ id: randomUUID(), mountPath: '/var/netlab', sizeGiB: 1 }]
     const value = await api('/environments', 'POST', { name: 'Lifecycle Blueprint Source', spec: {
-      networks: [network], assets: [web, asset('client', container.id, network.id), asset('VM', vm.id, network.id)],
+      networks: [network], assets: [web, asset('client', container.id, network.id), machine],
       policies: [{ id: randomUUID(), networkId: network.id, direction: 'both', action: 'shape', delayMs: 2 }],
     } })
     report.environmentIds.push(value.id)
@@ -149,6 +172,12 @@ try {
     }))
   })
   const [a, b] = environments
+  await step('Ubuntu真实来宾、双网卡初始化与同实例网络变更', async () => {
+    const started = performance.now()
+    await Promise.all(environments.map(connectVM))
+    report.mixedGuestReadyMs = Math.round(performance.now() - started)
+    report.linuxGuest = await verifyLinuxGuest(api, completed, container)
+  })
   await step('OVN 双向流控下首次跨容器 HTTP 通信', async () => {
     const actual = await state(a.id)
     const client = actual.assets.find(s => s.assetId === a.spec.assets.find(x => x.name === 'client').id)
@@ -164,6 +193,7 @@ try {
     }
   })
   await step('真实容器终端、TTY尺寸与VM VNC控制台', () => verifyConsoles(base, cookie, a))
+  await step('资产授权隔离、跨控制实例撤销与凭据到期', () => verifyAccess(base, a, b, api))
   await step('容器与 KVM 暂停、恢复', async () => {
     await action(a.id, 'suspend')
     assert.equal((await api(`/environments/${a.id}`)).status, 'suspended')
@@ -226,12 +256,14 @@ try {
     assert.deepEqual(current.spec.assets.find(x => x.id === web.id).interfaces, web.interfaces)
     const spec = structuredClone(current.spec)
     const vmAsset = spec.assets.find(x => x.name === 'VM')
-    vmAsset.resources.diskGiB = 3
+    vmAsset.resources.diskGiB += 1
     const update = await api(`/environments/${a.id}/changes`, 'POST', { expectedRevision: current.revision, spec, apply: true })
     await completed(update.id)
     assert.equal((await state(a.id)).assets.find(x => x.assetId === vmAsset.id).instanceId, previous.assets.find(x => x.assetId === vmAsset.id).instanceId)
+    await guests.get(a.id).ready()
     await action(a.id, 'rebuild', vmAsset.id)
     assert.notEqual((await state(a.id)).assets.find(x => x.assetId === vmAsset.id).instanceId, previous.assets.find(x => x.assetId === vmAsset.id).instanceId)
+    await connectVM(await api(`/environments/${a.id}`))
   })
   await step('真实执行失败后的配置、数据卷与容量回退', async () => {
     const before = await api(`/environments/${a.id}`)
@@ -259,6 +291,7 @@ try {
     assert.equal((await api(`/environments/${a.id}`)).status, 'stopped')
     await action(a.id, 'start')
     assert.equal((await api(`/environments/${a.id}`)).status, 'running')
+    await guests.get(a.id).ready()
   })
   await step('并行销毁与容量释放', async () => {
     await Promise.all([...environments, seed.environment].map(e => action(e.id, 'destroy')))
@@ -276,6 +309,7 @@ try {
     assert.ok(report.environmentIds.every(id => !networks.includes(id)))
   })
   report.passed = true
+  key.remove()
 } catch (error) {
   report.passed = false
   report.error = error.message
