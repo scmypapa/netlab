@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -140,7 +141,9 @@ func (s *Server) registerNode(w http.ResponseWriter, r *http.Request, identity a
 		return httpError{http.StatusBadRequest, "节点服务地址应为 HTTPS 地址"}
 	}
 	input.Endpoint = strings.TrimRight(input.Endpoint, "/")
-	info, err := s.Nodes.Info(r.Context(), input.Endpoint)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	info, err := s.Nodes.Info(ctx, input.Endpoint)
 	if err != nil {
 		return httpError{http.StatusBadGateway, err.Error()}
 	}
