@@ -100,6 +100,7 @@ func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identi
 			if err != nil {
 				return err
 			}
+			record.Retryable = operation.Retryable(identity, op, row)
 			result.Operation = &record
 		}
 	}
@@ -201,10 +202,11 @@ func (s *Server) listOperations(w http.ResponseWriter, r *http.Request, identity
 	}
 	result := make([]api.Operation, 0, len(rows))
 	for _, row := range rows {
-		item, err := environment.Operation(row)
+		item, err := environment.Operation(row.Operation)
 		if err != nil {
 			return err
 		}
+		item.Retryable = operation.Retryable(identity, row.Operation, queries.Environment{ProjectID: row.ProjectID, OwnerID: row.OwnerID, OperationID: row.CurrentOperationID})
 		result = append(result, item)
 	}
 	return writeJSON(w, http.StatusOK, result)
@@ -215,12 +217,13 @@ func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, identity a
 	if err != nil {
 		return err
 	}
+	var runtime queries.Environment
 	if row.EnvironmentID != nil {
 		asset := ""
 		if row.AssetID != nil {
 			asset = *row.AssetID
 		}
-		if _, err = s.Environments.Authorized(r.Context(), identity, *row.EnvironmentID, "read", asset); err != nil {
+		if runtime, err = s.Environments.Authorized(r.Context(), identity, *row.EnvironmentID, "read", asset); err != nil {
 			return err
 		}
 	} else if err = requireAdministrator(identity); err != nil {
@@ -230,6 +233,7 @@ func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, identity a
 	if err != nil {
 		return err
 	}
+	result.Retryable = operation.Retryable(identity, row, runtime)
 	return writeJSON(w, http.StatusOK, result)
 }
 

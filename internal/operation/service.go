@@ -16,6 +16,21 @@ type Service struct {
 	Queries *queries.Queries
 }
 
+func Retryable(identity access.Identity, row queries.Operation, environment queries.Environment) bool {
+	if row.State != "failed" && row.State != "partially_applied" {
+		return false
+	}
+	if row.EnvironmentID == nil {
+		return identity.Administrator()
+	}
+	asset := ""
+	if row.AssetID != nil {
+		asset = *row.AssetID
+	}
+	return environment.OperationID != nil && *environment.OperationID == row.ID &&
+		identity.Allows(access.OperationPermission(row.Kind), environment.ProjectID, *row.EnvironmentID, asset, environment.OwnerID)
+}
+
 func (s Service) Retry(ctx context.Context, identity access.Identity, id string) (api.Operation, error) {
 	row, err := s.Queries.GetOperation(ctx, id)
 	if err != nil {

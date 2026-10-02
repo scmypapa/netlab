@@ -796,6 +796,7 @@ export interface components {
       phase: string;
       completed: number;
       total: number;
+      retryable: boolean;
       error?: string;
       results?: components["schemas"]["ExecutionResult"][];
       /** Format: date-time */

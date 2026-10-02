@@ -527,7 +527,7 @@ components:
         updatedAt: {type: string, format: date-time}
     Operation:
       type: object
-      required: [id, kind, state, phase, completed, total, createdAt, updatedAt]
+      required: [id, kind, state, phase, completed, total, retryable, createdAt, updatedAt]
       properties:
         id: {type: string}
         environmentId: {type: string}
@@ -536,6 +536,7 @@ components:
         phase: {type: string}
         completed: {type: integer}
         total: {type: integer}
+        retryable: {type: boolean}
         error: {type: string}
         results: {type: array, items: {$ref: '#/components/schemas/ExecutionResult'}}
         createdAt: {type: string, format: date-time}

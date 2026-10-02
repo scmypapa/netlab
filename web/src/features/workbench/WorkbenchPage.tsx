@@ -46,6 +46,7 @@ export function WorkbenchPage() {
   const [editor, setEditor] = useState<"asset" | "network">();
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
+  const [rebuilding, setRebuilding] = useState<Asset>();
   const [savingBlueprint, setSavingBlueprint] = useState(false);
   const [connections, setConnections] = useState<ConsoleTab[]>([]);
   const [selectedConnection, setSelectedConnection] = useState("");
@@ -193,6 +194,7 @@ export function WorkbenchPage() {
     workbench.templates.error,
     workbench.state.error,
     workbench.action.error,
+    workbench.retry.error,
     workbench.saveDraft.error,
     workbench.discard.error,
     workbench.saveView.error,
@@ -607,13 +609,16 @@ export function WorkbenchPage() {
             editing={workbench.editing}
             busy={busy}
             canOperate={allows(environment, "operate", asset?.id)}
+            canManage={allows(environment, "manage", asset?.id)}
             canConnect={allows(environment, "session", asset?.id)}
             onClose={() => setSelection(undefined)}
             onEdit={editObject}
             onRemove={remove}
             onDuplicate={duplicate}
             onAction={(action) =>
-              workbench.action.mutate({ action, assetId: asset?.id })
+              action === "rebuild"
+                ? setRebuilding(asset)
+                : workbench.action.mutate({ action, assetId: asset?.id })
             }
             onConnect={connect}
             onSelect={setSelection}
@@ -636,6 +641,8 @@ export function WorkbenchPage() {
         operation={operation}
         pagination={workbench.operations}
         spec={spec}
+        retrying={workbench.retry.isPending}
+        onRetry={(operationId) => workbench.retry.mutate(operationId)}
       />
       {sharing && (
         <SharingDrawer
@@ -727,6 +734,34 @@ export function WorkbenchPage() {
             </div>
           </>
         )}
+      </Modal>
+      <Modal
+        opened={Boolean(rebuilding)}
+        onClose={() => setRebuilding(undefined)}
+        title={`重建 ${rebuilding?.name ?? ""}`}
+        centered
+        size="sm"
+      >
+        <p>系统盘上的改动将清除，恢复为模板初始内容。</p>
+        <div className="dialog-actions">
+          <Button variant="default" onClick={() => setRebuilding(undefined)}>
+            取消
+          </Button>
+          <Button
+            color="red"
+            loading={workbench.action.isPending}
+            disabled={busy}
+            onClick={() => {
+              workbench.action.mutate({
+                action: "rebuild",
+                assetId: rebuilding!.id,
+              });
+              setRebuilding(undefined);
+            }}
+          >
+            重建资产
+          </Button>
+        </div>
       </Modal>
       <Modal
         opened={destroying}

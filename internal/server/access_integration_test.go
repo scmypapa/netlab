@@ -179,6 +179,41 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	}
 	call("GET", "/operations/operation-two", userSession, nil, 403)
 	call("GET", "/operations/operation-all", userSession, nil, 403)
+	t.Run("retry eligibility matches the actual scoped endpoint", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `UPDATE operations SET state='failed' WHERE id='operation-one'; UPDATE environments SET operation_id='operation-one' WHERE id='env-a'`); err != nil {
+			t.Fatal(err)
+		}
+		var listed []api.Operation
+		if err := json.Unmarshal(call("GET", "/operations?environmentId=env-a", userSession, nil, 200), &listed); err != nil || len(listed) != 1 || !listed[0].Retryable {
+			t.Fatalf("current failed asset task: operations=%+v error=%v", listed, err)
+		}
+		var detail api.Operation
+		if err := json.Unmarshal(call("GET", "/operations/operation-one", userSession, nil, 200), &detail); err != nil || !detail.Retryable {
+			t.Fatalf("task detail: operation=%+v error=%v", detail, err)
+		}
+		var runtime api.EnvironmentState
+		if err := json.Unmarshal(call("GET", "/environments/env-a/state", userSession, nil, 200), &runtime); err != nil || runtime.Operation == nil || !runtime.Operation.Retryable {
+			t.Fatalf("current state: state=%+v error=%v", runtime, err)
+		}
+		call("POST", "/operations/operation-one/retry", userSession, nil, 202)
+		if err := json.Unmarshal(call("GET", "/operations/operation-one", userSession, nil, 200), &detail); err != nil || detail.Retryable {
+			t.Fatalf("queued task: operation=%+v error=%v", detail, err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE operations SET state='failed',kind='rebuild' WHERE id='operation-one'`); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(call("GET", "/operations/operation-one", userSession, nil, 200), &detail); err != nil || detail.Retryable {
+			t.Fatalf("rebuild without manage: operation=%+v error=%v", detail, err)
+		}
+		call("POST", "/operations/operation-one/retry", userSession, nil, 403)
+		if _, err := pool.Exec(ctx, `UPDATE operations SET kind='restart' WHERE id='operation-one'; UPDATE environments SET operation_id='operation-all',status='draft' WHERE id='env-a'`); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(call("GET", "/operations/operation-one", userSession, nil, 200), &detail); err != nil || detail.Retryable {
+			t.Fatalf("superseded task: operation=%+v error=%v", detail, err)
+		}
+		call("POST", "/operations/operation-one/retry", userSession, nil, 409)
+	})
 	call("GET", "/environments/env-a/events", userSession, nil, 403)
 	call("GET", "/environments/env-a/assets/one/console?kind=invalid", userSession, nil, 400)
 	foreign := []string{"foreign"}

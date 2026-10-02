@@ -1028,7 +1028,8 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]Template, error) {
 }
 
 const listVisibleOperations = `-- name: ListVisibleOperations :many
-SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id,COALESCE(e.project_id,'')::text AS project_id,e.owner_id,e.operation_id AS current_operation_id
+FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE ($1::text='' OR o.environment_id=$1)
 AND ($2::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=$2))
 AND ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS
@@ -1046,7 +1047,14 @@ type ListVisibleOperationsParams struct {
 	PageLimit     int32
 }
 
-func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOperationsParams) ([]Operation, error) {
+type ListVisibleOperationsRow struct {
+	Operation          Operation
+	ProjectID          string
+	OwnerID            *string
+	CurrentOperationID *string
+}
+
+func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOperationsParams) ([]ListVisibleOperationsRow, error) {
 	rows, err := q.db.Query(ctx, listVisibleOperations,
 		arg.EnvironmentID,
 		arg.Cursor,
@@ -1059,27 +1067,30 @@ func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOper
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Operation{}
+	items := []ListVisibleOperationsRow{}
 	for rows.Next() {
-		var i Operation
+		var i ListVisibleOperationsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.EnvironmentID,
-			&i.ScopeKind,
-			&i.ScopeID,
-			&i.Kind,
-			&i.AssetID,
-			&i.State,
-			&i.Phase,
-			&i.Payload,
-			&i.Results,
-			&i.Error,
-			&i.ExpectedRevision,
-			&i.LeaseOwner,
-			&i.LeaseUntil,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.ClientRequestID,
+			&i.Operation.ID,
+			&i.Operation.EnvironmentID,
+			&i.Operation.ScopeKind,
+			&i.Operation.ScopeID,
+			&i.Operation.Kind,
+			&i.Operation.AssetID,
+			&i.Operation.State,
+			&i.Operation.Phase,
+			&i.Operation.Payload,
+			&i.Operation.Results,
+			&i.Operation.Error,
+			&i.Operation.ExpectedRevision,
+			&i.Operation.LeaseOwner,
+			&i.Operation.LeaseUntil,
+			&i.Operation.CreatedAt,
+			&i.Operation.UpdatedAt,
+			&i.Operation.ClientRequestID,
+			&i.ProjectID,
+			&i.OwnerID,
+			&i.CurrentOperationID,
 		); err != nil {
 			return nil, err
 		}

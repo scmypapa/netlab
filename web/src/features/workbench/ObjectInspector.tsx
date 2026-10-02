@@ -37,6 +37,7 @@ export function ObjectInspector({
   editing,
   busy,
   canOperate,
+  canManage,
   canConnect,
   onClose,
   onEdit,
@@ -54,6 +55,7 @@ export function ObjectInspector({
   editing: boolean;
   busy: boolean;
   canOperate: boolean;
+  canManage: boolean;
   canConnect: boolean;
   onClose: () => void;
   onEdit: () => void;
@@ -95,7 +97,7 @@ export function ObjectInspector({
           {network && <span className="muted mono">{network.cidr}</span>}
         </div>
       </div>
-      {(editing || (assetState && (canOperate || canConnect))) && (
+      {(editing || (assetState && (canOperate || canManage || canConnect))) && (
         <div className="inspector-actions">
           {editing ? (
             <Button
@@ -140,7 +142,9 @@ export function ObjectInspector({
           )}
           {(editing ||
             (asset &&
-              (canOperate || (canConnect && template?.kind === "vm")))) && (
+              (canOperate ||
+                canManage ||
+                (canConnect && template?.kind === "vm")))) && (
             <Menu position="bottom-end">
               <Menu.Target>
                 <ActionIcon variant="default" aria-label="对象操作">
@@ -234,6 +238,16 @@ export function ObjectInspector({
                             强制停止
                           </Menu.Item>
                         </>
+                      )}
+                      {canManage && (
+                        <Menu.Item
+                          color="red"
+                          leftSection={<HardDrive size={15} />}
+                          disabled={busy}
+                          onClick={() => onAction("rebuild")}
+                        >
+                          重建资产
+                        </Menu.Item>
                       )}
                     </>
                   )

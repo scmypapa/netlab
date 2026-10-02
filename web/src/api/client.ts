@@ -143,6 +143,8 @@ export const api = {
     request<Operation>(`/environments/${id}/changes`, "POST", body),
   operations: (environmentId: string, options?: ListOptions) =>
     list<Operation>("/operations", options, { environmentId }),
+  retryOperation: (id: string) =>
+    request<Operation>(`/operations/${id}/retry`, "POST"),
   templates: (options?: ListOptions) => list<Template>("/templates", options),
   createTemplate: (body: Template) =>
     request<Template>("/templates", "POST", body),

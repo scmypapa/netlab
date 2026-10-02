@@ -565,6 +565,7 @@ type Operation struct {
 	Kind          string             `json:"kind"`
 	Phase         string             `json:"phase"`
 	Results       *[]ExecutionResult `json:"results,omitempty"`
+	Retryable     bool               `json:"retryable"`
 	State         OperationState     `json:"state"`
 	Total         int                `json:"total"`
 	UpdatedAt     time.Time          `json:"updatedAt"`

@@ -10,6 +10,7 @@ import { dateTime } from "../../foundation/format";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { CreateEnvironmentDialog } from "../environments/CreateEnvironmentDialog";
+import { allowsProject } from "../access/permissions";
 
 export function BlueprintsPanel() {
   const [query, setQuery] = useState("");
@@ -114,6 +115,12 @@ function BlueprintDetails({
   blueprint: Blueprint;
   onClose: () => void;
 }) {
+  const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const canCreate = allowsProject(
+    identity.data,
+    "compose",
+    blueprint.projectId,
+  );
   const [versionId, setVersionId] = useState(blueprint.latestVersionId);
   const [creating, setCreating] = useState(false);
   const versions = useCursorList(["blueprint-versions", blueprint.id], (page) =>
@@ -175,11 +182,13 @@ function BlueprintDetails({
                     </div>
                   ))}
                 </section>
-                <div className="drawer-footer">
-                  <Button fullWidth onClick={() => setCreating(true)}>
-                    创建环境
-                  </Button>
-                </div>
+                {canCreate && (
+                  <div className="drawer-footer">
+                    <Button fullWidth onClick={() => setCreating(true)}>
+                      创建环境
+                    </Button>
+                  </div>
+                )}
               </>
             )
           )}
