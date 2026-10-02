@@ -1,10 +1,12 @@
 import { Button, Modal, Select, Switch, TextInput } from "@mantine/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layers3 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Blueprint } from "../../api/client";
 import { ErrorMessage } from "../../foundation/Feedback";
+import { LoadMore } from "../../foundation/LoadMore";
+import { useCursorList } from "../../foundation/useCursorList";
 
 export function CreateEnvironmentDialog({
   blueprint,
@@ -20,18 +22,20 @@ export function CreateEnvironmentDialog({
   const [selectedVersion, setSelectedVersion] = useState(versionId ?? "");
   const [run, setRun] = useState(true);
   const [clientRequestId] = useState(() => crypto.randomUUID());
-  const blueprints = useQuery({
-    queryKey: ["blueprints"],
-    queryFn: api.blueprints,
-  });
-  const selected =
-    blueprints.data?.find((item) => item.id === blueprintId) ??
-    (blueprint?.id === blueprintId ? blueprint : undefined);
-  const versions = useQuery({
-    queryKey: ["blueprint-versions", blueprintId],
-    queryFn: () => api.blueprintVersions(blueprintId),
-    enabled: blueprintId !== "blank",
-  });
+  const blueprints = useCursorList(["blueprints"], api.blueprints);
+  const choices = [
+    ...new Map(
+      [...(blueprint ? [blueprint] : []), ...(blueprints.data ?? [])].map(
+        (item) => [item.id, item],
+      ),
+    ).values(),
+  ];
+  const selected = choices.find((item) => item.id === blueprintId);
+  const versions = useCursorList(
+    ["blueprint-versions", blueprintId],
+    (page) => api.blueprintVersions(blueprintId, page),
+    { enabled: blueprintId !== "blank" },
+  );
   const currentVersion = selectedVersion || selected?.latestVersionId;
   const summary = versions.data?.find((item) => item.id === currentVersion);
   const navigate = useNavigate();
@@ -78,7 +82,7 @@ export function CreateEnvironmentDialog({
           value={blueprintId}
           data={[
             { value: "blank", label: "空白环境" },
-            ...(blueprints.data ?? []).map((item) => ({
+            ...choices.map((item) => ({
               value: item.id,
               label: item.name,
             })),
@@ -87,11 +91,10 @@ export function CreateEnvironmentDialog({
             setBlueprintId(value!);
             setSelectedVersion("");
             if (!name)
-              setName(
-                blueprints.data?.find((item) => item.id === value)?.name ?? "",
-              );
+              setName(choices.find((item) => item.id === value)?.name ?? "");
           }}
         />
+        <LoadMore list={blueprints} />
         {blueprintId !== "blank" && (
           <>
             <Select
@@ -105,6 +108,7 @@ export function CreateEnvironmentDialog({
               }))}
               onChange={(value) => setSelectedVersion(value!)}
             />
+            <LoadMore list={versions} />
             {summary && (
               <div className="blueprint-scale">
                 <Layers3 size={18} />

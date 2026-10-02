@@ -3,6 +3,7 @@ import type { components } from "./types.gen";
 export type Schema<K extends keyof components["schemas"]> =
   components["schemas"][K];
 export type Environment = Schema<"Environment">;
+export type EnvironmentSummary = Schema<"EnvironmentSummary">;
 export type EnvironmentSpec = Schema<"EnvironmentSpec">;
 export type Asset = Schema<"Asset">;
 export type Network = Schema<"Network">;
@@ -27,10 +28,12 @@ async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(`/api/v1${path}`, {
     method,
     credentials: "same-origin",
+    signal,
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -51,18 +54,47 @@ async function request<T>(
   return response.json() as Promise<T>;
 }
 
+export type ListOptions = {
+  cursor?: string;
+  limit?: number;
+  search?: string;
+  status?: string;
+  kind?: string;
+  ids?: string[];
+  signal?: AbortSignal;
+};
+
+function list<T>(
+  path: string,
+  options: ListOptions = {},
+  extra?: Record<string, string>,
+) {
+  const { signal, ...filters } = options;
+  const params = new URLSearchParams(extra);
+  for (const [name, value] of Object.entries(filters)) {
+    if (value !== undefined && String(value) !== "")
+      params.set(name, String(value));
+  }
+  return request<T[]>(`${path}?${params}`, "GET", undefined, signal);
+}
+
 export const api = {
   identity: () => request<Identity>("/identity"),
   login: (name: string, password: string) =>
     request<Identity>("/sessions/login", "POST", { name, password }),
   logout: () => request<void>("/sessions/logout", "POST"),
-  environments: () => request<Environment[]>("/environments"),
+  environments: (options?: ListOptions) =>
+    list<EnvironmentSummary>("/environments", options),
   environment: (id: string) => request<Environment>(`/environments/${id}`),
   createEnvironment: (body: Schema<"CreateEnvironment">) =>
     request<Environment>("/environments", "POST", body),
-  blueprints: () => request<Blueprint[]>("/blueprints"),
-  blueprintVersions: (id: string) =>
-    request<Schema<"BlueprintVersionSummary">[]>(`/blueprints/${id}/versions`),
+  blueprints: (options?: ListOptions) =>
+    list<Blueprint>("/blueprints", options),
+  blueprintVersions: (id: string, options?: ListOptions) =>
+    list<Schema<"BlueprintVersionSummary">>(
+      `/blueprints/${id}/versions`,
+      options,
+    ),
   blueprintVersion: (id: string) =>
     request<BlueprintVersion>(`/blueprint-versions/${id}`),
   saveBlueprint: (id: string, body: Schema<"SaveBlueprint">) =>
@@ -92,14 +124,12 @@ export const api = {
     ),
   apply: (id: string, body: Schema<"ChangeRequest">) =>
     request<Operation>(`/environments/${id}/changes`, "POST", body),
-  operations: (environmentId: string) =>
-    request<Operation[]>(
-      `/operations?environmentId=${encodeURIComponent(environmentId)}`,
-    ),
-  templates: () => request<Template[]>("/templates"),
+  operations: (environmentId: string, options?: ListOptions) =>
+    list<Operation>("/operations", options, { environmentId }),
+  templates: (options?: ListOptions) => list<Template>("/templates", options),
   createTemplate: (body: Template) =>
     request<Template>("/templates", "POST", body),
-  nodes: () => request<Node[]>("/nodes"),
+  nodes: (options?: ListOptions) => list<Node>("/nodes", options),
   registerNode: (body: Schema<"NodeRegistration">) =>
     request<Node>("/nodes", "POST", body),
 };

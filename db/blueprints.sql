@@ -13,7 +13,9 @@ SELECT b.*,v.id AS latest_version_id,v.asset_count,v.network_count FROM blueprin
 JOIN blueprint_versions v ON v.blueprint_id=b.id AND v.version=b.version
 WHERE (sqlc.arg(is_admin)::boolean OR b.owner_id=sqlc.arg(principal_id) OR EXISTS
  (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='project' AND g.scope_id=b.project_id AND 'read'=ANY(g.permissions)))
-AND (sqlc.arg(cursor)::text='' OR b.id<sqlc.arg(cursor)) ORDER BY b.id DESC LIMIT sqlc.arg(page_limit);
+AND (sqlc.arg(search)::text='' OR b.name ILIKE '%'||sqlc.arg(search)||'%')
+AND (sqlc.arg(cursor)::text='' OR (b.created_at,b.id)<(SELECT p.created_at,p.id FROM blueprints p WHERE p.id=sqlc.arg(cursor)))
+ORDER BY b.created_at DESC,b.id DESC LIMIT sqlc.arg(page_limit);
 -- name: GetBlueprintVersion :one
 SELECT v.*,b.project_id,b.owner_id FROM blueprint_versions v JOIN blueprints b ON b.id=v.blueprint_id WHERE v.id=$1;
 -- name: ListBlueprintVersions :many

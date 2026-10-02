@@ -1,10 +1,12 @@
 import { Button, Modal, Select, TextInput } from "@mantine/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type EnvironmentSpec } from "../../api/client";
 import { ErrorMessage } from "../../foundation/Feedback";
+import { LoadMore } from "../../foundation/LoadMore";
+import { useCursorList } from "../../foundation/useCursorList";
 
 export function SaveBlueprintDialog({
   environmentId,
@@ -22,9 +24,7 @@ export function SaveBlueprintDialog({
   const [mode, setMode] = useState("new");
   const [name, setName] = useState(environmentName);
   const [blueprintId, setBlueprintId] = useState<string | null>(null);
-  const blueprints = useQuery({
-    queryKey: ["blueprints"],
-    queryFn: api.blueprints,
+  const blueprints = useCursorList(["blueprints"], api.blueprints, {
     enabled: mode === "version",
   });
   const client = useQueryClient();
@@ -129,6 +129,7 @@ export function SaveBlueprintDialog({
               onChange={setBlueprintId}
             />
           )}
+          {mode === "version" && <LoadMore list={blueprints} />}
           <div className="blueprint-scale">
             <span>{spec.assets.length} 个资产</span>
             <span>{spec.networks.length} 个网段</span>

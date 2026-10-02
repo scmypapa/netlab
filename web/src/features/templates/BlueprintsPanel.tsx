@@ -1,24 +1,25 @@
 import { ActionIcon, Button, Drawer, Select, TextInput } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
+import { useDebouncedValue } from "@mantine/hooks";
 import { ChevronRight, Layers3, Network, Search } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Blueprint } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime } from "../../foundation/format";
+import { LoadMore } from "../../foundation/LoadMore";
+import { useCursorList } from "../../foundation/useCursorList";
 import { CreateEnvironmentDialog } from "../environments/CreateEnvironmentDialog";
 
 export function BlueprintsPanel() {
-  const blueprints = useQuery({
-    queryKey: ["blueprints"],
-    queryFn: api.blueprints,
-  });
   const [query, setQuery] = useState("");
+  const [search] = useDebouncedValue(query, 250);
+  const blueprints = useCursorList(["blueprints", { search }], (page) =>
+    api.blueprints({ ...page, search }),
+  );
   const [selected, setSelected] = useState<Blueprint>();
   const navigate = useNavigate();
-  const items = (blueprints.data ?? []).filter((item) =>
-    item.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-  );
+  const items = blueprints.data ?? [];
   return (
     <>
       <div className="collection-toolbar">
@@ -94,6 +95,7 @@ export function BlueprintsPanel() {
           />
         )
       )}
+      <LoadMore list={blueprints} />
       {selected && (
         <BlueprintDetails
           key={selected.id}
@@ -114,10 +116,9 @@ function BlueprintDetails({
 }) {
   const [versionId, setVersionId] = useState(blueprint.latestVersionId);
   const [creating, setCreating] = useState(false);
-  const versions = useQuery({
-    queryKey: ["blueprint-versions", blueprint.id],
-    queryFn: () => api.blueprintVersions(blueprint.id),
-  });
+  const versions = useCursorList(["blueprint-versions", blueprint.id], (page) =>
+    api.blueprintVersions(blueprint.id, page),
+  );
   const version = useQuery({
     queryKey: ["blueprint-version", versionId],
     queryFn: () => api.blueprintVersion(versionId),
@@ -142,6 +143,7 @@ function BlueprintDetails({
             }))}
             onChange={(value) => setVersionId(value!)}
           />
+          <LoadMore list={versions} />
           <ErrorMessage error={versions.error ?? version.error} />
           {version.isPending ? (
             <Loading />

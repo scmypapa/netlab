@@ -413,8 +413,7 @@ export interface components {
     Template: {
       id: string;
       name: string;
-      /** @enum {string} */
-      kind: "container" | "vm";
+      kind: components["schemas"]["TemplateKind"];
       os: string;
       version: number;
       source: string;
@@ -500,24 +499,41 @@ export interface components {
       externalReference?: string;
       blueprintVersionId?: string;
       revision: number;
-      /** @enum {string} */
-      status:
-        | "draft"
-        | "deploying"
-        | "running"
-        | "stopped"
-        | "suspended"
-        | "changing"
-        | "destroying"
-        | "destroyed"
-        | "failed"
-        | "unknown";
+      status: components["schemas"]["EnvironmentStatus"];
       spec: components["schemas"]["EnvironmentSpec"];
       appliedSpec?: components["schemas"]["EnvironmentSpec"];
       view: components["schemas"]["CanvasView"];
       draft?: components["schemas"]["Draft"];
       operationId?: string;
       error?: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    /** @enum {string} */
+    TemplateKind: "container" | "vm";
+    /** @enum {string} */
+    EnvironmentStatus:
+      | "draft"
+      | "deploying"
+      | "running"
+      | "stopped"
+      | "suspended"
+      | "changing"
+      | "destroying"
+      | "destroyed"
+      | "failed"
+      | "unknown";
+    EnvironmentSummary: {
+      id: string;
+      projectId: string;
+      name: string;
+      externalReference?: string;
+      revision: number;
+      status: components["schemas"]["EnvironmentStatus"];
+      assetCount: number;
+      networkCount: number;
       /** Format: date-time */
       createdAt: string;
       /** Format: date-time */
@@ -740,6 +756,7 @@ export interface components {
     Id: string;
     Cursor: string;
     Limit: number;
+    Search: string;
   };
   requestBodies: never;
   headers: never;
@@ -752,6 +769,8 @@ export interface operations {
       query?: {
         cursor?: components["parameters"]["Cursor"];
         limit?: components["parameters"]["Limit"];
+        search?: components["parameters"]["Search"];
+        status?: components["schemas"]["EnvironmentStatus"];
       };
       header?: never;
       path?: never;
@@ -759,13 +778,13 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Environments */
+      /** @description Environment summaries */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["Environment"][];
+          "application/json": components["schemas"]["EnvironmentSummary"][];
         };
       };
     };
@@ -1006,6 +1025,7 @@ export interface operations {
       query?: {
         cursor?: components["parameters"]["Cursor"];
         limit?: components["parameters"]["Limit"];
+        search?: components["parameters"]["Search"];
       };
       header?: never;
       path?: never;
@@ -1189,6 +1209,9 @@ export interface operations {
       query?: {
         cursor?: components["parameters"]["Cursor"];
         limit?: components["parameters"]["Limit"];
+        search?: components["parameters"]["Search"];
+        kind?: components["schemas"]["TemplateKind"];
+        ids?: string[];
       };
       header?: never;
       path?: never;
@@ -1236,6 +1259,7 @@ export interface operations {
       query?: {
         cursor?: components["parameters"]["Cursor"];
         limit?: components["parameters"]["Limit"];
+        search?: components["parameters"]["Search"];
       };
       header?: never;
       path?: never;

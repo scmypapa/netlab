@@ -140,7 +140,11 @@ async function fixture(page: Page) {
       response = [
         environment,
         ...(createdEnvironment ? [createdEnvironment] : []),
-      ];
+      ].map(({ spec, appliedSpec, view, draft, ...item }) => ({
+        ...item,
+        assetCount: (appliedSpec ?? spec).assets.length,
+        networkCount: (appliedSpec ?? spec).networks.length,
+      }));
     else if (path === "/environments/env") response = environment;
     else if (path === "/environments/env-created")
       response = createdEnvironment;
@@ -421,7 +425,7 @@ test("template details create and run the selected immutable version", async ({
 }) => {
   const calls = await fixture(page);
   const attempts: unknown[] = [];
-  await page.route("**/api/v1/environments", async (route) => {
+  await page.route("**/api/v1/environments*", async (route) => {
     if (route.request().method() === "POST") {
       attempts.push(route.request().postDataJSON());
       if (attempts.length === 1) {

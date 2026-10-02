@@ -15,21 +15,31 @@ import type {
   Network,
   Template,
 } from "../../api/client";
+import { LoadMore, type CursorPagination } from "../../foundation/LoadMore";
 
 export function AssetEditor({
   asset,
   templates,
+  pagination,
+  search,
+  onSearch,
   spec,
   onSave,
   onClose,
 }: {
   asset?: Asset;
   templates: Template[];
+  pagination: CursorPagination;
+  search: string;
+  onSearch: (value: string) => void;
   spec: EnvironmentSpec;
   onSave: (asset: Asset) => void;
   onClose: () => void;
 }) {
   const [templateId, setTemplateId] = useState(asset?.templateId ?? "");
+  const [chosenTemplate, setChosenTemplate] = useState(
+    templates.find((item) => item.id === asset?.templateId),
+  );
   const [name, setName] = useState(asset?.name ?? "");
   const [networkIds, setNetworkIds] = useState(
     asset?.interfaces.map((item) => item.networkId) ??
@@ -44,6 +54,7 @@ export function AssetEditor({
   const setTemplate = (id: string | null) => {
     setTemplateId(id ?? "");
     const template = templates.find((item) => item.id === id);
+    setChosenTemplate(template);
     if (template) {
       setCpu(template.resources.cpu);
       setMemoryGiB(template.resources.memoryMiB / 1024);
@@ -91,16 +102,25 @@ export function AssetEditor({
           label="资产模板"
           placeholder="选择模板"
           searchable
+          searchValue={search}
+          onSearchChange={onSearch}
           required
           value={templateId}
           onChange={setTemplate}
-          data={templates
+          data={[
+            ...new Map(
+              [...templates, ...(chosenTemplate ? [chosenTemplate] : [])].map(
+                (item) => [item.id, item],
+              ),
+            ).values(),
+          ]
             .filter((item) => item.state === "ready")
             .map((item) => ({
               value: item.id,
               label: `${item.name} · ${item.kind === "vm" ? "虚拟机" : "容器"}`,
             }))}
         />
+        <LoadMore list={pagination} />
         <TextInput
           label="资产名称"
           value={name}
