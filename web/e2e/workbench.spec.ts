@@ -1,7 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { Identity, Operation } from "../src/api/client";
 
 // API fixtures verify browser interaction. Runtime acceptance uses the real node separately.
-async function fixture(page: Page) {
+async function fixture(
+  page: Page,
+  options: {
+    permissions?: string[];
+    assetPermissions?: Record<string, string[]>;
+    identity?: Identity;
+    operation?: Operation;
+  } = {},
+) {
   const calls: { method: string; path: string; body: unknown }[] = [];
   const spec = {
     networks: [
@@ -51,7 +60,7 @@ async function fixture(page: Page) {
     name: "混合环境",
     revision: 1,
     status: "running",
-    permissions: [
+    permissions: options.permissions ?? [
       "read",
       "operate",
       "compose",
@@ -62,6 +71,7 @@ async function fixture(page: Page) {
       "network",
       "access",
     ],
+    assetPermissions: options.assetPermissions,
     spec,
     appliedSpec: spec,
     view: { positions: {} },
@@ -132,7 +142,11 @@ async function fixture(page: Page) {
     let response: unknown;
     let status = 200;
     if (path === "/identity")
-      response = { id: "user", name: "operator", administrator: true };
+      response = options.identity ?? {
+        id: "user",
+        name: "operator",
+        administrator: true,
+      };
     else if (path === "/environments" && request.method() === "POST") {
       const version = versions.find(
         (item) => item.id === body.blueprintVersionId,
@@ -173,6 +187,7 @@ async function fixture(page: Page) {
         id: "env",
         status: "running",
         revision: 1,
+        operation: options.operation,
         assets: spec.assets.map((asset) => ({
           assetId: asset.id,
           instanceId: asset.id,
@@ -252,8 +267,34 @@ async function fixture(page: Page) {
           state: "online",
         },
       ];
-    else if (path === "/operations") response = [];
-    else if (path.endsWith("/view")) {
+    else if (path.endsWith("/retry")) {
+      options.operation = {
+        ...options.operation!,
+        state: "queued",
+        retryable: false,
+      };
+      response = options.operation;
+      status = 202;
+    } else if (path === "/operations")
+      response = options.operation ? [options.operation] : [];
+    else if (
+      path.startsWith("/environments/env/assets/") &&
+      path.endsWith("/actions")
+    ) {
+      status = 202;
+      response = {
+        id: "asset-action",
+        environmentId: "env",
+        kind: body.action,
+        state: "queued",
+        phase: "queued",
+        completed: 0,
+        total: 1,
+        retryable: false,
+        createdAt: environment.updatedAt,
+        updatedAt: environment.updatedAt,
+      };
+    } else if (path.endsWith("/view")) {
       environment.view = body;
       status = 204;
     } else if (path.endsWith("/draft")) {
@@ -584,3 +625,113 @@ test("the environment list selects a template without starting it", async ({
     run: false,
   });
 });
+
+test("asset rebuild requires scoped manage and confirms its system disk effect", async ({
+  page,
+}) => {
+  const calls = await fixture(page, {
+    permissions: ["read", "operate"],
+    assetPermissions: { windows: ["manage"] },
+  });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "重建资产", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "重建资产", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "重建 windows-01" });
+  await expect(dialog).toContainText("系统盘上的改动将清除");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  expect(calls.some((call) => call.path.endsWith("/actions"))).toBe(false);
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "重建资产", exact: true }).click();
+  await dialog.getByRole("button", { name: "重建资产", exact: true }).click();
+  await expect
+    .poll(() => calls.filter((call) => call.path.endsWith("/actions")))
+    .toEqual([
+      {
+        method: "POST",
+        path: "/environments/env/assets/windows/actions",
+        body: {
+          action: "rebuild",
+          expectedRevision: 1,
+          clientRequestId: expect.any(String),
+        },
+      },
+    ]);
+});
+
+for (const retryable of [true, false]) {
+  test(`failed task retry follows server eligibility ${retryable}`, async ({
+    page,
+  }) => {
+    const calls = await fixture(page, {
+      operation: {
+        id: "failed-task",
+        environmentId: "env",
+        kind: "change",
+        state: "failed",
+        phase: "prepare",
+        completed: 0,
+        total: 1,
+        retryable,
+        error: "节点连接中断",
+        createdAt: "2026-10-02T08:00:00Z",
+        updatedAt: "2026-10-02T08:10:00Z",
+      },
+    });
+    await page.goto("/environments/env");
+    await page.getByRole("button", { name: /^任务/ }).click();
+    const retry = page.getByRole("button", { name: "重试", exact: true });
+    if (!retryable) {
+      await expect(retry).toHaveCount(0);
+      return;
+    }
+    await retry.click();
+    await expect
+      .poll(() => calls.filter((call) => call.path.endsWith("/retry")))
+      .toEqual([
+        { method: "POST", path: "/operations/failed-task/retry", body: null },
+      ]);
+    await expect(retry).toHaveCount(0);
+  });
+}
+
+for (const [projectId, permission, canCreate] of [
+  ["lab-project", "read", false],
+  ["other-project", "compose", false],
+  ["lab-project", "compose", true],
+] as const) {
+  test(`blueprint creation follows project compose ${projectId} ${permission}`, async ({
+    page,
+  }) => {
+    await fixture(page, {
+      identity: {
+        id: "user",
+        name: "operator",
+        administrator: false,
+        grants: [
+          {
+            scopeKind: "project",
+            scopeId: projectId,
+            permissions: [permission],
+          },
+        ],
+      },
+    });
+    await page.goto("/templates?tab=environments");
+    await page
+      .getByRole("button", { name: "混合组网模板", exact: true })
+      .click();
+    const drawer = page.getByRole("dialog", { name: "混合组网模板" });
+    await expect(drawer).toContainText("2 个资产");
+    await expect(
+      drawer.getByRole("button", { name: "创建环境", exact: true }),
+    ).toHaveCount(canCreate ? 1 : 0);
+  });
+}

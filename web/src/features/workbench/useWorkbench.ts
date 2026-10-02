@@ -61,7 +61,7 @@ export function useWorkbench(id: string) {
     ...catalog,
     data: [
       ...new Map(
-        [...(usedTemplates.data ?? []), ...(catalog.data ?? [])].map((item) => [
+        [...(catalog.data ?? []), ...(usedTemplates.data ?? [])].map((item) => [
           item.id,
           item,
         ]),
@@ -167,6 +167,10 @@ export function useWorkbench(id: string) {
         (value: typeof environment.data) => value && { ...value, view },
       ),
   });
+  const retry = useMutation({
+    mutationFn: api.retryOperation,
+    onSuccess: refresh,
+  });
   return {
     environment,
     state,
@@ -184,6 +188,7 @@ export function useWorkbench(id: string) {
     preview,
     apply,
     action,
+    retry,
     saveView,
   };
 }

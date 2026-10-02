@@ -1,4 +1,11 @@
-import { ChevronDown, ChevronUp, CircleCheck, ListChecks } from "lucide-react";
+import { Button } from "@mantine/core";
+import {
+  ChevronDown,
+  ChevronUp,
+  CircleCheck,
+  ListChecks,
+  RotateCcw,
+} from "lucide-react";
 import { useState } from "react";
 import type { EnvironmentSpec, Operation } from "../../api/client";
 import { actionLabels, dateTime } from "../../foundation/format";
@@ -27,11 +34,15 @@ export function TaskTray({
   spec,
   operation,
   pagination,
+  retrying,
+  onRetry,
 }: {
   operations: Operation[];
   spec: EnvironmentSpec;
   operation?: Operation;
   pagination: CursorPagination;
+  retrying: boolean;
+  onRetry: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
@@ -97,6 +108,17 @@ export function TaskTray({
                 <span>
                   {shown.completed} / {shown.total}
                 </span>
+                {shown.retryable && (
+                  <Button
+                    variant="default"
+                    size="compact-xs"
+                    leftSection={<RotateCcw size={13} />}
+                    loading={retrying}
+                    onClick={() => onRetry(shown.id)}
+                  >
+                    重试
+                  </Button>
+                )}
               </div>
               {shown.error && <div className="error-inline">{shown.error}</div>}
               {shown.total > 0 && (

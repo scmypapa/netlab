@@ -11,15 +11,11 @@ import { Status } from "../../foundation/Status";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { CreateEnvironmentDialog } from "./CreateEnvironmentDialog";
+import { allowsProject } from "../access/permissions";
 
 export function EnvironmentsPage() {
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
-  const canCreate =
-    identity.data?.administrator ||
-    identity.data?.grants?.some(
-      (grant) =>
-        grant.scopeKind === "project" && grant.permissions.includes("compose"),
-    );
+  const canCreate = allowsProject(identity.data, "compose");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [search] = useDebouncedValue(query, 250);

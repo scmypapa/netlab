@@ -158,7 +158,8 @@ WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor))
 AND (sqlc.arg(search)::text='' OR n.name ILIKE '%'||sqlc.arg(search)||'%')
 GROUP BY n.id ORDER BY n.id LIMIT sqlc.arg(page_limit);
 -- name: ListVisibleOperations :many
-SELECT o.* FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+SELECT sqlc.embed(o),COALESCE(e.project_id,'')::text AS project_id,e.owner_id,e.operation_id AS current_operation_id
+FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))
 AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
 AND (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
