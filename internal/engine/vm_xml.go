@@ -24,6 +24,9 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		return "", fmt.Errorf("template %s has no virtual hardware", a.Template.Name)
 	}
 	h := a.Template.Hardware
+	if a.Template.Disks == nil || len(*a.Template.Disks) == 0 {
+		return "", fmt.Errorf("template %s has no prepared system disks", a.Template.Name)
+	}
 	execution, err := json.Marshal(a)
 	if err != nil {
 		return "", err
@@ -35,7 +38,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	d := libvirtxml.Domain{Type: "kvm", Name: "netlab-" + a.InstanceId, UUID: a.InstanceId, GenID: &libvirtxml.DomainGenID{},
 		Title: a.Asset.Name, Metadata: &libvirtxml.DomainMetadata{XML: string(metadata)},
 		Memory: &libvirtxml.DomainMemory{Value: uint(a.Asset.Resources.MemoryMiB), Unit: "MiB"}, VCPU: &libvirtxml.DomainVCPU{Value: uint(a.Asset.Resources.Cpu)},
-		OS:         &libvirtxml.DomainOS{Type: &libvirtxml.DomainOSType{Arch: "x86_64", Machine: h.Machine, Type: "hvm"}, BootDevices: []libvirtxml.DomainBootDevice{{Dev: "hd"}}},
+		OS:         &libvirtxml.DomainOS{Type: &libvirtxml.DomainOSType{Arch: "x86_64", Machine: h.Machine, Type: "hvm"}},
 		Features:   &libvirtxml.DomainFeatureList{ACPI: &libvirtxml.DomainFeature{}, APIC: &libvirtxml.DomainFeatureAPIC{}},
 		CPU:        &libvirtxml.DomainCPU{Mode: "host-model", Topology: &libvirtxml.DomainCPUTopology{Sockets: 1, Cores: a.Asset.Resources.Cpu, Threads: 1}},
 		OnPoweroff: "destroy", OnReboot: "restart", OnCrash: "destroy", Devices: &libvirtxml.DomainDeviceList{},
@@ -65,31 +68,81 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 			d.OS.Loader = &libvirtxml.DomainLoader{Path: *h.FirmwareCode, Readonly: "yes", Type: "pflash", Secure: secure}
 		}
 	}
-	diskTarget := func(i int) string {
-		switch h.DiskBus {
-		case api.HardwareDiskBusVirtio:
-			return "vd" + string(rune('a'+i))
-		case api.HardwareDiskBusIde:
-			return "hd" + string(rune('a'+i))
-		default:
-			return "sd" + string(rune('a'+i))
+	controllers := map[string]string{}
+	units := map[string]uint{}
+	targets := map[string]int{}
+	appendDisk := func(path string, definition api.TemplateDisk, boot bool) error {
+		bus := string(definition.Bus)
+		prefix := "sd"
+		if bus == "virtio" {
+			prefix = "vd"
+		} else if bus == "ide" {
+			prefix = "hd"
 		}
+		device := diskDevice(prefix, targets[prefix])
+		targets[prefix]++
+		serial := "volume-" + definition.Id
+		if boot {
+			serial = "image-" + definition.Id
+		}
+		disk := libvirtxml.DomainDisk{Device: "disk", Serial: serial, Driver: &libvirtxml.DomainDiskDriver{Name: "qemu", Type: "qcow2", Cache: "none", Discard: "unmap"}, Source: &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: path}}, Target: &libvirtxml.DomainDiskTarget{Dev: device, Bus: bus}}
+		if boot {
+			disk.Boot = &libvirtxml.DomainDeviceBoot{Order: uint(definition.BootOrder)}
+		}
+		if bus != "virtio" {
+			index := uint(0)
+			if definition.ControllerIndex != nil {
+				index = uint(*definition.ControllerIndex)
+			}
+			model := ""
+			if bus == "scsi" {
+				model = "virtio-scsi"
+				if definition.ControllerModel != nil {
+					model = *definition.ControllerModel
+				}
+			}
+			key := fmt.Sprintf("%s/%d", bus, index)
+			if existing, ok := controllers[key]; ok {
+				if existing != model {
+					return fmt.Errorf("disk controller %s has conflicting models", key)
+				}
+			} else {
+				d.Devices.Controllers = append(d.Devices.Controllers, libvirtxml.DomainController{Type: bus, Index: &index, Model: model})
+				controllers[key] = model
+			}
+			zero, unit := uint(0), units[key]
+			if definition.ControllerUnit != nil {
+				unit = uint(*definition.ControllerUnit)
+			}
+			units[key] = max(units[key], unit+1)
+			driveBus := uint(0)
+			if bus == "ide" {
+				driveBus, unit = unit/2, unit%2
+			}
+			disk.Address = &libvirtxml.DomainAddress{Drive: &libvirtxml.DomainAddressDrive{Controller: &index, Bus: &driveBus, Target: &zero, Unit: &unit}}
+		}
+		d.Devices.Disks = append(d.Devices.Disks, disk)
+		return nil
 	}
-	root := libvirtxml.DomainDisk{Device: "disk", Driver: &libvirtxml.DomainDiskDriver{Name: "qemu", Type: "qcow2", Cache: "none", Discard: "unmap"}, Source: &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: filepath.Join(directory, "system.qcow2")}}, Target: &libvirtxml.DomainDiskTarget{Dev: diskTarget(0), Bus: string(h.DiskBus)}}
-	d.Devices.Disks = append(d.Devices.Disks, root)
-	if h.DiskBus == api.HardwareDiskBusScsi {
-		d.Devices.Controllers = append(d.Devices.Controllers, libvirtxml.DomainController{Type: "scsi", Model: "virtio-scsi"})
+	for index, disk := range *a.Template.Disks {
+		if err := appendDisk(systemDiskPath(directory, index), disk, true); err != nil {
+			return "", err
+		}
 	}
 	if a.Asset.Volumes != nil {
-		for i, v := range *a.Asset.Volumes {
-			disk := root
-			disk.Source = &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: filepath.Join(filepath.Dir(filepath.Dir(directory)), "volumes", a.Asset.Id, v.Id+".qcow2")}}
-			disk.Target = &libvirtxml.DomainDiskTarget{Dev: diskTarget(i + 1), Bus: string(h.DiskBus)}
-			d.Devices.Disks = append(d.Devices.Disks, disk)
+		for _, v := range *a.Asset.Volumes {
+			path := filepath.Join(filepath.Dir(filepath.Dir(directory)), "volumes", a.Asset.Id, v.Id+".qcow2")
+			if err := appendDisk(path, api.TemplateDisk{Id: v.Id, Bus: api.TemplateDiskBus(h.DiskBus), ControllerModel: h.DiskController, ControllerIndex: (*a.Template.Disks)[0].ControllerIndex}, false); err != nil {
+				return "", err
+			}
 		}
 	}
-	for _, i := range a.Interfaces {
-		iface := libvirtxml.DomainInterface{MAC: &libvirtxml.DomainInterfaceMAC{Address: i.Mac}, Source: &libvirtxml.DomainInterfaceSource{Bridge: &libvirtxml.DomainInterfaceSourceBridge{Bridge: bridge}}, Model: &libvirtxml.DomainInterfaceModel{Type: string(h.NicModel)}, VirtualPort: &libvirtxml.DomainInterfaceVirtualPort{Params: &libvirtxml.DomainInterfaceVirtualPortParams{OpenVSwitch: &libvirtxml.DomainInterfaceVirtualPortParamsOpenVSwitch{InterfaceID: i.PortName}}}, MTU: &libvirtxml.DomainInterfaceMTU{Size: uint(i.Mtu)}}
+	for index, i := range a.Interfaces {
+		model := string(h.NicModel)
+		if a.Template.NicModels != nil && index < len(*a.Template.NicModels) {
+			model = (*a.Template.NicModels)[index]
+		}
+		iface := libvirtxml.DomainInterface{MAC: &libvirtxml.DomainInterfaceMAC{Address: i.Mac}, Source: &libvirtxml.DomainInterfaceSource{Bridge: &libvirtxml.DomainInterfaceSourceBridge{Bridge: bridge}}, Model: &libvirtxml.DomainInterfaceModel{Type: model}, VirtualPort: &libvirtxml.DomainInterfaceVirtualPort{Params: &libvirtxml.DomainInterfaceVirtualPortParams{OpenVSwitch: &libvirtxml.DomainInterfaceVirtualPortParamsOpenVSwitch{InterfaceID: i.PortName}}}, MTU: &libvirtxml.DomainInterfaceMTU{Size: uint(i.Mtu)}}
 		d.Devices.Interfaces = append(d.Devices.Interfaces, iface)
 	}
 	d.Devices.Graphics = []libvirtxml.DomainGraphic{{VNC: &libvirtxml.DomainGraphicVNC{AutoPort: "yes", Listen: "127.0.0.1"}}}
@@ -108,4 +161,46 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	}
 	d.Clock = &libvirtxml.DomainClock{Offset: clock}
 	return d.Marshal()
+}
+
+func systemDiskPath(directory string, index int) string {
+	return filepath.Join(directory, fmt.Sprintf("disk-%d.qcow2", index))
+}
+
+func systemDiskSizes(a api.AssetExecution) ([]int64, error) {
+	if a.Template.Disks == nil || len(*a.Template.Disks) == 0 {
+		return nil, fmt.Errorf("template %s has no prepared system disks", a.Template.Name)
+	}
+	disks := *a.Template.Disks
+	sizes, total, boot := make([]int64, len(disks)), int64(0), 0
+	for index, disk := range disks {
+		sizes[index] = disk.SizeGiB
+		total += disk.SizeGiB
+		if disk.BootOrder < disks[boot].BootOrder {
+			boot = index
+		}
+	}
+	if a.Asset.Resources.DiskGiB < total {
+		return nil, fmt.Errorf("requested system disk capacity %d GiB is below template capacity %d GiB", a.Asset.Resources.DiskGiB, total)
+	}
+	sizes[boot] += a.Asset.Resources.DiskGiB - total
+	return sizes, nil
+}
+
+func diskDevice(prefix string, index int) string {
+	name := ""
+	for index >= 0 {
+		name = string(rune('a'+index%26)) + name
+		index = index/26 - 1
+	}
+	return prefix + name
+}
+
+func domainDisk(config libvirtxml.Domain, id string) (libvirtxml.DomainDisk, error) {
+	for _, disk := range config.Devices.Disks {
+		if disk.Serial == "image-"+id {
+			return disk, nil
+		}
+	}
+	return libvirtxml.DomainDisk{}, fmt.Errorf("installed system disk %s is missing", id)
 }

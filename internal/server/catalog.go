@@ -55,7 +55,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	if input.Resources.Cpu < 1 || input.Resources.MemoryMiB < 64 || input.Resources.DiskGiB < 1 {
 		return httpError{http.StatusBadRequest, "模板规格应至少为 1 核、64 MiB 内存、1 GiB 磁盘"}
 	}
-	if input.Kind == api.Vm && input.Hardware == nil {
+	if input.Kind == api.Vm && input.Hardware == nil && (input.Format == nil || (*input.Format != "ova" && *input.Format != "ovf")) {
 		return httpError{http.StatusBadRequest, "虚拟机模板需要虚拟硬件配置"}
 	}
 	if input.Id == "" {

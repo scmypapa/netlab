@@ -18,9 +18,9 @@ import {
   Trash2,
   UsersRound,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { Asset, Network as NetworkModel } from "../../api/client";
+import type { Asset, Network as NetworkModel, Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
 import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
@@ -31,6 +31,9 @@ import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
 import { connectAsset, networkColors, topology } from "./topology";
 import { useWorkbench } from "./useWorkbench";
+import { consoleKey, type ConsoleTab } from "./consoles";
+
+const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 
 export function WorkbenchPage() {
   const { id = "" } = useParams();
@@ -43,6 +46,8 @@ export function WorkbenchPage() {
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
   const [savingBlueprint, setSavingBlueprint] = useState(false);
+  const [connections, setConnections] = useState<ConsoleTab[]>([]);
+  const [selectedConnection, setSelectedConnection] = useState("");
   const [sharing, setSharing] = useState(false);
   const [context, setContext] = useState<{
     x: number;
@@ -87,6 +92,25 @@ export function WorkbenchPage() {
     [layout, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
+  const connect = (kind: Schema<"ConsoleKind">) => {
+    if (!asset) return;
+    const connection = { id: asset.id, name: asset.name, kind };
+    const key = consoleKey(connection);
+    setConnections((items) =>
+      items.some((item) => consoleKey(item) === key)
+        ? items
+        : [...items, connection],
+    );
+    setSelectedConnection(key);
+  };
+  const closeConnection = (key: string) => {
+    const remaining = connections.filter((item) => consoleKey(item) !== key);
+    setConnections(remaining);
+    if (selectedConnection === key)
+      setSelectedConnection(
+        remaining.length ? consoleKey(remaining[remaining.length - 1]) : "",
+      );
+  };
   const network = spec.networks.find((item) => item.id === selection);
   const status =
     workbench.state.data?.status ?? environment?.status ?? "unknown";
@@ -587,10 +611,22 @@ export function WorkbenchPage() {
             onAction={(action) =>
               workbench.action.mutate({ action, assetId: asset?.id })
             }
+            onConnect={connect}
             onSelect={setSelection}
           />
         )}
       </div>
+      {connections.length > 0 && (
+        <Suspense fallback={<Loading />}>
+          <ConsoleWorkspace
+            environmentId={id}
+            tabs={connections}
+            selected={selectedConnection}
+            onSelect={setSelectedConnection}
+            onClose={closeConnection}
+          />
+        </Suspense>
+      )}
       <TaskTray
         operations={workbench.operations.data ?? []}
         operation={operation}

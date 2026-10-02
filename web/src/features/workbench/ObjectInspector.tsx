@@ -12,6 +12,7 @@ import {
   Play,
   Power,
   RotateCcw,
+  SquareTerminal,
   Trash2,
   X,
 } from "lucide-react";
@@ -40,6 +41,7 @@ export function ObjectInspector({
   onRemove,
   onDuplicate,
   onAction,
+  onConnect,
   onSelect,
 }: {
   asset?: Asset;
@@ -54,6 +56,7 @@ export function ObjectInspector({
   onRemove: () => void;
   onDuplicate: () => void;
   onAction: (action: Schema<"ActionRequest">["action"]) => void;
+  onConnect: (kind: Schema<"ConsoleKind">) => void;
   onSelect: (id: string) => void;
 }) {
   const assetState = state?.assets.find((item) => item.assetId === asset?.id);
@@ -105,20 +108,28 @@ export function ObjectInspector({
                 leftSection={
                   assetState?.state === "stopped" ? (
                     <Play size={14} />
+                  ) : template?.kind === "vm" ? (
+                    <Monitor size={14} />
                   ) : (
-                    <Power size={14} />
+                    <SquareTerminal size={14} />
                   )
                 }
-                disabled={busy}
+                disabled={
+                  busy ||
+                  (assetState?.state === "suspended" &&
+                    template?.kind === "container")
+                }
                 onClick={() =>
-                  onAction(assetState?.state === "stopped" ? "start" : "stop")
+                  assetState?.state === "stopped"
+                    ? onAction("start")
+                    : onConnect(template?.kind === "vm" ? "vnc" : "terminal")
                 }
               >
                 {assetState?.state === "stopped"
                   ? "启动"
                   : template?.kind === "vm"
-                    ? "关机"
-                    : "停止"}
+                    ? "控制台"
+                    : "终端"}
               </Button>
             )
           )}
@@ -158,6 +169,30 @@ export function ObjectInspector({
                 ) : (
                   asset && (
                     <>
+                      {template?.kind === "vm" && (
+                        <Menu.Item
+                          leftSection={<SquareTerminal size={15} />}
+                          disabled={assetState?.state === "stopped"}
+                          onClick={() => onConnect("serial")}
+                        >
+                          串口控制台
+                        </Menu.Item>
+                      )}
+                      <Menu.Item
+                        leftSection={<Power size={15} />}
+                        disabled={busy}
+                        onClick={() =>
+                          onAction(
+                            assetState?.state === "stopped" ? "start" : "stop",
+                          )
+                        }
+                      >
+                        {assetState?.state === "stopped"
+                          ? "启动"
+                          : template?.kind === "vm"
+                            ? "关机"
+                            : "停止"}
+                      </Menu.Item>
                       <Menu.Item
                         leftSection={<RotateCcw size={15} />}
                         disabled={busy}

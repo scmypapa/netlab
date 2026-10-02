@@ -593,8 +593,9 @@ export interface components {
       machine: string;
       /** @enum {string} */
       diskBus: "ide" | "sata" | "scsi" | "virtio";
+      diskController?: string;
       /** @enum {string} */
-      nicModel: "virtio" | "e1000" | "e1000e" | "rtl8139";
+      nicModel: "virtio" | "e1000" | "e1000e" | "rtl8139" | "vmxnet3";
       cpuModel?: string;
       secureBoot?: boolean;
       tpm?: boolean;
@@ -609,6 +610,17 @@ export interface components {
       sizeGiB: number;
       retain?: boolean;
     };
+    TemplateDisk: {
+      id: string;
+      /** Format: int64 */
+      sizeGiB: number;
+      /** @enum {string} */
+      bus: "ide" | "sata" | "scsi" | "virtio";
+      bootOrder: number;
+      controllerModel?: string;
+      controllerIndex?: number;
+      controllerUnit?: number;
+    };
     Template: {
       id: string;
       name: string;
@@ -617,9 +629,12 @@ export interface components {
       version: number;
       source: string;
       /** @enum {string} */
-      format?: "oci" | "docker" | "qcow2" | "raw" | "vmdk" | "ova" | "iso";
+      format?:
+        "oci" | "docker" | "qcow2" | "raw" | "vmdk" | "ova" | "ovf" | "iso";
       resources: components["schemas"]["Resources"];
       hardware?: components["schemas"]["Hardware"];
+      disks?: components["schemas"]["TemplateDisk"][];
+      nicModels?: string[];
       volumes?: components["schemas"]["Volume"][];
       /** @enum {string} */
       state?: "importing" | "ready" | "failed";
@@ -856,6 +871,7 @@ export interface components {
       cpuModes: string[];
       cpuModels: string[];
       nicModels: string[];
+      diskControllers: string[];
     };
     VmMachine: {
       name: string;
