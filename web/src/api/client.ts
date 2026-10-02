@@ -7,6 +7,8 @@ export type EnvironmentSpec = Schema<"EnvironmentSpec">;
 export type Asset = Schema<"Asset">;
 export type Network = Schema<"Network">;
 export type Template = Schema<"Template">;
+export type Blueprint = Schema<"Blueprint">;
+export type BlueprintVersion = Schema<"BlueprintVersion">;
 export type Node = Schema<"Node">;
 export type Operation = Schema<"Operation">;
 export type EnvironmentState = Schema<"EnvironmentState">;
@@ -58,6 +60,15 @@ export const api = {
   environment: (id: string) => request<Environment>(`/environments/${id}`),
   createEnvironment: (body: Schema<"CreateEnvironment">) =>
     request<Environment>("/environments", "POST", body),
+  blueprints: () => request<Blueprint[]>("/blueprints"),
+  blueprintVersions: (id: string) =>
+    request<Schema<"BlueprintVersionSummary">[]>(`/blueprints/${id}/versions`),
+  blueprintVersion: (id: string) =>
+    request<BlueprintVersion>(`/blueprint-versions/${id}`),
+  saveBlueprint: (id: string, body: Schema<"SaveBlueprint">) =>
+    request<Blueprint>(`/environments/${id}/blueprints`, "POST", body),
+  saveBlueprintVersion: (id: string, body: Schema<"SaveBlueprintVersion">) =>
+    request<BlueprintVersion>(`/blueprints/${id}/versions`, "POST", body),
   state: (id: string) => request<EnvironmentState>(`/environments/${id}/state`),
   action: (id: string, body: Schema<"ActionRequest">) =>
     request<Operation>(`/environments/${id}/actions`, "POST", body),

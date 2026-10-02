@@ -1,0 +1,138 @@
+import { Button, Modal, Select, Switch, TextInput } from "@mantine/core";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Layers3 } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api, type Blueprint } from "../../api/client";
+import { ErrorMessage } from "../../foundation/Feedback";
+
+export function CreateEnvironmentDialog({
+  blueprint,
+  versionId,
+  onClose,
+}: {
+  blueprint?: Blueprint;
+  versionId?: string;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(blueprint?.name ?? "");
+  const [blueprintId, setBlueprintId] = useState(blueprint?.id ?? "blank");
+  const [selectedVersion, setSelectedVersion] = useState(versionId ?? "");
+  const [run, setRun] = useState(true);
+  const blueprints = useQuery({
+    queryKey: ["blueprints"],
+    queryFn: api.blueprints,
+  });
+  const selected =
+    blueprints.data?.find((item) => item.id === blueprintId) ??
+    (blueprint?.id === blueprintId ? blueprint : undefined);
+  const versions = useQuery({
+    queryKey: ["blueprint-versions", blueprintId],
+    queryFn: () => api.blueprintVersions(blueprintId),
+    enabled: blueprintId !== "blank",
+  });
+  const currentVersion = selectedVersion || selected?.latestVersionId;
+  const summary = versions.data?.find((item) => item.id === currentVersion);
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const create = useMutation({
+    mutationFn: () =>
+      api.createEnvironment({
+        name,
+        ...(blueprintId === "blank"
+          ? { spec: { assets: [], networks: [] } }
+          : {
+              blueprintVersionId: currentVersion!,
+              run,
+              ...(run ? { clientRequestId: crypto.randomUUID() } : {}),
+            }),
+      }),
+    onSuccess: (environment) => {
+      void client.invalidateQueries({ queryKey: ["environments"] });
+      navigate(`/environments/${environment.id}`);
+      onClose();
+    },
+  });
+  return (
+    <Modal opened onClose={onClose} title="新建环境" centered size="sm">
+      <form
+        className="form-stack"
+        onSubmit={(event) => {
+          event.preventDefault();
+          create.mutate();
+        }}
+      >
+        <TextInput
+          label="环境名称"
+          autoFocus
+          required
+          value={name}
+          onChange={(event) => setName(event.currentTarget.value)}
+        />
+        <Select
+          label="环境模板"
+          searchable
+          allowDeselect={false}
+          value={blueprintId}
+          data={[
+            { value: "blank", label: "空白环境" },
+            ...(blueprints.data ?? []).map((item) => ({
+              value: item.id,
+              label: item.name,
+            })),
+          ]}
+          onChange={(value) => {
+            setBlueprintId(value!);
+            setSelectedVersion("");
+            if (!name)
+              setName(
+                blueprints.data?.find((item) => item.id === value)?.name ?? "",
+              );
+          }}
+        />
+        {blueprintId !== "blank" && (
+          <>
+            <Select
+              label="版本"
+              allowDeselect={false}
+              value={currentVersion ?? null}
+              disabled={versions.isPending}
+              data={(versions.data ?? []).map((item) => ({
+                value: item.id,
+                label: `v${item.version}`,
+              }))}
+              onChange={(value) => setSelectedVersion(value!)}
+            />
+            {summary && (
+              <div className="blueprint-scale">
+                <Layers3 size={18} />
+                <span>{summary.assetCount} 个资产</span>
+                <span>{summary.networkCount} 个网段</span>
+              </div>
+            )}
+            <Switch
+              label="创建后运行"
+              checked={run}
+              onChange={(event) => setRun(event.currentTarget.checked)}
+            />
+          </>
+        )}
+        <ErrorMessage
+          error={blueprints.error ?? versions.error ?? create.error}
+        />
+        <div className="dialog-actions">
+          <Button variant="default" onClick={onClose}>
+            取消
+          </Button>
+          <Button
+            type="submit"
+            loading={create.isPending}
+            disabled={blueprintId !== "blank" && !summary}
+          >
+            {blueprintId !== "blank" && run ? "创建并运行" : "创建环境"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}

@@ -289,6 +289,55 @@ a.object-link:hover strong {
   font-size: 12px;
   margin-top: 4px;
 }
+.object-link-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+}
+.object-link-button:hover strong {
+  color: var(--accent);
+}
+.blueprint-scale {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  padding: 12px 0;
+  font-size: 13px;
+}
+.blueprint-objects h3 {
+  font-size: 13px;
+  margin: 22px 0 10px;
+}
+.blueprint-objects > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.blueprint-objects strong {
+  font-weight: 550;
+}
+.blueprint-objects span {
+  margin-left: auto;
+  color: var(--muted);
+}
+.blueprint-saved {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px 0;
+}
+.blueprint-saved svg {
+  color: var(--accent);
+}
+.blueprint-saved span {
+  color: var(--muted);
+}
 .status {
   display: inline-flex;
   align-items: center;

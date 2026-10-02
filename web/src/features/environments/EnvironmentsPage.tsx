@@ -1,12 +1,13 @@
-import { ActionIcon, Button, Modal, TextInput } from "@mantine/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ActionIcon, Button, TextInput } from "@mantine/core";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, Layers3, Plus, Search } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
+import { CreateEnvironmentDialog } from "./CreateEnvironmentDialog";
 
 export function EnvironmentsPage() {
   const environments = useQuery({
@@ -16,17 +17,6 @@ export function EnvironmentsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const navigate = useNavigate();
-  const client = useQueryClient();
-  const create = useMutation({
-    mutationFn: () =>
-      api.createEnvironment({ name, spec: { assets: [], networks: [] } }),
-    onSuccess: (environment) => {
-      void client.invalidateQueries({ queryKey: ["environments"] });
-      navigate(`/environments/${environment.id}`);
-    },
-  });
   const items = (environments.data ?? []).filter(
     (item) =>
       item.status !== "destroyed" &&
@@ -160,39 +150,9 @@ export function EnvironmentsPage() {
           />
         )
       )}
-      <Modal
-        opened={creating}
-        onClose={() => setCreating(false)}
-        title="新建环境"
-        centered
-        size="sm"
-      >
-        <form
-          className="form-stack"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate();
-          }}
-        >
-          <TextInput
-            label="环境名称"
-            placeholder="例如：研发网络"
-            autoFocus
-            required
-            value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
-          />
-          <ErrorMessage error={create.error} />
-          <div className="dialog-actions">
-            <Button variant="default" onClick={() => setCreating(false)}>
-              取消
-            </Button>
-            <Button type="submit" loading={create.isPending}>
-              创建环境
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      {creating && (
+        <CreateEnvironmentDialog onClose={() => setCreating(false)} />
+      )}
     </main>
   );
 }
