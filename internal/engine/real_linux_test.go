@@ -447,6 +447,14 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, replacement); err != nil {
 		t.Fatal(err)
 	}
+	stale := replacement
+	stale.Asset.Volumes = nil
+	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(vm.volumePath(env, a.Asset.Id, "data")); !os.IsNotExist(err) {
+		t.Fatal("VM destroy left its installed data disk behind", err)
+	}
 }
 
 func execContainer(t *testing.T, ctx context.Context, container containerd.Container, script string) {
