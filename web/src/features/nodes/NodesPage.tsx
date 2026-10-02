@@ -115,7 +115,9 @@ export function NodesPage() {
                             ? "KVM"
                             : capability === "container"
                               ? "OCI"
-                              : capability}
+                              : capability === "network"
+                                ? "网络"
+                                : capability}
                         </span>
                       ))}
                     </div>
