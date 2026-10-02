@@ -6,8 +6,9 @@ paths:
   /environments:
     get:
       operationId: listEnvironments
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Search'}, {name: status, in: query, schema: {$ref: '#/components/schemas/EnvironmentStatus'}}]
       responses:
-        '200': {description: Environments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Environment'}}}}}
+        '200': {description: Environment summaries, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/EnvironmentSummary'}}}}}
     post:
       operationId: createEnvironment
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateEnvironment'}}}}
@@ -25,6 +26,13 @@ paths:
       operationId: getEnvironmentState
       responses:
         '200': {description: State, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentState'}}}}
+  /environments/{id}/events:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: environmentEvents
+      parameters: [{name: Last-Event-ID, in: header, schema: {type: integer, format: int64}}]
+      responses:
+        '200': {description: Committed environment events, content: {text/event-stream: {schema: {type: string}}}}
   /environments/{id}/actions:
     parameters: [{$ref: '#/components/parameters/Id'}]
     post:
@@ -54,6 +62,43 @@ paths:
     delete:
       operationId: discardDraft
       responses: {'204': {description: Discarded}}
+  /environments/{id}/blueprints:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: saveEnvironmentBlueprint
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SaveBlueprint'}}}}
+      responses:
+        '201': {description: Saved, content: {application/json: {schema: {$ref: '#/components/schemas/Blueprint'}}}}
+  /blueprints:
+    get:
+      operationId: listBlueprints
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Search'}]
+      responses:
+        '200': {description: Environment blueprints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Blueprint'}}}}}
+  /blueprints/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getBlueprint
+      responses:
+        '200': {description: Blueprint, content: {application/json: {schema: {$ref: '#/components/schemas/Blueprint'}}}}
+  /blueprints/{id}/versions:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listBlueprintVersions
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Immutable blueprint versions, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/BlueprintVersionSummary'}}}}}
+    post:
+      operationId: saveBlueprintVersion
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SaveBlueprintVersion'}}}}
+      responses:
+        '201': {description: Saved, content: {application/json: {schema: {$ref: '#/components/schemas/BlueprintVersion'}}}}
+  /blueprint-versions/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getBlueprintVersion
+      responses:
+        '200': {description: Blueprint version, content: {application/json: {schema: {$ref: '#/components/schemas/BlueprintVersion'}}}}
   /environments/{id}/assets/{assetId}/actions:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -65,7 +110,7 @@ paths:
   /operations:
     get:
       operationId: listOperations
-      parameters: [{name: environmentId, in: query, schema: {type: string}}]
+      parameters: [{name: environmentId, in: query, schema: {type: string}}, {$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
       responses:
         '200': {description: Operations, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Operation'}}}}}
   /operations/{id}:
@@ -74,9 +119,20 @@ paths:
       operationId: getOperation
       responses:
         '200': {description: Operation, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+  /operations/{id}/retry:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: retryOperation
+      responses: {'202': {$ref: '#/components/responses/Accepted'}}
   /templates:
     get:
       operationId: listTemplates
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Search'}
+        - {name: kind, in: query, schema: {$ref: '#/components/schemas/TemplateKind'}}
+        - {name: ids, in: query, style: form, explode: false, schema: {type: array, items: {type: string}}}
       responses:
         '200': {description: Templates, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Template'}}}}}
     post:
@@ -87,6 +143,7 @@ paths:
   /nodes:
     get:
       operationId: listNodes
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Search'}]
       responses:
         '200': {description: Nodes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Node'}}}}}
     post:
@@ -113,6 +170,9 @@ paths:
 components:
   parameters:
     Id: {name: id, in: path, required: true, schema: {type: string}}
+    Cursor: {name: cursor, in: query, schema: {type: string}}
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+    Search: {name: search, in: query, schema: {type: string}}
   responses:
     Accepted:
       description: Accepted
@@ -168,7 +228,7 @@ components:
       properties:
         id: {type: string}
         name: {type: string}
-        kind: {type: string, enum: [container, vm]}
+        kind: {$ref: '#/components/schemas/TemplateKind'}
         os: {type: string}
         version: {type: integer}
         source: {type: string}
@@ -263,14 +323,35 @@ components:
         projectId: {type: string}
         name: {type: string}
         externalReference: {type: string}
+        blueprintVersionId: {type: string}
         revision: {type: integer}
-        status: {type: string, enum: [draft, deploying, running, stopped, suspended, changing, destroying, destroyed, failed, unknown]}
+        status: {$ref: '#/components/schemas/EnvironmentStatus'}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
         appliedSpec: {$ref: '#/components/schemas/EnvironmentSpec'}
         view: {$ref: '#/components/schemas/CanvasView'}
         draft: {$ref: '#/components/schemas/Draft'}
         operationId: {type: string}
         error: {type: string}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    TemplateKind:
+      type: string
+      enum: [container, vm]
+    EnvironmentStatus:
+      type: string
+      enum: [draft, deploying, running, stopped, suspended, changing, destroying, destroyed, failed, unknown]
+    EnvironmentSummary:
+      type: object
+      required: [id, projectId, name, revision, status, assetCount, networkCount, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        name: {type: string}
+        externalReference: {type: string}
+        revision: {type: integer}
+        status: {$ref: '#/components/schemas/EnvironmentStatus'}
+        assetCount: {type: integer}
+        networkCount: {type: integer}
         createdAt: {type: string, format: date-time}
         updatedAt: {type: string, format: date-time}
     AssetState:
@@ -295,7 +376,7 @@ components:
         updatedAt: {type: string, format: date-time}
     Operation:
       type: object
-      required: [id, environmentId, kind, state, phase, completed, total, createdAt, updatedAt]
+      required: [id, kind, state, phase, completed, total, createdAt, updatedAt]
       properties:
         id: {type: string}
         environmentId: {type: string}
@@ -351,7 +432,7 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, prepare, activate, start, stop, force-stop, reboot, suspend, resume, destroy, remove-network, inspect]}
+        phase: {type: string, enum: [network, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
     ExecutionResult:
@@ -362,6 +443,7 @@ components:
         instanceId: {type: string}
         state: {type: string}
         error: {type: string}
+        execution: {$ref: '#/components/schemas/AssetExecution'}
         observedAt: {type: string, format: date-time}
     NodeResult:
       type: object
@@ -400,7 +482,7 @@ components:
         firmwareFiles: {type: array, items: {type: string}}
     CreateEnvironment:
       type: object
-      required: [name, spec]
+      required: [name]
       properties:
         name: {type: string}
         projectId: {type: string}
@@ -409,6 +491,53 @@ components:
         clientRequestId: {type: string}
         run: {type: boolean}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    SaveBlueprint:
+      type: object
+      required: [name, expectedRevision, spec]
+      properties:
+        name: {type: string}
+        expectedRevision: {type: integer, minimum: 0}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    SaveBlueprintVersion:
+      type: object
+      required: [environmentId, expectedRevision, spec]
+      properties:
+        environmentId: {type: string}
+        expectedRevision: {type: integer, minimum: 0}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    Blueprint:
+      type: object
+      required: [id, projectId, name, latestVersionId, latestVersion, assetCount, networkCount, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        name: {type: string}
+        latestVersionId: {type: string}
+        latestVersion: {type: integer}
+        assetCount: {type: integer}
+        networkCount: {type: integer}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    BlueprintVersionSummary:
+      type: object
+      required: [id, blueprintId, version, assetCount, networkCount, createdAt]
+      properties:
+        id: {type: string}
+        blueprintId: {type: string}
+        version: {type: integer}
+        assetCount: {type: integer}
+        networkCount: {type: integer}
+        createdAt: {type: string, format: date-time}
+    BlueprintVersion:
+      allOf:
+        - {$ref: '#/components/schemas/BlueprintVersionSummary'}
+        - type: object
+          required: [spec, view, sourceEnvironmentId, sourceRevision]
+          properties:
+            spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+            view: {$ref: '#/components/schemas/CanvasView'}
+            sourceEnvironmentId: {type: string}
+            sourceRevision: {type: integer}
     ActionRequest:
       type: object
       required: [action]

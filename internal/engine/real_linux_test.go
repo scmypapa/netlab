@@ -125,7 +125,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	}
 	apply(api.NodePlanPhaseNetwork, "")
 	apply(api.NodePlanPhasePrepare, "")
-	apply(api.NodePlanPhaseActivate, "running")
+	apply(api.NodePlanPhaseStart, "running")
 	domain, err := e.vm.conn.LookupDomainByUUIDString(assets[1].InstanceId)
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +265,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if _, err = e.container.Execute(ctx, env, api.NodePlanPhasePrepare, replacement); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseActivate, replacement); err != nil {
+	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseStart, replacement); err != nil {
 		t.Fatal(err)
 	}
 	webContainer, err := e.container.client.LoadContainer(ctx, plan.Assets[0].InstanceId)
@@ -382,7 +382,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 			t.Errorf("cleanup: %v", err)
 		}
 	}()
-	for _, phase := range []api.NodePlanPhase{api.NodePlanPhasePrepare, api.NodePlanPhaseActivate, api.NodePlanPhaseSuspend, api.NodePlanPhaseResume, api.NodePlanPhaseForceStop} {
+	for _, phase := range []api.NodePlanPhase{api.NodePlanPhasePrepare, api.NodePlanPhaseStart, api.NodePlanPhaseSuspend, api.NodePlanPhaseResume, api.NodePlanPhaseForceStop} {
 		state, err := vm.Execute(ctx, env, phase, a)
 		if err != nil {
 			t.Fatalf("%s: %v", phase, err)

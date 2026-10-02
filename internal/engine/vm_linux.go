@@ -78,7 +78,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a.Asset.Id, id) }, true)
 	case api.NodePlanPhaseUpdate:
 		return v.update(ctx, d, env, a)
-	case api.NodePlanPhaseActivate, api.NodePlanPhaseStart:
+	case api.NodePlanPhaseStart:
 		if state == "stopped" {
 			err = d.Create()
 		}
@@ -93,8 +93,6 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if state != "stopped" {
 			err = d.Destroy()
 		}
-	case api.NodePlanPhaseReboot:
-		err = d.Reboot(0)
 	case api.NodePlanPhaseSuspend:
 		if state != "suspended" {
 			err = d.Suspend()

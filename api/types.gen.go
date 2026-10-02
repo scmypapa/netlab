@@ -75,18 +75,19 @@ const (
 
 // Defines values for NodePlanPhase.
 const (
-	NodePlanPhaseActivate      NodePlanPhase = "activate"
-	NodePlanPhaseDestroy       NodePlanPhase = "destroy"
-	NodePlanPhaseForceStop     NodePlanPhase = "force-stop"
-	NodePlanPhaseInspect       NodePlanPhase = "inspect"
-	NodePlanPhaseNetwork       NodePlanPhase = "network"
-	NodePlanPhasePrepare       NodePlanPhase = "prepare"
-	NodePlanPhaseReboot        NodePlanPhase = "reboot"
-	NodePlanPhaseRemoveNetwork NodePlanPhase = "remove-network"
-	NodePlanPhaseResume        NodePlanPhase = "resume"
-	NodePlanPhaseStart         NodePlanPhase = "start"
-	NodePlanPhaseStop          NodePlanPhase = "stop"
-	NodePlanPhaseSuspend       NodePlanPhase = "suspend"
+	NodePlanPhaseCleanupVolumes NodePlanPhase = "cleanup-volumes"
+	NodePlanPhaseDestroy        NodePlanPhase = "destroy"
+	NodePlanPhaseForceStop      NodePlanPhase = "force-stop"
+	NodePlanPhaseInspect        NodePlanPhase = "inspect"
+	NodePlanPhaseNetwork        NodePlanPhase = "network"
+	NodePlanPhasePolicies       NodePlanPhase = "policies"
+	NodePlanPhasePrepare        NodePlanPhase = "prepare"
+	NodePlanPhaseRemoveNetwork  NodePlanPhase = "remove-network"
+	NodePlanPhaseResume         NodePlanPhase = "resume"
+	NodePlanPhaseStart          NodePlanPhase = "start"
+	NodePlanPhaseStop           NodePlanPhase = "stop"
+	NodePlanPhaseSuspend        NodePlanPhase = "suspend"
+	NodePlanPhaseUpdate         NodePlanPhase = "update"
 )
 
 // Defines values for OperationState.
@@ -123,17 +124,17 @@ const (
 	Vmdk   TemplateFormat = "vmdk"
 )
 
-// Defines values for TemplateKind.
-const (
-	Container TemplateKind = "container"
-	Vm        TemplateKind = "vm"
-)
-
 // Defines values for TemplateState.
 const (
 	Failed    TemplateState = "failed"
 	Importing TemplateState = "importing"
 	Ready     TemplateState = "ready"
+)
+
+// Defines values for TemplateKind.
+const (
+	Container TemplateKind = "container"
+	Vm        TemplateKind = "vm"
 )
 
 // ActionRequest defines model for ActionRequest.
@@ -176,6 +177,43 @@ type AssetState struct {
 	State      string    `json:"state"`
 }
 
+// Blueprint defines model for Blueprint.
+type Blueprint struct {
+	AssetCount      int       `json:"assetCount"`
+	CreatedAt       time.Time `json:"createdAt"`
+	Id              string    `json:"id"`
+	LatestVersion   int       `json:"latestVersion"`
+	LatestVersionId string    `json:"latestVersionId"`
+	Name            string    `json:"name"`
+	NetworkCount    int       `json:"networkCount"`
+	ProjectId       string    `json:"projectId"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// BlueprintVersion defines model for BlueprintVersion.
+type BlueprintVersion struct {
+	AssetCount          int             `json:"assetCount"`
+	BlueprintId         string          `json:"blueprintId"`
+	CreatedAt           time.Time       `json:"createdAt"`
+	Id                  string          `json:"id"`
+	NetworkCount        int             `json:"networkCount"`
+	SourceEnvironmentId string          `json:"sourceEnvironmentId"`
+	SourceRevision      int             `json:"sourceRevision"`
+	Spec                EnvironmentSpec `json:"spec"`
+	Version             int             `json:"version"`
+	View                CanvasView      `json:"view"`
+}
+
+// BlueprintVersionSummary defines model for BlueprintVersionSummary.
+type BlueprintVersionSummary struct {
+	AssetCount   int       `json:"assetCount"`
+	BlueprintId  string    `json:"blueprintId"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Id           string    `json:"id"`
+	NetworkCount int       `json:"networkCount"`
+	Version      int       `json:"version"`
+}
+
 // CanvasView defines model for CanvasView.
 type CanvasView struct {
 	Collapsed *[]string         `json:"collapsed,omitempty"`
@@ -214,13 +252,13 @@ type ChangeRequest struct {
 
 // CreateEnvironment defines model for CreateEnvironment.
 type CreateEnvironment struct {
-	BlueprintVersionId *string         `json:"blueprintVersionId,omitempty"`
-	ClientRequestId    *string         `json:"clientRequestId,omitempty"`
-	ExternalReference  *string         `json:"externalReference,omitempty"`
-	Name               string          `json:"name"`
-	ProjectId          *string         `json:"projectId,omitempty"`
-	Run                *bool           `json:"run,omitempty"`
-	Spec               EnvironmentSpec `json:"spec"`
+	BlueprintVersionId *string          `json:"blueprintVersionId,omitempty"`
+	ClientRequestId    *string          `json:"clientRequestId,omitempty"`
+	ExternalReference  *string          `json:"externalReference,omitempty"`
+	Name               string           `json:"name"`
+	ProjectId          *string          `json:"projectId,omitempty"`
+	Run                *bool            `json:"run,omitempty"`
+	Spec               *EnvironmentSpec `json:"spec,omitempty"`
 }
 
 // Draft defines model for Draft.
@@ -231,24 +269,22 @@ type Draft struct {
 
 // Environment defines model for Environment.
 type Environment struct {
-	AppliedSpec       *EnvironmentSpec  `json:"appliedSpec,omitempty"`
-	CreatedAt         time.Time         `json:"createdAt"`
-	Draft             *Draft            `json:"draft,omitempty"`
-	Error             *string           `json:"error,omitempty"`
-	ExternalReference *string           `json:"externalReference,omitempty"`
-	Id                string            `json:"id"`
-	Name              string            `json:"name"`
-	OperationId       *string           `json:"operationId,omitempty"`
-	ProjectId         string            `json:"projectId"`
-	Revision          int               `json:"revision"`
-	Spec              EnvironmentSpec   `json:"spec"`
-	Status            EnvironmentStatus `json:"status"`
-	UpdatedAt         time.Time         `json:"updatedAt"`
-	View              CanvasView        `json:"view"`
+	AppliedSpec        *EnvironmentSpec  `json:"appliedSpec,omitempty"`
+	BlueprintVersionId *string           `json:"blueprintVersionId,omitempty"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	Draft              *Draft            `json:"draft,omitempty"`
+	Error              *string           `json:"error,omitempty"`
+	ExternalReference  *string           `json:"externalReference,omitempty"`
+	Id                 string            `json:"id"`
+	Name               string            `json:"name"`
+	OperationId        *string           `json:"operationId,omitempty"`
+	ProjectId          string            `json:"projectId"`
+	Revision           int               `json:"revision"`
+	Spec               EnvironmentSpec   `json:"spec"`
+	Status             EnvironmentStatus `json:"status"`
+	UpdatedAt          time.Time         `json:"updatedAt"`
+	View               CanvasView        `json:"view"`
 }
-
-// EnvironmentStatus defines model for Environment.Status.
-type EnvironmentStatus string
 
 // EnvironmentSpec defines model for EnvironmentSpec.
 type EnvironmentSpec struct {
@@ -268,13 +304,31 @@ type EnvironmentState struct {
 	UpdatedAt time.Time    `json:"updatedAt"`
 }
 
+// EnvironmentStatus defines model for EnvironmentStatus.
+type EnvironmentStatus string
+
+// EnvironmentSummary defines model for EnvironmentSummary.
+type EnvironmentSummary struct {
+	AssetCount        int               `json:"assetCount"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	ExternalReference *string           `json:"externalReference,omitempty"`
+	Id                string            `json:"id"`
+	Name              string            `json:"name"`
+	NetworkCount      int               `json:"networkCount"`
+	ProjectId         string            `json:"projectId"`
+	Revision          int               `json:"revision"`
+	Status            EnvironmentStatus `json:"status"`
+	UpdatedAt         time.Time         `json:"updatedAt"`
+}
+
 // ExecutionResult defines model for ExecutionResult.
 type ExecutionResult struct {
-	AssetId    string    `json:"assetId"`
-	Error      *string   `json:"error,omitempty"`
-	InstanceId string    `json:"instanceId"`
-	ObservedAt time.Time `json:"observedAt"`
-	State      string    `json:"state"`
+	AssetId    string          `json:"assetId"`
+	Error      *string         `json:"error,omitempty"`
+	Execution  *AssetExecution `json:"execution,omitempty"`
+	InstanceId string          `json:"instanceId"`
+	ObservedAt time.Time       `json:"observedAt"`
+	State      string          `json:"state"`
 }
 
 // Hardware defines model for Hardware.
@@ -385,7 +439,7 @@ type NodeResult struct {
 type Operation struct {
 	Completed     int                `json:"completed"`
 	CreatedAt     time.Time          `json:"createdAt"`
-	EnvironmentId string             `json:"environmentId"`
+	EnvironmentId *string            `json:"environmentId,omitempty"`
 	Error         *string            `json:"error,omitempty"`
 	Id            string             `json:"id"`
 	Kind          string             `json:"kind"`
@@ -460,6 +514,20 @@ type Route struct {
 	NextHop     string `json:"nextHop"`
 }
 
+// SaveBlueprint defines model for SaveBlueprint.
+type SaveBlueprint struct {
+	ExpectedRevision int             `json:"expectedRevision"`
+	Name             string          `json:"name"`
+	Spec             EnvironmentSpec `json:"spec"`
+}
+
+// SaveBlueprintVersion defines model for SaveBlueprintVersion.
+type SaveBlueprintVersion struct {
+	EnvironmentId    string          `json:"environmentId"`
+	ExpectedRevision int             `json:"expectedRevision"`
+	Spec             EnvironmentSpec `json:"spec"`
+}
+
 // Template defines model for Template.
 type Template struct {
 	Error     *string         `json:"error,omitempty"`
@@ -479,11 +547,11 @@ type Template struct {
 // TemplateFormat defines model for Template.Format.
 type TemplateFormat string
 
-// TemplateKind defines model for Template.Kind.
-type TemplateKind string
-
 // TemplateState defines model for Template.State.
 type TemplateState string
+
+// TemplateKind defines model for TemplateKind.
+type TemplateKind string
 
 // Volume defines model for Volume.
 type Volume struct {
@@ -493,16 +561,72 @@ type Volume struct {
 	SizeGiB   int64  `json:"sizeGiB"`
 }
 
+// Cursor defines model for Cursor.
+type Cursor = string
+
 // Id defines model for Id.
 type Id = string
+
+// Limit defines model for Limit.
+type Limit = int
+
+// Search defines model for Search.
+type Search = string
 
 // Accepted defines model for Accepted.
 type Accepted = Operation
 
+// ListBlueprintsParams defines parameters for ListBlueprints.
+type ListBlueprintsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search `form:"search,omitempty" json:"search,omitempty"`
+}
+
+// ListBlueprintVersionsParams defines parameters for ListBlueprintVersions.
+type ListBlueprintVersionsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListEnvironmentsParams defines parameters for ListEnvironments.
+type ListEnvironmentsParams struct {
+	Cursor *Cursor            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit             `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search            `form:"search,omitempty" json:"search,omitempty"`
+	Status *EnvironmentStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// EnvironmentEventsParams defines parameters for EnvironmentEvents.
+type EnvironmentEventsParams struct {
+	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
+}
+
+// ListNodesParams defines parameters for ListNodes.
+type ListNodesParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search `form:"search,omitempty" json:"search,omitempty"`
+}
+
 // ListOperationsParams defines parameters for ListOperations.
 type ListOperationsParams struct {
 	EnvironmentId *string `form:"environmentId,omitempty" json:"environmentId,omitempty"`
+	Cursor        *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit         *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// ListTemplatesParams defines parameters for ListTemplates.
+type ListTemplatesParams struct {
+	Cursor *Cursor       `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit        `form:"limit,omitempty" json:"limit,omitempty"`
+	Search *Search       `form:"search,omitempty" json:"search,omitempty"`
+	Kind   *TemplateKind `form:"kind,omitempty" json:"kind,omitempty"`
+	Ids    *[]string     `form:"ids,omitempty" json:"ids,omitempty"`
+}
+
+// SaveBlueprintVersionJSONRequestBody defines body for SaveBlueprintVersion for application/json ContentType.
+type SaveBlueprintVersionJSONRequestBody = SaveBlueprintVersion
 
 // CreateEnvironmentJSONRequestBody defines body for CreateEnvironment for application/json ContentType.
 type CreateEnvironmentJSONRequestBody = CreateEnvironment
@@ -512,6 +636,9 @@ type EnvironmentActionJSONRequestBody = ActionRequest
 
 // AssetActionJSONRequestBody defines body for AssetAction for application/json ContentType.
 type AssetActionJSONRequestBody = ActionRequest
+
+// SaveEnvironmentBlueprintJSONRequestBody defines body for SaveEnvironmentBlueprint for application/json ContentType.
+type SaveEnvironmentBlueprintJSONRequestBody = SaveBlueprint
 
 // ChangeEnvironmentJSONRequestBody defines body for ChangeEnvironment for application/json ContentType.
 type ChangeEnvironmentJSONRequestBody = ChangeRequest

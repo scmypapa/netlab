@@ -178,7 +178,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			default:
 				err = fmt.Errorf("invalid compute kind %s", a.Template.Kind)
 			}
-			if err == nil && (plan.Phase == api.NodePlanPhasePolicies || ((plan.Phase == api.NodePlanPhaseStart || plan.Phase == api.NodePlanPhaseActivate) && state == "running")) {
+			if err == nil && (plan.Phase == api.NodePlanPhasePolicies || (plan.Phase == api.NodePlanPhaseStart && state == "running")) {
 				err = e.shape(ctx, plan.EnvironmentId, a, policies)
 			}
 			r := executionResult(a, state, err)
