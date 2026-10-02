@@ -635,6 +635,11 @@ export interface components {
       hardware?: components["schemas"]["Hardware"];
       disks?: components["schemas"]["TemplateDisk"][];
       nicModels?: string[];
+      /**
+       * @default none
+       * @enum {string}
+       */
+      initialization: "none" | "cloud-init" | "cloudbase-init";
       volumes?: components["schemas"]["Volume"][];
       /** @enum {string} */
       state?: "importing" | "ready" | "failed";
@@ -666,6 +671,12 @@ export interface components {
       parameters?: {
         [key: string]: string;
       };
+      guest?: components["schemas"]["GuestSettings"];
+    };
+    GuestSettings: {
+      hostname?: string;
+      username?: string;
+      sshAuthorizedKeys?: string[];
     };
     Route: {
       networkId: string;

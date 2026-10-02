@@ -87,6 +87,7 @@ async function fixture(page: Page) {
       os: "Windows",
       version: 1,
       source: "https://example.test/windows.qcow2",
+      initialization: "cloudbase-init",
       state: "ready",
       resources: { cpu: 4, memoryMiB: 4096, diskGiB: 40 },
       hardware: {
@@ -327,6 +328,53 @@ test("draft persists across exit; applying removal uses preview revision", async
     expect.objectContaining({ apply: false, expectedRevision: 1 }),
     expect.objectContaining({ apply: true, expectedRevision: 1 }),
   ]);
+});
+
+test("asset creation carries template resources and optional guest configuration", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await page.getByRole("menuitem", { name: "资产", exact: true }).click();
+  const drawer = page.getByRole("dialog");
+  await expect(
+    drawer.getByRole("button", { name: "来宾设置", exact: true }),
+  ).toHaveCount(0);
+  await drawer.getByRole("textbox", { name: "资产模板", exact: true }).click();
+  await page
+    .getByRole("option", { name: "Windows Server · 虚拟机", exact: true })
+    .click();
+  await expect(drawer.getByLabel("CPU · 核", { exact: true })).toHaveValue("4");
+  await expect(drawer.getByLabel("内存 · GiB", { exact: true })).toHaveValue(
+    "4",
+  );
+  await drawer.getByRole("button", { name: "来宾设置", exact: true }).click();
+  await drawer
+    .getByRole("textbox", { name: "主机名", exact: true })
+    .fill("windows-new");
+  await drawer
+    .getByRole("textbox", { name: "登录用户", exact: true })
+    .fill("operator");
+  await drawer
+    .getByRole("textbox", { name: "SSH 公钥", exact: true })
+    .fill("ssh-ed25519 fixture-public-key");
+  await drawer.getByRole("button", { name: "添加到环境", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  const draft = calls.find((call) => call.path.endsWith("/draft"))?.body as {
+    spec: { assets: Record<string, unknown>[] };
+  };
+  expect(
+    draft.spec.assets.find((asset) => asset.name === "Windows Server-2"),
+  ).toMatchObject({
+    resources: { cpu: 4, memoryMiB: 4096, diskGiB: 40 },
+    guest: {
+      hostname: "windows-new",
+      username: "operator",
+      sshAuthorizedKeys: ["ssh-ed25519 fixture-public-key"],
+    },
+  });
 });
 
 test("canvas positioning only writes view", async ({ page }) => {

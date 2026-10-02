@@ -5,6 +5,7 @@ import {
   MultiSelect,
   NumberInput,
   Select,
+  Textarea,
   TextInput,
 } from "@mantine/core";
 import { ChevronDown } from "lucide-react";
@@ -51,6 +52,16 @@ export function AssetEditor({
   );
   const [disk, setDisk] = useState(asset?.resources.diskGiB ?? 20);
   const [advanced, setAdvanced] = useState(false);
+  const [guestOpen, setGuestOpen] = useState(Boolean(asset?.guest));
+  const [hostname, setHostname] = useState(asset?.guest?.hostname ?? "");
+  const [username, setUsername] = useState(asset?.guest?.username ?? "");
+  const [sshKeys, setSshKeys] = useState(
+    asset?.guest?.sshAuthorizedKeys?.join("\n") ?? "",
+  );
+  const template =
+    chosenTemplate ?? templates.find((item) => item.id === templateId);
+  const initialized =
+    template?.kind === "vm" && template.initialization !== "none";
   const setTemplate = (id: string | null) => {
     setTemplateId(id ?? "");
     const template = templates.find((item) => item.id === id);
@@ -72,6 +83,16 @@ export function AssetEditor({
       name,
       templateId,
       resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
+      guest: initialized
+        ? {
+            hostname: hostname.trim() || undefined,
+            username: username.trim() || undefined,
+            sshAuthorizedKeys: sshKeys
+              .split("\n")
+              .map((key) => key.trim())
+              .filter(Boolean),
+          }
+        : undefined,
       interfaces: networkIds.map(
         (networkId, index) =>
           asset?.interfaces.find((item) => item.networkId === networkId) ?? {
@@ -169,6 +190,43 @@ export function AssetEditor({
             onChange={(value) => setDisk(Number(value))}
           />
         </Collapse>
+        {initialized && (
+          <>
+            <button
+              className="disclosure"
+              type="button"
+              aria-expanded={guestOpen}
+              onClick={() => setGuestOpen(!guestOpen)}
+            >
+              来宾设置
+              <ChevronDown size={16} className={guestOpen ? "rotated" : ""} />
+            </button>
+            <Collapse in={guestOpen}>
+              <div className="form-stack">
+                <div className="form-columns">
+                  <TextInput
+                    label="主机名"
+                    value={hostname}
+                    onChange={(event) => setHostname(event.currentTarget.value)}
+                  />
+                  <TextInput
+                    label="登录用户"
+                    value={username}
+                    onChange={(event) => setUsername(event.currentTarget.value)}
+                  />
+                </div>
+                <Textarea
+                  label="SSH 公钥"
+                  placeholder="ssh-ed25519 …"
+                  minRows={3}
+                  autosize
+                  value={sshKeys}
+                  onChange={(event) => setSshKeys(event.currentTarget.value)}
+                />
+              </div>
+            </Collapse>
+          </>
+        )}
         <div className="drawer-footer">
           <Button fullWidth type="submit" disabled={!templateId}>
             {asset ? "更新资产" : "添加到环境"}

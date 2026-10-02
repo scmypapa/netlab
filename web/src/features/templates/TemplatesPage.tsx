@@ -1,23 +1,18 @@
-import {
-  Button,
-  Drawer,
-  NumberInput,
-  Select,
-  Switch,
-  TextInput,
-} from "@mantine/core";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button, Drawer, TextInput } from "@mantine/core";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@mantine/hooks";
 import { Box, Boxes, Monitor, Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type Template } from "../../api/client";
+import { api } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { BlueprintsPanel } from "./BlueprintsPanel";
+import { TemplateDetails } from "./TemplateDetails";
+import { TemplateImportForm } from "./TemplateImport";
 
 export function TemplatesPage() {
   const [params, setParams] = useSearchParams();
@@ -64,8 +59,11 @@ function AssetTemplatesPanel() {
     },
   );
   const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState<string>();
+  const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
   const client = useQueryClient();
   const items = templates.data ?? [];
+  const detail = items.find((template) => template.id === selected);
   return (
     <>
       <div className="collection-toolbar">
@@ -92,12 +90,14 @@ function AssetTemplatesPanel() {
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
         />
-        <Button
-          leftSection={<Plus size={16} />}
-          onClick={() => setCreating(true)}
-        >
-          导入模板
-        </Button>
+        {identity.data?.administrator && (
+          <Button
+            leftSection={<Plus size={16} />}
+            onClick={() => setCreating(true)}
+          >
+            导入模板
+          </Button>
+        )}
       </div>
       <ErrorMessage error={templates.error} />
       {templates.isPending ? (
@@ -110,7 +110,7 @@ function AssetTemplatesPanel() {
                 <th>模板</th>
                 <th>系统</th>
                 <th>默认规格</th>
-                <th>启动方式</th>
+                <th>格式</th>
                 <th>状态</th>
               </tr>
             </thead>
@@ -118,7 +118,11 @@ function AssetTemplatesPanel() {
               {items.map((template) => (
                 <tr key={template.id}>
                   <td>
-                    <div className="object-link">
+                    <button
+                      type="button"
+                      className="object-link object-link-button"
+                      onClick={() => setSelected(template.id)}
+                    >
                       <span className={`object-symbol ${template.kind}`}>
                         {template.kind === "vm" ? (
                           <Monitor size={20} />
@@ -133,7 +137,7 @@ function AssetTemplatesPanel() {
                           {template.version}
                         </span>
                       </span>
-                    </div>
+                    </button>
                   </td>
                   <td>{template.os}</td>
                   <td className="numeric">
@@ -145,15 +149,11 @@ function AssetTemplatesPanel() {
                     </span>
                   </td>
                   <td className="muted">
-                    {template.kind === "vm"
-                      ? template.hardware?.firmware.toUpperCase()
-                      : "OCI"}
+                    {template.format?.toUpperCase() ??
+                      (template.kind === "container" ? "OCI" : "—")}
                   </td>
                   <td>
                     <Status value={template.state ?? "importing"} />
-                    {template.error && (
-                      <span className="error-inline">{template.error}</span>
-                    )}
                   </td>
                 </tr>
               ))}
@@ -169,7 +169,11 @@ function AssetTemplatesPanel() {
                 ? "没有匹配的模板"
                 : "导入可复用的资产模板"
             }
-            action={!query && kind === "all" ? "导入模板" : undefined}
+            action={
+              !query && kind === "all" && identity.data?.administrator
+                ? "导入模板"
+                : undefined
+            }
             onAction={() => setCreating(true)}
           />
         )
@@ -180,206 +184,21 @@ function AssetTemplatesPanel() {
         onClose={() => setCreating(false)}
         title="导入资产模板"
         position="right"
-        size={440}
+        size={500}
       >
-        <TemplateForm
+        <TemplateImportForm
           onCreated={() => {
             setCreating(false);
             void client.invalidateQueries({ queryKey: ["templates"] });
           }}
         />
       </Drawer>
-    </>
-  );
-}
-
-function TemplateForm({ onCreated }: { onCreated: () => void }) {
-  const [kind, setKind] = useState<Template["kind"]>("container");
-  const [name, setName] = useState("");
-  const [os, setOs] = useState("Linux");
-  const [source, setSource] = useState("");
-  const [format, setFormat] = useState<NonNullable<Template["format"]>>("oci");
-  const [cpu, setCpu] = useState(2);
-  const [memoryGiB, setMemoryGiB] = useState(2);
-  const [disk, setDisk] = useState(20);
-  const [firmware, setFirmware] = useState<"bios" | "uefi">("uefi");
-  const [diskBus, setDiskBus] = useState<"ide" | "sata" | "scsi" | "virtio">(
-    "virtio",
-  );
-  const [nicModel, setNicModel] = useState<
-    "virtio" | "e1000" | "e1000e" | "rtl8139"
-  >("virtio");
-  const [secureBoot, setSecureBoot] = useState(false);
-  const [tpm, setTpm] = useState(false);
-  const create = useMutation({
-    mutationFn: () =>
-      api.createTemplate({
-        id: crypto.randomUUID(),
-        name,
-        kind,
-        os,
-        source,
-        version: 1,
-        format,
-        resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
-        ...(kind === "vm"
-          ? {
-              hardware: {
-                firmware,
-                machine: firmware === "uefi" ? "q35" : "pc",
-                diskBus,
-                nicModel,
-                secureBoot,
-                tpm,
-                guestAgent: true,
-              },
-            }
-          : {}),
-      }),
-    onSuccess: onCreated,
-  });
-  return (
-    <form
-      className="form-stack"
-      onSubmit={(event) => {
-        event.preventDefault();
-        create.mutate();
-      }}
-    >
-      <div className="type-picker">
-        <button
-          type="button"
-          className={kind === "container" ? "selected" : ""}
-          onClick={() => {
-            setKind("container");
-            setFormat("oci");
-          }}
-        >
-          <Box size={21} />
-          容器
-        </button>
-        <button
-          type="button"
-          className={kind === "vm" ? "selected" : ""}
-          onClick={() => {
-            setKind("vm");
-            setFormat("qcow2");
-          }}
-        >
-          <Monitor size={21} />
-          虚拟机
-        </button>
-      </div>
-      <TextInput
-        label="模板名称"
-        required
-        value={name}
-        onChange={(event) => setName(event.currentTarget.value)}
-      />
-      <div className="form-columns">
-        <Select
-          label="操作系统"
-          value={os}
-          onChange={(value) => setOs(value!)}
-          data={["Linux", "Windows", "其他"]}
+      {detail && (
+        <TemplateDetails
+          template={detail}
+          onClose={() => setSelected(undefined)}
         />
-        <Select
-          label="镜像格式"
-          value={format}
-          onChange={(value) => setFormat(value as typeof format)}
-          data={
-            kind === "container"
-              ? [
-                  { value: "oci", label: "OCI / Registry" },
-                  { value: "docker", label: "Docker 镜像包" },
-                ]
-              : ["qcow2", "raw", "vmdk", "ova", "iso"]
-          }
-        />
-      </div>
-      <TextInput
-        label={
-          kind === "container" && format === "oci" ? "镜像地址" : "镜像文件地址"
-        }
-        placeholder={
-          kind === "container" && format === "oci"
-            ? "docker.io/library/ubuntu:24.04"
-            : "https://storage.example.com/image.qcow2"
-        }
-        required
-        value={source}
-        onChange={(event) => setSource(event.currentTarget.value)}
-      />
-      <h3 className="form-section-title">默认规格</h3>
-      <div className="form-columns three">
-        <NumberInput
-          label="CPU · 核"
-          min={1}
-          value={cpu}
-          onChange={(value) => setCpu(Number(value))}
-        />
-        <NumberInput
-          label="内存 · GiB"
-          min={0.25}
-          step={0.25}
-          value={memoryGiB}
-          onChange={(value) => setMemoryGiB(Number(value))}
-        />
-        <NumberInput
-          label="磁盘 · GiB"
-          min={1}
-          value={disk}
-          onChange={(value) => setDisk(Number(value))}
-        />
-      </div>
-      {kind === "vm" && (
-        <>
-          <h3 className="form-section-title">虚拟硬件</h3>
-          <div className="form-columns">
-            <Select
-              label="固件"
-              value={firmware}
-              onChange={(value) => {
-                setFirmware(value as typeof firmware);
-                if (value === "bios") setSecureBoot(false);
-              }}
-              data={[
-                { value: "bios", label: "BIOS" },
-                { value: "uefi", label: "UEFI" },
-              ]}
-            />
-            <Select
-              label="磁盘控制器"
-              value={diskBus}
-              onChange={(value) => setDiskBus(value as typeof diskBus)}
-              data={["virtio", "sata", "scsi", "ide"]}
-            />
-            <Select
-              label="网卡"
-              value={nicModel}
-              onChange={(value) => setNicModel(value as typeof nicModel)}
-              data={["virtio", "e1000", "e1000e", "rtl8139"]}
-            />
-          </div>
-          <Switch
-            label="Secure Boot"
-            checked={secureBoot}
-            onChange={(event) => setSecureBoot(event.currentTarget.checked)}
-            disabled={firmware === "bios"}
-          />
-          <Switch
-            label="TPM 2.0"
-            checked={tpm}
-            onChange={(event) => setTpm(event.currentTarget.checked)}
-          />
-        </>
       )}
-      <ErrorMessage error={create.error} />
-      <div className="drawer-footer">
-        <Button fullWidth type="submit" loading={create.isPending}>
-          导入模板
-        </Button>
-      </div>
-    </form>
+    </>
   );
 }
