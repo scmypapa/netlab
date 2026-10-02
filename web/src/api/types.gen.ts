@@ -896,7 +896,7 @@ export interface components {
       clientRequestId?: string;
     };
     VPNAccess: components["schemas"]["VPNPeer"] & {
-      address?: string;
+      addresses?: string[];
       /** @enum {string} */
       state: "pending" | "active" | "revoking" | "failed";
       operationId: string;
@@ -907,7 +907,7 @@ export interface components {
     VPNConnection: {
       endpoint: string;
       publicKey: string;
-      address: string;
+      addresses: string[];
       allowedIPs: string[];
       mtu: number;
     };
@@ -917,7 +917,7 @@ export interface components {
     };
     NodeVPNPeer: {
       id: string;
-      address: string;
+      addresses: string[];
     };
     NodeVPNResult: {
       publicKey: string;

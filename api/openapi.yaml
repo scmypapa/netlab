@@ -593,18 +593,18 @@ components:
         - type: object
           required: [state, createdAt, operationId]
           properties:
-            address: {type: string}
+            addresses: {type: array, items: {type: string}}
             state: {type: string, enum: [pending, active, revoking, failed]}
             operationId: {type: string}
             error: {type: string}
             createdAt: {type: string, format: date-time}
     VPNConnection:
       type: object
-      required: [endpoint, publicKey, address, allowedIPs, mtu]
+      required: [endpoint, publicKey, addresses, allowedIPs, mtu]
       properties:
         endpoint: {type: string}
         publicKey: {type: string}
-        address: {type: string}
+        addresses: {type: array, items: {type: string}}
         allowedIPs: {type: array, items: {type: string}}
         mtu: {type: integer}
     NodeVPNPlan:
@@ -615,10 +615,10 @@ components:
         peers: {type: array, items: {$ref: '#/components/schemas/VPNPeer'}}
     NodeVPNPeer:
       type: object
-      required: [id, address]
+      required: [id, addresses]
       properties:
         id: {type: string}
-        address: {type: string}
+        addresses: {type: array, items: {type: string}}
     NodeVPNResult:
       type: object
       required: [publicKey, listenPort, peers, mtu]

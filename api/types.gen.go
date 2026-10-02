@@ -660,8 +660,8 @@ type NodeServiceBinding struct {
 
 // NodeVPNPeer defines model for NodeVPNPeer.
 type NodeVPNPeer struct {
-	Address string `json:"address"`
-	Id      string `json:"id"`
+	Addresses []string `json:"addresses"`
+	Id        string   `json:"id"`
 }
 
 // NodeVPNPlan defines model for NodeVPNPlan.
@@ -904,7 +904,7 @@ type UpdateUser struct {
 
 // VPNAccess defines model for VPNAccess.
 type VPNAccess struct {
-	Address     *string        `json:"address,omitempty"`
+	Addresses   *[]string      `json:"addresses,omitempty"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	Error       *string        `json:"error,omitempty"`
 	Id          string         `json:"id"`
@@ -921,7 +921,7 @@ type VPNAccessState string
 
 // VPNConnection defines model for VPNConnection.
 type VPNConnection struct {
-	Address    string   `json:"address"`
+	Addresses  []string `json:"addresses"`
 	AllowedIPs []string `json:"allowedIPs"`
 	Endpoint   string   `json:"endpoint"`
 	Mtu        int      `json:"mtu"`
