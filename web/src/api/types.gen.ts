@@ -891,11 +891,19 @@ export interface components {
       spec: components["schemas"]["EnvironmentSpec"];
     };
     ExecutionResult: {
+      environmentId?: string;
       assetId: string;
       instanceId: string;
       state: string;
       error?: string;
       execution?: components["schemas"]["AssetExecution"];
+      /** Format: date-time */
+      observedAt: string;
+    };
+    NodeObservation: {
+      nodeId: string;
+      snapshot: boolean;
+      results: components["schemas"]["ExecutionResult"][];
       /** Format: date-time */
       observedAt: string;
     };

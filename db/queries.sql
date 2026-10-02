@@ -132,8 +132,8 @@ SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu
 FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu integer,"memoryMiB" bigint,"diskGiB" bigint);
 -- name: ApplyAssetResults :exec
 UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
-FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,state text,error text,"observedAt" timestamptz)
-WHERE a.instance_id=r."instanceId";
+FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,state text,error text,"observedAt" timestamptz)
+WHERE a.instance_id=r."instanceId" AND a.asset_id=r."assetId" AND a.observed_at<=r."observedAt";
 -- name: ReleaseAssets :exec
 DELETE FROM runtime_assets WHERE instance_id=ANY($1::text[]);
 -- name: ClearCurrentAssets :exec

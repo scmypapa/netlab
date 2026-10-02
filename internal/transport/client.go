@@ -72,3 +72,37 @@ func (c *Client) Execute(ctx context.Context, endpoint string, plan api.NodePlan
 	err := c.Do(ctx, http.MethodPost, endpoint, "/node/v1/plans", plan, &result)
 	return result, err
 }
+
+func (c *Client) Observations(ctx context.Context, endpoint string, receive func(api.NodeObservation) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	idle := time.AfterFunc(30*time.Second, cancel)
+	defer idle.Stop()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/node/v1/observations", nil)
+	if err != nil {
+		return err
+	}
+	response, err := c.HTTP.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		message, err := io.ReadAll(io.LimitReader(response.Body, 16384))
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("node observation returned %d: %s", response.StatusCode, message)
+	}
+	decoder := json.NewDecoder(response.Body)
+	for {
+		var value api.NodeObservation
+		if err = decoder.Decode(&value); err != nil {
+			return err
+		}
+		idle.Reset(30 * time.Second)
+		if err = receive(value); err != nil {
+			return err
+		}
+	}
+}

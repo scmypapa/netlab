@@ -71,11 +71,11 @@ func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identi
 	if err != nil {
 		return err
 	}
-	assets, err := s.Queries.ListRuntimeAssets(r.Context(), row.ID)
+	assets, err := s.Queries.ListRuntimeAssetStates(r.Context(), row.ID)
 	if err != nil {
 		return err
 	}
-	current := make(map[string]queries.RuntimeAsset, len(assets))
+	current := make(map[string]queries.ListRuntimeAssetStatesRow, len(assets))
 	for _, asset := range assets {
 		if visible != nil && !visible[asset.AssetID] {
 			continue
@@ -87,7 +87,11 @@ func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identi
 	}
 	result := api.EnvironmentState{Id: row.ID, Status: row.Status, Revision: int(row.Revision), UpdatedAt: row.UpdatedAt.Time, Assets: make([]api.AssetState, 0, len(current))}
 	for _, asset := range current {
-		result.Assets = append(result.Assets, api.AssetState{AssetId: asset.AssetID, InstanceId: asset.InstanceID, NodeId: asset.NodeID, State: asset.State, Error: asset.Error, ObservedAt: asset.ObservedAt.Time})
+		var message *string
+		if asset.Error != "" {
+			message = &asset.Error
+		}
+		result.Assets = append(result.Assets, api.AssetState{AssetId: asset.AssetID, InstanceId: asset.InstanceID, NodeId: asset.NodeID, State: asset.State, Error: message, ObservedAt: asset.ObservedAt.Time})
 	}
 	slices.SortFunc(result.Assets, func(a, b api.AssetState) int { return strings.Compare(a.AssetId, b.AssetId) })
 	if row.OperationID != nil {
@@ -101,6 +105,10 @@ func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identi
 				return err
 			}
 			record.Retryable = operation.Retryable(identity, op, row)
+			if visible != nil && record.Results != nil {
+				filtered := slices.DeleteFunc(*record.Results, func(item api.ExecutionResult) bool { return !visible[item.AssetId] })
+				record.Results = &filtered
+			}
 			result.Operation = &record
 		}
 	}

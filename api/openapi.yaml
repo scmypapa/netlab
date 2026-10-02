@@ -618,11 +618,20 @@ components:
       type: object
       required: [assetId, instanceId, state, observedAt]
       properties:
+        environmentId: {type: string}
         assetId: {type: string}
         instanceId: {type: string}
         state: {type: string}
         error: {type: string}
         execution: {$ref: '#/components/schemas/AssetExecution'}
+        observedAt: {type: string, format: date-time}
+    NodeObservation:
+      type: object
+      required: [nodeId, snapshot, results, observedAt]
+      properties:
+        nodeId: {type: string}
+        snapshot: {type: boolean}
+        results: {type: array, items: {$ref: '#/components/schemas/ExecutionResult'}}
         observedAt: {type: string, format: date-time}
     NodeResult:
       type: object

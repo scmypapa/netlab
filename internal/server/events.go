@@ -16,7 +16,8 @@ import (
 
 func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	id := r.PathValue("id")
-	if _, err := s.Environments.Authorized(r.Context(), identity, id, "read", ""); err != nil {
+	_, visible, err := s.Environments.Readable(r.Context(), identity, id)
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancel(r.Context())
@@ -36,6 +37,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 			return httpError{http.StatusBadRequest, "Last-Event-ID 无效"}
 		}
 		cursor = value
+	} else if cursor, err = s.Queries.CurrentEventCursor(r.Context(), &id); err != nil {
+		return err
 	}
 	rows, err := s.Queries.ReadEvents(r.Context(), queries.ReadEventsParams{EnvironmentID: &id, Cursor: cursor})
 	if err != nil {
@@ -59,13 +62,19 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 		if len(rows) > 0 {
 			identity, err = s.Access.Authenticate(r.Context(), credential(r))
 			if err == nil {
-				_, err = s.Environments.Authorized(r.Context(), identity, id, "read", "")
+				_, visible, err = s.Environments.Readable(r.Context(), identity, id)
 			}
 			if err != nil {
 				return nil
 			}
 			for _, event := range rows {
-				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Cursor, event.Kind, event.Payload); err != nil {
+				kind, payload := event.Kind, event.Payload
+				if visible != nil {
+					// Restricted readers receive invalidation only; /state applies
+					// the same asset scope before returning runtime and operation data.
+					kind, payload = "runtime.changed", []byte(`{}`)
+				}
+				if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.Cursor, kind, payload); err != nil {
 					return nil
 				}
 				cursor = event.Cursor

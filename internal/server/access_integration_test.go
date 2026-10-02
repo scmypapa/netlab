@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -225,7 +226,45 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		}
 		call("POST", "/operations/operation-one/retry", userSession, nil, 409)
 	})
-	call("GET", "/environments/env-a/events", userSession, nil, 403)
+	checkScopedEvents := func(token string) {
+		t.Helper()
+		_, err := pool.Exec(ctx, `INSERT INTO events(environment_id,kind,payload) VALUES('env-a','operation.failed','{"assetId":"two","error":"hidden failure"}')`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		streamCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		request, err := http.NewRequestWithContext(streamCtx, "GET", httpServer.URL+"/api/v1/environments/env-a/events", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Last-Event-ID", "0")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("asset-scoped events status=%d", response.StatusCode)
+		}
+		scanner := bufio.NewScanner(response.Body)
+		kind, payload := "", ""
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "event: ") {
+				kind = strings.TrimPrefix(line, "event: ")
+			}
+			if strings.HasPrefix(line, "data: ") {
+				payload = strings.TrimPrefix(line, "data: ")
+				break
+			}
+		}
+		if kind != "runtime.changed" || payload != "{}" {
+			t.Fatalf("asset-scoped stream leaked event data: kind=%s payload=%s error=%v", kind, payload, scanner.Err())
+		}
+	}
+	checkScopedEvents(userSession)
 	call("GET", "/environments/env-a/assets/one/console?kind=invalid", userSession, nil, 400)
 	foreign := []string{"foreign"}
 	call("PUT", "/environments/env-a/grants", admin, []api.EnvironmentGrant{{PrincipalId: user.Id, Permissions: []api.Permission{api.PermissionSession}, AssetIds: &foreign}}, 400)
@@ -298,6 +337,7 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		t.Fatal("asset token did not use the filtered environment model")
 	}
 	call("GET", "/environments/env-b", assetToken.Token, nil, 403)
+	checkScopedEvents(assetToken.Token)
 	call("DELETE", "/service-tokens/"+assetToken.Principal.Id, admin, nil, 204)
 	if _, err = pool.Exec(ctx, `UPDATE principals SET administrator=true WHERE id=$1`, issued.Principal.Id); err != nil {
 		t.Fatal(err)

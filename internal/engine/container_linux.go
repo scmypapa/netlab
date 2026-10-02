@@ -543,7 +543,7 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 		if labels[restartErrorLabel] != "" {
 			err = errors.Join(err, errors.New(labels[restartErrorLabel]))
 		}
-		r := api.ExecutionResult{AssetId: labels[assetLabel], InstanceId: item.ID(), State: state, ObservedAt: time.Now().UTC()}
+		r := api.ExecutionResult{EnvironmentId: ptr(labels[environmentLabel]), AssetId: labels[assetLabel], InstanceId: item.ID(), State: state, ObservedAt: time.Now().UTC()}
 		var observeErr error
 		r.Execution, observeErr = c.observedExecution(ctx, item)
 		err = errors.Join(err, observeErr)

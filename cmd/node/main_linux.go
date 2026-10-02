@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -116,6 +117,29 @@ func run() error {
 			control.Flush()
 		}
 	})
+	mux.HandleFunc("GET /node/v1/observations", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+		response := http.NewResponseController(w)
+		started := false
+		err := executor.Observe(r.Context(), func(value api.NodeObservation) error {
+			started = true
+			if err := response.SetWriteDeadline(time.Now().Add(15 * time.Second)); err != nil {
+				return err
+			}
+			if err := json.NewEncoder(w).Encode(value); err != nil {
+				return err
+			}
+			return response.Flush()
+		})
+		if err != nil && r.Context().Err() == nil {
+			slog.Warn("node observation stream closed", "error", err)
+			if !started {
+				http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			}
+		}
+	})
 	mux.HandleFunc("GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/console", func(w http.ResponseWriter, r *http.Request) {
 		console, err := executor.OpenConsole(r.Context(), r.PathValue("environmentId"), r.PathValue("assetId"), r.PathValue("instanceId"), api.ConsoleKind(r.URL.Query().Get("kind")))
 		if err != nil {
@@ -167,7 +191,7 @@ func run() error {
 		}
 		respond(w, executor.Execute(r.Context(), plan), nil)
 	})
-	server := &http.Server{Addr: address, Handler: mux, ReadHeaderTimeout: 10 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: pool}}
+	server := &http.Server{Addr: address, Handler: mux, BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 10 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: pool}}
 	finished := make(chan error, 1)
 	go func() { finished <- server.ListenAndServeTLS(certificate, key) }()
 	select {

@@ -27,6 +27,9 @@ type VirtualMachines struct {
 }
 
 func NewVirtualMachines(uri, data, bridge string) (*VirtualMachines, error) {
+	if err := libvirtEvents(); err != nil {
+		return nil, err
+	}
 	c, err := libvirt.NewConnect(uri)
 	if err != nil {
 		return nil, err
@@ -327,7 +330,7 @@ func (v *VirtualMachines) Inventory(env string) ([]api.ExecutionResult, error) {
 		}
 		if env == "" || owner.Environment == env {
 			state, err := vmState(&d)
-			r := api.ExecutionResult{AssetId: owner.Asset, InstanceId: owner.Instance, State: state, ObservedAt: time.Now().UTC()}
+			r := api.ExecutionResult{EnvironmentId: ptr(owner.Environment), AssetId: owner.Asset, InstanceId: owner.Instance, State: state, ObservedAt: time.Now().UTC()}
 			var observeErr error
 			r.Execution, observeErr = v.observedExecution(&d)
 			err = errors.Join(err, observeErr)

@@ -172,6 +172,7 @@ export const api = {
   saveBlueprintVersion: (id: string, body: Schema<"SaveBlueprintVersion">) =>
     request<BlueprintVersion>(`/blueprints/${id}/versions`, "POST", body),
   state: (id: string) => request<EnvironmentState>(`/environments/${id}/state`),
+  events: (id: string) => new EventSource(`/api/v1/environments/${id}/events`),
   action: (id: string, body: Schema<"ActionRequest">) =>
     request<Operation>(`/environments/${id}/actions`, "POST", body),
   assetAction: (id: string, assetId: string, body: Schema<"ActionRequest">) =>

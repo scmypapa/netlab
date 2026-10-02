@@ -7,6 +7,7 @@ import { useCursorList } from "../../foundation/useCursorList";
 export function useWorkbench(id: string) {
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [observing, setObserving] = useState<string>();
   const [spec, setSpec] = useState<EnvironmentSpec>({
     assets: [],
     networks: [],
@@ -20,10 +21,7 @@ export function useWorkbench(id: string) {
   const state = useQuery({
     queryKey: ["state", id],
     queryFn: () => api.state(id),
-    refetchInterval: (query) =>
-      ["queued", "running"].includes(query.state.data?.operation?.state ?? "")
-        ? 1500
-        : 6000,
+    enabled: observing === id,
   });
   const catalog = useCursorList(
     ["templates", "picker", { search }],
@@ -69,17 +67,42 @@ export function useWorkbench(id: string) {
     ],
     error: usedTemplates.error ?? catalog.error,
   };
-  const operations = useCursorList(
-    ["operations", id],
-    (page) => api.operations(id, page),
-    {
-      refetchInterval:
-        state.data?.operation &&
-        ["queued", "running"].includes(state.data.operation.state)
-          ? 1500
-          : false,
-    },
+  const operations = useCursorList(["operations", id], (page) =>
+    api.operations(id, page),
   );
+  useEffect(() => {
+    const events = api.events(id);
+    let scheduled: ReturnType<typeof setTimeout> | undefined;
+    let operationChanged = false;
+    const refreshState = (event?: Event) => {
+      operationChanged ||= event?.type.startsWith("operation.") ?? false;
+      scheduled ??= setTimeout(() => {
+        scheduled = undefined;
+        void client.invalidateQueries({ queryKey: ["state", id] });
+        if (operationChanged) {
+          operationChanged = false;
+          void client.invalidateQueries({ queryKey: ["operations", id] });
+          void client.invalidateQueries({ queryKey: ["environments"] });
+        }
+      }, 100);
+    };
+    events.onopen = () => {
+      setObserving(id);
+      refreshState();
+    };
+    events.addEventListener("runtime.changed", refreshState);
+    for (const kind of [
+      "operation.progress",
+      "operation.succeeded",
+      "operation.failed",
+      "operation.partially_applied",
+    ])
+      events.addEventListener(kind, refreshState);
+    return () => {
+      clearTimeout(scheduled);
+      events.close();
+    };
+  }, [client, id]);
   const [baseRevision, setBaseRevision] = useState(0);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["environment", id] });

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"netlab.local/core/internal/access"
 )
 
 type accessConnection struct {
@@ -23,7 +24,7 @@ func (s *Server) trackConnection(ctx context.Context, owner *accessConnection) (
 	// Register before re-reading grants, so concurrent revocation cannot miss the connection.
 	identity, err := s.Access.Authenticate(ctx, owner.credential)
 	if err == nil {
-		_, err = s.Environments.Authorized(ctx, identity, owner.environment, owner.permission, owner.asset)
+		err = s.authorizeConnection(ctx, identity, owner)
 	}
 	if err != nil {
 		remove()
@@ -74,12 +75,21 @@ func (s *Server) refreshSessions(ctx context.Context, principalID string) {
 	for _, owner := range connections {
 		identity, err := s.Access.Authenticate(ctx, owner.credential)
 		if err == nil {
-			_, err = s.Environments.Authorized(ctx, identity, owner.environment, owner.permission, owner.asset)
+			err = s.authorizeConnection(ctx, identity, owner)
 		}
 		if err != nil {
 			go owner.close()
 		}
 	}
+}
+
+func (s *Server) authorizeConnection(ctx context.Context, identity access.Identity, owner *accessConnection) error {
+	if owner.permission == "read" && owner.asset == "" {
+		_, _, err := s.Environments.Readable(ctx, identity, owner.environment)
+		return err
+	}
+	_, err := s.Environments.Authorized(ctx, identity, owner.environment, owner.permission, owner.asset)
+	return err
 }
 
 func (s *Server) Close() {

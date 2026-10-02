@@ -16,6 +16,7 @@ import (
 	"netlab.local/core/db"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
+	"netlab.local/core/internal/observation"
 	"netlab.local/core/internal/operation"
 	"netlab.local/core/internal/server"
 	"netlab.local/core/internal/transport"
@@ -69,6 +70,8 @@ func run() error {
 	worker := operation.Worker{Pool: pool, Queries: q, Client: nodes}
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()
+	observerDone := make(chan struct{})
+	go func() { defer close(observerDone); (observation.Service{Pool: pool, Client: nodes}).Run(ctx) }()
 	httpServer := &http.Server{Addr: address, Handler: controller.Handler(), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	failed := make(chan error, 2)
 	go func() { failed <- watchAccess() }()
@@ -82,6 +85,7 @@ func run() error {
 	defer cancel()
 	shutdownErr := httpServer.Shutdown(shutdown)
 	<-workerDone
+	<-observerDone
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
 		err = nil
 	}

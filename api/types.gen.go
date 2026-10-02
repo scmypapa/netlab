@@ -449,12 +449,13 @@ type EnvironmentSummary struct {
 
 // ExecutionResult defines model for ExecutionResult.
 type ExecutionResult struct {
-	AssetId    string          `json:"assetId"`
-	Error      *string         `json:"error,omitempty"`
-	Execution  *AssetExecution `json:"execution,omitempty"`
-	InstanceId string          `json:"instanceId"`
-	ObservedAt time.Time       `json:"observedAt"`
-	State      string          `json:"state"`
+	AssetId       string          `json:"assetId"`
+	EnvironmentId *string         `json:"environmentId,omitempty"`
+	Error         *string         `json:"error,omitempty"`
+	Execution     *AssetExecution `json:"execution,omitempty"`
+	InstanceId    string          `json:"instanceId"`
+	ObservedAt    time.Time       `json:"observedAt"`
+	State         string          `json:"state"`
 }
 
 // GuestSettings defines model for GuestSettings.
@@ -561,6 +562,14 @@ type NodeInfo struct {
 	Name         string      `json:"name"`
 	Slots        int         `json:"slots"`
 	VmHardware   *VmHardware `json:"vmHardware,omitempty"`
+}
+
+// NodeObservation defines model for NodeObservation.
+type NodeObservation struct {
+	NodeId     string            `json:"nodeId"`
+	ObservedAt time.Time         `json:"observedAt"`
+	Results    []ExecutionResult `json:"results"`
+	Snapshot   bool              `json:"snapshot"`
 }
 
 // NodePlan defines model for NodePlan.
