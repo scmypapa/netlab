@@ -186,6 +186,12 @@ func TestRealMixedLifecycle(t *testing.T) {
 	checkContainerHTTP(t, ctx, container, "192.168.82.10:80")
 	apply(api.NodePlanPhaseSuspend, "suspended")
 	apply(api.NodePlanPhaseResume, "running")
+	mixedAssets := plan.Assets
+	plan.Assets = []api.AssetExecution{assets[0], clientExecution}
+	apply(api.NodePlanPhaseSuspend, "suspended")
+	apply(api.NodePlanPhaseStop, "stopped")
+	apply(api.NodePlanPhaseStart, "running")
+	plan.Assets = mixedAssets
 	execContainer(t, ctx, container, "printf writable >/netlab-marker; printf durable >/usr/share/nginx/html/data-marker")
 	updated := assets[2]
 	updated.Asset.Resources.Cpu = 2
