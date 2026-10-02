@@ -373,7 +373,7 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 			return "unknown", err
 		}
 		if status.Status == containerd.Stopped {
-			if err = c.disconnect(ctx, a); err != nil {
+			if err = c.disconnect(ctx, env, a); err != nil {
 				return "stopped", err
 			}
 			if _, err = task.Delete(ctx); err != nil {
@@ -399,7 +399,7 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 	// NewTask is the OCI created state. The entrypoint cannot run until all
 	// business interfaces, addresses, routes and DNS are ready.
 	if err = c.connect(ctx, task.Pid(), env, a); err != nil {
-		cleanup := errors.Join(c.disconnect(context.WithoutCancel(ctx), a), deleteCreated(context.WithoutCancel(ctx), task))
+		cleanup := errors.Join(c.disconnect(context.WithoutCancel(ctx), env, a), deleteCreated(context.WithoutCancel(ctx), task))
 		return "stopped", errors.Join(err, cleanup)
 	}
 	if err = task.Start(ctx); err != nil {
@@ -421,7 +421,7 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 	}
 	task, err := container.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		return c.disconnect(ctx, a)
+		return c.disconnect(ctx, labels[environmentLabel], a)
 	}
 	if err != nil {
 		return err
@@ -470,7 +470,7 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 	if _, err = task.Delete(ctx); err != nil {
 		return err
 	}
-	return c.disconnect(ctx, a)
+	return c.disconnect(ctx, labels[environmentLabel], a)
 }
 func containerState(ctx context.Context, c containerd.Container) (string, error) {
 	t, err := c.Task(ctx, nil)
