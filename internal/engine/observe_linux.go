@@ -141,11 +141,37 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 		return nil, err
 	}
 	execution.Asset.Resources.MemoryMiB = int64(info.MaxMem) / 1024
-	disk, err := domain.GetBlockInfo(config.Devices.Disks[0].Source.File.File, 0)
-	if err != nil {
-		return nil, err
+	execution.Asset.Resources.DiskGiB = 0
+	for index, definition := range *execution.Template.Disks {
+		disk, err := domainDisk(config, definition.Id)
+		if err != nil {
+			return nil, err
+		}
+		info, err := domain.GetBlockInfo(disk.Source.File.File, 0)
+		if err != nil {
+			return nil, err
+		}
+		definition.SizeGiB = (int64(info.Capacity) + (1 << 30) - 1) / (1 << 30)
+		definition.Bus = api.TemplateDiskBus(disk.Target.Bus)
+		if disk.Address != nil && disk.Address.Drive != nil && disk.Address.Drive.Controller != nil {
+			definition.ControllerIndex = ptr(int(*disk.Address.Drive.Controller))
+			if disk.Address.Drive.Unit != nil {
+				unit := int(*disk.Address.Drive.Unit)
+				if definition.Bus == api.Ide && disk.Address.Drive.Bus != nil {
+					unit += int(*disk.Address.Drive.Bus) * 2
+				}
+				definition.ControllerUnit = &unit
+			}
+			for _, controller := range config.Devices.Controllers {
+				if controller.Type == string(definition.Bus) && controller.Index != nil && *controller.Index == *disk.Address.Drive.Controller && controller.Model != "" {
+					definition.ControllerModel = ptr(controller.Model)
+				}
+			}
+		}
+		(*execution.Template.Disks)[index] = definition
+		execution.Asset.Resources.DiskGiB += definition.SizeGiB
 	}
-	execution.Asset.Resources.DiskGiB = (int64(disk.Capacity) + (1 << 30) - 1) / (1 << 30)
+	hardware.DiskController = (*execution.Template.Disks)[0].ControllerModel
 	if execution.Asset.Volumes != nil {
 		for index, volume := range *execution.Asset.Volumes {
 			info, err := domain.GetBlockInfo(v.volumePath(owner.Environment, owner.Asset, volume.Id), 0)
@@ -159,5 +185,10 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 		execution.Interfaces[index].Mac = iface.MAC.Address
 		execution.Interfaces[index].PortName = iface.VirtualPort.Params.OpenVSwitch.InterfaceID
 	}
+	nics := make([]string, len(config.Devices.Interfaces))
+	for index, iface := range config.Devices.Interfaces {
+		nics[index] = iface.Model.Type
+	}
+	execution.Template.NicModels = &nics
 	return &execution, nil
 }

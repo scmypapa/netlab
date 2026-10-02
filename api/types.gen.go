@@ -78,6 +78,7 @@ const (
 	HardwareNicModelE1000e  HardwareNicModel = "e1000e"
 	HardwareNicModelRtl8139 HardwareNicModel = "rtl8139"
 	HardwareNicModelVirtio  HardwareNicModel = "virtio"
+	HardwareNicModelVmxnet3 HardwareNicModel = "vmxnet3"
 )
 
 // Defines values for NodePlanPhase.
@@ -126,6 +127,7 @@ const (
 	Iso    TemplateFormat = "iso"
 	Oci    TemplateFormat = "oci"
 	Ova    TemplateFormat = "ova"
+	Ovf    TemplateFormat = "ovf"
 	Qcow2  TemplateFormat = "qcow2"
 	Raw    TemplateFormat = "raw"
 	Vmdk   TemplateFormat = "vmdk"
@@ -136,6 +138,14 @@ const (
 	Failed    TemplateState = "failed"
 	Importing TemplateState = "importing"
 	Ready     TemplateState = "ready"
+)
+
+// Defines values for TemplateDiskBus.
+const (
+	Ide    TemplateDiskBus = "ide"
+	Sata   TemplateDiskBus = "sata"
+	Scsi   TemplateDiskBus = "scsi"
+	Virtio TemplateDiskBus = "virtio"
 )
 
 // Defines values for TemplateKind.
@@ -349,16 +359,17 @@ type ExecutionResult struct {
 
 // Hardware defines model for Hardware.
 type Hardware struct {
-	CpuModel     *string          `json:"cpuModel,omitempty"`
-	DiskBus      HardwareDiskBus  `json:"diskBus"`
-	Firmware     HardwareFirmware `json:"firmware"`
-	FirmwareCode *string          `json:"firmwareCode,omitempty"`
-	FirmwareVars *string          `json:"firmwareVars,omitempty"`
-	GuestAgent   *bool            `json:"guestAgent,omitempty"`
-	Machine      string           `json:"machine"`
-	NicModel     HardwareNicModel `json:"nicModel"`
-	SecureBoot   *bool            `json:"secureBoot,omitempty"`
-	Tpm          *bool            `json:"tpm,omitempty"`
+	CpuModel       *string          `json:"cpuModel,omitempty"`
+	DiskBus        HardwareDiskBus  `json:"diskBus"`
+	DiskController *string          `json:"diskController,omitempty"`
+	Firmware       HardwareFirmware `json:"firmware"`
+	FirmwareCode   *string          `json:"firmwareCode,omitempty"`
+	FirmwareVars   *string          `json:"firmwareVars,omitempty"`
+	GuestAgent     *bool            `json:"guestAgent,omitempty"`
+	Machine        string           `json:"machine"`
+	NicModel       HardwareNicModel `json:"nicModel"`
+	SecureBoot     *bool            `json:"secureBoot,omitempty"`
+	Tpm            *bool            `json:"tpm,omitempty"`
 }
 
 // HardwareDiskBus defines model for Hardware.DiskBus.
@@ -546,12 +557,14 @@ type SaveBlueprintVersion struct {
 
 // Template defines model for Template.
 type Template struct {
+	Disks     *[]TemplateDisk `json:"disks,omitempty"`
 	Error     *string         `json:"error,omitempty"`
 	Format    *TemplateFormat `json:"format,omitempty"`
 	Hardware  *Hardware       `json:"hardware,omitempty"`
 	Id        string          `json:"id"`
 	Kind      TemplateKind    `json:"kind"`
 	Name      string          `json:"name"`
+	NicModels *[]string       `json:"nicModels,omitempty"`
 	Os        string          `json:"os"`
 	Resources Resources       `json:"resources"`
 	Source    string          `json:"source"`
@@ -565,6 +578,20 @@ type TemplateFormat string
 
 // TemplateState defines model for Template.State.
 type TemplateState string
+
+// TemplateDisk defines model for TemplateDisk.
+type TemplateDisk struct {
+	BootOrder       int             `json:"bootOrder"`
+	Bus             TemplateDiskBus `json:"bus"`
+	ControllerIndex *int            `json:"controllerIndex,omitempty"`
+	ControllerModel *string         `json:"controllerModel,omitempty"`
+	ControllerUnit  *int            `json:"controllerUnit,omitempty"`
+	Id              string          `json:"id"`
+	SizeGiB         int64           `json:"sizeGiB"`
+}
+
+// TemplateDiskBus defines model for TemplateDisk.Bus.
+type TemplateDiskBus string
 
 // TemplateKind defines model for TemplateKind.
 type TemplateKind string
