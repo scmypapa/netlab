@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/coder/websocket"
 	"netlab.local/core/db/queries"
@@ -12,7 +13,7 @@ import (
 	"netlab.local/core/internal/stream"
 )
 
-type consoleOwner struct{ principal, environment string }
+type consoleOwner struct{ principal, environment, asset, credential string }
 
 func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	id, asset := r.PathValue("id"), r.PathValue("assetId")
@@ -41,7 +42,7 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 	if s.consoles == nil {
 		s.consoles = map[*websocket.Conn]consoleOwner{}
 	}
-	s.consoles[backend] = consoleOwner{identity.Principal.ID, id}
+	s.consoles[backend] = consoleOwner{identity.Principal.ID, id, asset, credential(r)}
 	s.consoleMu.Unlock()
 	defer func() { s.consoleMu.Lock(); delete(s.consoles, backend); s.consoleMu.Unlock() }()
 	// Register before re-reading grants, so a concurrent revocation cannot miss this socket.
@@ -52,6 +53,12 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 	if _, err = s.Environments.Authorized(r.Context(), identity, id, "session", asset); err != nil {
 		return err
 	}
+	if identity.ExpiresAt != nil {
+		timer := time.AfterFunc(time.Until(*identity.ExpiresAt), func() {
+			backend.Close(websocket.StatusPolicyViolation, "访问凭据已到期")
+		})
+		defer timer.Stop()
+	}
 	frontend, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"binary"}})
 	if err != nil {
 		return nil
@@ -61,18 +68,4 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 	backend.SetReadLimit(1 << 20)
 	stream.Relay(r.Context(), frontend, backend)
 	return nil
-}
-
-func (s *Server) disconnectSessions(principalID, environmentID string) {
-	s.consoleMu.Lock()
-	var connections []*websocket.Conn
-	for connection, owner := range s.consoles {
-		if (principalID == "" || owner.principal == principalID) && (environmentID == "" || owner.environment == environmentID) {
-			connections = append(connections, connection)
-		}
-	}
-	s.consoleMu.Unlock()
-	for _, connection := range connections {
-		connection.Close(websocket.StatusPolicyViolation, "访问授权已更新")
-	}
 }

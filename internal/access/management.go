@@ -332,23 +332,23 @@ func environmentGrant(g queries.Grant) api.EnvironmentGrant {
 	return result
 }
 
-func (s Service) ReplaceSharing(ctx context.Context, identity Identity, id string, input []api.EnvironmentGrant) ([]string, error) {
+func (s Service) ReplaceSharing(ctx context.Context, identity Identity, id string, input []api.EnvironmentGrant) error {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
 	e, err := q.LockEnvironment(ctx, id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !identity.Allows("manage", e.ProjectID, id, "", e.OwnerID) {
-		return nil, ErrForbidden
+		return ErrForbidden
 	}
 	before, err := q.ListEnvironmentGrants(ctx, id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	grants := map[string]queries.PutGrantParams{}
 	existing := map[string][]string{}
@@ -363,20 +363,20 @@ func (s Service) ReplaceSharing(ctx context.Context, identity Identity, id strin
 	ids = slices.Compact(ids)
 	principals, err := q.LockPrincipals(ctx, ids)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(principals) != len(ids) {
-		return nil, pgx.ErrNoRows
+		return pgx.ErrNoRows
 	}
 	for _, g := range input {
 		permissions, validation := validPermissions(g.Permissions)
 		if validation != nil {
-			return nil, validation
+			return validation
 		}
 		kind, scopes := "environment", []string{id}
 		if g.AssetIds != nil && len(*g.AssetIds) > 0 {
 			if err = checkAssets(e, *g.AssetIds); err != nil {
-				return nil, err
+				return err
 			}
 			kind, scopes = "asset", []string{}
 			for _, asset := range *g.AssetIds {
@@ -386,7 +386,7 @@ func (s Service) ReplaceSharing(ctx context.Context, identity Identity, id strin
 		for _, scope := range scopes {
 			key := g.PrincipalId + "/" + scope
 			if _, exists := grants[key]; exists {
-				return nil, InputError("同一主体的授权范围重复")
+				return InputError("同一主体的授权范围重复")
 			}
 			asset := ""
 			if kind == "asset" {
@@ -394,34 +394,19 @@ func (s Service) ReplaceSharing(ctx context.Context, identity Identity, id strin
 			}
 			for _, permission := range permissions {
 				if !identity.Allows(permission, e.ProjectID, id, asset, e.OwnerID) && !slices.Contains(existing[key], permission) {
-					return nil, ErrForbidden
+					return ErrForbidden
 				}
 			}
 			grants[key] = queries.PutGrantParams{PrincipalID: g.PrincipalId, ScopeKind: kind, ScopeID: scope, Permissions: permissions}
 		}
 	}
 	if err = q.DeleteEnvironmentGrants(ctx, id); err != nil {
-		return nil, err
+		return err
 	}
 	for _, g := range grants {
 		if err = q.PutGrant(ctx, g); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	disconnect := []string{}
-	for _, g := range before {
-		if !slices.Contains(g.Permissions, "session") {
-			continue
-		}
-		newGrant := grants[g.PrincipalID+"/"+g.ScopeID]
-		all := grants[g.PrincipalID+"/"+id]
-		if !slices.Contains(newGrant.Permissions, "session") && !slices.Contains(all.Permissions, "session") {
-			disconnect = append(disconnect, g.PrincipalID)
-		}
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	slices.Sort(disconnect)
-	return slices.Compact(disconnect), nil
+	return tx.Commit(ctx)
 }

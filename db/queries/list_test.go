@@ -50,7 +50,7 @@ func TestListCursorsAndFilters(t *testing.T) {
 		}
 	}
 	t.Run("environment summary cursor and authorization", func(t *testing.T) {
-		params := queries.ListEnvironmentsParams{PrincipalID: &owner, Search: prefix, PageLimit: 100}
+		params := queries.ListEnvironmentsParams{PrincipalID: &owner, IsUser: true, Search: prefix, PageLimit: 100}
 		first, err := q.ListEnvironments(ctx, params)
 		if err != nil || len(first) != 100 {
 			t.Fatalf("first page: count=%d error=%v", len(first), err)
@@ -104,7 +104,7 @@ func TestListCursorsAndFilters(t *testing.T) {
 		}
 	})
 	t.Run("blueprint cursor and ownership", func(t *testing.T) {
-		params := queries.ListBlueprintsParams{PrincipalID: &owner, Search: prefix, PageLimit: 100}
+		params := queries.ListBlueprintsParams{PrincipalID: &owner, IsUser: true, Search: prefix, PageLimit: 100}
 		first, err := q.ListBlueprints(ctx, params)
 		if err != nil || len(first) != 100 || first[99].ID != prefix+"006" {
 			t.Fatalf("first page: count=%d error=%v", len(first), err)

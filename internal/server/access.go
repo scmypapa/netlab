@@ -53,9 +53,6 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, identity acc
 	if err := s.Access.UpdateUser(r.Context(), identity, id, input); err != nil {
 		return err
 	}
-	if input.Disabled || input.Password != nil {
-		s.disconnectSessions(id, "")
-	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -77,7 +74,6 @@ func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request, identity ac
 	if err := s.Access.RevokeToken(r.Context(), identity, id); err != nil {
 		return err
 	}
-	s.disconnectSessions(id, "")
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -96,12 +92,8 @@ func (s *Server) replaceSharing(w http.ResponseWriter, r *http.Request, identity
 		return err
 	}
 	id := r.PathValue("id")
-	disconnect, err := s.Access.ReplaceSharing(r.Context(), identity, id, input)
-	if err != nil {
+	if err := s.Access.ReplaceSharing(r.Context(), identity, id, input); err != nil {
 		return err
-	}
-	for _, principal := range disconnect {
-		s.disconnectSessions(principal, id)
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil

@@ -143,7 +143,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			state = "running"
 		}
 		execution := api.AssetExecution{Asset: a, Template: t, InstanceId: uuid.NewString(), Interfaces: environment.Resolve(p.Spec, a, nics)}
-		replace := exists && (old.Execution.Template.Id != t.Id || old.Execution.Template.Version != t.Version || op.Kind == "rebuild" && (op.AssetID == nil || *op.AssetID == a.Id))
+		replace := exists && (environment.RequiresReplacement(t, old.Execution.Asset, a, !reflect.DeepEqual(old.Execution.Interfaces, execution.Interfaces)) || old.Execution.Template.Version != t.Version || op.Kind == "rebuild" && (op.AssetID == nil || *op.AssetID == a.Id))
 		if !exists || replace {
 			if replace {
 				previous := old.Execution.InstanceId

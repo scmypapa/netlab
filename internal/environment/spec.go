@@ -236,6 +236,11 @@ func RequiresStop(kind api.TemplateKind, before, after api.Asset) bool {
 	return string(kind) == "vm" || !reflect.DeepEqual(before, after)
 }
 
+func RequiresReplacement(template api.Template, before, after api.Asset, networkChanged bool) bool {
+	return before.TemplateId != after.TemplateId || !reflect.DeepEqual(before.Guest, after.Guest) ||
+		(template.Initialization != nil && *template.Initialization == "cloudbase-init" && networkChanged)
+}
+
 func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]api.Template) api.ChangePreview {
 	result := api.ChangePreview{Revision: revision, Changes: []api.ChangeItem{}}
 	oldAssets := map[string]api.Asset{}
@@ -254,12 +259,17 @@ func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]
 				continue
 			}
 			effect = api.Update
-			if old.TemplateId != a.TemplateId {
+			if RequiresReplacement(templates[a.TemplateId], old, a, networkChanged) {
 				effect = api.Replace
 			}
 		}
 		needsStop := ok && (effect == api.Replace || networkChanged || RequiresStop(templates[a.TemplateId].Kind, old, a))
-		result.Changes = append(result.Changes, api.ChangeItem{Id: a.Id, Name: a.Name, Kind: api.ChangeItemKindAsset, Effect: effect, RequiresStop: &needsStop})
+		item := api.ChangeItem{Id: a.Id, Name: a.Name, Kind: api.ChangeItemKindAsset, Effect: effect, RequiresStop: &needsStop}
+		if effect == api.Replace {
+			impact := "重建系统盘，保留数据卷"
+			item.DataEffect = &impact
+		}
+		result.Changes = append(result.Changes, item)
 	}
 	for _, a := range oldAssets {
 		stop := true

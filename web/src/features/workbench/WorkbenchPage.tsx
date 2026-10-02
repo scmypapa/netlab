@@ -32,6 +32,7 @@ import { TopologyCanvas } from "./TopologyCanvas";
 import { connectAsset, networkColors, topology } from "./topology";
 import { useWorkbench } from "./useWorkbench";
 import { consoleKey, type ConsoleTab } from "./consoles";
+import { allows } from "../access/permissions";
 
 const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 
@@ -55,9 +56,9 @@ export function WorkbenchPage() {
     id: string;
   }>();
   const environment = workbench.environment.data;
-  const canCompose = environment?.permissions?.includes("compose");
-  const canOperate = environment?.permissions?.includes("operate");
-  const canManage = environment?.permissions?.includes("manage");
+  const canCompose = allows(environment, "compose");
+  const canOperate = allows(environment, "operate");
+  const canManage = allows(environment, "manage");
   const templates = workbench.templates.data ?? [];
   const spec = workbench.editing
     ? workbench.spec
@@ -571,9 +572,10 @@ export function WorkbenchPage() {
               selection={selection}
               onSelect={setSelection}
               editing={workbench.editing}
-              onPosition={(positions) =>
-                workbench.saveView.mutate({ ...environment.view, positions })
-              }
+              onPosition={(positions) => {
+                if (canCompose)
+                  workbench.saveView.mutate({ ...environment.view, positions });
+              }}
               onConnect={({ source, target }) => {
                 const assetId = spec.assets.some((item) => item.id === source)
                   ? source
@@ -604,6 +606,8 @@ export function WorkbenchPage() {
             state={workbench.state.data}
             editing={workbench.editing}
             busy={busy}
+            canOperate={allows(environment, "operate", asset?.id)}
+            canConnect={allows(environment, "session", asset?.id)}
             onClose={() => setSelection(undefined)}
             onEdit={editObject}
             onRemove={remove}
@@ -781,13 +785,15 @@ export function WorkbenchPage() {
               </Menu.Item>
             </>
           ) : (
-            <Menu.Item
-              leftSection={<Pencil size={15} />}
-              disabled={busy}
-              onClick={workbench.beginEdit}
-            >
-              调整环境
-            </Menu.Item>
+            canCompose && (
+              <Menu.Item
+                leftSection={<Pencil size={15} />}
+                disabled={busy}
+                onClick={workbench.beginEdit}
+              >
+                调整环境
+              </Menu.Item>
+            )
           )}
         </Menu.Dropdown>
       </Menu>

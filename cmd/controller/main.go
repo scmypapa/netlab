@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -60,25 +61,29 @@ func run() error {
 		webDirectory = "web/dist"
 	}
 	controller := server.New(pool, nodes, server.StaticFiles(webDirectory))
+	defer controller.Close()
+	watchAccess, err := controller.AccessUpdates(ctx)
+	if err != nil {
+		return err
+	}
 	worker := operation.Worker{Pool: pool, Queries: q, Client: nodes}
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()
-	httpServer := &http.Server{Addr: address, Handler: controller.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	failed := make(chan error, 1)
+	httpServer := &http.Server{Addr: address, Handler: controller.Handler(), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	failed := make(chan error, 2)
+	go func() { failed <- watchAccess() }()
 	go func() { slog.Info("controller listening", "address", address); failed <- httpServer.ListenAndServe() }()
 	select {
 	case err = <-failed:
-		stop()
-		<-workerDone
-		if !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-		return nil
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		err = httpServer.Shutdown(shutdown)
-		<-workerDone
-		return err
 	}
+	stop()
+	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	shutdownErr := httpServer.Shutdown(shutdown)
+	<-workerDone
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
+		err = nil
+	}
+	return errors.Join(err, shutdownErr)
 }

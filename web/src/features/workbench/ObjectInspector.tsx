@@ -36,6 +36,8 @@ export function ObjectInspector({
   state,
   editing,
   busy,
+  canOperate,
+  canConnect,
   onClose,
   onEdit,
   onRemove,
@@ -51,6 +53,8 @@ export function ObjectInspector({
   state?: EnvironmentState;
   editing: boolean;
   busy: boolean;
+  canOperate: boolean;
+  canConnect: boolean;
   onClose: () => void;
   onEdit: () => void;
   onRemove: () => void;
@@ -91,7 +95,7 @@ export function ObjectInspector({
           {network && <span className="muted mono">{network.cidr}</span>}
         </div>
       </div>
-      {(editing || assetState) && (
+      {(editing || (assetState && (canOperate || canConnect))) && (
         <div className="inspector-actions">
           {editing ? (
             <Button
@@ -102,7 +106,8 @@ export function ObjectInspector({
               编辑
             </Button>
           ) : (
-            asset && (
+            asset &&
+            (assetState?.state === "stopped" ? canOperate : canConnect) && (
               <Button
                 variant="default"
                 leftSection={
@@ -133,7 +138,9 @@ export function ObjectInspector({
               </Button>
             )
           )}
-          {(editing || asset) && (
+          {(editing ||
+            (asset &&
+              (canOperate || (canConnect && template?.kind === "vm")))) && (
             <Menu position="bottom-end">
               <Menu.Target>
                 <ActionIcon variant="default" aria-label="对象操作">
@@ -169,7 +176,7 @@ export function ObjectInspector({
                 ) : (
                   asset && (
                     <>
-                      {template?.kind === "vm" && (
+                      {canConnect && template?.kind === "vm" && (
                         <Menu.Item
                           leftSection={<SquareTerminal size={15} />}
                           disabled={assetState?.state === "stopped"}
@@ -178,50 +185,56 @@ export function ObjectInspector({
                           串口控制台
                         </Menu.Item>
                       )}
-                      <Menu.Item
-                        leftSection={<Power size={15} />}
-                        disabled={busy}
-                        onClick={() =>
-                          onAction(
-                            assetState?.state === "stopped" ? "start" : "stop",
-                          )
-                        }
-                      >
-                        {assetState?.state === "stopped"
-                          ? "启动"
-                          : template?.kind === "vm"
-                            ? "关机"
-                            : "停止"}
-                      </Menu.Item>
-                      <Menu.Item
-                        leftSection={<RotateCcw size={15} />}
-                        disabled={busy}
-                        onClick={() => onAction("reboot")}
-                      >
-                        重启
-                      </Menu.Item>
-                      <Menu.Item
-                        disabled={busy}
-                        onClick={() =>
-                          onAction(
-                            assetState?.state === "suspended"
-                              ? "resume"
-                              : "suspend",
-                          )
-                        }
-                      >
-                        {assetState?.state === "suspended"
-                          ? "继续运行"
-                          : "暂停"}
-                      </Menu.Item>
-                      <Menu.Divider />
-                      <Menu.Item
-                        color="red"
-                        disabled={busy}
-                        onClick={() => onAction("force-stop")}
-                      >
-                        强制停止
-                      </Menu.Item>
+                      {canOperate && (
+                        <>
+                          <Menu.Item
+                            leftSection={<Power size={15} />}
+                            disabled={busy}
+                            onClick={() =>
+                              onAction(
+                                assetState?.state === "stopped"
+                                  ? "start"
+                                  : "stop",
+                              )
+                            }
+                          >
+                            {assetState?.state === "stopped"
+                              ? "启动"
+                              : template?.kind === "vm"
+                                ? "关机"
+                                : "停止"}
+                          </Menu.Item>
+                          <Menu.Item
+                            leftSection={<RotateCcw size={15} />}
+                            disabled={busy}
+                            onClick={() => onAction("reboot")}
+                          >
+                            重启
+                          </Menu.Item>
+                          <Menu.Item
+                            disabled={busy}
+                            onClick={() =>
+                              onAction(
+                                assetState?.state === "suspended"
+                                  ? "resume"
+                                  : "suspend",
+                              )
+                            }
+                          >
+                            {assetState?.state === "suspended"
+                              ? "继续运行"
+                              : "暂停"}
+                          </Menu.Item>
+                          <Menu.Divider />
+                          <Menu.Item
+                            color="red"
+                            disabled={busy}
+                            onClick={() => onAction("force-stop")}
+                          >
+                            强制停止
+                          </Menu.Item>
+                        </>
+                      )}
                     </>
                   )
                 )}
