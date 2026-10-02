@@ -562,6 +562,91 @@ a.object-link:hover strong {
   color: var(--accent);
   background: var(--accent-soft);
 }
+.hardware-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.template-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.template-detail-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.template-detail-heading h2 {
+  margin: 0 0 4px;
+  font-size: 19px;
+  overflow-wrap: anywhere;
+}
+.template-detail-heading > div > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.template-specs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.template-specs > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.template-specs strong {
+  font-size: 19px;
+  font-weight: 600;
+}
+.template-specs span,
+.template-detail-section h3 {
+  font-size: 13px;
+  color: var(--muted);
+}
+.template-detail-section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.template-detail-section h3 {
+  margin: 0 0 14px;
+  font-weight: 500;
+}
+.template-meta {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.template-meta dt {
+  color: var(--muted);
+}
+.template-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.template-disks > div {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 13px;
+}
+.template-disks > div > span {
+  color: var(--muted);
+}
+.template-failure {
+  color: var(--negative);
+  background: color-mix(in srgb, var(--negative) 8%, var(--surface));
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 20px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
 .disclosure {
   padding: 12px 0;
   border: 0;
