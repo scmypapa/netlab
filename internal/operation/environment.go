@@ -485,6 +485,9 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
+	if err = q.DeleteUnusedVPNAliases(ctx, *op.EnvironmentID); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
 	if p.Gateway != nil {
 		if err = commitServices(ctx, q, *op.EnvironmentID, p.BeforeBindings); err != nil {
 			return fmt.Errorf("%w: %v", errPersistence, err)

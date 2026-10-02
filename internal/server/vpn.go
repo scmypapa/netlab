@@ -2,9 +2,10 @@ package server
 
 import (
 	"net/http"
+	"strconv"
+
 	"netlab.local/core/api"
 	"netlab.local/core/internal/access"
-	"strconv"
 )
 
 func (s *Server) listVPN(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
