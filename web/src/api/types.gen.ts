@@ -146,6 +146,94 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/blueprints": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["saveEnvironmentBlueprint"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/blueprints": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listBlueprints"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/blueprints/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["getBlueprint"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/blueprints/{id}/versions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["listBlueprintVersions"];
+    put?: never;
+    post: operations["saveBlueprintVersion"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/blueprint-versions/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["getBlueprintVersion"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/assets/{assetId}/actions": {
     parameters: {
       query?: never;
@@ -410,6 +498,7 @@ export interface components {
       projectId: string;
       name: string;
       externalReference?: string;
+      blueprintVersionId?: string;
       revision: number;
       /** @enum {string} */
       status:
@@ -552,7 +641,45 @@ export interface components {
       blueprintVersionId?: string;
       clientRequestId?: string;
       run?: boolean;
+      spec?: components["schemas"]["EnvironmentSpec"];
+    };
+    SaveBlueprint: {
+      name: string;
+      expectedRevision: number;
       spec: components["schemas"]["EnvironmentSpec"];
+    };
+    SaveBlueprintVersion: {
+      environmentId: string;
+      expectedRevision: number;
+      spec: components["schemas"]["EnvironmentSpec"];
+    };
+    Blueprint: {
+      id: string;
+      projectId: string;
+      name: string;
+      latestVersionId: string;
+      latestVersion: number;
+      assetCount: number;
+      networkCount: number;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    BlueprintVersionSummary: {
+      id: string;
+      blueprintId: string;
+      version: number;
+      assetCount: number;
+      networkCount: number;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    BlueprintVersion: components["schemas"]["BlueprintVersionSummary"] & {
+      spec: components["schemas"]["EnvironmentSpec"];
+      view: components["schemas"]["CanvasView"];
+      sourceEnvironmentId: string;
+      sourceRevision: number;
     };
     ActionRequest: {
       /** @enum {string} */
@@ -845,6 +972,150 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  saveEnvironmentBlueprint: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SaveBlueprint"];
+      };
+    };
+    responses: {
+      /** @description Saved */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Blueprint"];
+        };
+      };
+    };
+  };
+  listBlueprints: {
+    parameters: {
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Environment blueprints */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Blueprint"][];
+        };
+      };
+    };
+  };
+  getBlueprint: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Blueprint */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Blueprint"];
+        };
+      };
+    };
+  };
+  listBlueprintVersions: {
+    parameters: {
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Immutable blueprint versions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BlueprintVersionSummary"][];
+        };
+      };
+    };
+  };
+  saveBlueprintVersion: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SaveBlueprintVersion"];
+      };
+    };
+    responses: {
+      /** @description Saved */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BlueprintVersion"];
+        };
+      };
+    };
+  };
+  getBlueprintVersion: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Blueprint version */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BlueprintVersion"];
+        };
       };
     };
   };

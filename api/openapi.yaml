@@ -62,6 +62,43 @@ paths:
     delete:
       operationId: discardDraft
       responses: {'204': {description: Discarded}}
+  /environments/{id}/blueprints:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: saveEnvironmentBlueprint
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SaveBlueprint'}}}}
+      responses:
+        '201': {description: Saved, content: {application/json: {schema: {$ref: '#/components/schemas/Blueprint'}}}}
+  /blueprints:
+    get:
+      operationId: listBlueprints
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Environment blueprints, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Blueprint'}}}}}
+  /blueprints/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getBlueprint
+      responses:
+        '200': {description: Blueprint, content: {application/json: {schema: {$ref: '#/components/schemas/Blueprint'}}}}
+  /blueprints/{id}/versions:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listBlueprintVersions
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Immutable blueprint versions, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/BlueprintVersionSummary'}}}}}
+    post:
+      operationId: saveBlueprintVersion
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SaveBlueprintVersion'}}}}
+      responses:
+        '201': {description: Saved, content: {application/json: {schema: {$ref: '#/components/schemas/BlueprintVersion'}}}}
+  /blueprint-versions/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getBlueprintVersion
+      responses:
+        '200': {description: Blueprint version, content: {application/json: {schema: {$ref: '#/components/schemas/BlueprintVersion'}}}}
   /environments/{id}/assets/{assetId}/actions:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -280,6 +317,7 @@ components:
         projectId: {type: string}
         name: {type: string}
         externalReference: {type: string}
+        blueprintVersionId: {type: string}
         revision: {type: integer}
         status: {type: string, enum: [draft, deploying, running, stopped, suspended, changing, destroying, destroyed, failed, unknown]}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
@@ -399,7 +437,7 @@ components:
         firmware: {type: array, items: {type: string}}
     CreateEnvironment:
       type: object
-      required: [name, spec]
+      required: [name]
       properties:
         name: {type: string}
         projectId: {type: string}
@@ -408,6 +446,53 @@ components:
         clientRequestId: {type: string}
         run: {type: boolean}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    SaveBlueprint:
+      type: object
+      required: [name, expectedRevision, spec]
+      properties:
+        name: {type: string}
+        expectedRevision: {type: integer, minimum: 0}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    SaveBlueprintVersion:
+      type: object
+      required: [environmentId, expectedRevision, spec]
+      properties:
+        environmentId: {type: string}
+        expectedRevision: {type: integer, minimum: 0}
+        spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+    Blueprint:
+      type: object
+      required: [id, projectId, name, latestVersionId, latestVersion, assetCount, networkCount, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        projectId: {type: string}
+        name: {type: string}
+        latestVersionId: {type: string}
+        latestVersion: {type: integer}
+        assetCount: {type: integer}
+        networkCount: {type: integer}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    BlueprintVersionSummary:
+      type: object
+      required: [id, blueprintId, version, assetCount, networkCount, createdAt]
+      properties:
+        id: {type: string}
+        blueprintId: {type: string}
+        version: {type: integer}
+        assetCount: {type: integer}
+        networkCount: {type: integer}
+        createdAt: {type: string, format: date-time}
+    BlueprintVersion:
+      allOf:
+        - {$ref: '#/components/schemas/BlueprintVersionSummary'}
+        - type: object
+          required: [spec, view, sourceEnvironmentId, sourceRevision]
+          properties:
+            spec: {$ref: '#/components/schemas/EnvironmentSpec'}
+            view: {$ref: '#/components/schemas/CanvasView'}
+            sourceEnvironmentId: {type: string}
+            sourceRevision: {type: integer}
     ActionRequest:
       type: object
       required: [action]
