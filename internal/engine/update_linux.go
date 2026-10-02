@@ -5,7 +5,10 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 
@@ -145,6 +148,20 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 	if err = current.Unmarshal(currentText); err != nil {
 		return "unknown", err
 	}
+	var ownership Ownership
+	if err = xml.Unmarshal([]byte(current.Metadata.XML), &ownership); err != nil {
+		return "unknown", err
+	}
+	var installed api.AssetExecution
+	if err = json.Unmarshal([]byte(ownership.Execution), &installed); err != nil {
+		return "unknown", err
+	}
+	if initializationMethod(installed.Template) != initializationMethod(a.Template) || !reflect.DeepEqual(installed.Asset.Guest, a.Asset.Guest) {
+		return "stopped", fmt.Errorf("guest initialization identity changes require replacing the virtual machine")
+	}
+	if initializationMethod(a.Template) == api.CloudbaseInit && !reflect.DeepEqual(installed.Interfaces, a.Interfaces) {
+		return "stopped", fmt.Errorf("Cloudbase-Init network changes require replacing the virtual machine; its network plugin runs once per instance")
+	}
 	desiredText, err := DomainXML(env, instanceDir(v.data, env, a.InstanceId), v.bridge, a)
 	if err != nil {
 		return "unknown", err
@@ -186,6 +203,13 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 			return "stopped", err
 		}
 	}
+	media, err := stageInitialization(ctx, instanceDir(v.data, env, a.InstanceId), a)
+	if err != nil {
+		return "stopped", err
+	}
+	if media != "" {
+		defer os.RemoveAll(filepath.Dir(media))
+	}
 	desiredText, err = desired.Marshal()
 	if err != nil {
 		return "unknown", err
@@ -195,5 +219,10 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 		return "unknown", err
 	}
 	defer updated.Free()
+	if media != "" {
+		if err = os.Rename(media, filepath.Join(instanceDir(v.data, env, a.InstanceId), "initialization.iso")); err != nil {
+			return "stopped", err
+		}
+	}
 	return vmState(updated)
 }

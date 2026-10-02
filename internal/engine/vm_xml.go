@@ -137,6 +137,14 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 			}
 		}
 	}
+	if initializationMethod(a.Template) != api.None {
+		if err := appendDisk(filepath.Join(directory, "initialization.iso"), api.TemplateDisk{Id: "initialization", Bus: api.Sata}, false); err != nil {
+			return "", err
+		}
+		media := &d.Devices.Disks[len(d.Devices.Disks)-1]
+		media.Device, media.Driver.Type, media.Serial = "cdrom", "raw", ""
+		media.ReadOnly = &libvirtxml.DomainDiskReadOnly{}
+	}
 	for index, i := range a.Interfaces {
 		model := string(h.NicModel)
 		if a.Template.NicModels != nil && index < len(*a.Template.NicModels) {
