@@ -20,6 +20,24 @@ func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 	if err != nil {
 		return err
 	}
+	if plan.Gateway != nil {
+		var router *Router
+		for _, item := range models {
+			if current, ok := item.(*Router); ok {
+				router = current
+				break
+			}
+		}
+		if router == nil {
+			router = &Router{UUID: "router", Name: objectName("lr", plan.EnvironmentId, "gateway"), ExternalIDs: ownership(plan.EnvironmentId)}
+			models = append(models, router)
+		}
+		gateway, err := gatewayModels(plan, router, n.provider, n.chassis)
+		if err != nil {
+			return err
+		}
+		models = append(models, gateway...)
+	}
 	ops, err := n.deleteOperations(ctx, plan.EnvironmentId)
 	if err != nil {
 		return err
@@ -39,7 +57,7 @@ func (n *OVN) Remove(ctx context.Context, environmentID string) error {
 }
 func (n *OVN) deleteOperations(ctx context.Context, environmentID string) ([]ovsdb.Operation, error) {
 	var ops []ovsdb.Operation
-	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "DHCP_Options", "Logical_Router", "Logical_Router_Port", "Logical_Router_Static_Route", "ACL"} {
+	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "DHCP_Options", "Logical_Router", "Logical_Router_Port", "Logical_Router_Static_Route", "ACL", "Load_Balancer", "Gateway_Chassis"} {
 		v, err := ovsdb.NewOvsMap(map[string]string{"netlab.environment": environmentID})
 		if err != nil {
 			return nil, err

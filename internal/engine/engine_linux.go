@@ -20,6 +20,7 @@ import (
 
 type Config struct {
 	ID, Name, DataDir, ContainerdSocket, LibvirtURI, OVNEndpoint, OVSEndpoint, Bridge string
+	ProviderCIDR                                                                      string
 }
 type Engine struct {
 	cfg       Config
@@ -27,6 +28,7 @@ type Engine struct {
 	vm        *VirtualMachines
 	ovn       *network.OVN
 	ovs       *network.OVS
+	gateway   *network.Gateway
 	slots     chan struct{}
 	mu        sync.Mutex
 	locks     map[string]*objectLock
@@ -37,6 +39,9 @@ type objectLock struct {
 }
 
 func New(ctx context.Context, cfg Config) (*Engine, error) {
+	if cfg.ProviderCIDR == "" {
+		cfg.ProviderCIDR = "100.127.0.0/16"
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0711); err != nil {
 		return nil, err
 	}
@@ -46,6 +51,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 	if e.ovn, err = network.NewOVN(ctx, cfg.OVNEndpoint); err != nil {
+		e.Close()
+		return nil, err
+	}
+	if e.gateway, err = network.NewGateway(ctx, cfg.DataDir, cfg.ID, cfg.ProviderCIDR, e.ovs, e.ovn); err != nil {
 		e.Close()
 		return nil, err
 	}
@@ -74,6 +83,9 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	return e, nil
 }
 func (e *Engine) Close() {
+	if e.gateway != nil {
+		e.gateway.Close()
+	}
 	if e.container != nil {
 		e.container.Close()
 	}
@@ -124,6 +136,7 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 		caps = append(caps, "vm")
 	}
 	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
+	info.ServiceNetwork = ptr(e.gateway.Network())
 	if e.vm != nil {
 		info.VmHardware = &e.vm.hardware
 	}
@@ -133,6 +146,10 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 	unlocked := e.lock(plan.EnvironmentId)
 	defer unlocked()
 	result := api.NodeResult{Results: []api.ExecutionResult{}}
+	if plan.Gateway != nil && (plan.Phase == api.NodePlanPhaseNetwork || plan.Phase == api.NodePlanPhaseServices) && plan.Gateway.NodeId != e.cfg.ID {
+		result.Error = ptr("service gateway plan was sent to another node")
+		return result
+	}
 	switch plan.Phase {
 	case api.NodePlanPhaseNetwork:
 		if err := e.ovn.Apply(ctx, plan); err != nil {
@@ -141,8 +158,16 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		}
 		return result
 	case api.NodePlanPhaseRemoveNetwork:
-		if err := e.ovn.Remove(ctx, plan.EnvironmentId); err != nil {
+		if err := e.gateway.Remove(ctx, plan.EnvironmentId); err != nil {
 			result.Error = ptr(err.Error())
+		}
+		return result
+	case api.NodePlanPhaseServices:
+		services, err := e.gateway.Apply(ctx, plan)
+		if err != nil {
+			result.Error = ptr(err.Error())
+		} else {
+			result.Services = &services
 		}
 		return result
 	}

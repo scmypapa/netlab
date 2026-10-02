@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"log/slog"
+	"net/netip"
 	"reflect"
 	"strings"
 
@@ -38,19 +39,22 @@ type DHCP struct {
 	ExternalIDs map[string]string `ovsdb:"external_ids"`
 }
 type Router struct {
-	UUID        string            `ovsdb:"_uuid"`
-	Name        string            `ovsdb:"name"`
-	Ports       []string          `ovsdb:"ports"`
-	Routes      []string          `ovsdb:"static_routes"`
-	ExternalIDs map[string]string `ovsdb:"external_ids"`
+	UUID          string            `ovsdb:"_uuid"`
+	Name          string            `ovsdb:"name"`
+	Ports         []string          `ovsdb:"ports"`
+	Routes        []string          `ovsdb:"static_routes"`
+	LoadBalancers []string          `ovsdb:"load_balancer"`
+	Options       map[string]string `ovsdb:"options"`
+	ExternalIDs   map[string]string `ovsdb:"external_ids"`
 }
 type RouterPort struct {
-	UUID        string            `ovsdb:"_uuid"`
-	Name        string            `ovsdb:"name"`
-	MAC         string            `ovsdb:"mac"`
-	Networks    []string          `ovsdb:"networks"`
-	IPv6RA      map[string]string `ovsdb:"ipv6_ra_configs"`
-	ExternalIDs map[string]string `ovsdb:"external_ids"`
+	UUID           string            `ovsdb:"_uuid"`
+	Name           string            `ovsdb:"name"`
+	MAC            string            `ovsdb:"mac"`
+	Networks       []string          `ovsdb:"networks"`
+	IPv6RA         map[string]string `ovsdb:"ipv6_ra_configs"`
+	GatewayChassis []string          `ovsdb:"gateway_chassis"`
+	ExternalIDs    map[string]string `ovsdb:"external_ids"`
 }
 type Route struct {
 	UUID        string            `ovsdb:"_uuid"`
@@ -68,9 +72,29 @@ type ACL struct {
 	ExternalIDs map[string]string `ovsdb:"external_ids"`
 }
 type Bridge struct {
-	UUID  string   `ovsdb:"_uuid"`
-	Name  string   `ovsdb:"name"`
-	Ports []string `ovsdb:"ports"`
+	UUID        string            `ovsdb:"_uuid"`
+	Name        string            `ovsdb:"name"`
+	Ports       []string          `ovsdb:"ports"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
+}
+type OpenVSwitch struct {
+	UUID        string            `ovsdb:"_uuid"`
+	Bridges     []string          `ovsdb:"bridges"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
+}
+type LoadBalancer struct {
+	UUID        string            `ovsdb:"_uuid"`
+	Name        string            `ovsdb:"name"`
+	Protocol    *string           `ovsdb:"protocol"`
+	VIPs        map[string]string `ovsdb:"vips"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
+}
+type GatewayChassis struct {
+	UUID        string            `ovsdb:"_uuid"`
+	Name        string            `ovsdb:"name"`
+	ChassisName string            `ovsdb:"chassis_name"`
+	Priority    int               `ovsdb:"priority"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
 }
 type Port struct {
 	UUID        string            `ovsdb:"_uuid"`
@@ -85,7 +109,11 @@ type Interface struct {
 	ExternalIDs map[string]string `ovsdb:"external_ids"`
 }
 
-type OVN struct{ client client.Client }
+type OVN struct {
+	client   client.Client
+	provider netip.Prefix
+	chassis  string
+}
 type OVS struct {
 	client client.Client
 	bridge string
@@ -95,6 +123,7 @@ func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
 	tables := map[string]model.Model{
 		"Logical_Switch": &Switch{}, "Logical_Switch_Port": &SwitchPort{}, "DHCP_Options": &DHCP{},
 		"Logical_Router": &Router{}, "Logical_Router_Port": &RouterPort{}, "Logical_Router_Static_Route": &Route{}, "ACL": &ACL{},
+		"Load_Balancer": &LoadBalancer{}, "Gateway_Chassis": &GatewayChassis{},
 	}
 	db, err := model.NewClientDBModel("OVN_Northbound", tables)
 	if err != nil {
@@ -107,7 +136,7 @@ func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
 	return &OVN{client: c}, nil
 }
 func NewOVS(ctx context.Context, endpoint, bridge string) (*OVS, error) {
-	tables := map[string]model.Model{"Bridge": &Bridge{}, "Port": &Port{}, "Interface": &Interface{}}
+	tables := map[string]model.Model{"Open_vSwitch": &OpenVSwitch{}, "Bridge": &Bridge{}, "Port": &Port{}, "Interface": &Interface{}}
 	db, err := model.NewClientDBModel("Open_vSwitch", tables)
 	if err != nil {
 		return nil, err
