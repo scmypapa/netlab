@@ -7,7 +7,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Archive, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { Archive, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
@@ -36,6 +36,7 @@ export function RecoveryDrawer({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [removing, setRemoving] = useState<Schema<"RecoveryPointSummary">>();
+  const [restoring, setRestoring] = useState<Schema<"RecoveryPointSummary">>();
   const points = useCursorList(["recovery-points", id], (page) =>
     api.recoveryPoints(id, page),
   );
@@ -55,6 +56,14 @@ export function RecoveryDrawer({
     mutationFn: (pointId: string) => api.deleteRecoveryPoint(id, pointId),
     onSuccess: () => {
       setRemoving(undefined);
+      refresh();
+    },
+  });
+  const restore = useMutation({
+    mutationFn: (pointId: string) =>
+      api.restoreRecoveryPoint(id, pointId, revision),
+    onSuccess: () => {
+      setRestoring(undefined);
       refresh();
     },
   });
@@ -128,6 +137,16 @@ export function RecoveryDrawer({
                       </ActionIcon>
                     </Menu.Target>
                     <Menu.Dropdown>
+                      <Menu.Item
+                        leftSection={<RotateCcw size={15} />}
+                        disabled={busy || point.state !== "ready"}
+                        onClick={() => {
+                          restore.reset();
+                          setRestoring(point);
+                        }}
+                      >
+                        恢复
+                      </Menu.Item>
                       <Menu.Item
                         color="red"
                         leftSection={<Trash2 size={15} />}
@@ -207,6 +226,27 @@ export function RecoveryDrawer({
             onClick={() => removing && remove.mutate(removing.id)}
           >
             删除
+          </Button>
+        </div>
+      </Modal>
+      <Modal
+        opened={Boolean(restoring)}
+        onClose={() => setRestoring(undefined)}
+        title="恢复环境"
+        centered
+      >
+        <ErrorMessage error={restore.error} />
+        <p>恢复到「{restoring?.name}」？当前资产配置与数据将被替换。</p>
+        <div className="dialog-actions">
+          <Button variant="default" onClick={() => setRestoring(undefined)}>
+            取消
+          </Button>
+          <Button
+            loading={restore.isPending}
+            disabled={busy}
+            onClick={() => restoring && restore.mutate(restoring.id)}
+          >
+            恢复
           </Button>
         </div>
       </Modal>

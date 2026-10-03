@@ -12,10 +12,11 @@ import (
 
 // Recovery stores the applied configuration and the actual asset identities at capture time.
 type Recovery struct {
-	ID     string              `json:"id"`
-	Spec   api.EnvironmentSpec `json:"spec"`
-	Assets []Target            `json:"assets"`
-	Bytes  int64               `json:"bytes"`
+	EnvironmentID string              `json:"environmentId"`
+	ID            string              `json:"id"`
+	Spec          api.EnvironmentSpec `json:"spec"`
+	Assets        []Target            `json:"assets"`
+	Bytes         int64               `json:"bytes"`
 }
 
 func (w Worker) recovery(ctx context.Context, op *queries.Operation, p *Payload) error {

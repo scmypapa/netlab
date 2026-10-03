@@ -240,6 +240,34 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			defer unlock()
 			var state string
 			var err error
+			if plan.Phase == api.NodePlanPhasePrepareRecovery || plan.Phase == api.NodePlanPhaseApplyRecovery || plan.Phase == api.NodePlanPhaseRollbackRecovery || plan.Phase == api.NodePlanPhaseCleanupRecovery {
+				switch plan.Phase {
+				case api.NodePlanPhasePrepareRecovery:
+					if a.Template.ArtifactNodeId != nil {
+						endpoint := ""
+						if plan.ArtifactEndpoints != nil {
+							endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
+						}
+						err = e.fetchTemplateArtifact(ctx, a.Template, endpoint)
+					}
+					if err == nil {
+						err = e.prepareRecovery(ctx, plan, a)
+					}
+					state = "prepared"
+				case api.NodePlanPhaseApplyRecovery:
+					if a.Template.Kind == api.Container {
+						state, err = e.container.applyRecovery(ctx, plan.EnvironmentId, a)
+					} else {
+						state, err = e.vm.applyRecovery(ctx, plan.EnvironmentId, a)
+					}
+				case api.NodePlanPhaseRollbackRecovery:
+					state, err = e.rollbackRecovery(ctx, plan.EnvironmentId, plan.OperationId, a)
+				case api.NodePlanPhaseCleanupRecovery:
+					state, err = "cleaned", e.cleanupRecovery(ctx, plan.EnvironmentId, plan.OperationId, a)
+				}
+				result.Results[i] = executionResult(a, state, err)
+				return
+			}
 			if plan.Phase == api.NodePlanPhaseCaptureRecovery || plan.Phase == api.NodePlanPhaseDeleteRecovery {
 				if plan.RecoveryPointId == nil {
 					result.Results[i] = executionResult(a, "unknown", errors.New("missing recovery point identity"))

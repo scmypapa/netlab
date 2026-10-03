@@ -163,35 +163,52 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	if err != nil {
 		return "absent", err
 	}
-	config, err := imageConfig(ctx, image)
+	options, volumes, err := c.containerConfiguration(ctx, env, a, image)
 	if err != nil {
 		return "absent", err
 	}
-	dir := assetDirectory(c.data, env, a)
-	if err = os.MkdirAll(dir, 0711); err != nil {
+	spec := options[len(options)-1]
+	options = append(options[:len(options)-1], containerd.WithNewSnapshot(a.InstanceId, image), spec)
+	created, err := c.client.NewContainer(ctx, a.InstanceId, options...)
+	if err != nil {
 		return "absent", err
 	}
+	if err = c.initializeVolumes(ctx, created, env, a, volumes); err != nil {
+		return "absent", errors.Join(err, created.Delete(context.WithoutCancel(ctx), containerd.WithSnapshotCleanup))
+	}
+	return "prepared", nil
+}
+
+func (c *Containers) containerConfiguration(ctx context.Context, env string, a api.AssetExecution, image containerd.Image) ([]containerd.NewContainerOpts, []api.Volume, error) {
+	config, err := imageConfig(ctx, image)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := assetDirectory(c.data, env, a)
+	if err = os.MkdirAll(dir, 0711); err != nil {
+		return nil, nil, err
+	}
 	if err = writeNetworkFiles(dir, a.Interfaces); err != nil {
-		return "absent", err
+		return nil, nil, err
 	}
 	volumes := managedVolumes(config, a.Asset.Volumes)
 	mounts := []specs.Mount{{Destination: "/etc/resolv.conf", Type: "bind", Source: filepath.Join(dir, "resolv.conf"), Options: []string{"rbind", "ro"}}, {Destination: "/etc/hosts", Type: "bind", Source: filepath.Join(dir, "hosts"), Options: []string{"rbind", "ro"}}}
 	volumeMounts, err := c.volumeMounts(env, a, volumes)
 	if err != nil {
-		return "absent", err
+		return nil, nil, err
 	}
 	mounts = append(mounts, volumeMounts...)
 	networkJSON, err := json.Marshal(a.Interfaces)
 	if err != nil {
-		return "absent", err
+		return nil, nil, err
 	}
 	volumeJSON, err := json.Marshal(volumes)
 	if err != nil {
-		return "absent", err
+		return nil, nil, err
 	}
 	executionJSON, err := json.Marshal(a)
 	if err != nil {
-		return "absent", err
+		return nil, nil, err
 	}
 	labels := map[string]string{nodeLabel: c.node, environmentLabel: env, assetLabel: a.Asset.Id, networkLabel: string(networkJSON), executionLabel: string(executionJSON), desiredLabel: "stopped", "netlab.volumes": string(volumeJSON), "netlab.stop-signal": config.Config.StopSignal}
 	opts := []oci.SpecOpts{oci.WithImageConfig(image), oci.WithHostname(a.Asset.Name), oci.WithMemoryLimit(uint64(a.Asset.Resources.MemoryMiB) << 20), oci.WithMounts(mounts), cpuLimit(a.Asset.Resources.Cpu)}
@@ -203,15 +220,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 		sort.Strings(envs)
 		opts = append(opts, oci.WithEnv(envs))
 	}
-	created, err := c.client.NewContainer(ctx, a.InstanceId, containerd.WithImage(image), containerd.WithSnapshotter("overlayfs"), containerd.WithNewSnapshot(a.InstanceId, image), containerd.WithContainerLabels(labels), containerd.WithNewSpec(opts...))
-	if err != nil {
-		return "absent", err
-	}
-	// Initialize before mounting, so the first writable volume contains the image's data.
-	if err = c.initializeVolumes(ctx, created, env, a, volumes); err != nil {
-		return "absent", errors.Join(err, created.Delete(context.WithoutCancel(ctx), containerd.WithSnapshotCleanup))
-	}
-	return "prepared", nil
+	return []containerd.NewContainerOpts{containerd.WithImage(image), containerd.WithSnapshotter("overlayfs"), containerd.WithContainerLabels(labels), containerd.WithNewSpec(opts...)}, volumes, nil
 }
 func (c *Containers) image(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (containerd.Image, error) {
 	ref := fmt.Sprintf("netlab/template/%s:%d", t.Id, t.Version)
@@ -636,7 +645,7 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 	return results, nil
 }
 func (c *Containers) volumeDir(env string, a api.AssetExecution, volume string) string {
-	return filepath.Join(storageRoot(c.data, a), "environments", env, "volumes", a.Asset.Id, volume)
+	return filepath.Join(storageRoot(c.data, a), "environments", env, "volumes", a.Asset.Id, a.DataSetId, volume)
 }
 func (c *Containers) removeFiles(ctx context.Context, env string, a api.AssetExecution) error {
 	if err := os.RemoveAll(assetDirectory(c.data, env, a)); err != nil {

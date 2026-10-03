@@ -165,6 +165,15 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	}
 	phase := row.Phase
+	if row.Kind == "restore-recovery" {
+		point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: p.Recovery.ID, EnvironmentID: *row.EnvironmentID})
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if point.State != "ready" {
+			return api.Operation{}, environment.Invalid("恢复点尚不可用")
+		}
+	}
 	if p.Recovery != nil && row.Kind == "capture-recovery" {
 		if _, err = q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: p.Recovery.ID, EnvironmentID: *row.EnvironmentID}); err != nil {
 			return api.Operation{}, err

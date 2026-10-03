@@ -267,6 +267,34 @@ func run() error {
 			slog.Warn("template artifact transfer interrupted", "template", r.PathValue("id"), "error", err)
 		}
 	})
+	mux.HandleFunc("POST /node/v1/environments/{environmentId}/recovery-points/{pointId}/assets/{assetId}/artifact", func(w http.ResponseWriter, r *http.Request) {
+		for _, id := range []string{r.PathValue("environmentId"), r.PathValue("pointId")} {
+			if _, err := uuid.Parse(id); err != nil {
+				http.Error(w, "invalid recovery identity", http.StatusBadRequest)
+				return
+			}
+		}
+		var execution api.AssetExecution
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&execution); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := validateExecutionPaths(execution); err != nil || execution.Asset.Id != r.PathValue("assetId") {
+			http.Error(w, "invalid recovery asset identity", http.StatusBadRequest)
+			return
+		}
+		reader, length, err := executor.OpenRecoveryArtifact(r.PathValue("environmentId"), r.PathValue("pointId"), execution)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		defer reader.Close()
+		w.Header().Set("Content-Type", "application/x-tar")
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		if _, err = io.Copy(w, reader); err != nil {
+			slog.Warn("recovery transfer interrupted", "error", err)
+		}
+	})
 	mux.HandleFunc("DELETE /node/v1/templates/{id}/versions/{version}", func(w http.ResponseWriter, r *http.Request) {
 		version, err := strconv.Atoi(r.PathValue("version"))
 		if err != nil || version < 1 || !pathID(r.PathValue("id")) {
@@ -332,24 +360,52 @@ func validatePlanPaths(p api.NodePlan) error {
 		}
 	}
 	for _, a := range p.Assets {
-		if _, err := uuid.Parse(a.InstanceId); err != nil {
-			return fmt.Errorf("invalid instance identity")
+		if err := validateExecutionPaths(a); err != nil {
+			return err
 		}
-		for _, id := range []string{a.Asset.Id, a.Template.Id} {
-			if !pathID(id) {
-				return fmt.Errorf("invalid storage identity")
+		if (p.Phase == api.NodePlanPhasePrepareRecovery || p.Phase == api.NodePlanPhaseApplyRecovery) && (a.DataSetId != p.OperationId || p.RecoveryPointId == nil) {
+			return errors.New("recovery target must use the operation data set")
+		}
+	}
+	if p.Phase == api.NodePlanPhasePrepareRecovery && p.RecoverySources == nil {
+		return errors.New("missing recovery sources")
+	}
+	if p.RecoverySources != nil {
+		for id, source := range *p.RecoverySources {
+			if id != source.Execution.Asset.Id {
+				return errors.New("recovery source asset does not match key")
+			}
+			if _, err := uuid.Parse(source.EnvironmentId); err != nil {
+				return errors.New("invalid recovery environment identity")
+			}
+			if err := validateExecutionPaths(source.Execution); err != nil {
+				return err
 			}
 		}
-		for _, i := range a.Interfaces {
-			if _, err := uuid.Parse(i.PortName); err != nil {
-				return fmt.Errorf("invalid logical port identity")
-			}
+	}
+	return nil
+}
+func validateExecutionPaths(a api.AssetExecution) error {
+	if a.DataSetId != "" && !pathID(a.DataSetId) {
+		return errors.New("invalid data set identity")
+	}
+	if _, err := uuid.Parse(a.InstanceId); err != nil {
+		return fmt.Errorf("invalid instance identity")
+	}
+	for _, id := range []string{a.Asset.Id, a.Template.Id} {
+		if !pathID(id) {
+			return fmt.Errorf("invalid storage identity")
 		}
-		if a.Asset.Volumes != nil {
-			for _, v := range *a.Asset.Volumes {
-				if !pathID(v.Id) {
-					return fmt.Errorf("invalid volume identity")
-				}
+	}
+	for _, i := range a.Interfaces {
+		if _, err := uuid.Parse(i.PortName); err != nil {
+			return fmt.Errorf("invalid logical port identity")
+		}
+	}
+	if a.Asset.Volumes != nil {
+		for _, v := range *a.Asset.Volumes {
+			if !pathID(v.Id) {
+				return fmt.Errorf("invalid volume identity")
 			}
 		}
 	}

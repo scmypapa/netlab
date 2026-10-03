@@ -38,7 +38,23 @@ func resourceRecords(id string, targets []Target) ([]byte, error) {
 	return json.Marshal(rows)
 }
 
+func recoveryReservations(targets, before []Target) []Target {
+	allocated := slices.Clone(targets)
+	for i := range allocated {
+		old := findInstance(before, allocated[i].Execution.InstanceId)
+		allocated[i].Execution.Asset.Resources.DiskGiB += resources(old.Execution.Asset).DiskGiB
+	}
+	return allocated
+}
+
 func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) error {
+	restoring := op.Kind == "restore-recovery"
+	sources := map[string]Target{}
+	if restoring {
+		for _, source := range p.Recovery.Assets {
+			sources[source.Execution.Asset.Id] = source
+		}
+	}
 	row, err := w.Queries.GetEnvironment(ctx, *op.EnvironmentID)
 	if err != nil {
 		return err
@@ -64,7 +80,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			p.ExternalChassis[n.ID] = *info.NetworkChassis
 		}
 	}
-	if len(row.AppliedSpec) > 0 {
+	if len(row.AppliedSpec) > 0 && !(restoring && p.BeforeStatus == "destroyed") {
 		if err = json.Unmarshal(row.AppliedSpec, &p.BeforeSpec); err != nil {
 			return err
 		}
@@ -118,7 +134,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		}
 		return w.phase(ctx, op, p, phase)
 	}
-	if op.Kind != "change" && op.Kind != "rebuild" && op.Kind != "start" && op.Kind != "destroy" {
+	if op.Kind != "change" && op.Kind != "rebuild" && op.Kind != "start" && op.Kind != "destroy" && !restoring {
 		for _, t := range p.Before {
 			if op.AssetID == nil || t.Execution.Asset.Id == *op.AssetID {
 				p.Targets = append(p.Targets, t)
@@ -164,13 +180,23 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				p.ExternalChassis[id] = *info.NetworkChassis
 			}
 		}
-		templates, err := environment.Templates(ctx, w.Queries, p.Spec.Assets)
-		if err != nil {
-			return err
+		templates := map[string]api.Template{}
+		if !restoring {
+			templates, err = environment.Templates(ctx, w.Queries, p.Spec.Assets)
+			if err != nil {
+				return err
+			}
 		}
 		for _, a := range p.Spec.Assets {
 			t, ok := templates[a.TemplateId]
-			if !ok || t.State == nil || *t.State != api.TemplateStateReady {
+			if restoring {
+				source, exists := sources[a.Id]
+				if !exists {
+					return fmt.Errorf("恢复点缺少资产 %s", a.Name)
+				}
+				t, ok = source.Execution.Template, true
+			}
+			if !ok || !restoring && (t.State == nil || *t.State != api.TemplateStateReady) {
 				return fmt.Errorf("资产 %s 的模板尚未准备完成", a.Name)
 			}
 			old, exists := current[a.Id]
@@ -189,6 +215,23 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			execution := api.AssetExecution{Asset: a, Template: t, InstanceId: uuid.NewString(), Interfaces: environment.Resolve(p.Spec, a, nics)}
 			if exists {
 				execution.StoragePoolId, execution.StoragePath, execution.StorageFilesystem = old.Execution.StoragePoolId, old.Execution.StoragePath, old.Execution.StorageFilesystem
+				execution.DataSetId = old.Execution.DataSetId
+			}
+			if restoring {
+				source := sources[a.Id]
+				execution.InstanceId, execution.DataSetId = source.Execution.InstanceId, op.ID
+				execution.Interfaces = environment.Resolve(p.Spec, a, source.Execution.Interfaces)
+				target := Target{Execution: execution, State: source.State}
+				if exists && old.Execution.InstanceId == execution.InstanceId {
+					target.NodeID = old.NodeID
+					p.Updates = append(p.Updates, target)
+				} else {
+					if exists {
+						p.Old = append(p.Old, old)
+					}
+					p.Targets = append(p.Targets, target)
+				}
+				continue
 			}
 			replace := exists && (environment.RequiresReplacement(t, old.Execution.Asset, a, !reflect.DeepEqual(old.Execution.Interfaces, execution.Interfaces)) || old.Execution.Template.Version != t.Version || op.Kind == "rebuild" && (op.AssetID == nil || *op.AssetID == a.Id))
 			if !exists || replace {
@@ -322,9 +365,15 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		delta.Cpu = max(0, delta.Cpu-before.Cpu)
 		delta.MemoryMiB = max(0, delta.MemoryMiB-before.MemoryMiB)
 		delta.DiskGiB = max(0, delta.DiskGiB-before.DiskGiB)
+		if restoring {
+			delta.DiskGiB = resources(t.Execution.Asset).DiskGiB
+		}
 		u := add(used[t.NodeID], delta)
 		if !fits(u, capacity[t.NodeID]) {
 			return fmt.Errorf("资产 %s 的节点容量不足", t.Execution.Asset.Name)
+		}
+		if restoring && !supports(infos[t.NodeID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
+			return fmt.Errorf("资产 %s 的节点不支持恢复点中的硬件", t.Execution.Asset.Name)
 		}
 		pool := storage[actualPool(t.NodeID, t.Execution)]
 		if pool.err != nil {
@@ -411,7 +460,11 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if err = q.ReserveAssets(ctx, raw); err != nil {
 			return err
 		}
-		raw, err = resourceRecords(row.ID, p.Updates)
+		updates := p.Updates
+		if restoring {
+			updates = recoveryReservations(updates, p.Before)
+		}
+		raw, err = resourceRecords(row.ID, updates)
 		if err != nil {
 			return err
 		}
@@ -437,6 +490,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	transactionWorker := w
 	transactionWorker.Queries = q
 	phase := "prepare"
+	if restoring {
+		phase = "prepare-recovery"
+	}
 	if serviceOnly {
 		phase = "services"
 	}

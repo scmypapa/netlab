@@ -184,7 +184,7 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
-	if payload.Recovery != nil {
+	if op.Kind == "capture-recovery" || op.Kind == "delete-recovery" {
 		if dbErr = w.finishRecovery(ctx, q, op, &payload, err); dbErr != nil {
 			slog.Error("recovery completion", "error", dbErr)
 			return
@@ -309,7 +309,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 		return []api.ExecutionResult{}, nil
 	}
 	artifacts := map[string]string{}
-	if phase == api.NodePlanPhasePrepare {
+	if phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery {
 		for _, target := range targets {
 			if origin := target.Execution.Template.ArtifactNodeId; origin != nil {
 				artifacts[*origin] = ""
@@ -331,6 +331,24 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 		}
 	}
 	grouped := map[string][]api.AssetExecution{}
+	recoverySources := map[string]api.NodeRecoverySource{}
+	if phase == api.NodePlanPhasePrepareRecovery {
+		ids := []string{}
+		for _, source := range p.Recovery.Assets {
+			ids = append(ids, source.NodeID)
+		}
+		rows, err := w.Queries.GetNodeEndpoints(ctx, ids)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		origins := map[string]string{}
+		for _, row := range rows {
+			origins[row.ID] = row.Endpoint
+		}
+		for _, source := range p.Recovery.Assets {
+			recoverySources[source.Execution.Asset.Id] = api.NodeRecoverySource{EnvironmentId: p.Recovery.EnvironmentID, NodeId: source.NodeID, Endpoint: origins[source.NodeID], Execution: source.Execution}
+		}
+	}
 	endpoints := map[string]string{}
 	for _, t := range targets {
 		grouped[t.NodeID] = append(grouped[t.NodeID], t.Execution)
@@ -366,6 +384,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 			plan := api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts}
 			if p.Recovery != nil {
 				plan.RecoveryPointId = &p.Recovery.ID
+				plan.RecoverySources = &recoverySources
 			}
 			result, err := w.Client.Execute(ctx, endpoints[id], plan)
 			if err == nil && result.Error != nil {
@@ -427,7 +446,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
-	if phase != api.NodePlanPhaseCleanupVolumes && phase != api.NodePlanPhaseDeleteRecovery {
+	if phase != api.NodePlanPhaseCleanupVolumes && phase != api.NodePlanPhaseDeleteRecovery && phase != api.NodePlanPhasePrepareRecovery && phase != api.NodePlanPhaseCleanupRecovery {
 		if err = q.ApplyAssetResults(ctx, raw); err != nil {
 			return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
 		}

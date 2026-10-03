@@ -84,5 +84,9 @@ func storageRoot(data string, a api.AssetExecution) string {
 }
 
 func assetDirectory(data, env string, a api.AssetExecution) string {
-	return instanceDir(storageRoot(data, a), env, a.InstanceId)
+	id := a.InstanceId
+	if a.DataSetId != "" {
+		id += "." + a.DataSetId
+	}
+	return instanceDir(storageRoot(data, a), env, id)
 }

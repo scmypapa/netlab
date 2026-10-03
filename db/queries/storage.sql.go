@@ -226,7 +226,7 @@ WITH assets AS (
  SELECT node_id,pool_id,-sum(reused)::bigint FROM (
   SELECT a.node_id,a.pool_id,a.environment_id,a.asset_id,v->>'id' AS volume_id,sum((v->>'sizeGiB')::bigint)-max((v->>'sizeGiB')::bigint) AS reused
   FROM assets a CROSS JOIN LATERAL jsonb_array_elements(a.execution->'asset'->'volumes') v
-  GROUP BY a.node_id,a.pool_id,a.environment_id,a.asset_id,v->>'id'
+  GROUP BY a.node_id,a.pool_id,a.environment_id,a.asset_id,COALESCE(a.execution->>'dataSetId',''),v->>'id'
  ) volumes GROUP BY node_id,pool_id
 )
 SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib FROM allocations GROUP BY node_id,pool_id

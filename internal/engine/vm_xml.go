@@ -132,7 +132,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	}
 	if a.Asset.Volumes != nil {
 		for _, v := range *a.Asset.Volumes {
-			path := filepath.Join(filepath.Dir(filepath.Dir(directory)), "volumes", a.Asset.Id, v.Id+".qcow2")
+			path := filepath.Join(filepath.Dir(filepath.Dir(directory)), "volumes", a.Asset.Id, a.DataSetId, v.Id+".qcow2")
 			if err := appendDisk(path, api.TemplateDisk{Id: v.Id, Bus: api.TemplateDiskBus(h.DiskBus), ControllerModel: h.DiskController, ControllerIndex: (*a.Template.Disks)[0].ControllerIndex}, false); err != nil {
 				return "", err
 			}

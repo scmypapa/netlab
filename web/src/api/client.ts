@@ -239,6 +239,16 @@ export const api = {
       `/environments/${id}/recovery-points/${pointId}`,
       "DELETE",
     ),
+  restoreRecoveryPoint: (
+    id: string,
+    pointId: string,
+    expectedRevision: number,
+  ) =>
+    request<Operation>(
+      `/environments/${id}/recovery-points/${pointId}/restore`,
+      "POST",
+      { expectedRevision },
+    ),
   vpnAccess: (id: string) =>
     request<Schema<"VPNAccess">[]>(`/environments/${id}/vpn-access`),
   createVPNAccess: (id: string, body: Schema<"CreateVPNAccess">) =>

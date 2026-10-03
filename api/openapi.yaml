@@ -28,6 +28,15 @@ paths:
       operationId: deleteRecoveryPoint
       responses:
         '202': {$ref: '#/components/responses/Accepted'}
+  /environments/{id}/recovery-points/{pointId}/restore:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: pointId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: restoreRecoveryPoint
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RestoreRecoveryPoint'}}}}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
   /storage-pools:
     get:
       operationId: listStoragePools
@@ -910,6 +919,7 @@ components:
         template: {$ref: '#/components/schemas/Template'}
         instanceId: {type: string}
         previousInstanceId: {type: string}
+        dataSetId: {type: string, x-go-type-skip-optional-pointer: true, description: Actual writable data set; retained across ordinary rebuilds}
         storagePath: {type: string, description: Node-local managed storage selected by the scheduler}
         storagePoolId: {type: string, description: Actual selected pool; omitted for node default storage}
         storageFilesystem: {type: string, description: Physical filesystem reservation identity}
@@ -920,8 +930,9 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect, capture-recovery, delete-recovery]}
+        phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect, capture-recovery, delete-recovery, prepare-recovery, apply-recovery, rollback-recovery, cleanup-recovery]}
         recoveryPointId: {type: string}
+        recoverySources: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeRecoverySource'}}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
         gateway: {$ref: '#/components/schemas/ServiceGateway'}
@@ -970,6 +981,19 @@ components:
       properties:
         name: {type: string}
         expectedRevision: {type: integer, minimum: 0}
+    RestoreRecoveryPoint:
+      type: object
+      required: [expectedRevision]
+      properties:
+        expectedRevision: {type: integer, minimum: 0}
+    NodeRecoverySource:
+      type: object
+      required: [environmentId, nodeId, endpoint, execution]
+      properties:
+        environmentId: {type: string}
+        nodeId: {type: string}
+        endpoint: {type: string}
+        execution: {$ref: '#/components/schemas/AssetExecution'}
     RecoveryPointSummary:
       type: object
       required: [id, environmentId, name, revision, state, assetCount, sizeBytes, createdAt]

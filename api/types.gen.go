@@ -99,7 +99,9 @@ const (
 
 // Defines values for NodePlanPhase.
 const (
+	NodePlanPhaseApplyRecovery       NodePlanPhase = "apply-recovery"
 	NodePlanPhaseCaptureRecovery     NodePlanPhase = "capture-recovery"
+	NodePlanPhaseCleanupRecovery     NodePlanPhase = "cleanup-recovery"
 	NodePlanPhaseCleanupVolumes      NodePlanPhase = "cleanup-volumes"
 	NodePlanPhaseDeleteRecovery      NodePlanPhase = "delete-recovery"
 	NodePlanPhaseDestroy             NodePlanPhase = "destroy"
@@ -109,8 +111,10 @@ const (
 	NodePlanPhaseNetwork             NodePlanPhase = "network"
 	NodePlanPhasePolicies            NodePlanPhase = "policies"
 	NodePlanPhasePrepare             NodePlanPhase = "prepare"
+	NodePlanPhasePrepareRecovery     NodePlanPhase = "prepare-recovery"
 	NodePlanPhaseRemoveNetwork       NodePlanPhase = "remove-network"
 	NodePlanPhaseResume              NodePlanPhase = "resume"
+	NodePlanPhaseRollbackRecovery    NodePlanPhase = "rollback-recovery"
 	NodePlanPhaseServices            NodePlanPhase = "services"
 	NodePlanPhaseStart               NodePlanPhase = "start"
 	NodePlanPhaseStop                NodePlanPhase = "stop"
@@ -315,7 +319,10 @@ type Asset struct {
 
 // AssetExecution defines model for AssetExecution.
 type AssetExecution struct {
-	Asset              Asset               `json:"asset"`
+	Asset Asset `json:"asset"`
+
+	// DataSetId Actual writable data set; retained across ordinary rebuilds
+	DataSetId          string              `json:"dataSetId,omitempty"`
 	InstanceId         string              `json:"instanceId"`
 	Interfaces         []ResolvedInterface `json:"interfaces"`
 	PreviousInstanceId *string             `json:"previousInstanceId,omitempty"`
@@ -724,22 +731,31 @@ type NodeObservation struct {
 
 // NodePlan defines model for NodePlan.
 type NodePlan struct {
-	ArtifactEndpoints *map[string]string    `json:"artifactEndpoints,omitempty"`
-	Assets            []AssetExecution      `json:"assets"`
-	Attachments       *[]ExternalAttachment `json:"attachments,omitempty"`
-	EnvironmentId     string                `json:"environmentId"`
-	ExternalChassis   *map[string]string    `json:"externalChassis,omitempty"`
-	Gateway           *ServiceGateway       `json:"gateway,omitempty"`
-	OperationId       string                `json:"operationId"`
-	Phase             NodePlanPhase         `json:"phase"`
-	RecoveryPointId   *string               `json:"recoveryPointId,omitempty"`
-	Services          *[]NodeServiceBinding `json:"services,omitempty"`
-	Spec              EnvironmentSpec       `json:"spec"`
-	Vpn               *NodeVPNPlan          `json:"vpn,omitempty"`
+	ArtifactEndpoints *map[string]string             `json:"artifactEndpoints,omitempty"`
+	Assets            []AssetExecution               `json:"assets"`
+	Attachments       *[]ExternalAttachment          `json:"attachments,omitempty"`
+	EnvironmentId     string                         `json:"environmentId"`
+	ExternalChassis   *map[string]string             `json:"externalChassis,omitempty"`
+	Gateway           *ServiceGateway                `json:"gateway,omitempty"`
+	OperationId       string                         `json:"operationId"`
+	Phase             NodePlanPhase                  `json:"phase"`
+	RecoveryPointId   *string                        `json:"recoveryPointId,omitempty"`
+	RecoverySources   *map[string]NodeRecoverySource `json:"recoverySources,omitempty"`
+	Services          *[]NodeServiceBinding          `json:"services,omitempty"`
+	Spec              EnvironmentSpec                `json:"spec"`
+	Vpn               *NodeVPNPlan                   `json:"vpn,omitempty"`
 }
 
 // NodePlanPhase defines model for NodePlan.Phase.
 type NodePlanPhase string
+
+// NodeRecoverySource defines model for NodeRecoverySource.
+type NodeRecoverySource struct {
+	Endpoint      string         `json:"endpoint"`
+	EnvironmentId string         `json:"environmentId"`
+	Execution     AssetExecution `json:"execution"`
+	NodeId        string         `json:"nodeId"`
+}
 
 // NodeRegistration defines model for NodeRegistration.
 type NodeRegistration struct {
@@ -916,6 +932,11 @@ type Resources struct {
 
 // RestartPolicy Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
 type RestartPolicy string
+
+// RestoreRecoveryPoint defines model for RestoreRecoveryPoint.
+type RestoreRecoveryPoint struct {
+	ExpectedRevision int `json:"expectedRevision"`
+}
 
 // RolePreset defines model for RolePreset.
 type RolePreset struct {
@@ -1345,6 +1366,9 @@ type ReplaceEnvironmentGrantsJSONRequestBody = ReplaceEnvironmentGrantsJSONBody
 
 // CaptureRecoveryPointJSONRequestBody defines body for CaptureRecoveryPoint for application/json ContentType.
 type CaptureRecoveryPointJSONRequestBody = CaptureRecoveryPoint
+
+// RestoreRecoveryPointJSONRequestBody defines body for RestoreRecoveryPoint for application/json ContentType.
+type RestoreRecoveryPointJSONRequestBody = RestoreRecoveryPoint
 
 // SaveViewJSONRequestBody defines body for SaveView for application/json ContentType.
 type SaveViewJSONRequestBody = CanvasView

@@ -41,6 +41,25 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/recovery-points/{pointId}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        pointId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["restoreRecoveryPoint"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/storage-pools": {
     parameters: {
       query?: never;
@@ -1232,6 +1251,8 @@ export interface components {
       template: components["schemas"]["Template"];
       instanceId: string;
       previousInstanceId?: string;
+      /** @description Actual writable data set; retained across ordinary rebuilds */
+      dataSetId?: string;
       /** @description Node-local managed storage selected by the scheduler */
       storagePath?: string;
       /** @description Actual selected pool; omitted for node default storage */
@@ -1262,8 +1283,15 @@ export interface components {
         | "remove-network"
         | "inspect"
         | "capture-recovery"
-        | "delete-recovery";
+        | "delete-recovery"
+        | "prepare-recovery"
+        | "apply-recovery"
+        | "rollback-recovery"
+        | "cleanup-recovery";
       recoveryPointId?: string;
+      recoverySources?: {
+        [key: string]: components["schemas"]["NodeRecoverySource"];
+      };
       assets: components["schemas"]["AssetExecution"][];
       spec: components["schemas"]["EnvironmentSpec"];
       gateway?: components["schemas"]["ServiceGateway"];
@@ -1308,6 +1336,15 @@ export interface components {
     CaptureRecoveryPoint: {
       name: string;
       expectedRevision: number;
+    };
+    RestoreRecoveryPoint: {
+      expectedRevision: number;
+    };
+    NodeRecoverySource: {
+      environmentId: string;
+      nodeId: string;
+      endpoint: string;
+      execution: components["schemas"]["AssetExecution"];
     };
     RecoveryPointSummary: {
       id: string;
@@ -1600,6 +1637,25 @@ export interface operations {
       cookie?: never;
     };
     requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  restoreRecoveryPoint: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        pointId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RestoreRecoveryPoint"];
+      };
+    };
     responses: {
       202: components["responses"]["Accepted"];
     };

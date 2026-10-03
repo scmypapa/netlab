@@ -382,11 +382,14 @@ async function fixture(
   return calls;
 }
 
-test("恢复点：只读查看、捕获与删除请求、真实错误呈现", async ({ page }) => {
+test("恢复点：只读查看、捕获、恢复与删除请求、真实错误呈现", async ({
+  page,
+}) => {
   const options = { permissions: ["read"] };
   await fixture(page, options);
   let created = false,
-    rejectCapture = true;
+    rejectCapture = true,
+    restored = false;
   const point = {
     id: "point",
     environmentId: "env",
@@ -403,7 +406,12 @@ test("恢复点：只读查看、捕获与删除请求、真实错误呈现", as
       const request = route.request();
       let status = 200,
         response: unknown = created ? [point] : [];
-      if (request.method() === "POST") {
+      if (request.url().endsWith("/restore")) {
+        expect(request.postDataJSON()).toEqual({ expectedRevision: 1 });
+        restored = true;
+        status = 202;
+        response = { id: "restore" };
+      } else if (request.method() === "POST") {
         expect(request.postDataJSON()).toEqual({
           name: "调整前",
           expectedRevision: 1,
@@ -455,6 +463,13 @@ test("恢复点：只读查看、捕获与删除请求、真实错误呈现", as
     ),
   ).toBe(true);
   await page.screenshot({ path: "../data/recovery-drawer-mobile.png" });
+  await page.getByRole("button", { name: "调整前操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复", exact: true }).click();
+  const restore = page.getByRole("dialog", { name: "恢复环境", exact: true });
+  await expect(restore).toContainText("当前资产配置与数据将被替换");
+  await restore.getByRole("button", { name: "恢复", exact: true }).click();
+  await expect(restore).toHaveCount(0);
+  expect(restored).toBe(true);
   await page.getByRole("button", { name: "调整前操作" }).click();
   await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await page

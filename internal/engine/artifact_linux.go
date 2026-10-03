@@ -27,6 +27,10 @@ func (e *Engine) OpenTemplateArtifact(id string, version int) (io.ReadCloser, in
 	if _, err := os.Stat(filepath.Join(directory, "template.json")); err != nil {
 		return nil, 0, err
 	}
+	return openDirectoryArtifact(directory)
+}
+
+func openDirectoryArtifact(directory string) (io.ReadCloser, int64, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, 0, err
@@ -114,33 +118,7 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 	if err = os.Chmod(staging, 0711); err != nil {
 		return err
 	}
-	archive := tar.NewReader(response.Body)
-	for {
-		header, err := archive.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		path, err := artifactPath(staging, header.Name)
-		if err != nil {
-			return err
-		}
-		if header.Typeflag != tar.TypeReg || filepath.Base(header.Name) != header.Name {
-			return fmt.Errorf("invalid template artifact entry %q", header.Name)
-		}
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(file, archive)
-		if err = errors.Join(copyErr, file.Close()); err != nil {
-			return err
-		}
-	}
-	// Consume the HTTP body so a truncated Content-Length cannot commit a cache entry.
-	if _, err = io.Copy(io.Discard, response.Body); err != nil {
+	if err = receiveDirectoryArtifact(response.Body, staging); err != nil {
 		return err
 	}
 	raw, err := os.ReadFile(filepath.Join(staging, "template.json"))
@@ -178,4 +156,35 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 		}
 	}
 	return os.Rename(staging, directory)
+}
+
+func receiveDirectoryArtifact(reader io.Reader, directory string) error {
+	archive := tar.NewReader(reader)
+	for {
+		header, err := archive.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		path, err := artifactPath(directory, header.Name)
+		if err != nil {
+			return err
+		}
+		if header.Typeflag != tar.TypeReg || filepath.Base(header.Name) != header.Name {
+			return fmt.Errorf("invalid artifact entry %q", header.Name)
+		}
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(file, archive)
+		if err = errors.Join(copyErr, file.Close()); err != nil {
+			return err
+		}
+	}
+	// EOF of the tar archive does not prove that its HTTP transport completed.
+	_, err := io.Copy(io.Discard, reader)
+	return err
 }

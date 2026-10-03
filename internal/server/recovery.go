@@ -69,7 +69,7 @@ func (s *Server) captureRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 	if row.Status != "running" && row.Status != "stopped" && row.Status != "suspended" {
 		return environment.Invalid("请等待环境进入稳定运行状态")
 	}
-	recovery := operation.Recovery{ID: uuid.NewString(), Assets: []operation.Target{}}
+	recovery := operation.Recovery{ID: uuid.NewString(), EnvironmentID: id, Assets: []operation.Target{}}
 	if err = json.Unmarshal(row.AppliedSpec, &recovery.Spec); err != nil {
 		return err
 	}
@@ -120,6 +120,87 @@ func (s *Server) captureRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 	w.Header().Set("Operation-Location", "/api/v1/operations/"+op.ID)
 	return writeJSON(w, http.StatusCreated, api.RecoveryPointSummary{Id: recovery.ID, EnvironmentId: id, Name: name, Revision: int(row.Revision),
 		State: api.RecoveryPointSummaryStateCapturing, AssetCount: len(recovery.Assets), OperationId: &op.ID, CreatedAt: time.Now().UTC()})
+}
+
+func (s *Server) restoreRecoveryPoint(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	ctx, id := r.Context(), r.PathValue("id")
+	if _, err := s.Environments.Authorized(ctx, identity, id, "manage", ""); err != nil {
+		return err
+	}
+	var input api.RestoreRecoveryPoint
+	if err := decode(w, r, &input); err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	row, err := q.LockEnvironment(ctx, id)
+	if err != nil {
+		return err
+	}
+	if int(row.Revision) != input.ExpectedRevision {
+		return environment.ErrConflict
+	}
+	if row.Status == "deploying" || row.Status == "changing" || row.Status == "destroying" {
+		return httpError{http.StatusConflict, "请等待当前任务完成"}
+	}
+	assets, err := q.ListRuntimeAssets(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, asset := range assets {
+		if !asset.Current {
+			return httpError{http.StatusConflict, "请先完成当前环境的清理任务"}
+		}
+	}
+	point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: r.PathValue("pointId"), EnvironmentID: id})
+	if err != nil {
+		return err
+	}
+	if point.State != "ready" {
+		return httpError{http.StatusConflict, "恢复点尚不可用"}
+	}
+	var recovery operation.Recovery
+	if err = json.Unmarshal(point.Definition, &recovery); err != nil {
+		return err
+	}
+	recovery.EnvironmentID = id
+	before := api.EnvironmentSpec{}
+	if len(row.AppliedSpec) > 0 {
+		if err = json.Unmarshal(row.AppliedSpec, &before); err != nil {
+			return err
+		}
+	}
+	if err = environment.AuthorizeExternal(identity, before, recovery.Spec); err != nil {
+		return err
+	}
+	if err = environment.ReferenceResources(ctx, q, recovery.Spec.Assets); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(operation.Payload{Recovery: &recovery, Spec: recovery.Spec, BeforeStatus: row.Status})
+	if err != nil {
+		return err
+	}
+	op, err := q.CreateOperation(ctx, queries.CreateOperationParams{ID: uuid.NewString(), EnvironmentID: &id, ScopeKind: "environment", ScopeID: id,
+		Kind: "restore-recovery", Payload: payload, ExpectedRevision: row.Revision})
+	if err != nil {
+		return err
+	}
+	if err = q.SetEnvironmentOperation(ctx, queries.SetEnvironmentOperationParams{ID: id, OperationID: &op.ID, Status: "changing"}); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	result, err := environment.Operation(op)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Operation-Location", "/api/v1/operations/"+op.ID)
+	return writeJSON(w, http.StatusAccepted, result)
 }
 
 func (s *Server) deleteRecoveryPoint(w http.ResponseWriter, r *http.Request, identity access.Identity) error {

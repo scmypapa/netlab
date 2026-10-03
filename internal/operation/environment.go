@@ -29,6 +29,9 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		var err error
 		next := ""
 		switch op.Phase {
+		case "prepare-recovery":
+			_, err = w.batch(ctx, op, p, api.NodePlanPhasePrepareRecovery, desiredTargets(p))
+			next = "quiesce"
 		case "network":
 			err = w.network(ctx, op, p, false)
 			next = "update"
@@ -39,7 +42,7 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			affected := slices.Clone(p.Old)
 			for _, t := range p.Updates {
 				old := findInstance(p.Before, t.Execution.InstanceId)
-				if environment.RequiresStop(t.Execution.Template.Kind, old.Execution.Asset, t.Execution.Asset) || !reflect.DeepEqual(old.Execution.Interfaces, t.Execution.Interfaces) {
+				if op.Kind == "restore-recovery" || environment.RequiresStop(t.Execution.Template.Kind, old.Execution.Asset, t.Execution.Asset) || !reflect.DeepEqual(old.Execution.Interfaces, t.Execution.Interfaces) {
 					affected = append(affected, old)
 				}
 			}
@@ -51,7 +54,11 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			}
 			next = "network"
 		case "update":
-			_, err = w.batch(ctx, op, p, api.NodePlanPhaseUpdate, p.Updates)
+			if op.Kind == "restore-recovery" {
+				_, err = w.batch(ctx, op, p, api.NodePlanPhaseApplyRecovery, desiredTargets(p))
+			} else {
+				_, err = w.batch(ctx, op, p, api.NodePlanPhaseUpdate, p.Updates)
+			}
 			next = "activate"
 		case "activate":
 			targets := append(slices.Clone(p.Targets), p.Updates...)
@@ -249,7 +256,11 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 		if err = q.MakeCurrentAssets(ctx, instances); err != nil {
 			return err
 		}
-		raw, err := resourceRecords(row.ID, desiredTargets(p))
+		allocated := desiredTargets(p)
+		if op.Kind == "restore-recovery" {
+			allocated = append(slices.Clone(p.Targets), recoveryReservations(p.Updates, p.Before)...)
+		}
+		raw, err := resourceRecords(row.ID, allocated)
 		if err != nil {
 			return err
 		}
@@ -314,6 +325,24 @@ func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) 
 	}
 	if err != nil {
 		return err
+	}
+	if op.Kind == "restore-recovery" {
+		originals := []Target{}
+		for _, target := range p.Updates {
+			originals = append(originals, findInstance(p.Before, target.Execution.InstanceId))
+		}
+		_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupRecovery, append(originals, p.Targets...))
+		if err != nil {
+			return err
+		}
+		raw, err := resourceRecords(*op.EnvironmentID, desiredTargets(p))
+		if err != nil {
+			return err
+		}
+		if err = w.Queries.UpdateExecutions(ctx, raw); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		return nil
 	}
 	_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Before, p.Updates))
 	return err
@@ -394,46 +423,58 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	if p.BeforeSpec != nil {
 		_, serviceErr = w.serviceRules(ctx, op, p, p.Spec, nil)
 	}
-	results, err := w.batch(ctx, op, p, api.NodePlanPhaseDestroy, p.Targets)
+	phase := api.NodePlanPhaseDestroy
+	if op.Kind == "restore-recovery" {
+		phase = api.NodePlanPhaseRollbackRecovery
+	}
+	results, err := w.batch(ctx, op, p, phase, p.Targets)
 	err = errors.Join(serviceErr, err, w.releaseDestroyed(ctx, results))
 	before := slices.Clone(p.Before)
 	var updateError error
 	if len(p.Updates) > 0 {
-		_, updateError = w.batch(ctx, op, p, api.NodePlanPhaseStop, p.Updates)
-		observed, inspectErr := w.batch(ctx, op, p, api.NodePlanPhaseInspect, p.Updates)
-		updateError = errors.Join(updateError, inspectErr)
-		original := []Target{}
-		for _, t := range p.Updates {
-			old := findInstance(before, t.Execution.InstanceId)
-			if old.Execution.Asset.Volumes != nil {
-				volumes := slices.Clone(*old.Execution.Asset.Volumes)
-				old.Execution.Asset.Volumes = &volumes
+		if op.Kind == "restore-recovery" {
+			originals := []Target{}
+			for _, target := range p.Updates {
+				originals = append(originals, findInstance(before, target.Execution.InstanceId))
 			}
-			for _, r := range observed {
-				if r.InstanceId != t.Execution.InstanceId || r.Execution == nil {
-					continue
+			_, updateError = w.batch(ctx, op, p, api.NodePlanPhaseRollbackRecovery, originals)
+		} else {
+			_, updateError = w.batch(ctx, op, p, api.NodePlanPhaseStop, p.Updates)
+			observed, inspectErr := w.batch(ctx, op, p, api.NodePlanPhaseInspect, p.Updates)
+			updateError = errors.Join(updateError, inspectErr)
+			original := []Target{}
+			for _, t := range p.Updates {
+				old := findInstance(before, t.Execution.InstanceId)
+				if old.Execution.Asset.Volumes != nil {
+					volumes := slices.Clone(*old.Execution.Asset.Volumes)
+					old.Execution.Asset.Volumes = &volumes
 				}
-				// A completed expansion stays expanded; its data cannot be rolled back by shrinking.
-				old.Execution.Asset.Resources.DiskGiB = max(old.Execution.Asset.Resources.DiskGiB, r.Execution.Asset.Resources.DiskGiB)
-				if old.Execution.Asset.Volumes != nil && r.Execution.Asset.Volumes != nil {
-					for i := range *old.Execution.Asset.Volumes {
-						for _, actual := range *r.Execution.Asset.Volumes {
-							if (*old.Execution.Asset.Volumes)[i].Id == actual.Id {
-								(*old.Execution.Asset.Volumes)[i].SizeGiB = max((*old.Execution.Asset.Volumes)[i].SizeGiB, actual.SizeGiB)
+				for _, r := range observed {
+					if r.InstanceId != t.Execution.InstanceId || r.Execution == nil {
+						continue
+					}
+					// A completed expansion stays expanded; its data cannot be rolled back by shrinking.
+					old.Execution.Asset.Resources.DiskGiB = max(old.Execution.Asset.Resources.DiskGiB, r.Execution.Asset.Resources.DiskGiB)
+					if old.Execution.Asset.Volumes != nil && r.Execution.Asset.Volumes != nil {
+						for i := range *old.Execution.Asset.Volumes {
+							for _, actual := range *r.Execution.Asset.Volumes {
+								if (*old.Execution.Asset.Volumes)[i].Id == actual.Id {
+									(*old.Execution.Asset.Volumes)[i].SizeGiB = max((*old.Execution.Asset.Volumes)[i].SizeGiB, actual.SizeGiB)
+								}
 							}
 						}
 					}
 				}
-			}
-			original = append(original, old)
-			for i := range before {
-				if before[i].Execution.InstanceId == old.Execution.InstanceId {
-					before[i] = old
+				original = append(original, old)
+				for i := range before {
+					if before[i].Execution.InstanceId == old.Execution.InstanceId {
+						before[i] = old
+					}
 				}
 			}
+			_, restoreErr := w.batch(ctx, op, p, api.NodePlanPhaseUpdate, original)
+			updateError = errors.Join(updateError, restoreErr)
 		}
-		_, restoreErr := w.batch(ctx, op, p, api.NodePlanPhaseUpdate, original)
-		updateError = errors.Join(updateError, restoreErr)
 	}
 	err = errors.Join(err, updateError)
 	if errors.Is(err, errPersistence) || ctx.Err() != nil {
@@ -475,7 +516,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		restored = &old
 		_, serviceErr := w.serviceRules(ctx, op, p, old, p.BeforeBindings)
 		err = errors.Join(err, serviceErr)
-		if err == nil {
+		if err == nil && op.Kind != "restore-recovery" {
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Updates, before))
 		}
 	} else {
@@ -540,7 +581,13 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 			return fmt.Errorf("%w: %v", errPersistence, err)
 		}
 		p.Committed = true
+	} else if p.BeforeStatus == "destroyed" {
+		message := initial.Error()
+		err = q.SetEnvironmentState(ctx, queries.SetEnvironmentStateParams{ID: *op.EnvironmentID, Status: "destroyed", Error: &message})
 	} else if err = transactionWorker.status(ctx, op, p, initial); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	if err = transactionWorker.phase(ctx, op, p, "rolled-back"); err != nil {

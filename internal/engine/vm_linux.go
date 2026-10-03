@@ -225,7 +225,7 @@ func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
 }
 
 func (v *VirtualMachines) volumePath(env string, a api.AssetExecution, volume string) string {
-	return filepath.Join(storageRoot(v.data, a), "environments", env, "volumes", a.Asset.Id, volume+".qcow2")
+	return filepath.Join(storageRoot(v.data, a), "environments", env, "volumes", a.Asset.Id, a.DataSetId, volume+".qcow2")
 }
 
 func (v *VirtualMachines) prepareVolumes(ctx context.Context, env string, a api.AssetExecution) error {
