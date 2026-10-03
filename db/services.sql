@@ -23,7 +23,7 @@ UPDATE service_ports SET state='reserved',operation_id=sqlc.arg(operation_id) WH
 DELETE FROM service_ports WHERE environment_id=$1 AND purpose='service';
 
 -- name: GetAppliedServicePorts :many
-SELECT p.*,n.endpoint FROM service_ports p JOIN nodes n ON n.id=p.node_id WHERE p.environment_id=$1 AND p.state='applied' AND p.purpose='service' ORDER BY p.service_id;
+SELECT p.*,n.info AS node_info FROM service_ports p JOIN nodes n ON n.id=p.node_id WHERE p.environment_id=$1 AND p.state='applied' AND p.purpose='service' ORDER BY p.service_id;
 
 -- name: ListGatewayAddresses :many
 SELECT host(gateway_address)::text AS address FROM environments WHERE network_node_id=$1 AND gateway_address IS NOT NULL;

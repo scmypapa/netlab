@@ -2,8 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 
 	"netlab.local/core/api"
@@ -36,11 +36,14 @@ func (s *Server) listServices(w http.ResponseWriter, r *http.Request, identity a
 		if !exists || visible != nil && !visible[service.AssetId] {
 			continue
 		}
-		endpoint, err := url.Parse(port.Endpoint)
-		if err != nil {
+		var info api.NodeInfo
+		if err := json.Unmarshal(port.NodeInfo, &info); err != nil {
 			return err
 		}
-		result = append(result, api.ServiceEndpoint{Id: service.Id, AssetId: service.AssetId, InterfaceId: service.InterfaceId, Protocol: service.Protocol, TargetPort: service.TargetPort, ListenPort: service.ListenPort, Address: endpoint.Hostname(), Port: int(*port.Port), UpdatedAt: port.UpdatedAt.Time})
+		if info.AccessAddress == nil || *info.AccessAddress == "" {
+			return fmt.Errorf("节点未声明业务访问地址")
+		}
+		result = append(result, api.ServiceEndpoint{Id: service.Id, AssetId: service.AssetId, InterfaceId: service.InterfaceId, Protocol: service.Protocol, TargetPort: service.TargetPort, ListenPort: service.ListenPort, Address: *info.AccessAddress, Port: int(*port.Port), UpdatedAt: port.UpdatedAt.Time})
 	}
 	return writeJSON(w, http.StatusOK, result)
 }

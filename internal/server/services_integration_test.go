@@ -99,7 +99,7 @@ func testServiceAccessAPI(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	if _, err = pool.Exec(ctx, "UPDATE environments SET applied_spec=$2 WHERE id=$1", env.Id, raw); err != nil {
 		t.Fatal(err)
 	}
-	if err = json.Unmarshal(call("GET", path+"/services", issued.Token, nil, 200), &endpoints); err != nil || len(endpoints) != 1 || endpoints[0].Port != 26001 {
+	if err = json.Unmarshal(call("GET", path+"/services", issued.Token, nil, 200), &endpoints); err != nil || len(endpoints) != 1 || endpoints[0].Port != 26001 || endpoints[0].Address != "192.0.2.10" {
 		t.Fatalf("applied automatic port: %+v error=%v", endpoints, err)
 	}
 	services = append(services, api.ServiceExposure{Id: "hidden", AssetId: "other", InterfaceId: "other-nic", Protocol: "tcp", TargetPort: 80})

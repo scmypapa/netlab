@@ -45,7 +45,7 @@ func (q *Queries) DeleteUnusedServicePorts(ctx context.Context, arg DeleteUnused
 }
 
 const getAppliedServicePorts = `-- name: GetAppliedServicePorts :many
-SELECT p.id, p.node_id, p.protocol, p.port, p.environment_id, p.service_id, p.operation_id, p.state, p.updated_at, p.purpose,n.endpoint FROM service_ports p JOIN nodes n ON n.id=p.node_id WHERE p.environment_id=$1 AND p.state='applied' AND p.purpose='service' ORDER BY p.service_id
+SELECT p.id, p.node_id, p.protocol, p.port, p.environment_id, p.service_id, p.operation_id, p.state, p.updated_at, p.purpose,n.info AS node_info FROM service_ports p JOIN nodes n ON n.id=p.node_id WHERE p.environment_id=$1 AND p.state='applied' AND p.purpose='service' ORDER BY p.service_id
 `
 
 type GetAppliedServicePortsRow struct {
@@ -59,7 +59,7 @@ type GetAppliedServicePortsRow struct {
 	State         string
 	UpdatedAt     pgtype.Timestamptz
 	Purpose       string
-	Endpoint      string
+	NodeInfo      []byte
 }
 
 func (q *Queries) GetAppliedServicePorts(ctx context.Context, environmentID string) ([]GetAppliedServicePortsRow, error) {
@@ -82,7 +82,7 @@ func (q *Queries) GetAppliedServicePorts(ctx context.Context, environmentID stri
 			&i.State,
 			&i.UpdatedAt,
 			&i.Purpose,
-			&i.Endpoint,
+			&i.NodeInfo,
 		); err != nil {
 			return nil, err
 		}

@@ -140,7 +140,7 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	call("GET", "/environments/env-a/assets/one/console?kind=invalid", userSession, nil, 400)
 	call("GET", "/environments/env-a/assets/two/console?kind=invalid", userSession, nil, 403)
 	_, err = pool.Exec(ctx, `
-	 INSERT INTO nodes(id,name,endpoint,info) VALUES('test-node','Test node','http://test','{}');
+	 INSERT INTO nodes(id,name,endpoint,info) VALUES('test-node','Test node','http://test','{"accessAddress":"192.0.2.10"}');
 	 INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib,current)
 	 VALUES('env-a','one','instance-one','test-node','{}',1,512,1,true),('env-a','two','instance-two','test-node','{}',1,512,1,true);
 	 INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,asset_id,payload,expected_revision)
