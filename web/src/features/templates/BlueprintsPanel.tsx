@@ -1,7 +1,15 @@
-import { ActionIcon, Button, Drawer, Select, TextInput } from "@mantine/core";
-import { useQuery } from "@tanstack/react-query";
+import {
+  ActionIcon,
+  Button,
+  Drawer,
+  Group,
+  Modal,
+  Select,
+  TextInput,
+} from "@mantine/core";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@mantine/hooks";
-import { ChevronRight, Layers3, Network, Search } from "lucide-react";
+import { ChevronRight, Layers3, Network, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Blueprint } from "../../api/client";
@@ -123,6 +131,15 @@ function BlueprintDetails({
   );
   const [versionId, setVersionId] = useState(blueprint.latestVersionId);
   const [creating, setCreating] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const client = useQueryClient();
+  const remove = useMutation({
+    mutationFn: () => api.deleteBlueprint(blueprint.id),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["blueprints"] });
+      onClose();
+    },
+  });
   const versions = useCursorList(["blueprint-versions", blueprint.id], (page) =>
     api.blueprintVersions(blueprint.id, page),
   );
@@ -182,11 +199,25 @@ function BlueprintDetails({
                     </div>
                   ))}
                 </section>
-                {canCreate && (
+                {(canCreate || blueprint.permissions?.includes("compose")) && (
                   <div className="drawer-footer">
-                    <Button fullWidth onClick={() => setCreating(true)}>
-                      创建环境
-                    </Button>
+                    <Group justify="space-between">
+                      {blueprint.permissions?.includes("compose") && (
+                        <Button
+                          variant="subtle"
+                          color="red"
+                          leftSection={<Trash2 size={15} />}
+                          onClick={() => setConfirming(true)}
+                        >
+                          删除模板
+                        </Button>
+                      )}
+                      {canCreate && (
+                        <Button onClick={() => setCreating(true)}>
+                          创建环境
+                        </Button>
+                      )}
+                    </Group>
                   </div>
                 )}
               </>
@@ -194,6 +225,27 @@ function BlueprintDetails({
           )}
         </div>
       </Drawer>
+      <Modal
+        opened={confirming}
+        onClose={() => setConfirming(false)}
+        title={`删除 ${blueprint.name}？`}
+        centered
+        size="sm"
+      >
+        <ErrorMessage error={remove.error} />
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setConfirming(false)}>
+            取消
+          </Button>
+          <Button
+            color="red"
+            loading={remove.isPending}
+            onClick={() => remove.mutate()}
+          >
+            删除
+          </Button>
+        </Group>
+      </Modal>
       {creating && (
         <CreateEnvironmentDialog
           blueprint={blueprint}

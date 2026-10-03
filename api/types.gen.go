@@ -221,6 +221,7 @@ const (
 
 // Defines values for TemplateState.
 const (
+	TemplateStateDeleting  TemplateState = "deleting"
 	TemplateStateFailed    TemplateState = "failed"
 	TemplateStateImporting TemplateState = "importing"
 	TemplateStateReady     TemplateState = "ready"
@@ -302,15 +303,16 @@ type AssetState struct {
 
 // Blueprint defines model for Blueprint.
 type Blueprint struct {
-	AssetCount      int       `json:"assetCount"`
-	CreatedAt       time.Time `json:"createdAt"`
-	Id              string    `json:"id"`
-	LatestVersion   int       `json:"latestVersion"`
-	LatestVersionId string    `json:"latestVersionId"`
-	Name            string    `json:"name"`
-	NetworkCount    int       `json:"networkCount"`
-	ProjectId       string    `json:"projectId"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	AssetCount      int           `json:"assetCount"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	Id              string        `json:"id"`
+	LatestVersion   int           `json:"latestVersion"`
+	LatestVersionId string        `json:"latestVersionId"`
+	Name            string        `json:"name"`
+	NetworkCount    int           `json:"networkCount"`
+	Permissions     *[]Permission `json:"permissions,omitempty"`
+	ProjectId       string        `json:"projectId"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
 }
 
 // BlueprintVersion defines model for BlueprintVersion.
@@ -928,6 +930,7 @@ type Template struct {
 	Media          *[]TemplateMedia        `json:"media,omitempty"`
 	Name           string                  `json:"name"`
 	NicModels      *[]string               `json:"nicModels,omitempty"`
+	OperationId    *string                 `json:"operationId,omitempty"`
 	Os             string                  `json:"os"`
 	Resources      Resources               `json:"resources"`
 	Source         string                  `json:"source"`
@@ -974,6 +977,7 @@ type TemplateImport struct {
 	Media          *[]TemplateMedia        `json:"media,omitempty"`
 	Name           string                  `json:"name"`
 	NicModels      *[]string               `json:"nicModels,omitempty"`
+	OperationId    *string                 `json:"operationId,omitempty"`
 	Os             string                  `json:"os"`
 	Registry       *RegistryCredentials    `json:"registry,omitempty"`
 	Resources      Resources               `json:"resources"`

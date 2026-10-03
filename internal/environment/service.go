@@ -20,6 +20,7 @@ type Service struct {
 }
 
 var ErrConflict = errors.New("环境配置已变化，请重新确认本轮变更")
+var ErrInUse = errors.New("资源仍在使用")
 
 func Templates(ctx context.Context, q *queries.Queries, assets []api.Asset) (map[string]api.Template, error) {
 	ids := make([]string, 0, len(assets))
@@ -43,6 +44,35 @@ func Templates(ctx context.Context, q *queries.Queries, assets []api.Asset) (map
 		result[t.Id] = t
 	}
 	return result, nil
+}
+
+// ReferenceTemplates holds the template rows until the referencing write commits.
+func ReferenceTemplates(ctx context.Context, q *queries.Queries, assets []api.Asset) error {
+	ids := []string{}
+	seen := map[string]bool{}
+	for _, asset := range assets {
+		if asset.TemplateId != "" && !seen[asset.TemplateId] {
+			ids = append(ids, asset.TemplateId)
+			seen[asset.TemplateId] = true
+		}
+	}
+	rows, err := q.LockTemplates(ctx, ids)
+	if err != nil {
+		return err
+	}
+	if len(rows) != len(ids) {
+		return Invalid("资产模板已删除，请重新选择模板")
+	}
+	for _, row := range rows {
+		var template api.Template
+		if err = json.Unmarshal(row.Definition, &template); err != nil {
+			return err
+		}
+		if template.State != nil && *template.State == api.TemplateStateDeleting {
+			return Invalid("模板 %s 正在删除", template.Name)
+		}
+	}
+	return nil
 }
 func Record(row queries.Environment) (api.Environment, error) {
 	result := api.Environment{Id: row.ID, Name: row.Name, ProjectId: row.ProjectID, ExternalReference: row.ExternalReference, Revision: int(row.Revision), Status: api.EnvironmentStatus(row.Status), OperationId: row.OperationID, Error: row.Error, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
@@ -196,6 +226,14 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
 	var owner *string
+	if request.BlueprintVersionId != nil {
+		if _, err = q.LockBlueprintVersion(ctx, *request.BlueprintVersionId); err != nil {
+			return api.Environment{}, err
+		}
+	}
+	if err = ReferenceTemplates(ctx, q, spec.Assets); err != nil {
+		return api.Environment{}, err
+	}
 	if identity.Principal.Kind == "user" {
 		owner = &identity.Principal.ID
 	}
@@ -410,6 +448,9 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if row.Status == "destroyed" {
 		return preview, nil, Invalid("环境已销毁")
 	}
+	if err = ReferenceTemplates(ctx, q, spec.Assets); err != nil {
+		return preview, nil, err
+	}
 	if row.AppliedSpec == nil {
 		raw, marshalErr := json.Marshal(spec)
 		if marshalErr != nil {
@@ -432,4 +473,34 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	}
 	result, err := Operation(op)
 	return preview, &result, err
+}
+
+func (s Service) SaveDraft(ctx context.Context, identity access.Identity, id string, input api.Draft) error {
+	if _, err := s.Authorized(ctx, identity, id, "compose", ""); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	row, err := q.LockEnvironment(ctx, id)
+	if err != nil {
+		return err
+	}
+	if row.Status == "destroyed" {
+		return Invalid("环境已销毁")
+	}
+	if err = ReferenceTemplates(ctx, q, input.Spec.Assets); err != nil {
+		return err
+	}
+	if err = q.SaveDraft(ctx, queries.SaveDraftParams{ID: id, Draft: raw}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

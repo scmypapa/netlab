@@ -166,19 +166,11 @@ func (s *Server) saveView(w http.ResponseWriter, r *http.Request, identity acces
 
 func (s *Server) saveDraft(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	id := r.PathValue("id")
-	_, err := s.Environments.Authorized(r.Context(), identity, id, "compose", "")
-	if err != nil {
-		return err
-	}
 	var input api.Draft
 	if err := decode(w, r, &input); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return err
-	}
-	if err = s.Queries.SaveDraft(r.Context(), queries.SaveDraftParams{ID: id, Draft: raw}); err != nil {
+	if err := s.Environments.SaveDraft(r.Context(), identity, id, input); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -65,6 +65,32 @@ UPDATE environments SET network_node_id=$2 WHERE id=$1;
 SELECT * FROM templates ORDER BY created_at DESC,id;
 -- name: GetTemplates :many
 SELECT * FROM templates WHERE id=ANY($1::text[]);
+-- name: LockTemplates :many
+SELECT * FROM templates WHERE id=ANY($1::text[]) ORDER BY id FOR KEY SHARE;
+-- name: LockTemplate :one
+SELECT * FROM templates WHERE id=$1 FOR UPDATE;
+-- name: DeleteTemplate :exec
+DELETE FROM templates WHERE id=$1;
+-- name: TemplateReferences :many
+SELECT name::text FROM (
+SELECT '环境：'||e.name AS name FROM environments e
+WHERE e.status<>'destroyed' AND (
+ e.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text))) OR
+ e.applied_spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text))) OR
+ e.draft->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text))))
+UNION
+SELECT '运行资产：'||e.name FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
+WHERE a.execution->'template'->>'id'=sqlc.arg(template_id)
+UNION
+SELECT '环境模板：'||b.name||' v'||v.version::text FROM blueprint_versions v JOIN blueprints b ON b.id=v.blueprint_id
+WHERE v.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text)))
+UNION
+SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+WHERE o.state IN ('queued','running') AND (
+ o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text))) OR
+ o.payload->'beforeSpec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text))) OR
+ o.payload->'template'->>'id'=sqlc.arg(template_id))
+) reference_names ORDER BY name;
 -- name: CreateTemplate :exec
 INSERT INTO templates(id,definition) VALUES($1,$2);
 -- name: ListNodes :many

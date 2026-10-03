@@ -22,7 +22,7 @@ func (s *Server) listBlueprints(w http.ResponseWriter, r *http.Request, identity
 	}
 	result := make([]api.Blueprint, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, blueprint.Record(queries.GetBlueprintRow(row)))
+		result = append(result, blueprint.Record(queries.GetBlueprintRow(row), identity))
 	}
 	return writeJSON(w, http.StatusOK, result)
 }
@@ -32,7 +32,15 @@ func (s *Server) getBlueprint(w http.ResponseWriter, r *http.Request, identity a
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, blueprint.Record(row))
+	return writeJSON(w, http.StatusOK, blueprint.Record(row, identity))
+}
+
+func (s *Server) deleteBlueprint(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	if err := (blueprint.Service{Pool: s.Pool, Queries: s.Queries}).Delete(r.Context(), identity, r.PathValue("id")); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 func (s *Server) listBlueprintVersions(w http.ResponseWriter, r *http.Request, identity access.Identity) error {

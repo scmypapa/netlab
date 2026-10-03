@@ -130,6 +130,40 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	if err = json.Unmarshal(row.Payload, &p); err != nil {
 		return api.Operation{}, err
 	}
+	if row.Kind == "change" {
+		assets := append([]api.Asset{}, p.Spec.Assets...)
+		if p.BeforeSpec != nil {
+			assets = append(assets, p.BeforeSpec.Assets...)
+		}
+		if err = environment.ReferenceTemplates(ctx, q, assets); err != nil {
+			return api.Operation{}, err
+		}
+	}
+	if p.Template != nil {
+		templateRow, err := q.LockTemplate(ctx, p.Template.Id)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		var template api.Template
+		if err = json.Unmarshal(templateRow.Definition, &template); err != nil {
+			return api.Operation{}, err
+		}
+		if template.State != nil && *template.State == api.TemplateStateDeleting && row.Kind != "delete-template" {
+			return api.Operation{}, environment.Invalid("模板正在删除")
+		}
+		state := api.TemplateStateImporting
+		if row.Kind == "delete-template" {
+			state = api.TemplateStateDeleting
+		}
+		template.State, template.Error, template.OperationId = &state, nil, &id
+		raw, err := json.Marshal(template)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if err = q.UpdateTemplate(ctx, queries.UpdateTemplateParams{ID: template.Id, Definition: raw}); err != nil {
+			return api.Operation{}, err
+		}
+	}
 	phase := row.Phase
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
 		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange}

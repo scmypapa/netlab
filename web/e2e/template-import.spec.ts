@@ -393,3 +393,101 @@ test("ordinary template details hide the source row and retain virtual hardware"
   await expect(drawer).toContainText("Cloudbase-Init");
   await expect(drawer.locator("dt").filter({ hasText: "地址" })).toHaveCount(0);
 });
+
+test("template deletion keeps reference errors visible and closes after acceptance", async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  let allowed = false;
+  let items = [
+    {
+      id: "delete-me",
+      name: "Lab container",
+      kind: "container",
+      os: "Linux",
+      version: 1,
+      source: "nginx:stable",
+      state: "ready",
+      resources: { cpu: 1, memoryMiB: 512, diskGiB: 1 },
+    },
+  ];
+  await page.route("**/api/v1/templates?*", (route) =>
+    route.fulfill({ json: items }),
+  );
+  await page.route("**/api/v1/templates/delete-me", (route) => {
+    if (!allowed)
+      return route.fulfill({
+        status: 409,
+        json: {
+          status: 409,
+          title: "Conflict",
+          detail: "模板仍被引用：环境：Training",
+        },
+      });
+    items = [];
+    return route.fulfill({
+      status: 202,
+      json: { id: "remove", kind: "delete-template", state: "queued" },
+    });
+  });
+  await page.goto("/templates");
+  await page.getByRole("button", { name: /Lab container/ }).click();
+  await page.getByRole("button", { name: "删除模板", exact: true }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "删除 Lab container？",
+  });
+  await confirmation.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(confirmation).toContainText("环境：Training");
+  allowed = true;
+  await confirmation.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(confirmation).not.toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "资产模板" }),
+  ).not.toBeVisible();
+  await expect(page.getByRole("button", { name: /Lab container/ })).toHaveCount(
+    0,
+  );
+});
+
+test("failed deletion resumes the original operation from the template", async ({
+  page,
+}) => {
+  await fixture(page);
+  let retried = false;
+  await page.route("**/api/v1/templates?*", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "delete-me",
+          name: "Failed deletion",
+          kind: "container",
+          os: "Linux",
+          version: 1,
+          source: "nginx:stable",
+          state: "deleting",
+          error: "Worker unavailable",
+          operationId: "remove",
+          resources: { cpu: 1, memoryMiB: 512, diskGiB: 1 },
+        },
+      ],
+    }),
+  );
+  await page.route("**/api/v1/operations/remove/retry", (route) => {
+    retried = true;
+    return route.fulfill({
+      status: 202,
+      json: { id: "remove", kind: "delete-template", state: "queued" },
+    });
+  });
+  await page.goto("/templates");
+  await page.getByRole("button", { name: /Failed deletion/ }).click();
+  const drawer = page.getByRole("dialog", { name: "资产模板" });
+  await expect(drawer).toContainText("Worker unavailable");
+  await expect(
+    drawer.getByRole("button", { name: "删除模板", exact: true }),
+  ).toHaveCount(0);
+  await drawer.getByRole("button", { name: "重试删除" }).click();
+  await expect(drawer).not.toBeVisible();
+  expect(retried).toBe(true);
+});

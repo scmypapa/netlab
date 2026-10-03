@@ -427,7 +427,7 @@ export interface paths {
     get: operations["getBlueprint"];
     put?: never;
     post?: never;
-    delete?: never;
+    delete: operations["deleteBlueprint"];
     options?: never;
     head?: never;
     patch?: never;
@@ -591,6 +591,24 @@ export interface paths {
     put?: never;
     post: operations["createTemplate"];
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/templates/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["deleteTemplate"];
     options?: never;
     head?: never;
     patch?: never;
@@ -812,7 +830,7 @@ export interface components {
      */
     TemplateInitialization: "none" | "cloud-init" | "cloudbase-init";
     /** @enum {string} */
-    TemplateState: "importing" | "ready" | "failed";
+    TemplateState: "importing" | "ready" | "failed" | "deleting";
     Template: {
       id: string;
       name: string;
@@ -822,6 +840,7 @@ export interface components {
       source: string;
       format?: components["schemas"]["TemplateFormat"];
       readonly artifactNodeId?: string;
+      readonly operationId?: string;
       resources: components["schemas"]["Resources"];
       hardware?: components["schemas"]["Hardware"];
       disks?: components["schemas"]["TemplateDisk"][];
@@ -1279,6 +1298,7 @@ export interface components {
     Blueprint: {
       id: string;
       projectId: string;
+      readonly permissions?: components["schemas"]["Permission"][];
       name: string;
       latestVersionId: string;
       latestVersion: number;
@@ -2027,6 +2047,33 @@ export interface operations {
       };
     };
   };
+  deleteBlueprint: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Referenced by an existing environment */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   listBlueprintVersions: {
     parameters: {
       query?: {
@@ -2296,6 +2343,29 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Template"];
+        };
+      };
+    };
+  };
+  deleteTemplate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+      /** @description Template is referenced or has an active operation */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
         };
       };
     };

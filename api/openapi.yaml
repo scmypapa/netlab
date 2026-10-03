@@ -190,6 +190,9 @@ paths:
       operationId: getBlueprint
       responses:
         '200': {description: Blueprint, content: {application/json: {schema: {$ref: '#/components/schemas/Blueprint'}}}}
+    delete:
+      operationId: deleteBlueprint
+      responses: {'204': {description: Deleted}, '409': {description: Referenced by an existing environment}}
   /blueprints/{id}/versions:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -289,6 +292,13 @@ paths:
           headers:
             Operation-Location: {description: Template import operation URL, schema: {type: string}}
           content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}
+  /templates/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    delete:
+      operationId: deleteTemplate
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+        '409': {description: Template is referenced or has an active operation, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
   /nodes:
     get:
       operationId: listNodes
@@ -484,8 +494,8 @@ components:
       default: none
     TemplateState:
       type: string
-      enum: [importing, ready, failed]
-      x-enum-varnames: [TemplateStateImporting, TemplateStateReady, TemplateStateFailed]
+      enum: [importing, ready, failed, deleting]
+      x-enum-varnames: [TemplateStateImporting, TemplateStateReady, TemplateStateFailed, TemplateStateDeleting]
     Template:
       type: object
       required: [id, name, kind, os, version, source, resources]
@@ -498,6 +508,7 @@ components:
         source: {type: string}
         format: {$ref: '#/components/schemas/TemplateFormat'}
         artifactNodeId: {type: string, readOnly: true}
+        operationId: {type: string, readOnly: true}
         resources: {$ref: '#/components/schemas/Resources'}
         hardware: {$ref: '#/components/schemas/Hardware'}
         disks: {type: array, items: {$ref: '#/components/schemas/TemplateDisk'}}
@@ -1003,6 +1014,7 @@ components:
       properties:
         id: {type: string}
         projectId: {type: string}
+        permissions: {type: array, items: {$ref: '#/components/schemas/Permission'}, readOnly: true}
         name: {type: string}
         latestVersionId: {type: string}
         latestVersion: {type: integer}

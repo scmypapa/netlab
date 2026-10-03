@@ -217,21 +217,17 @@ func (c *Containers) image(ctx context.Context, t api.Template, registry *api.Re
 	mu := lock.(*sync.Mutex)
 	mu.Lock()
 	defer mu.Unlock()
-	if image, err := c.client.GetImage(ctx, ref); err == nil {
-		return image, nil
-	} else if !errdefs.IsNotFound(err) {
-		return nil, err
+	image, err := c.client.GetImage(ctx, ref)
+	if errdefs.IsNotFound(err) {
+		image, err = c.importImage(ctx, t, registry)
 	}
-	image, err := c.importImage(ctx, t, registry)
 	if err != nil {
 		return nil, err
 	}
-	if image.Name() != ref {
-		if _, err = c.client.ImageService().Create(ctx, images.Image{Name: ref, Target: image.Target()}); err != nil {
-			return nil, err
-		}
+	if err = image.Unpack(ctx, "overlayfs"); err != nil {
+		return nil, err
 	}
-	return c.client.GetImage(ctx, ref)
+	return image, nil
 }
 
 func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (api.Template, error) {
@@ -327,7 +323,13 @@ func (c *Containers) volumeMounts(env, asset string, volumes []api.Volume) ([]sp
 	return mounts, nil
 }
 func (c *Containers) importImage(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (containerd.Image, error) {
+	ctx, release, err := c.client.WithLease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release(ctx)
 	source := t.Source
+	name := fmt.Sprintf("netlab/template/%s:%d", t.Id, t.Version)
 	if t.ArtifactNodeId != nil {
 		source = filepath.Join(templateDirectory(c.data, t.Id, t.Version), "image.tar")
 	}
@@ -344,19 +346,13 @@ func (c *Containers) importImage(ctx context.Context, t api.Template, registry *
 		if len(items) == 0 {
 			return nil, errors.New("OCI archive contains no images")
 		}
-		img, err := c.client.GetImage(ctx, items[0].Name)
-		if err != nil {
-			return nil, err
-		}
-		if err = img.Unpack(ctx, "overlayfs"); err != nil {
-			return nil, err
-		}
-		return img, nil
+		return c.adoptImage(ctx, name, containerd.NewImage(c.client, items[0]))
 	}
 	ref, err := reference.ParseNormalizedNamed(t.Source)
 	if err != nil {
 		return nil, errors.New("invalid registry image reference")
 	}
+	registryRef := reference.TagNameOnly(ref).String()
 	host := reference.Domain(ref)
 	if host == "docker.io" {
 		host = "registry-1.docker.io"
@@ -377,7 +373,26 @@ func (c *Containers) importImage(ctx context.Context, t api.Template, registry *
 	hosts := docker.ConfigureDefaultRegistries(docker.WithAuthorizer(authorizer), docker.WithPlainHTTP(func(requestHost string) (bool, error) {
 		return registry != nil && registry.PlainHttp != nil && *registry.PlainHttp && requestHost == reference.Domain(ref), nil
 	}))
-	return c.client.Pull(ctx, reference.TagNameOnly(ref).String(), containerd.WithPullUnpack, containerd.WithResolver(docker.NewResolver(docker.ResolverOptions{Hosts: hosts})))
+	image, err := c.client.Pull(ctx, registryRef, containerd.WithResolver(docker.NewResolver(docker.ResolverOptions{Hosts: hosts})))
+	if err != nil {
+		return nil, err
+	}
+	return c.adoptImage(ctx, name, image)
+}
+
+func (c *Containers) adoptImage(ctx context.Context, name string, image containerd.Image) (containerd.Image, error) {
+	if image.Name() == name {
+		return image, nil
+	}
+	if _, err := c.client.ImageService().Create(ctx, images.Image{Name: name, Target: image.Target()}); err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(image.Name(), "netlab/template/") {
+		if err := c.client.ImageService().Delete(ctx, image.Name()); err != nil && !errdefs.IsNotFound(err) {
+			return nil, errors.Join(err, c.client.ImageService().Delete(ctx, name))
+		}
+	}
+	return c.client.GetImage(ctx, name)
 }
 func cpuLimit(cpus int) oci.SpecOpts {
 	return func(ctx context.Context, client oci.Client, c *containers.Container, s *oci.Spec) error {

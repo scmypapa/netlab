@@ -11,6 +11,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const blueprintReferences = `-- name: BlueprintReferences :many
+SELECT e.name FROM environments e JOIN blueprint_versions v ON v.id=e.blueprint_version_id
+WHERE v.blueprint_id=$1 AND e.status<>'destroyed' ORDER BY e.name
+`
+
+func (q *Queries) BlueprintReferences(ctx context.Context, blueprintID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, blueprintReferences, blueprintID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createBlueprint = `-- name: CreateBlueprint :exec
 INSERT INTO blueprints(id,project_id,owner_id,name) VALUES($1,$2,$3,$4)
 `
@@ -75,6 +100,33 @@ func (q *Queries) CreateBlueprintVersion(ctx context.Context, arg CreateBlueprin
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const deleteBlueprint = `-- name: DeleteBlueprint :exec
+DELETE FROM blueprints WHERE id=$1
+`
+
+func (q *Queries) DeleteBlueprint(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteBlueprint, id)
+	return err
+}
+
+const deleteBlueprintVersions = `-- name: DeleteBlueprintVersions :exec
+DELETE FROM blueprint_versions WHERE blueprint_id=$1
+`
+
+func (q *Queries) DeleteBlueprintVersions(ctx context.Context, blueprintID string) error {
+	_, err := q.db.Exec(ctx, deleteBlueprintVersions, blueprintID)
+	return err
+}
+
+const detachDestroyedBlueprint = `-- name: DetachDestroyedBlueprint :exec
+UPDATE environments SET blueprint_version_id=NULL WHERE status='destroyed' AND blueprint_version_id IN (SELECT id FROM blueprint_versions WHERE blueprint_id=$1)
+`
+
+func (q *Queries) DetachDestroyedBlueprint(ctx context.Context, blueprintID string) error {
+	_, err := q.db.Exec(ctx, detachDestroyedBlueprint, blueprintID)
+	return err
 }
 
 const getBlueprint = `-- name: GetBlueprint :one
@@ -263,6 +315,71 @@ func (q *Queries) ListBlueprints(ctx context.Context, arg ListBlueprintsParams) 
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockBlueprint = `-- name: LockBlueprint :one
+SELECT id, project_id, owner_id, name, version, created_at, updated_at FROM blueprints WHERE id=$1 FOR UPDATE
+`
+
+func (q *Queries) LockBlueprint(ctx context.Context, id string) (Blueprint, error) {
+	row := q.db.QueryRow(ctx, lockBlueprint, id)
+	var i Blueprint
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.OwnerID,
+		&i.Name,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockBlueprintVersion = `-- name: LockBlueprintVersion :one
+SELECT id, blueprint_id, version, spec, view, asset_count, network_count, source_environment_id, source_revision, created_at FROM blueprint_versions WHERE id=$1 FOR KEY SHARE
+`
+
+func (q *Queries) LockBlueprintVersion(ctx context.Context, id string) (BlueprintVersion, error) {
+	row := q.db.QueryRow(ctx, lockBlueprintVersion, id)
+	var i BlueprintVersion
+	err := row.Scan(
+		&i.ID,
+		&i.BlueprintID,
+		&i.Version,
+		&i.Spec,
+		&i.View,
+		&i.AssetCount,
+		&i.NetworkCount,
+		&i.SourceEnvironmentID,
+		&i.SourceRevision,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const lockBlueprintVersions = `-- name: LockBlueprintVersions :many
+SELECT id FROM blueprint_versions WHERE blueprint_id=$1 ORDER BY id FOR UPDATE
+`
+
+func (q *Queries) LockBlueprintVersions(ctx context.Context, blueprintID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, lockBlueprintVersions, blueprintID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

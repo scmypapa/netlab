@@ -378,6 +378,9 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 			if _, err := pool.Exec(ctx, `INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,state,phase,payload,expected_revision) VALUES($1,$2,CASE WHEN $2::text IS NULL THEN 'template' ELSE 'environment' END,COALESCE($2,$1),$3,'failed',$4,$5,0)`, id, environmentID, scenario.kind, scenario.phase, scenario.payload); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := pool.Exec(ctx, `INSERT INTO templates(id,definition) SELECT $1::jsonb->'template'->>'id',$1::jsonb->'template'`, scenario.payload); err != nil {
+				t.Fatal(err)
+			}
 			if environmentID != nil {
 				if _, err := pool.Exec(ctx, `UPDATE environments SET operation_id=$1 WHERE id=$2`, id, *environmentID); err != nil {
 					t.Fatal(err)
@@ -397,4 +400,5 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 			}
 		}
 	})
+	testTemplateLifecycleAPI(t, ctx, pool, s, admin, call)
 }

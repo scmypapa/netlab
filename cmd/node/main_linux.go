@@ -239,6 +239,18 @@ func run() error {
 			slog.Warn("template artifact transfer interrupted", "template", r.PathValue("id"), "error", err)
 		}
 	})
+	mux.HandleFunc("DELETE /node/v1/templates/{id}/versions/{version}", func(w http.ResponseWriter, r *http.Request) {
+		version, err := strconv.Atoi(r.PathValue("version"))
+		if err != nil || version < 1 || !pathID(r.PathValue("id")) {
+			http.Error(w, "invalid template identity", http.StatusBadRequest)
+			return
+		}
+		if err = executor.RemoveTemplate(r.Context(), r.PathValue("id"), version); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /node/v1/plans", func(w http.ResponseWriter, r *http.Request) {
 		var plan api.NodePlan
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20))

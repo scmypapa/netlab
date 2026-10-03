@@ -86,12 +86,14 @@ func (s *Server) Handler() http.Handler {
 		"POST /api/v1/operations/{id}/retry":                             s.retryOperation,
 		"GET /api/v1/templates":                                          s.listTemplates,
 		"POST /api/v1/templates":                                         s.createTemplate,
-		"POST /api/v1/environments/{id}/assets/{assetId}/templates":        s.captureTemplate,
+		"DELETE /api/v1/templates/{id}":                                  s.deleteTemplate,
+		"POST /api/v1/environments/{id}/assets/{assetId}/templates":      s.captureTemplate,
 		"GET /api/v1/nodes":                                              s.listNodes,
 		"GET /api/v1/nodes/{id}/interfaces":                              s.nodeInterfaces,
 		"POST /api/v1/nodes":                                             s.registerNode,
 		"GET /api/v1/blueprints":                                         s.listBlueprints,
 		"GET /api/v1/blueprints/{id}":                                    s.getBlueprint,
+		"DELETE /api/v1/blueprints/{id}":                                 s.deleteBlueprint,
 		"GET /api/v1/blueprints/{id}/versions":                           s.listBlueprintVersions,
 		"GET /api/v1/blueprint-versions/{id}":                            s.getBlueprintVersion,
 		"POST /api/v1/environments/{id}/blueprints":                      s.saveEnvironmentBlueprint,
@@ -188,7 +190,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, detail = http.StatusForbidden, err.Error()
 	case errors.Is(err, pgx.ErrNoRows):
 		status, detail = http.StatusNotFound, "对象不存在"
-	case errors.Is(err, environment.ErrConflict):
+	case errors.Is(err, environment.ErrConflict) || errors.Is(err, environment.ErrInUse):
 		status, detail = http.StatusConflict, err.Error()
 	case errors.As(err, &validation):
 		status, detail = http.StatusBadRequest, validation.Error()

@@ -53,9 +53,10 @@ func (s *Server) captureTemplate(w http.ResponseWriter, r *http.Request, identit
 		return httpError{http.StatusConflict, "请等待当前任务完成"}
 	}
 	format, initialization, state := api.Qcow2, api.None, api.TemplateStateImporting
+	operationID := uuid.NewString()
 	template := api.Template{Id: uuid.NewString(), Name: strings.TrimSpace(request.Name), Kind: api.Vm, Os: execution.Template.Os, Version: 1,
 		Source: "asset://" + id + "/" + asset + "/" + current.InstanceID, Hardware: execution.Template.Hardware, Resources: execution.Asset.Resources,
-		Format: &format, Initialization: request.Initialization, State: &state, ArtifactNodeId: &current.NodeID}
+		Format: &format, Initialization: request.Initialization, State: &state, ArtifactNodeId: &current.NodeID, OperationId: &operationID}
 	if template.Initialization == nil {
 		template.Initialization = execution.Template.Initialization
 		if template.Initialization == nil {
@@ -73,7 +74,7 @@ func (s *Server) captureTemplate(w http.ResponseWriter, r *http.Request, identit
 	if err = q.CreateTemplate(r.Context(), queries.CreateTemplateParams{ID: template.Id, Definition: raw}); err != nil {
 		return err
 	}
-	op, err := q.CreateOperation(r.Context(), queries.CreateOperationParams{ID: uuid.NewString(), EnvironmentID: &id, ScopeKind: "environment", ScopeID: id, Kind: "capture-template", AssetID: &asset, Payload: payload, ExpectedRevision: row.Revision})
+	op, err := q.CreateOperation(r.Context(), queries.CreateOperationParams{ID: operationID, EnvironmentID: &id, ScopeKind: "environment", ScopeID: id, Kind: "capture-template", AssetID: &asset, Payload: payload, ExpectedRevision: row.Revision})
 	if err != nil {
 		return err
 	}

@@ -5,9 +5,14 @@ export function Status({ value }: { value: string }) {
     ? "positive"
     : ["failed", "offline", "partially_applied"].includes(value)
       ? "negative"
-      : ["deploying", "changing", "destroying", "queued", "importing"].includes(
-            value,
-          )
+      : [
+            "deploying",
+            "changing",
+            "destroying",
+            "queued",
+            "importing",
+            "deleting",
+          ].includes(value)
         ? "active"
         : "neutral";
   return (

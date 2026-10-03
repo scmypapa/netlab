@@ -55,7 +55,13 @@ function AssetTemplatesPanel() {
     (page) => api.templates({ ...page, search, kind: selectedKind }),
     {
       refetchInterval: (items) =>
-        items.some((template) => template.state === "importing") ? 2500 : false,
+        items.some(
+          (template) =>
+            template.state === "importing" ||
+            (template.state === "deleting" && !template.error),
+        )
+          ? 2500
+          : false,
     },
   );
   const [creating, setCreating] = useState(false);

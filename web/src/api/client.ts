@@ -210,6 +210,7 @@ export const api = {
     request<Environment>("/environments", "POST", body),
   blueprints: (options?: ListOptions) =>
     list<Blueprint>("/blueprints", options),
+  deleteBlueprint: (id: string) => request<void>(`/blueprints/${id}`, "DELETE"),
   blueprintVersions: (id: string, options?: ListOptions) =>
     list<Schema<"BlueprintVersionSummary">>(
       `/blueprints/${id}/versions`,
@@ -286,6 +287,8 @@ export const api = {
   retryOperation: (id: string) =>
     request<Operation>(`/operations/${id}/retry`, "POST"),
   templates: (options?: ListOptions) => list<Template>("/templates", options),
+  deleteTemplate: (id: string) =>
+    request<Operation>(`/templates/${id}`, "DELETE"),
   createTemplate: (body: Schema<"TemplateImport">) =>
     request<Template>("/templates", "POST", body),
   nodes: (options?: ListOptions) => list<Node>("/nodes", options),

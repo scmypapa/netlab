@@ -3,6 +3,7 @@ package blueprint
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -12,6 +13,42 @@ import (
 	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/environment"
 )
+
+func (s Service) Delete(ctx context.Context, identity access.Identity, id string) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	row, err := q.LockBlueprint(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !identity.Allows("compose", row.ProjectID, "", "", row.OwnerID) {
+		return access.ErrForbidden
+	}
+	if _, err = q.LockBlueprintVersions(ctx, id); err != nil {
+		return err
+	}
+	references, err := q.BlueprintReferences(ctx, id)
+	if err != nil {
+		return err
+	}
+	if len(references) > 0 {
+		return fmt.Errorf("%w：%s", environment.ErrInUse, strings.Join(references, "、"))
+	}
+	if err = q.DetachDestroyedBlueprint(ctx, id); err != nil {
+		return err
+	}
+	if err = q.DeleteBlueprintVersions(ctx, id); err != nil {
+		return err
+	}
+	if err = q.DeleteBlueprint(ctx, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
 type Service struct {
 	Pool    *pgxpool.Pool
@@ -29,8 +66,9 @@ func (s Service) Authorized(ctx context.Context, identity access.Identity, id, p
 	return row, nil
 }
 
-func Record(row queries.GetBlueprintRow) api.Blueprint {
-	return api.Blueprint{Id: row.ID, ProjectId: row.ProjectID, Name: row.Name, LatestVersionId: row.LatestVersionID, LatestVersion: int(row.Version), AssetCount: int(row.AssetCount), NetworkCount: int(row.NetworkCount), CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
+func Record(row queries.GetBlueprintRow, identity access.Identity) api.Blueprint {
+	permissions := identity.Permissions(row.ProjectID, "", "", row.OwnerID)
+	return api.Blueprint{Id: row.ID, ProjectId: row.ProjectID, Name: row.Name, LatestVersionId: row.LatestVersionID, LatestVersion: int(row.Version), AssetCount: int(row.AssetCount), NetworkCount: int(row.NetworkCount), CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time, Permissions: &permissions}
 }
 
 func Version(row queries.BlueprintVersion) (api.BlueprintVersion, error) {
@@ -99,6 +137,9 @@ func (s Service) Save(ctx context.Context, identity access.Identity, environment
 	if int(source.Revision) != expectedRevision {
 		return api.Blueprint{}, api.BlueprintVersion{}, environment.ErrConflict
 	}
+	if err = environment.ReferenceTemplates(ctx, q, spec.Assets); err != nil {
+		return api.Blueprint{}, api.BlueprintVersion{}, err
+	}
 	if blueprintID == "" {
 		blueprintID = uuid.NewString()
 		var owner *string
@@ -122,6 +163,8 @@ func (s Service) Save(ctx context.Context, identity access.Identity, environment
 		return api.Blueprint{}, api.BlueprintVersion{}, err
 	}
 	result := api.Blueprint{Id: blueprintID, Name: allocated.Name, ProjectId: allocated.ProjectID, LatestVersion: int(saved.Version), LatestVersionId: saved.ID, AssetCount: int(saved.AssetCount), NetworkCount: int(saved.NetworkCount), CreatedAt: allocated.CreatedAt.Time, UpdatedAt: allocated.UpdatedAt.Time}
+	permissions := identity.Permissions(allocated.ProjectID, "", "", allocated.OwnerID)
+	result.Permissions = &permissions
 	version, err := Version(saved)
 	return result, version, err
 }

@@ -309,6 +309,15 @@ func (q *Queries) DeleteCredential(ctx context.Context, hash []byte) error {
 	return err
 }
 
+const deleteTemplate = `-- name: DeleteTemplate :exec
+DELETE FROM templates WHERE id=$1
+`
+
+func (q *Queries) DeleteTemplate(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteTemplate, id)
+	return err
+}
+
 const finishOperation = `-- name: FinishOperation :execrows
 UPDATE operations SET state=$3,phase=$4,results=$5,error=$6,lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_owner=$2
 `
@@ -1243,6 +1252,41 @@ func (q *Queries) LockOperation(ctx context.Context, id string) (Operation, erro
 	return i, err
 }
 
+const lockTemplate = `-- name: LockTemplate :one
+SELECT id, definition, created_at FROM templates WHERE id=$1 FOR UPDATE
+`
+
+func (q *Queries) LockTemplate(ctx context.Context, id string) (Template, error) {
+	row := q.db.QueryRow(ctx, lockTemplate, id)
+	var i Template
+	err := row.Scan(&i.ID, &i.Definition, &i.CreatedAt)
+	return i, err
+}
+
+const lockTemplates = `-- name: LockTemplates :many
+SELECT id, definition, created_at FROM templates WHERE id=ANY($1::text[]) ORDER BY id FOR KEY SHARE
+`
+
+func (q *Queries) LockTemplates(ctx context.Context, dollar_1 []string) ([]Template, error) {
+	rows, err := q.db.Query(ctx, lockTemplates, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Template{}
+	for rows.Next() {
+		var i Template
+		if err := rows.Scan(&i.ID, &i.Definition, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const makeCurrentAssets = `-- name: MakeCurrentAssets :exec
 UPDATE runtime_assets SET current=true WHERE instance_id=ANY($1::text[])
 `
@@ -1635,6 +1679,48 @@ func (q *Queries) SetOperationPhase(ctx context.Context, arg SetOperationPhasePa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const templateReferences = `-- name: TemplateReferences :many
+SELECT name::text FROM (
+SELECT '环境：'||e.name AS name FROM environments e
+WHERE e.status<>'destroyed' AND (
+ e.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text))) OR
+ e.applied_spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text))) OR
+ e.draft->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text))))
+UNION
+SELECT '运行资产：'||e.name FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
+WHERE a.execution->'template'->>'id'=$1
+UNION
+SELECT '环境模板：'||b.name||' v'||v.version::text FROM blueprint_versions v JOIN blueprints b ON b.id=v.blueprint_id
+WHERE v.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text)))
+UNION
+SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+WHERE o.state IN ('queued','running') AND (
+ o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text))) OR
+ o.payload->'beforeSpec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text))) OR
+ o.payload->'template'->>'id'=$1)
+) reference_names ORDER BY name
+`
+
+func (q *Queries) TemplateReferences(ctx context.Context, templateID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, templateReferences, templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateAssetExecution = `-- name: UpdateAssetExecution :exec

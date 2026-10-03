@@ -1,7 +1,8 @@
-import { Button, Drawer } from "@mantine/core";
-import { useMutation } from "@tanstack/react-query";
+import { Button, Drawer, Group, Modal } from "@mantine/core";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Box, Monitor } from "lucide-react";
+import { Box, Monitor, RotateCw, Trash2 } from "lucide-react";
 import { api, type Template } from "../../api/client";
 import { ErrorMessage } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
@@ -22,6 +23,21 @@ export function TemplateDetails({
 }) {
   const hardware = template.hardware;
   const navigate = useNavigate();
+  const client = useQueryClient();
+  const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const [confirming, setConfirming] = useState(false);
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["templates"] });
+    onClose();
+  };
+  const remove = useMutation({
+    mutationFn: () => api.deleteTemplate(template.id),
+    onSuccess: refresh,
+  });
+  const retry = useMutation({
+    mutationFn: () => api.retryOperation(template.operationId!),
+    onSuccess: refresh,
+  });
   const install = useMutation({
     mutationFn: () => {
       const networkId = crypto.randomUUID();
@@ -181,6 +197,55 @@ export function TemplateDetails({
           )}
         </dl>
       </section>
+      {identity.data?.administrator && (
+        <div className="drawer-footer">
+          <ErrorMessage error={remove.error ?? retry.error} />
+          <Group justify="space-between">
+            {template.error && template.operationId && (
+              <Button
+                variant="light"
+                leftSection={<RotateCw size={15} />}
+                loading={retry.isPending}
+                onClick={() => retry.mutate()}
+              >
+                {template.state === "deleting" ? "重试删除" : "重新导入"}
+              </Button>
+            )}
+            {template.state !== "importing" &&
+              template.state !== "deleting" && (
+                <Button
+                  variant="subtle"
+                  color="red"
+                  leftSection={<Trash2 size={15} />}
+                  onClick={() => setConfirming(true)}
+                >
+                  删除模板
+                </Button>
+              )}
+          </Group>
+        </div>
+      )}
+      <Modal
+        opened={confirming}
+        onClose={() => setConfirming(false)}
+        title={`删除 ${template.name}？`}
+        centered
+        size="sm"
+      >
+        <ErrorMessage error={remove.error} />
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setConfirming(false)}>
+            取消
+          </Button>
+          <Button
+            color="red"
+            loading={remove.isPending}
+            onClick={() => remove.mutate()}
+          >
+            删除
+          </Button>
+        </Group>
+      </Modal>
     </Drawer>
   );
 }

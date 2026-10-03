@@ -105,6 +105,8 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	}
 	state := api.TemplateStateImporting
 	input.State, input.Error = &state, nil
+	operationID := uuid.NewString()
+	input.OperationId = &operationID
 	input.ArtifactNodeId = nil
 	input.StateFiles = nil
 	p := operation.Payload{Template: &input}
@@ -168,7 +170,6 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	}
 	defer tx.Rollback(r.Context())
 	q := s.Queries.WithTx(tx)
-	operationID := uuid.NewString()
 	if err = q.CreateTemplate(r.Context(), queries.CreateTemplateParams{ID: input.Id, Definition: raw}); err != nil {
 		return err
 	}
