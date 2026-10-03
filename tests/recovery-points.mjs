@@ -36,6 +36,7 @@ let cookie,
   stoppedNode,
   readOnlyCapture;
 const originalGenerations = new Map();
+const nativeSessions = new Map();
 let tlsClient;
 const quote = (value) => `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 async function node(id, ...args) {
@@ -67,6 +68,44 @@ async function node(id, ...args) {
     error.message += `\n${error.stdout ?? ""}`;
     throw error;
   }
+}
+async function sessionIdentity(actual) {
+  const spec = environment.spec.assets.find(
+    (asset) => asset.id === actual.assetId,
+  );
+  if (spec.templateId === vmTemplate.id)
+    return (
+      await node(actual.nodeId, "virsh", "domid", actual.instanceId)
+    ).trim();
+  const tasks = await node(
+    actual.nodeId,
+    "ctr",
+    "-n",
+    "netlab",
+    "tasks",
+    "list",
+  );
+  const row = tasks
+    .split(/\r?\n/)
+    .find((line) => line.split(/\s+/, 1)[0] === actual.instanceId);
+  assert(row, "native container task is absent");
+  return row.trim().split(/\s+/)[1];
+}
+async function changeVMData(actual, paths, pattern) {
+  await action("force-stop", actual.assetId);
+  for (const path of paths)
+    await node(
+      actual.nodeId,
+      "qemu-io",
+      "-f",
+      "qcow2",
+      "-c",
+      "write -P " + pattern + " 0 4096",
+      path,
+    );
+  if (actual.state === "running" || actual.state === "suspended")
+    await action("start", actual.assetId);
+  if (actual.state === "suspended") await action("suspend", actual.assetId);
 }
 async function api(path, method = "GET", body, status = 200) {
   const response = await fetch(
@@ -184,6 +223,8 @@ async function verifyRestore(op) {
       await node(
         actual.nodeId,
         "qemu-io",
+        "-r",
+        "-U",
         "-f",
         "qcow2",
         "-c",
@@ -193,6 +234,8 @@ async function verifyRestore(op) {
       await node(
         actual.nodeId,
         "qemu-io",
+        "-r",
+        "-U",
         "-f",
         "qcow2",
         "-c",
@@ -211,12 +254,15 @@ async function verifyRestore(op) {
       assert(generation);
       assert.notEqual(generation, originalGenerations.get(actual.instanceId));
       originalGenerations.set(actual.instanceId, generation);
-      await node(
-        actual.nodeId,
-        "cmp",
-        `${directory}/nvram.fd`,
-        `${dir(original)}/nvram.fd`,
-      );
+      assert(xml.includes(`${directory}/nvram.fd`));
+      await node(actual.nodeId, "test", "-s", `${directory}/nvram.fd`);
+      if (actual.state === "stopped")
+        await node(
+          actual.nodeId,
+          "cmp",
+          `${directory}/nvram.fd`,
+          `${dir(original)}/nvram.fd`,
+        );
       await node(
         actual.nodeId,
         "test",
@@ -423,6 +469,7 @@ try {
               "write -P 0x59 0 4096",
               path,
             );
+          await action("start", actual.assetId);
         } else {
           await action("start", actual.assetId);
           await node(
@@ -449,7 +496,15 @@ try {
             containerTemplate.id,
       );
       await action("suspend", suspended.assetId);
+      const pausedVM = before.assets.find(
+        (a) =>
+          a.nodeId !== primary &&
+          assets.find((x) => x.id === a.assetId).templateId === vmTemplate.id,
+      );
+      await action("suspend", pausedVM.assetId);
       before = await api(`/environments/${environment.id}/state`);
+      for (const actual of before.assets)
+        nativeSessions.set(actual.instanceId, await sessionIdentity(actual));
       report.originalStates = before.assets.map((a) => ({
         assetId: a.assetId,
         instanceId: a.instanceId,
@@ -483,6 +538,11 @@ try {
       const actual = after.assets.find((a) => a.assetId === original.assetId);
       assert.equal(actual.instanceId, original.instanceId);
       assert.equal(actual.state, original.state);
+      assert.equal(
+        await sessionIdentity(actual),
+        nativeSessions.get(original.instanceId),
+        "capture restarted the native instance",
+      );
     }
     report.captureFailure = { phase: failed.phase, error: failed.error };
     await node(pool.nodeId, "umount", path);
@@ -508,6 +568,11 @@ try {
       const actual = after.assets.find((a) => a.assetId === original.assetId);
       assert.equal(actual.instanceId, original.instanceId);
       assert.equal(actual.state, original.state);
+      assert.equal(
+        await sessionIdentity(actual),
+        nativeSessions.get(original.instanceId),
+        "capture restarted the native instance",
+      );
     }
   });
   await step(
@@ -586,19 +651,14 @@ try {
           );
           const root = pools.find((p) => p.nodeId === actual.nodeId).storage
             .path;
-          for (const path of [
-            `${root}/environments/${environment.id}/instances/${actual.instanceId}/disk-0.qcow2`,
-            `${root}/environments/${environment.id}/volumes/${actual.assetId}/data.qcow2`,
-          ])
-            await node(
-              actual.nodeId,
-              "qemu-io",
-              "-f",
-              "qcow2",
-              "-c",
-              "write -P 0x63 0 4096",
-              path,
-            );
+          await changeVMData(
+            actual,
+            [
+              `${root}/environments/${environment.id}/instances/${actual.instanceId}/disk-0.qcow2`,
+              `${root}/environments/${environment.id}/volumes/${actual.assetId}/data.qcow2`,
+            ],
+            "0x63",
+          );
         }
       }
     },
@@ -660,6 +720,15 @@ try {
               `${directory}/disk-0.qcow2`,
             );
             await node(secondary, "test", "-s", `${directory}/tpm.tar`);
+            for (const file of ["nvram.fd", "tpm.tar"]) {
+              const captured = (
+                await node(primary, "sha256sum", `${dir(original)}/${file}`)
+              ).split(/\s/)[0];
+              const transferred = (
+                await node(secondary, "sha256sum", `${directory}/${file}`)
+              ).split(/\s/)[0];
+              assert.equal(transferred, captured);
+            }
           } else {
             const native = JSON.parse(
               await node(secondary, "cat", `${directory}/container.json`),
@@ -733,6 +802,13 @@ try {
   await step(
     "资产增删及网络变更后恢复原资产身份、配置、全盘和容器数据",
     async () => {
+      for (const asset of before.assets) {
+        const spec = environment.spec.assets.find(
+          (a) => a.id === asset.assetId,
+        );
+        if (spec.templateId === vmTemplate.id)
+          await action("force-stop", asset.assetId);
+      }
       const full = await api(`/environments/${environment.id}`),
         spec = structuredClone(full.spec);
       const removed = spec.assets.find((a) => a.templateId === vmTemplate.id);
@@ -1103,14 +1179,12 @@ try {
         const a = environment.spec.assets.find((a) => a.id === actual.assetId),
           root = pools.find((p) => p.nodeId === actual.nodeId).storage.path;
         if (a.templateId === vmTemplate.id) {
-          await node(
-            actual.nodeId,
-            "qemu-io",
-            "-f",
-            "qcow2",
-            "-c",
-            "write -P 0x73 0 4096",
-            `${root}/environments/${environment.id}/instances/${actual.instanceId}.${report.repeatedRestoreId}/disk-0.qcow2`,
+          await changeVMData(
+            actual,
+            [
+              `${root}/environments/${environment.id}/instances/${actual.instanceId}.${report.repeatedRestoreId}/disk-0.qcow2`,
+            ],
+            "0x73",
           );
           generationBefore.set(
             actual.instanceId,
@@ -1250,6 +1324,8 @@ try {
             await node(
               actual.nodeId,
               "qemu-io",
+              "-r",
+              "-U",
               "-f",
               "qcow2",
               "-c",

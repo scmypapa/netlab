@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/containerd/containerd"
 	filesystem "github.com/containerd/containerd/archive"
@@ -122,8 +123,8 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 	if err != nil {
 		return err
 	}
-	if state != "stopped" {
-		return fmt.Errorf("VM %s must be stopped at capture boundary", a.Asset.Name)
+	if state != "stopped" && state != "suspended" {
+		return fmt.Errorf("VM %s must be quiesced at capture boundary", a.Asset.Name)
 	}
 	text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
 	if err != nil {
@@ -136,6 +137,7 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 	if err = os.WriteFile(filepath.Join(directory, "domain.xml"), []byte(text), 0600); err != nil {
 		return err
 	}
+	backupDisks := []libvirtxml.DomainBackupPushDisk{}
 	for _, disk := range config.Devices.Disks {
 		if disk.Device != "disk" {
 			continue
@@ -144,14 +146,25 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 			return errors.New("recovery requires managed file disks")
 		}
 		file := fmt.Sprintf("disk-%d.qcow2", len(manifest.Disks))
-		image, err := inspectImage(ctx, disk.Source.File.File)
-		if err != nil {
-			return err
-		}
-		if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", disk.Source.File.File, filepath.Join(directory, file)); err != nil {
-			return fmt.Errorf("disk %s: %w", disk.Serial, err)
+		if state == "suspended" {
+			backupDisks = append(backupDisks, libvirtxml.DomainBackupPushDisk{Name: disk.Target.Dev, Backup: "yes",
+				Driver: &libvirtxml.DomainBackupDiskDriver{Type: "qcow2"},
+				Target: &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: filepath.Join(directory, file)}}})
+		} else {
+			image, err := inspectImage(ctx, disk.Source.File.File)
+			if err != nil {
+				return err
+			}
+			if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", disk.Source.File.File, filepath.Join(directory, file)); err != nil {
+				return fmt.Errorf("disk %s: %w", disk.Serial, err)
+			}
 		}
 		manifest.Disks = append(manifest.Disks, recoveryDisk{Serial: disk.Serial, File: file})
+	}
+	if len(backupDisks) > 0 {
+		if err = backupRecoveryDisks(ctx, domain, backupDisks); err != nil {
+			return err
+		}
 	}
 	if config.OS.NVRam != nil {
 		if err = copyArtifact(ctx, config.OS.NVRam.NVRam, filepath.Join(directory, "nvram.fd")); err != nil {
@@ -189,8 +202,8 @@ func (c *Containers) captureRecovery(ctx context.Context, env, point string, a a
 	if err != nil {
 		return err
 	}
-	if state != "stopped" {
-		return fmt.Errorf("container %s must be stopped at capture boundary", a.Asset.Name)
+	if state != "stopped" && state != "suspended" {
+		return fmt.Errorf("container %s must be quiesced at capture boundary", a.Asset.Name)
 	}
 	ref := "netlab/recovery/" + point + "/" + a.Asset.Id
 	// A previous interrupted export may leave its temporary native image registered.
@@ -224,6 +237,82 @@ func (c *Containers) captureRecovery(ctx context.Context, env, point string, a a
 		}
 	}
 	return nil
+}
+
+func backupRecoveryDisks(ctx context.Context, domain *libvirt.Domain, disks []libvirtxml.DomainBackupPushDisk) error {
+	active, err := domain.GetJobStats(0)
+	if err != nil {
+		return err
+	}
+	if active.Type != libvirt.DOMAIN_JOB_NONE {
+		text, err := domain.BackupGetXMLDesc(0)
+		if err != nil {
+			current, inspectErr := domain.GetJobStats(0)
+			if inspectErr != nil || current.Type != libvirt.DOMAIN_JOB_NONE {
+				return errors.Join(err, inspectErr)
+			}
+		} else {
+			var running libvirtxml.DomainBackup
+			if err = running.Unmarshal(text); err != nil {
+				return err
+			}
+			if running.Push == nil || running.Push.Disks == nil {
+				return errors.New("VM has another native backup in progress")
+			}
+			expected := map[string]string{}
+			for _, disk := range disks {
+				expected[disk.Name] = disk.Target.File.File
+			}
+			for _, disk := range running.Push.Disks.Disks {
+				if disk.Backup == "no" {
+					continue
+				}
+				if disk.Target == nil || disk.Target.File == nil || expected[disk.Name] != disk.Target.File.File {
+					return errors.New("VM has another native backup in progress")
+				}
+			}
+			// A node restart can leave the persisted capture block job alive.
+			if err = domain.AbortJob(); err != nil {
+				current, inspectErr := domain.GetJobStats(0)
+				if inspectErr != nil || current.Type != libvirt.DOMAIN_JOB_NONE {
+					return errors.Join(err, inspectErr)
+				}
+			}
+		}
+	}
+	plan := libvirtxml.DomainBackup{Push: &libvirtxml.DomainBackupPush{Disks: &libvirtxml.DomainBackupPushDisks{Disks: disks}}}
+	text, err := plan.Marshal()
+	if err != nil {
+		return err
+	}
+	if err = domain.BackupBegin(text, "", 0); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		stats, err := domain.GetJobStats(0)
+		if err != nil {
+			return errors.Join(err, domain.AbortJob())
+		}
+		if stats.Type == libvirt.DOMAIN_JOB_NONE {
+			stats, err = domain.GetJobStats(libvirt.DOMAIN_JOB_STATS_COMPLETED)
+			if err != nil {
+				return err
+			}
+		}
+		switch stats.Type {
+		case libvirt.DOMAIN_JOB_COMPLETED:
+			return nil
+		case libvirt.DOMAIN_JOB_NONE, libvirt.DOMAIN_JOB_FAILED, libvirt.DOMAIN_JOB_CANCELLED:
+			return fmt.Errorf("native disk backup did not complete: %s", stats.ErrorMessage)
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(ctx.Err(), domain.AbortJob())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (e *Engine) deleteRecovery(point string, a api.AssetExecution) error {

@@ -449,7 +449,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
-	if phase != api.NodePlanPhaseCleanupVolumes && phase != api.NodePlanPhaseDeleteRecovery && phase != api.NodePlanPhasePrepareRecovery && phase != api.NodePlanPhaseCleanupRecovery {
+	if phase != api.NodePlanPhaseCleanupVolumes && phase != api.NodePlanPhaseCaptureRecovery && phase != api.NodePlanPhaseDeleteRecovery && phase != api.NodePlanPhasePrepareRecovery && phase != api.NodePlanPhaseCleanupRecovery {
 		if err = q.ApplyAssetResults(ctx, raw); err != nil {
 			return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
 		}

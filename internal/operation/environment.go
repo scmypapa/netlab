@@ -60,7 +60,11 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			affected = slices.DeleteFunc(affected, func(t Target) bool { return findInstance(p.Before, t.Execution.InstanceId).Execution.InstanceId == "" })
 			err = w.quiesceServices(ctx, op, p, affected)
 			if err == nil {
-				_, err = w.batch(ctx, op, p, api.NodePlanPhaseStop, affected)
+				phase := api.NodePlanPhaseStop
+				if restoresData(op.Kind) {
+					phase = api.NodePlanPhaseForceStop
+				}
+				_, err = w.batch(ctx, op, p, phase, affected)
 			}
 			next = "network"
 		case "update":

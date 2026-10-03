@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
@@ -56,7 +57,7 @@ func (w Worker) recovery(ctx context.Context, op *queries.Operation, p *Payload)
 				return fmt.Errorf("资产 %s 当前状态 %s 无法捕获", t.Execution.Asset.Name, t.State)
 			}
 		}
-		if err = w.phase(ctx, op, p, "recovery-stop"); err != nil {
+		if err = w.phase(ctx, op, p, "recovery-quiesce"); err != nil {
 			return err
 		}
 	}
@@ -64,8 +65,9 @@ func (w Worker) recovery(ctx context.Context, op *queries.Operation, p *Payload)
 		var err error
 		next := ""
 		switch op.Phase {
-		case "recovery-stop":
-			_, err = w.batch(ctx, op, p, api.NodePlanPhaseStop, p.Recovery.Assets)
+		case "recovery-quiesce":
+			active := slices.DeleteFunc(slices.Clone(p.Recovery.Assets), func(t Target) bool { return t.State != "running" })
+			_, err = w.batch(ctx, op, p, api.NodePlanPhaseSuspend, active)
 			next = "recovery-capture"
 		case "recovery-capture":
 			var results []api.ExecutionResult

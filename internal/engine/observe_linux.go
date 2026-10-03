@@ -98,7 +98,7 @@ func taskLimits(pid uint32) (int, int64, error) {
 }
 
 func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetExecution, error) {
-	text, err := domain.GetXMLDesc(0)
+	text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
 	if err != nil {
 		return nil, err
 	}

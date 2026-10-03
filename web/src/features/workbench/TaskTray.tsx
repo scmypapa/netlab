@@ -32,6 +32,9 @@ const phaseLabels: Record<string, string> = {
   running: "执行中",
   "backup-complete": "备份完成",
   "prepare-backup-templates": "恢复模板",
+  "recovery-quiesce": "暂停写入",
+  "recovery-capture": "保存恢复点",
+  "recovery-resume": "恢复运行",
 };
 
 export function TaskTray({

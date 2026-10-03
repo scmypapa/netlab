@@ -281,7 +281,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 					result.Results[i] = executionResult(a, "deleted", e.deleteRecovery(*plan.RecoveryPointId, a))
 				} else {
 					bytes, captureErr := e.captureRecovery(ctx, plan.EnvironmentId, *plan.RecoveryPointId, a)
-					r := executionResult(a, "stopped", captureErr)
+					r := executionResult(a, "captured", captureErr)
 					if captureErr == nil {
 						r.RecoveryBytes = &bytes
 					}

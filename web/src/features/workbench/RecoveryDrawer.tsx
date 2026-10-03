@@ -330,7 +330,7 @@ export function RecoveryDrawer({
             autoFocus
             required
           />
-          <p>捕获期间环境会正常停机，完成后恢复原状态。</p>
+          <p>捕获期间资产暂停，完成后恢复原状态。</p>
           <div className="dialog-actions">
             <Button variant="default" onClick={() => setCreating(false)}>
               取消
