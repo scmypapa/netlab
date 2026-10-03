@@ -256,7 +256,20 @@ paths:
         '200': {description: Templates, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Template'}}}}}
     post:
       operationId: createTemplate
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
+      requestBody:
+        required: true
+        description: Send the template JSON part first. Source names the main file, relative to the uploaded files; preserve relative filenames for OVF and split VMDK.
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/TemplateImport'}}
+          multipart/form-data:
+            schema:
+              type: object
+              required: [template, files]
+              properties:
+                template: {$ref: '#/components/schemas/TemplateImport'}
+                files: {type: array, items: {type: string, format: binary}}
+            encoding:
+              template: {contentType: application/json}
       responses:
         '201':
           description: Created
@@ -437,6 +450,29 @@ components:
         controllerModel: {type: string}
         controllerIndex: {type: integer, minimum: 0}
         controllerUnit: {type: integer, minimum: 0}
+    RegistryCredentials:
+      type: object
+      properties:
+        username: {type: string}
+        password: {type: string, format: password, writeOnly: true}
+        plainHttp: {type: boolean, default: false, description: Explicitly connect to this registry over HTTP}
+    TemplateImport:
+      allOf:
+        - {$ref: '#/components/schemas/Template'}
+        - type: object
+          properties:
+            registry: {$ref: '#/components/schemas/RegistryCredentials'}
+    TemplateFormat:
+      type: string
+      enum: [oci, docker, qcow2, raw, vmdk, ova, ovf, iso]
+    TemplateInitialization:
+      type: string
+      enum: [none, cloud-init, cloudbase-init]
+      default: none
+    TemplateState:
+      type: string
+      enum: [importing, ready, failed]
+      x-enum-varnames: [TemplateStateImporting, TemplateStateReady, TemplateStateFailed]
     Template:
       type: object
       required: [id, name, kind, os, version, source, resources]
@@ -447,15 +483,15 @@ components:
         os: {type: string}
         version: {type: integer}
         source: {type: string}
-        format: {type: string, enum: [oci, docker, qcow2, raw, vmdk, ova, ovf, iso]}
+        format: {$ref: '#/components/schemas/TemplateFormat'}
         artifactNodeId: {type: string, readOnly: true}
         resources: {$ref: '#/components/schemas/Resources'}
         hardware: {$ref: '#/components/schemas/Hardware'}
         disks: {type: array, items: {$ref: '#/components/schemas/TemplateDisk'}}
         nicModels: {type: array, items: {type: string}}
-        initialization: {type: string, enum: [none, cloud-init, cloudbase-init], default: none}
+        initialization: {$ref: '#/components/schemas/TemplateInitialization'}
         volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
-        state: {type: string, enum: [importing, ready, failed]}
+        state: {$ref: '#/components/schemas/TemplateState'}
         error: {type: string}
     Network:
       type: object
@@ -607,7 +643,10 @@ components:
         - type: object
           required: [state, createdAt, operationId]
           properties:
-            state: {type: string, enum: [pending, active, revoking, failed]}
+            state:
+              type: string
+              enum: [pending, active, revoking, failed]
+              x-enum-varnames: [VPNAccessStatePending, VPNAccessStateActive, VPNAccessStateRevoking, VPNAccessStateFailed]
             operationId: {type: string}
             error: {type: string}
             createdAt: {type: string, format: date-time}
@@ -816,6 +855,7 @@ components:
       properties:
         template: {$ref: '#/components/schemas/Template'}
         artifactEndpoint: {type: string}
+        registry: {$ref: '#/components/schemas/RegistryCredentials'}
     ExecutionResult:
       type: object
       required: [assetId, instanceId, state, observedAt]

@@ -18,6 +18,8 @@ export function TemplateDetails({
   onClose: () => void;
 }) {
   const hardware = template.hardware;
+  const localSource =
+    template.source.startsWith("/") || template.source.startsWith("file:");
   return (
     <Drawer
       opened
@@ -88,7 +90,7 @@ export function TemplateDetails({
               </>
             )}
             <dt>初始化</dt>
-            <dd>{initializationNames[template.initialization]}</dd>
+            <dd>{initializationNames[template.initialization ?? "none"]}</dd>
           </dl>
         </section>
       )}
@@ -120,8 +122,12 @@ export function TemplateDetails({
           </dd>
           {template.source && (
             <>
-              <dt>地址</dt>
-              <dd className="template-source">{template.source}</dd>
+              <dt>{localSource ? "文件" : "地址"}</dt>
+              <dd className="template-source">
+                {localSource
+                  ? template.source.split("/").at(-1)
+                  : template.source}
+              </dd>
             </>
           )}
         </dl>

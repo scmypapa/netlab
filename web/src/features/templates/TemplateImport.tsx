@@ -1,7 +1,11 @@
 import {
   Button,
   Collapse,
+  FileInput,
+  FileButton,
   NumberInput,
+  PasswordInput,
+  Progress,
   SegmentedControl,
   Select,
   Switch,
@@ -9,7 +13,7 @@ import {
 } from "@mantine/core";
 import { useMutation } from "@tanstack/react-query";
 import { Box, ChevronDown, Monitor } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Schema, type Template } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import {
@@ -27,6 +31,15 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
   const [os, setOs] = useState("Linux");
   const [source, setSource] = useState("");
+  const [inputMode, setInputMode] = useState("file");
+  const [files, setFiles] = useState<File[]>([]);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [authentication, setAuthentication] = useState(false);
+  const [plainHttp, setPlainHttp] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const upload = useRef<AbortController | null>(null);
+  useEffect(() => () => upload.current?.abort(), []);
   const [cpu, setCpu] = useState(2);
   const [memoryGiB, setMemoryGiB] = useState(2);
   const [disk, setDisk] = useState(20);
@@ -36,6 +49,8 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
   const [advanced, setAdvanced] = useState(false);
   const [specifyHardware, setSpecifyHardware] = useState(false);
   const appliance = format === "ova" || format === "ovf";
+  const registry = kind === "container" && format === "oci";
+  const local = !registry && inputMode === "file";
   const needsHardware = kind === "vm" && (!appliance || specifyHardware);
   const profiles = useTemplateHardware(needsHardware);
   useEffect(() => {
@@ -49,9 +64,16 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
   const profile = profiles.data?.find(
     ({ machine }) => machine.name === hardware?.machine,
   );
+  const chooseFiles = (selected: File[]) => {
+    setFiles(selected);
+    const main =
+      selected.find((file) => file.name.toLowerCase().endsWith(`.${format}`)) ??
+      selected[0];
+    setSource(main ? main.webkitRelativePath || main.name : "");
+  };
   const create = useMutation({
-    mutationFn: () =>
-      api.createTemplate({
+    mutationFn: () => {
+      const input: Schema<"TemplateImport"> = {
         id: crypto.randomUUID(),
         name,
         kind,
@@ -62,7 +84,21 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
         initialization: kind === "vm" ? initialization : "none",
         resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
         ...(kind === "vm" ? { ...(needsHardware ? { hardware } : {}) } : {}),
-      }),
+        ...(registry && (authentication || plainHttp)
+          ? {
+              registry: {
+                ...(authentication ? { username, password } : {}),
+                plainHttp,
+              },
+            }
+          : {}),
+      };
+      setProgress(0);
+      upload.current = new AbortController();
+      return local
+        ? api.uploadTemplate(input, files, setProgress, upload.current.signal)
+        : api.createTemplate(input);
+    },
     onSuccess: onCreated,
   });
   return (
@@ -84,6 +120,8 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
               setKind(value);
               setFormat(value === "container" ? "oci" : "qcow2");
               setSpecifyHardware(false);
+              setFiles([]);
+              setSource("");
             }}
           >
             {value === "container" ? <Box size={21} /> : <Monitor size={21} />}
@@ -104,11 +142,13 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
                 : value) as Format,
           );
           setSpecifyHardware(false);
+          setFiles([]);
+          setSource("");
         }}
         data={
           kind === "container"
             ? [
-                { value: "oci", label: "Registry" },
+                { value: "oci", label: "镜像仓库" },
                 { value: "docker", label: "镜像包" },
               ]
             : [
@@ -136,24 +176,135 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
             label="文件格式"
             value={format}
             allowDeselect={false}
-            onChange={(value) => setFormat(value as Format)}
+            onChange={(value) => {
+              setFormat(value as Format);
+              setFiles([]);
+              setSource("");
+            }}
             data={(appliance ? ["ova", "ovf"] : ["qcow2", "raw", "vmdk"]).map(
               (value) => ({ value, label: value.toUpperCase() }),
             )}
           />
         )}
       </div>
-      <TextInput
-        label={format === "oci" ? "镜像地址" : "文件地址"}
-        placeholder={
-          format === "oci"
-            ? "docker.io/library/ubuntu:24.04"
-            : `https://storage.example.com/image.${format === "docker" ? "tar" : format}`
-        }
-        required
-        value={source}
-        onChange={(event) => setSource(event.currentTarget.value)}
-      />
+      {!registry && (
+        <SegmentedControl
+          fullWidth
+          aria-label="文件来源"
+          value={inputMode}
+          onChange={(value) => {
+            setInputMode(value);
+            setSource("");
+            setFiles([]);
+          }}
+          data={[
+            { value: "file", label: "上传文件" },
+            { value: "address", label: "链接或节点路径" },
+          ]}
+        />
+      )}
+      {local ? (
+        <>
+          <FileInput
+            label={
+              format === "ovf" || format === "vmdk"
+                ? "镜像及关联磁盘"
+                : "镜像文件"
+            }
+            placeholder="选择文件"
+            required
+            multiple={format === "ovf" || format === "vmdk"}
+            value={
+              format === "ovf" || format === "vmdk" ? files : (files[0] ?? null)
+            }
+            onChange={(value) => {
+              const selected = Array.isArray(value)
+                ? value
+                : value
+                  ? [value]
+                  : [];
+              chooseFiles(selected);
+            }}
+          />
+          {(format === "ovf" || format === "vmdk") && (
+            <FileButton
+              multiple
+              onChange={chooseFiles}
+              inputProps={{
+                "aria-label": "镜像文件夹",
+                ...{ webkitdirectory: "" },
+              }}
+            >
+              {(props) => (
+                <Button {...props} variant="subtle" size="xs">
+                  选择文件夹
+                </Button>
+              )}
+            </FileButton>
+          )}
+          {files.length > 1 && (
+            <Select
+              label="主镜像文件"
+              value={source}
+              allowDeselect={false}
+              data={files.map((file) => ({
+                value: file.webkitRelativePath || file.name,
+                label: file.name,
+              }))}
+              onChange={(value) => setSource(value!)}
+            />
+          )}
+        </>
+      ) : (
+        <TextInput
+          label={format === "oci" ? "镜像地址" : "文件地址"}
+          placeholder={
+            format === "oci"
+              ? "docker.io/library/ubuntu:24.04"
+              : `https://storage.example.com/image.${format === "docker" ? "tar" : format}`
+          }
+          required
+          value={source}
+          onChange={(event) => setSource(event.currentTarget.value)}
+        />
+      )}
+      {registry && (
+        <>
+          <button
+            className="disclosure"
+            type="button"
+            aria-expanded={authentication}
+            onClick={() => setAuthentication(!authentication)}
+          >
+            仓库认证
+            <ChevronDown
+              size={16}
+              className={authentication ? "rotated" : ""}
+            />
+          </button>
+          <Collapse in={authentication}>
+            <div className="form-columns">
+              <TextInput
+                label="仓库用户名"
+                value={username}
+                onChange={(event) => setUsername(event.currentTarget.value)}
+                autoComplete="off"
+              />
+              <PasswordInput
+                label="仓库密码或访问令牌"
+                value={password}
+                onChange={(event) => setPassword(event.currentTarget.value)}
+                autoComplete="new-password"
+              />
+            </div>
+          </Collapse>
+          <Switch
+            label="HTTP 仓库"
+            checked={plainHttp}
+            onChange={(event) => setPlainHttp(event.currentTarget.checked)}
+          />
+        </>
+      )}
       {!appliance && (
         <>
           <h3 className="form-section-title">默认规格</h3>
@@ -246,12 +397,15 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
         </>
       )}
       <ErrorMessage error={create.error} />
+      {create.isPending && local && (
+        <Progress value={progress} aria-label="上传进度" />
+      )}
       <div className="drawer-footer">
         <Button
           fullWidth
           type="submit"
           loading={create.isPending}
-          disabled={needsHardware && !profile}
+          disabled={(needsHardware && !profile) || (local && !files.length)}
         >
           导入模板
         </Button>

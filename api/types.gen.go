@@ -5,6 +5,8 @@ package api
 
 import (
 	"time"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 const (
@@ -184,6 +186,14 @@ const (
 	Udp ServiceProtocol = "udp"
 )
 
+// Defines values for TemplateDiskBus.
+const (
+	Ide    TemplateDiskBus = "ide"
+	Sata   TemplateDiskBus = "sata"
+	Scsi   TemplateDiskBus = "scsi"
+	Virtio TemplateDiskBus = "virtio"
+)
+
 // Defines values for TemplateFormat.
 const (
 	Docker TemplateFormat = "docker"
@@ -203,25 +213,17 @@ const (
 	None          TemplateInitialization = "none"
 )
 
+// Defines values for TemplateKind.
+const (
+	Container TemplateKind = "container"
+	Vm        TemplateKind = "vm"
+)
+
 // Defines values for TemplateState.
 const (
 	TemplateStateFailed    TemplateState = "failed"
 	TemplateStateImporting TemplateState = "importing"
 	TemplateStateReady     TemplateState = "ready"
-)
-
-// Defines values for TemplateDiskBus.
-const (
-	Ide    TemplateDiskBus = "ide"
-	Sata   TemplateDiskBus = "sata"
-	Scsi   TemplateDiskBus = "scsi"
-	Virtio TemplateDiskBus = "virtio"
-)
-
-// Defines values for TemplateKind.
-const (
-	Container TemplateKind = "container"
-	Vm        TemplateKind = "vm"
 )
 
 // Defines values for VPNAccessState.
@@ -696,8 +698,9 @@ type NodeServiceBinding struct {
 
 // NodeTemplatePreparation defines model for NodeTemplatePreparation.
 type NodeTemplatePreparation struct {
-	ArtifactEndpoint *string  `json:"artifactEndpoint,omitempty"`
-	Template         Template `json:"template"`
+	ArtifactEndpoint *string              `json:"artifactEndpoint,omitempty"`
+	Registry         *RegistryCredentials `json:"registry,omitempty"`
+	Template         Template             `json:"template"`
 }
 
 // NodeVPNPeer defines model for NodeVPNPeer.
@@ -787,6 +790,15 @@ type Problem struct {
 	Detail string `json:"detail"`
 	Status int    `json:"status"`
 	Title  string `json:"title"`
+}
+
+// RegistryCredentials defines model for RegistryCredentials.
+type RegistryCredentials struct {
+	Password *string `json:"password,omitempty"`
+
+	// PlainHttp Explicitly connect to this registry over HTTP
+	PlainHttp *bool   `json:"plainHttp,omitempty"`
+	Username  *string `json:"username,omitempty"`
 }
 
 // ResolvedInterface defines model for ResolvedInterface.
@@ -912,15 +924,6 @@ type Template struct {
 	Volumes        *[]Volume               `json:"volumes,omitempty"`
 }
 
-// TemplateFormat defines model for Template.Format.
-type TemplateFormat string
-
-// TemplateInitialization defines model for Template.Initialization.
-type TemplateInitialization string
-
-// TemplateState defines model for Template.State.
-type TemplateState string
-
 // TemplateDisk defines model for TemplateDisk.
 type TemplateDisk struct {
 	BootOrder       int             `json:"bootOrder"`
@@ -935,8 +938,38 @@ type TemplateDisk struct {
 // TemplateDiskBus defines model for TemplateDisk.Bus.
 type TemplateDiskBus string
 
+// TemplateFormat defines model for TemplateFormat.
+type TemplateFormat string
+
+// TemplateImport defines model for TemplateImport.
+type TemplateImport struct {
+	ArtifactNodeId *string                 `json:"artifactNodeId,omitempty"`
+	Disks          *[]TemplateDisk         `json:"disks,omitempty"`
+	Error          *string                 `json:"error,omitempty"`
+	Format         *TemplateFormat         `json:"format,omitempty"`
+	Hardware       *Hardware               `json:"hardware,omitempty"`
+	Id             string                  `json:"id"`
+	Initialization *TemplateInitialization `json:"initialization,omitempty"`
+	Kind           TemplateKind            `json:"kind"`
+	Name           string                  `json:"name"`
+	NicModels      *[]string               `json:"nicModels,omitempty"`
+	Os             string                  `json:"os"`
+	Registry       *RegistryCredentials    `json:"registry,omitempty"`
+	Resources      Resources               `json:"resources"`
+	Source         string                  `json:"source"`
+	State          *TemplateState          `json:"state,omitempty"`
+	Version        int                     `json:"version"`
+	Volumes        *[]Volume               `json:"volumes,omitempty"`
+}
+
+// TemplateInitialization defines model for TemplateInitialization.
+type TemplateInitialization string
+
 // TemplateKind defines model for TemplateKind.
 type TemplateKind string
+
+// TemplateState defines model for TemplateState.
+type TemplateState string
 
 // UpdateUser defines model for UpdateUser.
 type UpdateUser struct {
@@ -1125,6 +1158,12 @@ type ListTemplatesParams struct {
 	Ids    *[]string     `form:"ids,omitempty" json:"ids,omitempty"`
 }
 
+// CreateTemplateMultipartBody defines parameters for CreateTemplate.
+type CreateTemplateMultipartBody struct {
+	Files    []openapi_types.File `json:"files"`
+	Template TemplateImport       `json:"template"`
+}
+
 // SaveBlueprintVersionJSONRequestBody defines body for SaveBlueprintVersion for application/json ContentType.
 type SaveBlueprintVersionJSONRequestBody = SaveBlueprintVersion
 
@@ -1174,4 +1213,7 @@ type CreateServiceTokenJSONRequestBody = CreateServiceToken
 type LoginJSONRequestBody = Login
 
 // CreateTemplateJSONRequestBody defines body for CreateTemplate for application/json ContentType.
-type CreateTemplateJSONRequestBody = Template
+type CreateTemplateJSONRequestBody = TemplateImport
+
+// CreateTemplateMultipartRequestBody defines body for CreateTemplate for multipart/form-data ContentType.
+type CreateTemplateMultipartRequestBody CreateTemplateMultipartBody

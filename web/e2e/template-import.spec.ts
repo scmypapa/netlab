@@ -66,7 +66,15 @@ async function fixture(page: Page) {
         },
       ];
     else if (path === "/templates" && request.method() === "POST") {
-      const body = request.postDataJSON();
+      const contentType = request.headers()["content-type"];
+      const body = contentType?.startsWith("multipart/form-data")
+        ? JSON.parse(
+            request
+              .postDataBuffer()!
+              .toString()
+              .match(/name="template"[\s\S]*?\r\n\r\n([\s\S]*?)\r\n--/)![1],
+          )
+        : request.postDataJSON();
       imported.push(body);
       const template =
         body.format === "ova" || body.format === "ovf"
@@ -112,6 +120,7 @@ test("bare VM import uses native node hardware and initialization", async ({
   const imported = await fixture(page);
   const drawer = page.getByRole("dialog");
   await drawer.getByRole("button", { name: "虚拟机", exact: true }).click();
+  await drawer.getByText("链接或节点路径", { exact: true }).click();
   await drawer.getByRole("textbox", { name: "模板名称" }).fill("Linux VM");
   await drawer
     .getByRole("textbox", { name: "文件地址" })
@@ -163,6 +172,69 @@ test("bare VM import uses native node hardware and initialization", async ({
   });
 });
 
+test("OVF uploads the descriptor and associated disks with a selected main file", async ({
+  page,
+}) => {
+  const imported = await fixture(page),
+    drawer = page.getByRole("dialog");
+  await drawer.getByRole("button", { name: "虚拟机", exact: true }).click();
+  await drawer.getByText("整机镜像", { exact: true }).click();
+  await drawer.getByRole("textbox", { name: "文件格式" }).click();
+  await page.getByRole("option", { name: "OVF", exact: true }).click();
+  await drawer.getByRole("textbox", { name: "模板名称" }).fill("OVF upload");
+  await drawer
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles([
+      {
+        name: "disk.vmdk",
+        mimeType: "application/octet-stream",
+        buffer: Buffer.from("disk fixture"),
+      },
+      {
+        name: "machine.ovf",
+        mimeType: "application/xml",
+        buffer: Buffer.from("<Envelope/>"),
+      },
+    ]);
+  await expect(drawer.getByRole("textbox", { name: "主镜像文件" })).toHaveValue(
+    "machine.ovf",
+  );
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await drawer.getByRole("button", { name: "导入模板", exact: true }).click();
+  await expect(drawer).not.toBeVisible();
+  expect(imported[0]).toMatchObject({ format: "ovf", source: "machine.ovf" });
+});
+
+test("registry authentication is submitted only with a registry import", async ({
+  page,
+}) => {
+  const imported = await fixture(page),
+    drawer = page.getByRole("dialog");
+  await drawer
+    .getByRole("textbox", { name: "模板名称" })
+    .fill("Private registry");
+  await drawer
+    .getByRole("textbox", { name: "镜像地址" })
+    .fill("registry.example.test/dev/nginx:1");
+  await drawer.getByRole("button", { name: "仓库认证" }).click();
+  await drawer.getByRole("textbox", { name: "仓库用户名" }).fill("test");
+  await drawer
+    .getByLabel("仓库密码或访问令牌", { exact: true })
+    .fill("test-password");
+  await drawer.getByRole("switch", { name: "HTTP 仓库" }).check();
+  await drawer.getByRole("button", { name: "导入模板", exact: true }).click();
+  await expect(drawer).not.toBeVisible();
+  expect(imported[0]).toMatchObject({
+    registry: { username: "test", password: "test-password", plainHttp: true },
+  });
+});
+
 test("OVA and OVF import omit hardware and display the parsed template", async ({
   page,
 }) => {
@@ -170,6 +242,7 @@ test("OVA and OVF import omit hardware and display the parsed template", async (
   const drawer = page.getByRole("dialog");
   await drawer.getByRole("button", { name: "虚拟机", exact: true }).click();
   await drawer.getByText("整机镜像", { exact: true }).click();
+  await drawer.getByText("链接或节点路径", { exact: true }).click();
   await drawer
     .getByRole("textbox", { name: "模板名称" })
     .fill("Windows appliance");
@@ -204,6 +277,7 @@ test("container image package uses the existing import API without VM fields", a
   const imported = await fixture(page);
   const drawer = page.getByRole("dialog");
   await drawer.getByText("镜像包", { exact: true }).click();
+  await drawer.getByText("链接或节点路径", { exact: true }).click();
   await drawer.getByRole("textbox", { name: "模板名称" }).fill("Modbus device");
   await drawer
     .getByRole("textbox", { name: "文件地址" })

@@ -187,6 +187,36 @@ func run() error {
 		}
 		respond(w, prepared, nil)
 	})
+	mux.HandleFunc("POST /node/v1/templates/{id}/versions/{version}/imports/{uploadId}", func(w http.ResponseWriter, r *http.Request) {
+		version, err := strconv.Atoi(r.PathValue("version"))
+		if err != nil || version < 1 || !pathID(r.PathValue("id")) || !pathID(r.PathValue("uploadId")) {
+			http.Error(w, "invalid template identity", http.StatusBadRequest)
+			return
+		}
+		parts, err := r.MultipartReader()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		source, err := executor.ReceiveTemplate(r.PathValue("id"), version, r.PathValue("uploadId"), r.URL.Query().Get("source"), parts)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		respond(w, source, nil)
+	})
+	mux.HandleFunc("DELETE /node/v1/templates/{id}/versions/{version}/imports/{uploadId}", func(w http.ResponseWriter, r *http.Request) {
+		version, err := strconv.Atoi(r.PathValue("version"))
+		if err != nil || version < 1 || !pathID(r.PathValue("id")) || !pathID(r.PathValue("uploadId")) {
+			http.Error(w, "invalid template identity", http.StatusBadRequest)
+			return
+		}
+		if err = executor.RemoveTemplateImport(r.PathValue("id"), version, r.PathValue("uploadId")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /node/v1/templates/{id}/versions/{version}/artifact", func(w http.ResponseWriter, r *http.Request) {
 		version, err := strconv.Atoi(r.PathValue("version"))
 		if err != nil || version < 1 || !pathID(r.PathValue("id")) {

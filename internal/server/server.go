@@ -20,6 +20,7 @@ import (
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/environment"
+	"netlab.local/core/internal/secret"
 	"netlab.local/core/internal/transport"
 )
 
@@ -29,6 +30,7 @@ type Server struct {
 	Access       access.Service
 	Environments environment.Service
 	Nodes        *transport.Client
+	Secrets      *secret.Cipher
 	Web          http.Handler
 	connectionMu sync.Mutex
 	connections  map[*accessConnection]struct{}

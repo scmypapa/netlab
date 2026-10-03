@@ -771,6 +771,29 @@ export interface components {
       controllerIndex?: number;
       controllerUnit?: number;
     };
+    RegistryCredentials: {
+      username?: string;
+      /** Format: password */
+      password?: string;
+      /**
+       * @description Explicitly connect to this registry over HTTP
+       * @default false
+       */
+      plainHttp: boolean;
+    };
+    TemplateImport: components["schemas"]["Template"] & {
+      registry?: components["schemas"]["RegistryCredentials"];
+    };
+    /** @enum {string} */
+    TemplateFormat:
+      "oci" | "docker" | "qcow2" | "raw" | "vmdk" | "ova" | "ovf" | "iso";
+    /**
+     * @default none
+     * @enum {string}
+     */
+    TemplateInitialization: "none" | "cloud-init" | "cloudbase-init";
+    /** @enum {string} */
+    TemplateState: "importing" | "ready" | "failed";
     Template: {
       id: string;
       name: string;
@@ -778,22 +801,15 @@ export interface components {
       os: string;
       version: number;
       source: string;
-      /** @enum {string} */
-      format?:
-        "oci" | "docker" | "qcow2" | "raw" | "vmdk" | "ova" | "ovf" | "iso";
+      format?: components["schemas"]["TemplateFormat"];
       readonly artifactNodeId?: string;
       resources: components["schemas"]["Resources"];
       hardware?: components["schemas"]["Hardware"];
       disks?: components["schemas"]["TemplateDisk"][];
       nicModels?: string[];
-      /**
-       * @default none
-       * @enum {string}
-       */
-      initialization: "none" | "cloud-init" | "cloudbase-init";
+      initialization?: components["schemas"]["TemplateInitialization"];
       volumes?: components["schemas"]["Volume"][];
-      /** @enum {string} */
-      state?: "importing" | "ready" | "failed";
+      state?: components["schemas"]["TemplateState"];
       error?: string;
     };
     Network: {
@@ -1135,6 +1151,7 @@ export interface components {
     NodeTemplatePreparation: {
       template: components["schemas"]["Template"];
       artifactEndpoint?: string;
+      registry?: components["schemas"]["RegistryCredentials"];
     };
     ExecutionResult: {
       environmentId?: string;
@@ -2192,9 +2209,14 @@ export interface operations {
       path?: never;
       cookie?: never;
     };
+    /** @description Send the template JSON part first. Source names the main file, relative to the uploaded files; preserve relative filenames for OVF and split VMDK. */
     requestBody: {
       content: {
-        "application/json": components["schemas"]["Template"];
+        "application/json": components["schemas"]["TemplateImport"];
+        "multipart/form-data": {
+          template: components["schemas"]["TemplateImport"];
+          files: string[];
+        };
       };
     };
     responses: {

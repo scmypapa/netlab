@@ -19,6 +19,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/environment"
+	"netlab.local/core/internal/secret"
 	"netlab.local/core/internal/transport"
 )
 
@@ -28,32 +29,34 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
-	Spec            api.EnvironmentSpec      `json:"spec"`
-	BeforeStatus    string                   `json:"beforeStatus,omitempty"`
-	Template        *api.Template            `json:"template,omitempty"`
-	Targets         []Target                 `json:"targets,omitempty"`
-	Old             []Target                 `json:"old,omitempty"`
-	Unchanged       []Target                 `json:"unchanged,omitempty"`
-	Updates         []Target                 `json:"updates,omitempty"`
-	Owner           *Target                  `json:"owner,omitempty"`
-	ExternalChassis map[string]string        `json:"externalChassis,omitempty"`
-	Committed       bool                     `json:"committed,omitempty"`
-	BeforeSpec      *api.EnvironmentSpec     `json:"beforeSpec,omitempty"`
-	Before          []Target                 `json:"before,omitempty"`
-	Results         []api.ExecutionResult    `json:"results,omitempty"`
-	Failure         *string                  `json:"failure,omitempty"`
-	Gateway         *api.ServiceGateway      `json:"gateway,omitempty"`
-	Bindings        []api.NodeServiceBinding `json:"bindings,omitempty"`
-	BeforeBindings  []api.NodeServiceBinding `json:"beforeBindings,omitempty"`
-	VPNChange       *environment.VPNChange   `json:"vpnChange,omitempty"`
-	VPNPlan         *api.NodeVPNPlan         `json:"vpnPlan,omitempty"`
-	VPNBefore       *api.NodeVPNPlan         `json:"vpnBefore,omitempty"`
-	VPNResult       *api.NodeVPNResult       `json:"vpnResult,omitempty"`
+	Spec                api.EnvironmentSpec      `json:"spec"`
+	BeforeStatus        string                   `json:"beforeStatus,omitempty"`
+	Template            *api.Template            `json:"template,omitempty"`
+	TemplateCredentials []byte                   `json:"templateCredentials,omitempty"`
+	Targets             []Target                 `json:"targets,omitempty"`
+	Old                 []Target                 `json:"old,omitempty"`
+	Unchanged           []Target                 `json:"unchanged,omitempty"`
+	Updates             []Target                 `json:"updates,omitempty"`
+	Owner               *Target                  `json:"owner,omitempty"`
+	ExternalChassis     map[string]string        `json:"externalChassis,omitempty"`
+	Committed           bool                     `json:"committed,omitempty"`
+	BeforeSpec          *api.EnvironmentSpec     `json:"beforeSpec,omitempty"`
+	Before              []Target                 `json:"before,omitempty"`
+	Results             []api.ExecutionResult    `json:"results,omitempty"`
+	Failure             *string                  `json:"failure,omitempty"`
+	Gateway             *api.ServiceGateway      `json:"gateway,omitempty"`
+	Bindings            []api.NodeServiceBinding `json:"bindings,omitempty"`
+	BeforeBindings      []api.NodeServiceBinding `json:"beforeBindings,omitempty"`
+	VPNChange           *environment.VPNChange   `json:"vpnChange,omitempty"`
+	VPNPlan             *api.NodeVPNPlan         `json:"vpnPlan,omitempty"`
+	VPNBefore           *api.NodeVPNPlan         `json:"vpnBefore,omitempty"`
+	VPNResult           *api.NodeVPNResult       `json:"vpnResult,omitempty"`
 }
 type Worker struct {
 	Pool    *pgxpool.Pool
 	Queries *queries.Queries
 	Client  *transport.Client
+	Secrets *secret.Cipher
 }
 
 var errPersistence = errors.New("持久状态提交结果尚未确认")
@@ -209,42 +212,44 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 		return errors.New("missing template definition")
 	}
 	t := *p.Template
-	for _, n := range nodes {
-		var info api.NodeInfo
-		if err = json.Unmarshal(n.Info, &info); err != nil {
-			return err
-		}
-		metadataImport := t.Hardware == nil && t.Format != nil && (*t.Format == "ova" || *t.Format == "ovf")
-		if n.State != "ready" || !slices.Contains(info.Capabilities, string(t.Kind)) || (!metadataImport && !supports(info, t, t.Resources.Cpu)) || (t.ArtifactNodeId != nil && *t.ArtifactNodeId != n.ID) {
-			continue
-		}
-		t.ArtifactNodeId = &n.ID
-		p.Template = &t
-		if err = w.phase(ctx, op, p, "prepare"); err != nil {
-			return err
-		}
-		var prepared api.Template
-		request := api.NodeTemplatePreparation{Template: t}
-		err = w.Client.Do(ctx, "POST", n.Endpoint, "/node/v1/templates/prepare", request, &prepared)
-		if err != nil {
-			failed := api.TemplateStateFailed
-			t.State = &failed
-			message := err.Error()
-			t.Error = &message
-		} else {
-			t = prepared
-		}
-		p.Template = &t
-		raw, marshalErr := json.Marshal(t)
-		if marshalErr != nil {
-			return marshalErr
-		}
-		if saveErr := w.Queries.UpdateTemplate(ctx, queries.UpdateTemplateParams{ID: t.Id, Definition: raw}); saveErr != nil {
-			return fmt.Errorf("%w: %v", errPersistence, saveErr)
-		}
+	n, err := TemplateNode(nodes, t)
+	if err != nil {
 		return err
 	}
-	return errors.New("没有可准备该模板的节点")
+	t.ArtifactNodeId = &n.ID
+	p.Template = &t
+	if err = w.phase(ctx, op, p, "prepare"); err != nil {
+		return err
+	}
+	var prepared api.Template
+	request := api.NodeTemplatePreparation{Template: t}
+	if len(p.TemplateCredentials) > 0 {
+		raw, err := w.Secrets.Decrypt(p.TemplateCredentials, fmt.Sprintf("%s/%d", t.Id, t.Version))
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal(raw, &request.Registry); err != nil {
+			return err
+		}
+	}
+	err = w.Client.Do(ctx, "POST", n.Endpoint, "/node/v1/templates/prepare", request, &prepared)
+	if err != nil {
+		failed := api.TemplateStateFailed
+		t.State = &failed
+		message := err.Error()
+		t.Error = &message
+	} else {
+		t = prepared
+	}
+	p.Template = &t
+	raw, marshalErr := json.Marshal(t)
+	if marshalErr != nil {
+		return marshalErr
+	}
+	if saveErr := w.Queries.UpdateTemplate(ctx, queries.UpdateTemplateParams{ID: t.Id, Definition: raw}); saveErr != nil {
+		return fmt.Errorf("%w: %v", errPersistence, saveErr)
+	}
+	return err
 }
 func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, phase api.NodePlanPhase, targets []Target) ([]api.ExecutionResult, error) {
 	if len(targets) == 0 {

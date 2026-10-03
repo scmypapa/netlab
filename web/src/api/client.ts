@@ -28,6 +28,45 @@ export class ApiError extends Error {
   }
 }
 
+async function uploadTemplate(
+  body: Schema<"TemplateImport">,
+  files: File[],
+  progress: (percent: number) => void,
+  signal: AbortSignal,
+): Promise<Template> {
+  const form = new FormData();
+  form.append(
+    "template",
+    new Blob([JSON.stringify(body)], { type: "application/json" }),
+  );
+  for (const file of files)
+    form.append("files", file, file.webkitRelativePath || file.name);
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    xhr.open("POST", "/api/v1/templates");
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable)
+        progress(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onloadend = () => signal.removeEventListener("abort", abort);
+    xhr.onerror = () => reject(new Error("镜像上传连接中断"));
+    xhr.onabort = () => reject(new DOMException("上传已取消", "AbortError"));
+    xhr.onload = async () => {
+      try {
+        const response = new Response(xhr.responseText, { status: xhr.status });
+        await checkResponse(response);
+        resolve((await response.json()) as Template);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) reject(new DOMException("上传已取消", "AbortError"));
+    else xhr.send(form);
+  });
+}
+
 async function request<T>(
   path: string,
   method = "GET",
@@ -135,6 +174,7 @@ function list<T>(
 }
 
 export const api = {
+  uploadTemplate,
   assetLogs,
   principals: (options?: ListOptions) =>
     list<Principal>("/principals", options),
@@ -236,7 +276,7 @@ export const api = {
   retryOperation: (id: string) =>
     request<Operation>(`/operations/${id}/retry`, "POST"),
   templates: (options?: ListOptions) => list<Template>("/templates", options),
-  createTemplate: (body: Template) =>
+  createTemplate: (body: Schema<"TemplateImport">) =>
     request<Template>("/templates", "POST", body),
   nodes: (options?: ListOptions) => list<Node>("/nodes", options),
   nodeInterfaces: (id: string) =>

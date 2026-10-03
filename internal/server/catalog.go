@@ -3,7 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +18,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
+	"netlab.local/core/internal/operation"
 )
 
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
@@ -46,10 +52,36 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	if err := requireAdministrator(identity); err != nil {
 		return err
 	}
-	var input api.Template
-	if err := decode(w, r, &input); err != nil {
+	var request struct {
+		api.Template
+		Registry *api.RegistryCredentials `json:"registry,omitempty"`
+	}
+	var files *multipart.Reader
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		return httpError{http.StatusBadRequest, "请求格式无效"}
+	}
+	if mediaType == "multipart/form-data" {
+		files, err = r.MultipartReader()
+		if err != nil {
+			return httpError{http.StatusBadRequest, err.Error()}
+		}
+		part, err := files.NextPart()
+		if err != nil {
+			return httpError{http.StatusBadRequest, "请先发送模板信息"}
+		}
+		if part.FormName() != "template" {
+			return httpError{http.StatusBadRequest, "第一部分应为 template"}
+		}
+		decoder := json.NewDecoder(io.LimitReader(part, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err = decoder.Decode(&request); err != nil {
+			return httpError{http.StatusBadRequest, err.Error()}
+		}
+	} else if err = decode(w, r, &request); err != nil {
 		return err
 	}
+	input := request.Template
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Source) == "" {
 		return httpError{http.StatusBadRequest, "请填写模板名称与镜像地址"}
 	}
@@ -68,16 +100,64 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	if input.Version == 0 {
 		input.Version = 1
 	}
+	if input.Version < 1 || input.Id == "." || input.Id == ".." || strings.ContainsAny(input.Id, "/\\") {
+		return httpError{http.StatusBadRequest, "模板标识或版本无效"}
+	}
 	state := api.TemplateStateImporting
 	input.State, input.Error = &state, nil
 	input.ArtifactNodeId = nil
+	p := operation.Payload{Template: &input}
+	if request.Registry != nil {
+		if input.Kind != api.Container || files != nil {
+			return httpError{http.StatusBadRequest, "仓库认证只用于容器镜像地址"}
+		}
+		if s.Secrets == nil {
+			return fmt.Errorf("controller secret key is not configured")
+		}
+		raw, err := json.Marshal(request.Registry)
+		if err != nil {
+			return err
+		}
+		p.TemplateCredentials = s.Secrets.Encrypt(raw, fmt.Sprintf("%s/%d", input.Id, input.Version))
+	}
+	committed := false
+	uploadPath := ""
+	var uploadNode queries.ListNodesRow
+	defer func() {
+		if uploadPath != "" && !committed {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := s.Nodes.Do(ctx, http.MethodDelete, uploadNode.Endpoint, uploadPath, nil, nil); err != nil {
+				slog.Error("template upload cleanup failed", "template", input.Id, "node", uploadNode.ID, "error", err)
+			}
+		}
+	}()
+	if files != nil {
+		items, err := s.Queries.GetTemplates(r.Context(), []string{input.Id})
+		if err != nil {
+			return err
+		}
+		if len(items) > 0 {
+			return httpError{http.StatusConflict, "模板已存在"}
+		}
+		nodes, err := s.Queries.ListNodes(r.Context())
+		if err != nil {
+			return err
+		}
+		if uploadNode, err = operation.TemplateNode(nodes, input); err != nil {
+			return httpError{http.StatusConflict, err.Error()}
+		}
+		uploadPath = fmt.Sprintf("/node/v1/templates/%s/versions/%d/imports/%s", input.Id, input.Version, uuid.NewString())
+		if err = s.uploadTemplate(r.Context(), uploadNode.Endpoint, uploadPath, input.Source, files, r.Body, &input.Source); err != nil {
+			return err
+		}
+		input.ArtifactNodeId = &uploadNode.ID
+	}
 	raw, err := json.Marshal(input)
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(struct {
-		Template api.Template `json:"template"`
-	}{input})
+	payload, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
@@ -97,8 +177,46 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	committed = true
 	w.Header().Set("Operation-Location", "/api/v1/operations/"+operationID)
 	return writeJSON(w, http.StatusCreated, input)
+}
+
+func (s *Server) uploadTemplate(ctx context.Context, endpoint, path, source string, files *multipart.Reader, input io.Closer, output *string) error {
+	reader, writer := io.Pipe()
+	body := multipart.NewWriter(writer)
+	finished := make(chan error, 1)
+	go func() {
+		var err error
+		for {
+			part, nextErr := files.NextPart()
+			if errors.Is(nextErr, io.EOF) {
+				break
+			}
+			if nextErr != nil {
+				err = nextErr
+				break
+			}
+			var target io.Writer
+			if target, err = body.CreatePart(part.Header); err != nil {
+				break
+			}
+			if _, err = io.Copy(target, part); err != nil {
+				break
+			}
+		}
+		if err == nil {
+			err = body.Close()
+		}
+		writer.CloseWithError(err)
+		finished <- err
+	}()
+	err := s.Nodes.Stream(ctx, http.MethodPost, endpoint, path+"?source="+url.QueryEscape(source), body.FormDataContentType(), reader, output)
+	reader.CloseWithError(err)
+	if err != nil {
+		input.Close()
+	}
+	return errors.Join(err, <-finished)
 }
 
 func nodeRecord(row queries.ListNodePageRow) (api.Node, error) {

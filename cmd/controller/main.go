@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/observation"
 	"netlab.local/core/internal/operation"
+	"netlab.local/core/internal/secret"
 	"netlab.local/core/internal/server"
 	"netlab.local/core/internal/transport"
 )
@@ -62,12 +64,20 @@ func run() error {
 		webDirectory = "web/dist"
 	}
 	controller := server.New(pool, nodes, server.StaticFiles(webDirectory))
+	dataDirectory := os.Getenv("NETLAB_DATA_DIR")
+	if dataDirectory == "" {
+		dataDirectory = "data"
+	}
+	controller.Secrets, err = secret.OpenFile(filepath.Join(dataDirectory, "secret.key"))
+	if err != nil {
+		return err
+	}
 	defer controller.Close()
 	watchAccess, err := controller.AccessUpdates(ctx)
 	if err != nil {
 		return err
 	}
-	worker := operation.Worker{Pool: pool, Queries: q, Client: nodes}
+	worker := operation.Worker{Pool: pool, Queries: q, Client: nodes, Secrets: controller.Secrets}
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()
 	observerDone := make(chan struct{})

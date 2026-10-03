@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -339,7 +340,7 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 		if e.container == nil {
 			return t, errors.New("container runtime not configured")
 		}
-		t, err = e.container.prepareTemplate(namespaces.WithNamespace(ctx, "netlab"), t)
+		t, err = e.container.prepareTemplate(namespaces.WithNamespace(ctx, "netlab"), t, request.Registry)
 	case api.Vm:
 		if e.vm == nil {
 			return t, errors.New("virtual machine runtime not configured")
@@ -352,6 +353,16 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 		t.State = ptr(api.TemplateStateFailed)
 		t.Error = ptr(err.Error())
 		return t, err
+	}
+	directory := importDirectory(e.cfg.DataDir, t.Id, t.Version)
+	if relative, uploaded := strings.CutPrefix(t.Source, directory+string(filepath.Separator)); uploaded {
+		source, pathErr := artifactPath(directory, strings.SplitN(relative, string(filepath.Separator), 2)[0])
+		if pathErr != nil {
+			return t, pathErr
+		}
+		if err = os.RemoveAll(source); err != nil {
+			return t, err
+		}
 	}
 	t.State = ptr(api.TemplateStateReady)
 	t.Error = nil

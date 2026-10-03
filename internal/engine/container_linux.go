@@ -24,8 +24,10 @@ import (
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
+	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/continuity/fs"
 	"github.com/containerd/platforms"
+	"github.com/distribution/reference"
 	"github.com/moby/sys/signal"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -155,7 +157,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	} else if !errdefs.IsNotFound(err) {
 		return "unknown", err
 	}
-	image, err := c.image(ctx, a.Template)
+	image, err := c.image(ctx, a.Template, nil)
 	if err != nil {
 		return "absent", err
 	}
@@ -209,7 +211,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	}
 	return "prepared", nil
 }
-func (c *Containers) image(ctx context.Context, t api.Template) (containerd.Image, error) {
+func (c *Containers) image(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (containerd.Image, error) {
 	ref := fmt.Sprintf("netlab/template/%s:%d", t.Id, t.Version)
 	lock, _ := c.images.LoadOrStore(ref, &sync.Mutex{})
 	mu := lock.(*sync.Mutex)
@@ -220,7 +222,7 @@ func (c *Containers) image(ctx context.Context, t api.Template) (containerd.Imag
 	} else if !errdefs.IsNotFound(err) {
 		return nil, err
 	}
-	image, err := c.importImage(ctx, t)
+	image, err := c.importImage(ctx, t, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +234,7 @@ func (c *Containers) image(ctx context.Context, t api.Template) (containerd.Imag
 	return c.client.GetImage(ctx, ref)
 }
 
-func (c *Containers) prepareTemplate(ctx context.Context, t api.Template) (api.Template, error) {
+func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (api.Template, error) {
 	directory := templateDirectory(c.data, t.Id, t.Version)
 	if raw, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
 		origin := t.ArtifactNodeId
@@ -244,7 +246,7 @@ func (c *Containers) prepareTemplate(ctx context.Context, t api.Template) (api.T
 	}
 	source := t
 	source.ArtifactNodeId = nil
-	image, err := c.image(ctx, source)
+	image, err := c.image(ctx, source, registry)
 	if err != nil {
 		return t, err
 	}
@@ -324,7 +326,7 @@ func (c *Containers) volumeMounts(env, asset string, volumes []api.Volume) ([]sp
 	}
 	return mounts, nil
 }
-func (c *Containers) importImage(ctx context.Context, t api.Template) (containerd.Image, error) {
+func (c *Containers) importImage(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (containerd.Image, error) {
 	source := t.Source
 	if t.ArtifactNodeId != nil {
 		source = filepath.Join(templateDirectory(c.data, t.Id, t.Version), "image.tar")
@@ -351,15 +353,31 @@ func (c *Containers) importImage(ctx context.Context, t api.Template) (container
 		}
 		return img, nil
 	}
-	if img, err := c.client.GetImage(ctx, t.Source); err == nil {
-		if err = img.Unpack(ctx, "overlayfs"); err != nil {
-			return nil, err
-		}
-		return img, nil
-	} else if !errdefs.IsNotFound(err) {
-		return nil, err
+	ref, err := reference.ParseNormalizedNamed(t.Source)
+	if err != nil {
+		return nil, errors.New("invalid registry image reference")
 	}
-	return c.client.Pull(ctx, t.Source, containerd.WithPullUnpack)
+	host := reference.Domain(ref)
+	if host == "docker.io" {
+		host = "registry-1.docker.io"
+	}
+	authorizer := docker.NewDockerAuthorizer(docker.WithAuthCreds(func(requestHost string) (string, string, error) {
+		if registry == nil || requestHost != host {
+			return "", "", nil
+		}
+		username, password := "", ""
+		if registry.Username != nil {
+			username = *registry.Username
+		}
+		if registry.Password != nil {
+			password = *registry.Password
+		}
+		return username, password, nil
+	}))
+	hosts := docker.ConfigureDefaultRegistries(docker.WithAuthorizer(authorizer), docker.WithPlainHTTP(func(requestHost string) (bool, error) {
+		return registry != nil && registry.PlainHttp != nil && *registry.PlainHttp && requestHost == reference.Domain(ref), nil
+	}))
+	return c.client.Pull(ctx, reference.TagNameOnly(ref).String(), containerd.WithPullUnpack, containerd.WithResolver(docker.NewResolver(docker.ResolverOptions{Hosts: hosts})))
 }
 func cpuLimit(cpus int) oci.SpecOpts {
 	return func(ctx context.Context, client oci.Client, c *containers.Container, s *oci.Spec) error {

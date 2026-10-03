@@ -40,11 +40,15 @@ func (c *Client) Do(ctx context.Context, method, endpoint, path string, input, o
 		}
 		body = bytes.NewReader(raw)
 	}
+	return c.Stream(ctx, method, endpoint, path, "application/json", body, output)
+}
+
+func (c *Client) Stream(ctx context.Context, method, endpoint, path, contentType string, body io.Reader, output any) error {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint+path, body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("node %s: %w", endpoint, err)
@@ -54,6 +58,10 @@ func (c *Client) Do(ctx context.Context, method, endpoint, path string, input, o
 		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 16384))
 		if readErr != nil {
 			return readErr
+		}
+		var result api.NodeResult
+		if json.Unmarshal(raw, &result) == nil && result.Error != nil {
+			raw = []byte(*result.Error)
 		}
 		return fmt.Errorf("node %s returned %d: %s", endpoint, resp.StatusCode, raw)
 	}
