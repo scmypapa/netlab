@@ -240,6 +240,23 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			defer unlock()
 			var state string
 			var err error
+			if plan.Phase == api.NodePlanPhaseCaptureRecovery || plan.Phase == api.NodePlanPhaseDeleteRecovery {
+				if plan.RecoveryPointId == nil {
+					result.Results[i] = executionResult(a, "unknown", errors.New("missing recovery point identity"))
+					return
+				}
+				if plan.Phase == api.NodePlanPhaseDeleteRecovery {
+					result.Results[i] = executionResult(a, "deleted", e.deleteRecovery(*plan.RecoveryPointId, a))
+				} else {
+					bytes, captureErr := e.captureRecovery(ctx, plan.EnvironmentId, *plan.RecoveryPointId, a)
+					r := executionResult(a, "stopped", captureErr)
+					if captureErr == nil {
+						r.RecoveryBytes = &bytes
+					}
+					result.Results[i] = r
+				}
+				return
+			}
 			phase := plan.Phase
 			if phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
 				endpoint := ""

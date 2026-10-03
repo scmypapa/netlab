@@ -89,6 +89,7 @@ export function useWorkbench(id: string) {
           void client.invalidateQueries({ queryKey: ["operations", id] });
           void client.invalidateQueries({ queryKey: ["services", id] });
           void client.invalidateQueries({ queryKey: ["vpn-access", id] });
+          void client.invalidateQueries({ queryKey: ["recovery-points", id] });
           void client.invalidateQueries({ queryKey: ["environments"] });
         }
       }, 100);

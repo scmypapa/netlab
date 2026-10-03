@@ -52,13 +52,13 @@ UPDATE environments SET spec=$2,updated_at=now() WHERE id=$1;
 -- name: SetEnvironmentOperation :exec
 UPDATE environments SET operation_id=$2,status=$3,error=NULL,updated_at=now() WHERE id=$1;
 -- name: LockEnvironment :one
-SELECT * FROM environments WHERE id=$1 FOR UPDATE;
+SELECT * FROM environments WHERE id=$1 FOR NO KEY UPDATE;
 -- name: CommitEnvironment :exec
 UPDATE environments SET applied_spec=$2,spec=$2,revision=revision+1,status=$3,draft=NULL,error=$4,updated_at=now() WHERE id=$1;
 -- name: SetEnvironmentState :exec
 UPDATE environments SET status=$2,error=$3,updated_at=now() WHERE id=$1;
--- name: FinishTemplateCapture :exec
-UPDATE environments SET status=$3,updated_at=now() WHERE id=$1 AND operation_id=$2;
+-- name: FinishAuxiliaryOperation :exec
+UPDATE environments SET status=$3,error=$4,updated_at=now() WHERE id=$1 AND operation_id=$2;
 -- name: SetNetworkOwner :exec
 UPDATE environments SET network_node_id=$2 WHERE id=$1;
 -- name: ListTemplates :many
@@ -84,6 +84,10 @@ WHERE a.execution->'template'->>'id'=sqlc.arg(template_id)
 UNION
 SELECT '环境模板：'||b.name||' v'||v.version::text FROM blueprint_versions v JOIN blueprints b ON b.id=v.blueprint_id
 WHERE v.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text)))
+UNION
+SELECT '恢复点：'||p.name FROM recovery_points p
+CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a(value)
+WHERE a.value->'execution'->'template'->>'id'=sqlc.arg(template_id)
 UNION
 SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE o.state IN ('queued','running') AND (
@@ -136,7 +140,7 @@ WITH candidate AS (
  UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
  FROM candidate c WHERE o.id=c.id RETURNING o.*
 ), active AS (
- UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=NULL,updated_at=now()
+ UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
  FROM claimed c WHERE e.id=c.environment_id RETURNING e.id
 )
 SELECT claimed.* FROM claimed;

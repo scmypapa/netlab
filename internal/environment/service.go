@@ -139,6 +139,9 @@ func Operation(row queries.Operation) (api.Operation, error) {
 		Updates    []struct{ Execution api.AssetExecution } `json:"updates"`
 		Old        []struct{ Execution api.AssetExecution } `json:"old"`
 		Template   *api.Template                            `json:"template"`
+		Recovery   *struct {
+			Assets []struct{ Execution api.AssetExecution } `json:"assets"`
+		} `json:"recovery"`
 	}
 	if err := json.Unmarshal(row.Payload, &payload); err != nil {
 		return result, err
@@ -149,6 +152,11 @@ func Operation(row queries.Operation) (api.Operation, error) {
 			if _, exists := targets[t.Execution.Asset.Id]; !exists {
 				targets[t.Execution.Asset.Id] = t.Execution.InstanceId
 			}
+		}
+	}
+	if payload.Recovery != nil {
+		for _, target := range payload.Recovery.Assets {
+			targets[target.Execution.Asset.Id] = target.Execution.InstanceId
 		}
 	}
 	if row.Kind == "start" || row.Phase == "queued" {

@@ -382,6 +382,88 @@ async function fixture(
   return calls;
 }
 
+test("恢复点：只读查看、捕获与删除请求、真实错误呈现", async ({ page }) => {
+  const options = { permissions: ["read"] };
+  await fixture(page, options);
+  let created = false,
+    rejectCapture = true;
+  const point = {
+    id: "point",
+    environmentId: "env",
+    name: "调整前",
+    revision: 1,
+    state: "ready",
+    assetCount: 2,
+    sizeBytes: 64 * 2 ** 20,
+    createdAt: "2026-10-03T08:00:00Z",
+  };
+  await page.route(
+    "**/api/v1/environments/env/recovery-points**",
+    async (route) => {
+      const request = route.request();
+      let status = 200,
+        response: unknown = created ? [point] : [];
+      if (request.method() === "POST") {
+        expect(request.postDataJSON()).toEqual({
+          name: "调整前",
+          expectedRevision: 1,
+        });
+        if (rejectCapture) {
+          status = 409;
+          response = { detail: "请等待当前任务完成" };
+        } else {
+          status = 201;
+          created = true;
+          response = point;
+        }
+      } else if (request.method() === "DELETE") {
+        expect(new URL(request.url()).pathname).toBe(
+          "/api/v1/environments/env/recovery-points/point",
+        );
+        status = 202;
+        created = false;
+        response = { id: "delete" };
+      }
+      await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(response),
+      });
+    },
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "环境操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复点", exact: true }).click();
+  await expect(page.getByText("暂无恢复点", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建恢复点" })).toHaveCount(0);
+  options.permissions.push("manage");
+  await page.reload();
+  await page.getByRole("button", { name: "环境操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复点", exact: true }).click();
+  await page.getByRole("button", { name: "创建恢复点", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "创建恢复点" });
+  await dialog.getByRole("textbox", { name: "名称" }).fill("调整前");
+  await dialog.getByRole("button", { name: "开始捕获" }).click();
+  await expect(dialog.getByText("请等待当前任务完成")).toBeVisible();
+  rejectCapture = false;
+  await dialog.getByRole("button", { name: "开始捕获" }).click();
+  await expect(page.getByRole("heading", { name: "调整前" })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "../data/recovery-drawer-mobile.png" });
+  await page.getByRole("button", { name: "调整前操作" }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "删除恢复点" })
+    .getByRole("button", { name: "删除", exact: true })
+    .click();
+  await expect(page.getByText("暂无恢复点", { exact: true })).toBeVisible();
+});
+
 test("draft persists across exit; applying removal uses preview revision", async ({
   page,
 }) => {

@@ -12,6 +12,7 @@ export function Status({ value }: { value: string }) {
             "queued",
             "importing",
             "deleting",
+            "capturing",
           ].includes(value)
         ? "active"
         : "neutral";

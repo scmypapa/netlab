@@ -29,6 +29,7 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
+	Recovery            *Recovery                  `json:"recovery,omitempty"`
 	StoragePool         *api.CreateStoragePool     `json:"storagePool,omitempty"`
 	Spec                api.EnvironmentSpec        `json:"spec"`
 	BeforeStatus        string                     `json:"beforeStatus,omitempty"`
@@ -131,6 +132,9 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			err = w.deleteTemplate(ctx, &op, &payload)
 		} else if op.Kind == "delete-storage-pool" {
 			err = w.deleteStoragePool(ctx, &op, &payload)
+		} else if op.Kind == "capture-recovery" || op.Kind == "delete-recovery" {
+			err = w.recovery(ctx, &op, &payload)
+			results = payload.Results
 		} else if op.Kind == "vpn-create" || op.Kind == "vpn-revoke" {
 			err = w.vpnOperation(ctx, &op, &payload)
 		} else {
@@ -180,6 +184,28 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
+	if payload.Recovery != nil {
+		if dbErr = w.finishRecovery(ctx, q, op, &payload, err); dbErr != nil {
+			slog.Error("recovery completion", "error", dbErr)
+			return
+		}
+		actual := payload.BeforeStatus
+		var runtimeError *string
+		if op.Kind == "capture-recovery" {
+			actual, dbErr = runtimeState(ctx, q, *op.EnvironmentID)
+			if dbErr != nil {
+				slog.Error("recovery runtime state", "error", dbErr)
+				return
+			}
+			if err != nil && op.Phase == "recovery-resume" {
+				actual, runtimeError = "failed", detail
+			}
+		}
+		if dbErr = q.FinishAuxiliaryOperation(ctx, queries.FinishAuxiliaryOperationParams{ID: *op.EnvironmentID, OperationID: &op.ID, Status: actual, Error: runtimeError}); dbErr != nil {
+			slog.Error("recovery environment completion", "error", dbErr)
+			return
+		}
+	}
 	if op.Kind == "delete-storage-pool" && err == nil {
 		if dbErr = q.DeleteStoragePool(ctx, op.ScopeID); dbErr != nil {
 			slog.Error("storage deletion completion", "error", dbErr)
@@ -193,7 +219,7 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 		}
 	}
 	if op.Kind == "capture-template" {
-		if dbErr = q.FinishTemplateCapture(ctx, queries.FinishTemplateCaptureParams{ID: *op.EnvironmentID, OperationID: &op.ID, Status: payload.BeforeStatus}); dbErr != nil {
+		if dbErr = q.FinishAuxiliaryOperation(ctx, queries.FinishAuxiliaryOperationParams{ID: *op.EnvironmentID, OperationID: &op.ID, Status: payload.BeforeStatus}); dbErr != nil {
 			slog.Error("template capture completion", "error", dbErr)
 			return
 		}
@@ -337,7 +363,11 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 			if op.Phase == "rollback" && p.BeforeSpec != nil {
 				spec = *p.BeforeSpec
 			}
-			result, err := w.Client.Execute(ctx, endpoints[id], api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts})
+			plan := api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts}
+			if p.Recovery != nil {
+				plan.RecoveryPointId = &p.Recovery.ID
+			}
+			result, err := w.Client.Execute(ctx, endpoints[id], plan)
 			if err == nil && result.Error != nil {
 				err = errors.New(*result.Error)
 			}
@@ -397,7 +427,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
-	if phase != api.NodePlanPhaseCleanupVolumes {
+	if phase != api.NodePlanPhaseCleanupVolumes && phase != api.NodePlanPhaseDeleteRecovery {
 		if err = q.ApplyAssetResults(ctx, raw); err != nil {
 			return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
 		}

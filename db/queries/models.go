@@ -132,6 +132,19 @@ type Project struct {
 	Name string
 }
 
+type RecoveryPoint struct {
+	ID            string
+	EnvironmentID string
+	Name          string
+	Revision      int32
+	State         string
+	Definition    []byte
+	AssetCount    int32
+	SizeBytes     int64
+	OperationID   string
+	CreatedAt     pgtype.Timestamptz
+}
+
 type RuntimeAsset struct {
 	EnvironmentID string
 	AssetID       string

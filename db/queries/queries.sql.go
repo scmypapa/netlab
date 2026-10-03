@@ -48,7 +48,7 @@ WITH candidate AS (
  UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
  FROM candidate c WHERE o.id=c.id RETURNING o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id
 ), active AS (
- UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=NULL,updated_at=now()
+ UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
  FROM claimed c WHERE e.id=c.environment_id RETURNING e.id
 )
 SELECT claimed.id, claimed.environment_id, claimed.scope_kind, claimed.scope_id, claimed.kind, claimed.asset_id, claimed.state, claimed.phase, claimed.payload, claimed.results, claimed.error, claimed.expected_revision, claimed.lease_owner, claimed.lease_until, claimed.created_at, claimed.updated_at, claimed.client_request_id FROM claimed
@@ -318,6 +318,27 @@ func (q *Queries) DeleteTemplate(ctx context.Context, id string) error {
 	return err
 }
 
+const finishAuxiliaryOperation = `-- name: FinishAuxiliaryOperation :exec
+UPDATE environments SET status=$3,error=$4,updated_at=now() WHERE id=$1 AND operation_id=$2
+`
+
+type FinishAuxiliaryOperationParams struct {
+	ID          string
+	OperationID *string
+	Status      string
+	Error       *string
+}
+
+func (q *Queries) FinishAuxiliaryOperation(ctx context.Context, arg FinishAuxiliaryOperationParams) error {
+	_, err := q.db.Exec(ctx, finishAuxiliaryOperation,
+		arg.ID,
+		arg.OperationID,
+		arg.Status,
+		arg.Error,
+	)
+	return err
+}
+
 const finishOperation = `-- name: FinishOperation :execrows
 UPDATE operations SET state=$3,phase=$4,results=$5,error=$6,lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_owner=$2
 `
@@ -344,21 +365,6 @@ func (q *Queries) FinishOperation(ctx context.Context, arg FinishOperationParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const finishTemplateCapture = `-- name: FinishTemplateCapture :exec
-UPDATE environments SET status=$3,updated_at=now() WHERE id=$1 AND operation_id=$2
-`
-
-type FinishTemplateCaptureParams struct {
-	ID          string
-	OperationID *string
-	Status      string
-}
-
-func (q *Queries) FinishTemplateCapture(ctx context.Context, arg FinishTemplateCaptureParams) error {
-	_, err := q.db.Exec(ctx, finishTemplateCapture, arg.ID, arg.OperationID, arg.Status)
-	return err
 }
 
 const getCredential = `-- name: GetCredential :one
@@ -1140,7 +1146,7 @@ func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOper
 }
 
 const lockEnvironment = `-- name: LockEnvironment :one
-SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id, gateway_address, vpn_public_key, vpn_mtu FROM environments WHERE id=$1 FOR UPDATE
+SELECT id, project_id, owner_id, name, external_reference, revision, status, spec, applied_spec, view, draft, network_node_id, operation_id, error, client_request_id, created_at, updated_at, blueprint_version_id, gateway_address, vpn_public_key, vpn_mtu FROM environments WHERE id=$1 FOR NO KEY UPDATE
 `
 
 func (q *Queries) LockEnvironment(ctx context.Context, id string) (Environment, error) {
@@ -1694,6 +1700,10 @@ WHERE a.execution->'template'->>'id'=$1
 UNION
 SELECT '环境模板：'||b.name||' v'||v.version::text FROM blueprint_versions v JOIN blueprints b ON b.id=v.blueprint_id
 WHERE v.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text)))
+UNION
+SELECT '恢复点：'||p.name FROM recovery_points p
+CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a(value)
+WHERE a.value->'execution'->'template'->>'id'=$1
 UNION
 SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE o.state IN ('queued','running') AND (

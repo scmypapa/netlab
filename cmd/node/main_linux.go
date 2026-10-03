@@ -321,6 +321,11 @@ func respond(w http.ResponseWriter, value any, err error) {
 }
 func ptr[T any](v T) *T { return &v }
 func validatePlanPaths(p api.NodePlan) error {
+	if p.RecoveryPointId != nil {
+		if _, err := uuid.Parse(*p.RecoveryPointId); err != nil {
+			return fmt.Errorf("invalid recovery point identity")
+		}
+	}
 	for _, id := range []string{p.OperationId, p.EnvironmentId} {
 		if _, err := uuid.Parse(id); err != nil {
 			return fmt.Errorf("invalid plan identity")

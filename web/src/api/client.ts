@@ -223,6 +223,22 @@ export const api = {
   saveBlueprintVersion: (id: string, body: Schema<"SaveBlueprintVersion">) =>
     request<BlueprintVersion>(`/blueprints/${id}/versions`, "POST", body),
   state: (id: string) => request<EnvironmentState>(`/environments/${id}/state`),
+  recoveryPoints: (id: string, options?: ListOptions) =>
+    list<Schema<"RecoveryPointSummary">>(
+      `/environments/${id}/recovery-points`,
+      options,
+    ),
+  captureRecoveryPoint: (id: string, body: Schema<"CaptureRecoveryPoint">) =>
+    request<Schema<"RecoveryPointSummary">>(
+      `/environments/${id}/recovery-points`,
+      "POST",
+      body,
+    ),
+  deleteRecoveryPoint: (id: string, pointId: string) =>
+    request<Operation>(
+      `/environments/${id}/recovery-points/${pointId}`,
+      "DELETE",
+    ),
   vpnAccess: (id: string) =>
     request<Schema<"VPNAccess">[]>(`/environments/${id}/vpn-access`),
   createVPNAccess: (id: string, body: Schema<"CreateVPNAccess">) =>

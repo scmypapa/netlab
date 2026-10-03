@@ -128,7 +128,7 @@ func (s *Server) createStoragePool(w http.ResponseWriter, r *http.Request, ident
 		}
 		return err
 	}
-	state := api.Ready
+	state := api.StoragePoolStateReady
 	return writeJSON(w, http.StatusCreated, api.StoragePool{Id: id, NodeId: input.NodeId, Name: input.Name, Directory: &input.Directory, Driver: api.Directory, State: &state, Storage: &info, Capabilities: []string{"vm-disks", "volumes"}})
 }
 

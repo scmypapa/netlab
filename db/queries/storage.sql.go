@@ -186,6 +186,9 @@ SELECT name::text FROM (
  WHERE a.execution->>'storagePoolId'=$1
  UNION SELECT '环境模板：'||b.name||' v'||v.version::text FROM blueprint_versions v JOIN blueprints b ON b.id=v.blueprint_id
  WHERE v.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('storagePoolId',$1::text)))
+ UNION SELECT '恢复点：'||p.name FROM recovery_points p
+ CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a(value)
+ WHERE a.value->'execution'->>'storagePoolId'=$1
  UNION SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
  WHERE o.state IN ('queued','running') AND (
   o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('storagePoolId',$1::text))) OR

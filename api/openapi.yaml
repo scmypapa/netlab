@@ -3,6 +3,31 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /environments/{id}/recovery-points:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listRecoveryPoints
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Environment recovery points, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/RecoveryPointSummary'}}}}}
+    post:
+      operationId: captureRecoveryPoint
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CaptureRecoveryPoint'}}}}
+      responses:
+        '201':
+          description: Capture queued; normal shutdown and original power state restoration are part of the operation
+          headers:
+            Operation-Location: {schema: {type: string}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/RecoveryPointSummary'}}}
+        '409': {description: Revision changed or another environment operation is active}
+  /environments/{id}/recovery-points/{pointId}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: pointId, in: path, required: true, schema: {type: string}}
+    delete:
+      operationId: deleteRecoveryPoint
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
   /storage-pools:
     get:
       operationId: listStoragePools
@@ -895,7 +920,8 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
+        phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect, capture-recovery, delete-recovery]}
+        recoveryPointId: {type: string}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
         gateway: {$ref: '#/components/schemas/ServiceGateway'}
@@ -936,7 +962,29 @@ components:
         state: {type: string}
         error: {type: string}
         execution: {$ref: '#/components/schemas/AssetExecution'}
+        recoveryBytes: {type: integer, format: int64}
         observedAt: {type: string, format: date-time}
+    CaptureRecoveryPoint:
+      type: object
+      required: [name, expectedRevision]
+      properties:
+        name: {type: string}
+        expectedRevision: {type: integer, minimum: 0}
+    RecoveryPointSummary:
+      type: object
+      required: [id, environmentId, name, revision, state, assetCount, sizeBytes, createdAt]
+      properties:
+        id: {type: string}
+        environmentId: {type: string}
+        name: {type: string}
+        revision: {type: integer}
+        state: {type: string, enum: [capturing, ready, failed, deleting]}
+        assetCount: {type: integer}
+        sizeBytes: {type: integer, format: int64}
+        consistency: {type: string, enum: [crash, filesystem, application]}
+        operationId: {type: string}
+        error: {type: string}
+        createdAt: {type: string, format: date-time}
     NodeObservation:
       type: object
       required: [nodeId, snapshot, results, observedAt]

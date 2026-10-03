@@ -4,6 +4,43 @@
  */
 
 export interface paths {
+  "/environments/{id}/recovery-points": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["listRecoveryPoints"];
+    put?: never;
+    post: operations["captureRecoveryPoint"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/recovery-points/{pointId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        pointId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["deleteRecoveryPoint"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/storage-pools": {
     parameters: {
       query?: never;
@@ -1223,7 +1260,10 @@ export interface components {
         | "destroy"
         | "cleanup-volumes"
         | "remove-network"
-        | "inspect";
+        | "inspect"
+        | "capture-recovery"
+        | "delete-recovery";
+      recoveryPointId?: string;
       assets: components["schemas"]["AssetExecution"][];
       spec: components["schemas"]["EnvironmentSpec"];
       gateway?: components["schemas"]["ServiceGateway"];
@@ -1260,8 +1300,31 @@ export interface components {
       state: string;
       error?: string;
       execution?: components["schemas"]["AssetExecution"];
+      /** Format: int64 */
+      recoveryBytes?: number;
       /** Format: date-time */
       observedAt: string;
+    };
+    CaptureRecoveryPoint: {
+      name: string;
+      expectedRevision: number;
+    };
+    RecoveryPointSummary: {
+      id: string;
+      environmentId: string;
+      name: string;
+      revision: number;
+      /** @enum {string} */
+      state: "capturing" | "ready" | "failed" | "deleting";
+      assetCount: number;
+      /** Format: int64 */
+      sizeBytes: number;
+      /** @enum {string} */
+      consistency?: "crash" | "filesystem" | "application";
+      operationId?: string;
+      error?: string;
+      /** Format: date-time */
+      createdAt: string;
     };
     NodeObservation: {
       nodeId: string;
@@ -1467,6 +1530,80 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listRecoveryPoints: {
+    parameters: {
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Environment recovery points */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RecoveryPointSummary"][];
+        };
+      };
+    };
+  };
+  captureRecoveryPoint: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CaptureRecoveryPoint"];
+      };
+    };
+    responses: {
+      /** @description Capture queued; normal shutdown and original power state restoration are part of the operation */
+      201: {
+        headers: {
+          "Operation-Location"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RecoveryPointSummary"];
+        };
+      };
+      /** @description Revision changed or another environment operation is active */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  deleteRecoveryPoint: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        pointId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
   listStoragePools: {
     parameters: {
       query?: never;

@@ -165,8 +165,19 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	}
 	phase := row.Phase
+	if p.Recovery != nil && row.Kind == "capture-recovery" {
+		if _, err = q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: p.Recovery.ID, EnvironmentID: *row.EnvironmentID}); err != nil {
+			return api.Operation{}, err
+		}
+		if err = q.MarkRecoveryCapturing(ctx, p.Recovery.ID); err != nil {
+			return api.Operation{}, err
+		}
+		if phase == "recovery-complete" {
+			p.Failure, p.Recovery.Bytes, phase = nil, 0, "recovery-reset"
+		}
+	}
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)
@@ -178,11 +189,16 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		return api.Operation{}, err
 	}
 	if row.EnvironmentID != nil {
-		state := "changing"
-		if row.Kind == "destroy" {
-			state = "destroying"
+		if row.Kind == "delete-recovery" {
+			err = q.SetRecoveryDeleteOperation(ctx, queries.SetRecoveryDeleteOperationParams{ID: *row.EnvironmentID, OperationID: &id})
+		} else {
+			state := "changing"
+			if row.Kind == "destroy" {
+				state = "destroying"
+			}
+			err = q.SetEnvironmentOperation(ctx, queries.SetEnvironmentOperationParams{ID: *row.EnvironmentID, OperationID: &id, Status: state})
 		}
-		if err = q.SetEnvironmentOperation(ctx, queries.SetEnvironmentOperationParams{ID: *row.EnvironmentID, OperationID: &id, Status: state}); err != nil {
+		if err != nil {
 			return api.Operation{}, err
 		}
 	}

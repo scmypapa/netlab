@@ -43,6 +43,7 @@ import { connectAsset, networkColors, topology } from "./topology";
 import { useWorkbench } from "./useWorkbench";
 import { useVPNAccess } from "./useVPNAccess";
 import { VPNDrawer } from "./VPNDrawer";
+import { RecoveryDrawer } from "./RecoveryDrawer";
 import { consoleKey, type ConsoleTab } from "./consoles";
 import { allows } from "../access/permissions";
 
@@ -60,6 +61,7 @@ export function WorkbenchPage() {
   const [editor, setEditor] = useState<"asset" | "network">();
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
+  const [recoveryOpened, setRecoveryOpened] = useState(false);
   const [rebuilding, setRebuilding] = useState<Asset>();
   const [savingBlueprint, setSavingBlueprint] = useState(false);
   const [connections, setConnections] = useState<ConsoleTab[]>([]);
@@ -85,6 +87,7 @@ export function WorkbenchPage() {
   const canCompose = allows(environment, "compose");
   const canOperate = allows(environment, "operate");
   const canManage = allows(environment, "manage");
+  const canRead = allows(environment, "read");
   const templates = workbench.templates.data ?? [];
   const spec = workbench.editing
     ? workbench.spec
@@ -354,7 +357,7 @@ export function WorkbenchPage() {
                       : "停止"}
                 </Button>
               )}
-              {(canCompose || canOperate || canManage) && (
+              {(canRead || canCompose || canOperate || canManage) && (
                 <Menu position="bottom-end">
                   <Menu.Target>
                     <ActionIcon variant="default" aria-label="环境操作">
@@ -362,6 +365,11 @@ export function WorkbenchPage() {
                     </ActionIcon>
                   </Menu.Target>
                   <Menu.Dropdown>
+                    {canRead && (
+                      <Menu.Item onClick={() => setRecoveryOpened(true)}>
+                        恢复点
+                      </Menu.Item>
+                    )}
                     {canCompose && (
                       <Menu.Item
                         leftSection={<Save size={15} />}
@@ -917,6 +925,16 @@ export function WorkbenchPage() {
           </Button>
         </div>
       </Modal>
+      {recoveryOpened && (
+        <RecoveryDrawer
+          id={id}
+          revision={environment.revision}
+          busy={busy}
+          canManage={canManage}
+          canCapture={["running", "stopped", "suspended"].includes(status)}
+          onClose={() => setRecoveryOpened(false)}
+        />
+      )}
       <Menu
         opened={Boolean(context)}
         onClose={() => setContext(undefined)}

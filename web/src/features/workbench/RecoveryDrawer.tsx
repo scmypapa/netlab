@@ -1,0 +1,215 @@
+import {
+  ActionIcon,
+  Button,
+  Drawer,
+  Menu,
+  Modal,
+  TextInput,
+} from "@mantine/core";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Archive, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { api, type Schema } from "../../api/client";
+import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
+import { dateTime } from "../../foundation/format";
+import { LoadMore } from "../../foundation/LoadMore";
+import { Status } from "../../foundation/Status";
+import { useCursorList } from "../../foundation/useCursorList";
+import styles from "./RecoveryDrawer.module.css";
+
+export function RecoveryDrawer({
+  id,
+  revision,
+  busy,
+  canManage,
+  canCapture,
+  onClose,
+}: {
+  id: string;
+  revision: number;
+  busy: boolean;
+  canManage: boolean;
+  canCapture: boolean;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [removing, setRemoving] = useState<Schema<"RecoveryPointSummary">>();
+  const points = useCursorList(["recovery-points", id], (page) =>
+    api.recoveryPoints(id, page),
+  );
+  const refresh = () => {
+    for (const key of ["recovery-points", "state", "operations", "environment"])
+      void client.invalidateQueries({ queryKey: [key, id] });
+  };
+  const capture = useMutation({
+    mutationFn: () =>
+      api.captureRecoveryPoint(id, { name, expectedRevision: revision }),
+    onSuccess: () => {
+      setCreating(false);
+      refresh();
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (pointId: string) => api.deleteRecoveryPoint(id, pointId),
+    onSuccess: () => {
+      setRemoving(undefined);
+      refresh();
+    },
+  });
+  return (
+    <>
+      <Drawer
+        opened
+        onClose={onClose}
+        title="恢复点"
+        position="right"
+        size="lg"
+      >
+        <div className={styles.body}>
+          <ErrorMessage error={points.error} />
+          {canManage && (
+            <div className={styles.toolbar}>
+              <Button
+                leftSection={<Plus size={15} />}
+                disabled={busy || !canCapture}
+                onClick={() => {
+                  capture.reset();
+                  setName(dateTime(new Date().toISOString()) + " 恢复点");
+                  setCreating(true);
+                }}
+              >
+                创建恢复点
+              </Button>
+            </div>
+          )}
+          {points.isLoading ? (
+            <Loading />
+          ) : points.data?.length ? (
+            points.data.map((point) => (
+              <article key={point.id} className={styles.point}>
+                <div className={styles.icon}>
+                  <Archive size={20} />
+                </div>
+                <div className={styles.content}>
+                  <div className={styles.heading}>
+                    <h3>{point.name}</h3>
+                    <Status value={point.state} />
+                  </div>
+                  <div className={styles.metadata}>
+                    <time dateTime={point.createdAt}>
+                      {dateTime(point.createdAt)}
+                    </time>
+                    <span>{point.assetCount} 个资产</span>
+                    {point.state === "ready" && (
+                      <span>
+                        {new Intl.NumberFormat("zh-CN", {
+                          maximumFractionDigits: 1,
+                        }).format(point.sizeBytes / 2 ** 20)}{" "}
+                        MiB
+                      </span>
+                    )}
+                  </div>
+                  {point.error && (
+                    <div className={styles.error} role="alert">
+                      {point.error}
+                    </div>
+                  )}
+                </div>
+                {canManage && (
+                  <Menu position="bottom-end">
+                    <Menu.Target>
+                      <ActionIcon
+                        variant="subtle"
+                        aria-label={`${point.name}操作`}
+                      >
+                        <MoreHorizontal size={18} />
+                      </ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item
+                        color="red"
+                        leftSection={<Trash2 size={15} />}
+                        disabled={
+                          busy ||
+                          point.state === "capturing" ||
+                          point.state === "deleting"
+                        }
+                        onClick={() => {
+                          remove.reset();
+                          setRemoving(point);
+                        }}
+                      >
+                        删除
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                )}
+              </article>
+            ))
+          ) : (
+            <Empty icon={<Archive size={26} />} title="暂无恢复点" />
+          )}
+          <LoadMore list={points} />
+        </div>
+      </Drawer>
+      <Modal
+        opened={creating}
+        onClose={() => setCreating(false)}
+        title="创建恢复点"
+        centered
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            capture.mutate();
+          }}
+        >
+          <ErrorMessage error={capture.error} />
+          <TextInput
+            label="名称"
+            value={name}
+            onChange={(event) => setName(event.currentTarget.value)}
+            autoFocus
+            required
+          />
+          <p>捕获期间环境会正常停机，完成后恢复原状态。</p>
+          <div className="dialog-actions">
+            <Button variant="default" onClick={() => setCreating(false)}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              loading={capture.isPending}
+              disabled={busy || !name.trim()}
+            >
+              开始捕获
+            </Button>
+          </div>
+        </form>
+      </Modal>
+      <Modal
+        opened={Boolean(removing)}
+        onClose={() => setRemoving(undefined)}
+        title="删除恢复点"
+        centered
+      >
+        <ErrorMessage error={remove.error} />
+        <p>删除「{removing?.name}」及其保存的数据？</p>
+        <div className="dialog-actions">
+          <Button variant="default" onClick={() => setRemoving(undefined)}>
+            取消
+          </Button>
+          <Button
+            color="red"
+            loading={remove.isPending}
+            onClick={() => removing && remove.mutate(removing.id)}
+          >
+            删除
+          </Button>
+        </div>
+      </Modal>
+    </>
+  );
+}

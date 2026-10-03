@@ -99,7 +99,9 @@ const (
 
 // Defines values for NodePlanPhase.
 const (
+	NodePlanPhaseCaptureRecovery     NodePlanPhase = "capture-recovery"
 	NodePlanPhaseCleanupVolumes      NodePlanPhase = "cleanup-volumes"
+	NodePlanPhaseDeleteRecovery      NodePlanPhase = "delete-recovery"
 	NodePlanPhaseDestroy             NodePlanPhase = "destroy"
 	NodePlanPhaseExternalAttachments NodePlanPhase = "external-attachments"
 	NodePlanPhaseForceStop           NodePlanPhase = "force-stop"
@@ -159,6 +161,21 @@ const (
 	PrincipalKindUser  PrincipalKind = "user"
 )
 
+// Defines values for RecoveryPointSummaryConsistency.
+const (
+	Application RecoveryPointSummaryConsistency = "application"
+	Crash       RecoveryPointSummaryConsistency = "crash"
+	Filesystem  RecoveryPointSummaryConsistency = "filesystem"
+)
+
+// Defines values for RecoveryPointSummaryState.
+const (
+	RecoveryPointSummaryStateCapturing RecoveryPointSummaryState = "capturing"
+	RecoveryPointSummaryStateDeleting  RecoveryPointSummaryState = "deleting"
+	RecoveryPointSummaryStateFailed    RecoveryPointSummaryState = "failed"
+	RecoveryPointSummaryStateReady     RecoveryPointSummaryState = "ready"
+)
+
 // Defines values for RestartPolicy.
 const (
 	Always    RestartPolicy = "always"
@@ -193,8 +210,8 @@ const (
 
 // Defines values for StoragePoolState.
 const (
-	Deleting StoragePoolState = "deleting"
-	Ready    StoragePoolState = "ready"
+	StoragePoolStateDeleting StoragePoolState = "deleting"
+	StoragePoolStateReady    StoragePoolState = "ready"
 )
 
 // Defines values for TemplateDiskBus.
@@ -367,6 +384,12 @@ type BlueprintVersionSummary struct {
 type CanvasView struct {
 	Collapsed *[]string         `json:"collapsed,omitempty"`
 	Positions *map[string]Point `json:"positions,omitempty"`
+}
+
+// CaptureRecoveryPoint defines model for CaptureRecoveryPoint.
+type CaptureRecoveryPoint struct {
+	ExpectedRevision int    `json:"expectedRevision"`
+	Name             string `json:"name"`
 }
 
 // CaptureTemplate defines model for CaptureTemplate.
@@ -553,6 +576,7 @@ type ExecutionResult struct {
 	Execution     *AssetExecution `json:"execution,omitempty"`
 	InstanceId    string          `json:"instanceId"`
 	ObservedAt    time.Time       `json:"observedAt"`
+	RecoveryBytes *int64          `json:"recoveryBytes,omitempty"`
 	State         string          `json:"state"`
 }
 
@@ -708,6 +732,7 @@ type NodePlan struct {
 	Gateway           *ServiceGateway       `json:"gateway,omitempty"`
 	OperationId       string                `json:"operationId"`
 	Phase             NodePlanPhase         `json:"phase"`
+	RecoveryPointId   *string               `json:"recoveryPointId,omitempty"`
 	Services          *[]NodeServiceBinding `json:"services,omitempty"`
 	Spec              EnvironmentSpec       `json:"spec"`
 	Vpn               *NodeVPNPlan          `json:"vpn,omitempty"`
@@ -837,6 +862,27 @@ type Problem struct {
 	Status int    `json:"status"`
 	Title  string `json:"title"`
 }
+
+// RecoveryPointSummary defines model for RecoveryPointSummary.
+type RecoveryPointSummary struct {
+	AssetCount    int                              `json:"assetCount"`
+	Consistency   *RecoveryPointSummaryConsistency `json:"consistency,omitempty"`
+	CreatedAt     time.Time                        `json:"createdAt"`
+	EnvironmentId string                           `json:"environmentId"`
+	Error         *string                          `json:"error,omitempty"`
+	Id            string                           `json:"id"`
+	Name          string                           `json:"name"`
+	OperationId   *string                          `json:"operationId,omitempty"`
+	Revision      int                              `json:"revision"`
+	SizeBytes     int64                            `json:"sizeBytes"`
+	State         RecoveryPointSummaryState        `json:"state"`
+}
+
+// RecoveryPointSummaryConsistency defines model for RecoveryPointSummary.Consistency.
+type RecoveryPointSummaryConsistency string
+
+// RecoveryPointSummaryState defines model for RecoveryPointSummary.State.
+type RecoveryPointSummaryState string
 
 // RegistryCredentials defines model for RegistryCredentials.
 type RegistryCredentials struct {
@@ -1209,6 +1255,12 @@ type EnvironmentEventsParams struct {
 // ReplaceEnvironmentGrantsJSONBody defines parameters for ReplaceEnvironmentGrants.
 type ReplaceEnvironmentGrantsJSONBody = []EnvironmentGrant
 
+// ListRecoveryPointsParams defines parameters for ListRecoveryPoints.
+type ListRecoveryPointsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // RevokeServiceParams defines parameters for RevokeService.
 type RevokeServiceParams struct {
 	ExpectedRevision int     `form:"expectedRevision" json:"expectedRevision"`
@@ -1290,6 +1342,9 @@ type SaveDraftJSONRequestBody = Draft
 
 // ReplaceEnvironmentGrantsJSONRequestBody defines body for ReplaceEnvironmentGrants for application/json ContentType.
 type ReplaceEnvironmentGrantsJSONRequestBody = ReplaceEnvironmentGrantsJSONBody
+
+// CaptureRecoveryPointJSONRequestBody defines body for CaptureRecoveryPoint for application/json ContentType.
+type CaptureRecoveryPointJSONRequestBody = CaptureRecoveryPoint
 
 // SaveViewJSONRequestBody defines body for SaveView for application/json ContentType.
 type SaveViewJSONRequestBody = CanvasView
