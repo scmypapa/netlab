@@ -398,6 +398,7 @@ test("恢复点：只读查看、捕获、恢复与删除请求、真实错误�
     state: "ready",
     assetCount: 2,
     memoryAssetCount: 1,
+    consistency: "crash",
     sizeBytes: 64 * 2 ** 20,
     createdAt: "2026-10-03T08:00:00Z",
   };
@@ -460,6 +461,7 @@ test("恢复点：只读查看、捕获、恢复与删除请求、真实错误�
   await dialog.getByRole("button", { name: "开始捕获" }).click();
   await expect(page.getByRole("heading", { name: "调整前" })).toBeVisible();
   await expect(page.getByText("含 1 台虚拟机内存")).toBeVisible();
+  await expect(page.getByText("崩溃一致", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
     await page.evaluate(

@@ -30,61 +30,71 @@ type recoveryDisk struct {
 }
 
 type recoveryManifest struct {
-	EnvironmentID string             `json:"environmentId"`
-	PointID       string             `json:"pointId"`
-	Execution     api.AssetExecution `json:"execution"`
-	Disks         []recoveryDisk     `json:"disks,omitempty"`
-	Volumes       []api.Volume       `json:"volumes,omitempty"`
-	Bytes         int64              `json:"bytes"`
-	Memory        bool               `json:"memory,omitempty"`
+	EnvironmentID string                  `json:"environmentId"`
+	PointID       string                  `json:"pointId"`
+	Execution     api.AssetExecution      `json:"execution"`
+	Disks         []recoveryDisk          `json:"disks,omitempty"`
+	Volumes       []api.Volume            `json:"volumes,omitempty"`
+	Bytes         int64                   `json:"bytes"`
+	Memory        bool                    `json:"memory,omitempty"`
+	Consistency   api.RecoveryConsistency `json:"consistency"`
+}
+
+func (m recoveryManifest) captured() api.RecoveryCapture {
+	return api.RecoveryCapture{SizeBytes: m.Bytes, Memory: m.Memory, Consistency: m.Consistency}
 }
 
 func recoveryDirectory(data, point string, a api.AssetExecution) string {
 	return filepath.Join(storageRoot(data, a), "recovery-points", point, a.Asset.Id)
 }
 
-func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.AssetExecution, includeMemory bool) (int64, error) {
+func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.AssetExecution, includeMemory, quiesce bool) (api.RecoveryCapture, error) {
 	directory := recoveryDirectory(e.cfg.DataDir, point, a)
 	manifestPath := filepath.Join(directory, "manifest.json")
 	if raw, err := os.ReadFile(manifestPath); err == nil {
-		var manifest recoveryManifest
+		manifest := recoveryManifest{Consistency: api.Crash}
 		if err = json.Unmarshal(raw, &manifest); err != nil {
-			return 0, err
+			return api.RecoveryCapture{}, err
 		}
 		if manifest.EnvironmentID != env || manifest.PointID != point || manifest.Execution.InstanceId != a.InstanceId {
-			return 0, errors.New("recovery identity does not match capture")
+			return api.RecoveryCapture{}, errors.New("recovery identity does not match capture")
 		}
-		return manifest.Bytes, nil
+		return manifest.captured(), nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
 	// This stable staging name is exclusively owned by the persisted capture task.
 	staging := directory + ".pending"
+	if a.Template.Kind == api.Vm {
+		if e.vm == nil {
+			return api.RecoveryCapture{}, errors.New("virtual machine runtime not configured")
+		}
+		if err := e.vm.finishRecoveryFS(env, point, a, true); err != nil {
+			return api.RecoveryCapture{}, err
+		}
+	}
 	if err := os.RemoveAll(staging); err != nil {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
 	if err := os.MkdirAll(staging, 0711); err != nil {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
 	defer os.RemoveAll(staging)
-	manifest := recoveryManifest{EnvironmentID: env, PointID: point, Execution: a}
+	manifest := recoveryManifest{EnvironmentID: env, PointID: point, Execution: a, Consistency: api.Crash}
 	var err error
 	switch a.Template.Kind {
 	case api.Vm:
-		if e.vm == nil {
-			return 0, errors.New("virtual machine runtime not configured")
-		}
-		err = e.vm.captureRecovery(ctx, env, a, staging, &manifest, includeMemory)
+		err = e.vm.captureRecovery(ctx, env, a, staging, &manifest, includeMemory, quiesce)
 	case api.Container:
 		if e.container == nil {
-			return 0, errors.New("container runtime not configured")
+			return api.RecoveryCapture{}, errors.New("container runtime not configured")
 		}
 		err = e.container.captureRecovery(ctx, env, point, a, staging, &manifest)
 	default:
-		return 0, fmt.Errorf("invalid compute kind %s", a.Template.Kind)
+		return api.RecoveryCapture{}, fmt.Errorf("invalid compute kind %s", a.Template.Kind)
 	}
 	if err != nil {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
 	if err = filepath.WalkDir(staging, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
@@ -96,22 +106,22 @@ func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.A
 		}
 		return err
 	}); err != nil {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
 	raw, err := json.Marshal(manifest)
 	if err != nil {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
 	if err = os.WriteFile(filepath.Join(staging, "manifest.json"), raw, 0600); err != nil {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
 	if err = os.Rename(staging, directory); err != nil {
-		return 0, err
+		return api.RecoveryCapture{}, err
 	}
-	return manifest.Bytes, nil
+	return manifest.captured(), nil
 }
 
-func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api.AssetExecution, directory string, manifest *recoveryManifest, includeMemory bool) error {
+func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api.AssetExecution, directory string, manifest *recoveryManifest, includeMemory, quiesce bool) error {
 	domain, err := v.conn.LookupDomainByUUIDString(a.InstanceId)
 	if err != nil {
 		return err
@@ -124,8 +134,24 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 	if err != nil {
 		return err
 	}
-	if state != "stopped" && state != "suspended" {
+	if state != "stopped" && state != "suspended" && state != "running" {
 		return fmt.Errorf("VM %s must be quiesced at capture boundary", a.Asset.Name)
+	}
+	running := state == "running" || quiesce
+	frozen := false
+	if quiesce && state != "stopped" {
+		frozen, err = v.freezeRecoveryFS(domain, manifest.PointID, a, state == "suspended")
+		if err != nil {
+			return err
+		}
+	}
+	if state == "running" && !frozen {
+		if err = domain.Suspend(); err != nil {
+			return err
+		}
+	}
+	if state == "running" {
+		state = "suspended"
 	}
 	text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
 	if err != nil {
@@ -168,11 +194,6 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 		}
 		manifest.Disks = append(manifest.Disks, recoveryDisk{Serial: disk.Serial, File: file})
 	}
-	if len(backupDisks) > 0 {
-		if err = backupRecoveryDisks(ctx, domain, backupDisks); err != nil {
-			return err
-		}
-	}
 	if config.OS.NVRam != nil {
 		if err = copyArtifact(ctx, config.OS.NVRam.NVRam, filepath.Join(directory, "nvram.fd")); err != nil {
 			return err
@@ -185,9 +206,26 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 	}
 	initialization := filepath.Join(assetDirectory(v.data, env, a), "initialization.iso")
 	if _, err = os.Stat(initialization); err == nil {
-		return copyArtifact(ctx, initialization, filepath.Join(directory, "initialization.iso"))
+		if err = copyArtifact(ctx, initialization, filepath.Join(directory, "initialization.iso")); err != nil {
+			return err
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if len(backupDisks) > 0 {
+		return backupRecoveryDisks(ctx, domain, backupDisks, func() error {
+			if frozen {
+				consistent, err := v.thawRecoveryFS(domain, manifest.PointID, a, !running)
+				if err == nil && consistent {
+					manifest.Consistency = api.Filesystem
+				}
+				return err
+			}
+			if running {
+				return domain.Resume()
+			}
+			return nil
+		})
 	}
 	return nil
 }
@@ -262,7 +300,7 @@ func captureRecoveryMemory(domain *libvirt.Domain, path string, disks []libvirtx
 	return snapshot.Free()
 }
 
-func backupRecoveryDisks(ctx context.Context, domain *libvirt.Domain, disks []libvirtxml.DomainBackupPushDisk) error {
+func backupRecoveryDisks(ctx context.Context, domain *libvirt.Domain, disks []libvirtxml.DomainBackupPushDisk, atBoundary func() error) error {
 	active, err := domain.GetJobStats(0)
 	if err != nil {
 		return err
@@ -311,6 +349,9 @@ func backupRecoveryDisks(ctx context.Context, domain *libvirt.Domain, disks []li
 	if err = domain.BackupBegin(text, "", 0); err != nil {
 		return err
 	}
+	if err = atBoundary(); err != nil {
+		return errors.Join(err, domain.AbortJob())
+	}
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -338,7 +379,12 @@ func backupRecoveryDisks(ctx context.Context, domain *libvirt.Domain, disks []li
 	}
 }
 
-func (e *Engine) deleteRecovery(point string, a api.AssetExecution) error {
+func (e *Engine) deleteRecovery(env, point string, a api.AssetExecution) error {
+	if a.Template.Kind == api.Vm && e.vm != nil {
+		if err := e.vm.finishRecoveryFS(env, point, a, false); err != nil {
+			return err
+		}
+	}
 	directory := recoveryDirectory(e.cfg.DataDir, point, a)
 	return errors.Join(os.RemoveAll(directory), os.RemoveAll(directory+".pending"))
 }

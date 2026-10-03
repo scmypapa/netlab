@@ -1,9 +1,9 @@
 -- name: ListRecoveryPoints :many
 SELECT p.id,p.environment_id,p.name,p.revision,p.state,p.asset_count,p.size_bytes,p.operation_id,p.created_at,o.error,
-CASE WHEN p.state='ready' AND p.definition->>'includeMemory'='true' THEN
-  (SELECT count(*)::int FROM jsonb_array_elements(p.definition->'assets') a
-   WHERE a->'execution'->'template'->>'kind'='vm' AND a->>'state' IN ('running','suspended'))
-ELSE 0 END::int AS memory_asset_count
+CASE WHEN p.state='ready' THEN
+  (SELECT count(*)::int FROM jsonb_each(p.definition->'captures') c WHERE c.value->>'memory'='true')
+ELSE 0 END::int AS memory_asset_count,
+COALESCE(p.definition->>'consistency','crash')::text AS consistency
 FROM recovery_points p JOIN operations o ON o.id=p.operation_id
 WHERE p.environment_id=sqlc.arg(environment_id)
 AND (sqlc.arg(cursor)::text='' OR (p.created_at,p.id)<(SELECT created_at,id FROM recovery_points WHERE id=sqlc.arg(cursor)))

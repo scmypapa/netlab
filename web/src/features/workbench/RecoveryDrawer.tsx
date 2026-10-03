@@ -32,6 +32,12 @@ type RecoveryItem =
   | (Schema<"RecoveryPointSummary"> & { kind: "point" })
   | (Schema<"BackupSummary"> & { kind: "backup" });
 
+const consistencyLabel = {
+  crash: "崩溃一致",
+  filesystem: "文件系统一致",
+  application: "应用一致",
+};
+
 export function RecoveryDrawer({
   id,
   projectId,
@@ -223,6 +229,11 @@ export function RecoveryDrawer({
                     {point.kind === "point" && (
                       <span>{point.assetCount} 个资产</span>
                     )}
+                    {point.kind === "point" &&
+                      point.state === "ready" &&
+                      point.consistency && (
+                        <span>{consistencyLabel[point.consistency]}</span>
+                      )}
                     {point.kind === "point" &&
                       (point.memoryAssetCount ?? 0) > 0 && (
                         <span>含 {point.memoryAssetCount} 台虚拟机内存</span>

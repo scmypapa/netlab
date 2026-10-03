@@ -33,7 +33,7 @@ func (s *Server) listRecoveryPoints(w http.ResponseWriter, r *http.Request, iden
 		item := api.RecoveryPointSummary{Id: row.ID, EnvironmentId: id, Name: row.Name, Revision: int(row.Revision), State: api.RecoveryPointSummaryState(row.State),
 			AssetCount: int(row.AssetCount), MemoryAssetCount: int(row.MemoryAssetCount), SizeBytes: row.SizeBytes, OperationId: &row.OperationID, Error: row.Error, CreatedAt: row.CreatedAt.Time}
 		if row.State == "ready" {
-			consistency := api.Crash
+			consistency := api.RecoveryConsistency(row.Consistency)
 			item.Consistency = &consistency
 		}
 		result = append(result, item)

@@ -92,10 +92,10 @@ func (q *Queries) GetRecoveryPoint(ctx context.Context, id string) (RecoveryPoin
 
 const listRecoveryPoints = `-- name: ListRecoveryPoints :many
 SELECT p.id,p.environment_id,p.name,p.revision,p.state,p.asset_count,p.size_bytes,p.operation_id,p.created_at,o.error,
-CASE WHEN p.state='ready' AND p.definition->>'includeMemory'='true' THEN
-  (SELECT count(*)::int FROM jsonb_array_elements(p.definition->'assets') a
-   WHERE a->'execution'->'template'->>'kind'='vm' AND a->>'state' IN ('running','suspended'))
-ELSE 0 END::int AS memory_asset_count
+CASE WHEN p.state='ready' THEN
+  (SELECT count(*)::int FROM jsonb_each(p.definition->'captures') c WHERE c.value->>'memory'='true')
+ELSE 0 END::int AS memory_asset_count,
+COALESCE(p.definition->>'consistency','crash')::text AS consistency
 FROM recovery_points p JOIN operations o ON o.id=p.operation_id
 WHERE p.environment_id=$1
 AND ($2::text='' OR (p.created_at,p.id)<(SELECT created_at,id FROM recovery_points WHERE id=$2))
@@ -120,6 +120,7 @@ type ListRecoveryPointsRow struct {
 	CreatedAt        pgtype.Timestamptz
 	Error            *string
 	MemoryAssetCount int32
+	Consistency      string
 }
 
 func (q *Queries) ListRecoveryPoints(ctx context.Context, arg ListRecoveryPointsParams) ([]ListRecoveryPointsRow, error) {
@@ -143,6 +144,7 @@ func (q *Queries) ListRecoveryPoints(ctx context.Context, arg ListRecoveryPoints
 			&i.CreatedAt,
 			&i.Error,
 			&i.MemoryAssetCount,
+			&i.Consistency,
 		); err != nil {
 			return nil, err
 		}

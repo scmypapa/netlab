@@ -103,7 +103,7 @@ func TestRealRecoveryPreservesExternalBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := []libvirtxml.DomainBackupPushDisk{{Name: "vda", Backup: "yes", Target: &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: filepath.Join(directory, "capture.qcow2")}}}}
-	if err = backupRecoveryDisks(ctx, domain, target); err == nil || !strings.Contains(err.Error(), "another native backup") {
+	if err = backupRecoveryDisks(ctx, domain, target, func() error { return nil }); err == nil || !strings.Contains(err.Error(), "another native backup") {
 		t.Fatalf("external backup was not rejected: %v", err)
 	}
 	after, err := domain.BackupGetXMLDesc(0)

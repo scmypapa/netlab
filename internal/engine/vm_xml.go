@@ -178,7 +178,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	d.Devices.Videos = []libvirtxml.DomainVideo{{Model: libvirtxml.DomainVideoModel{Type: "vga"}}}
 	d.Devices.Inputs = []libvirtxml.DomainInput{{Type: "tablet", Bus: "usb"}}
 	d.Devices.Serials = []libvirtxml.DomainSerial{{Source: &libvirtxml.DomainChardevSource{Pty: &libvirtxml.DomainChardevSourcePty{}}}}
-	if h.GuestAgent != nil && *h.GuestAgent {
+	if h.GuestAgent == nil || *h.GuestAgent {
 		d.Devices.Channels = []libvirtxml.DomainChannel{{Source: &libvirtxml.DomainChardevSource{UNIX: &libvirtxml.DomainChardevSourceUNIX{Mode: "bind"}}, Target: &libvirtxml.DomainChannelTarget{VirtIO: &libvirtxml.DomainChannelTargetVirtIO{Name: "org.qemu.guest_agent.0"}}}}
 	}
 	if h.Tpm != nil && *h.Tpm {

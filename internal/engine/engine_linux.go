@@ -278,12 +278,13 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 					return
 				}
 				if plan.Phase == api.NodePlanPhaseDeleteRecovery {
-					result.Results[i] = executionResult(a, "deleted", e.deleteRecovery(*plan.RecoveryPointId, a))
+					result.Results[i] = executionResult(a, "deleted", e.deleteRecovery(plan.EnvironmentId, *plan.RecoveryPointId, a))
 				} else {
-					bytes, captureErr := e.captureRecovery(ctx, plan.EnvironmentId, *plan.RecoveryPointId, a, plan.IncludeMemory)
+					quiesce := plan.CaptureStates != nil && (*plan.CaptureStates)[a.Asset.Id] == "running" && !plan.IncludeMemory
+					capture, captureErr := e.captureRecovery(ctx, plan.EnvironmentId, *plan.RecoveryPointId, a, plan.IncludeMemory, quiesce)
 					r := executionResult(a, "captured", captureErr)
 					if captureErr == nil {
-						r.RecoveryBytes = &bytes
+						r.Recovery = &capture
 					}
 					result.Results[i] = r
 				}
@@ -303,6 +304,12 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				if e.vm == nil {
 					err = errors.New("virtual machine runtime not configured")
 				} else {
+					if phase == api.NodePlanPhaseStart && plan.RecoveryPointId != nil {
+						if err = e.vm.finishRecoveryFS(plan.EnvironmentId, *plan.RecoveryPointId, a, false); err != nil {
+							result.Results[i] = executionResult(a, "unknown", err)
+							return
+						}
+					}
 					state, err = e.vm.Execute(ctx, plan.EnvironmentId, phase, a)
 				}
 			default:

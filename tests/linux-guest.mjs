@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { delay, guestKey, guestSSH } from "./guest-ssh.mjs";
 
 export async function verifyLinuxGuest(api, completed, containerTemplate) {
   const source =
     process.env.NETLAB_TEST_LINUX_SOURCE ||
-    "/var/lib/netlab-dev/templates/ubuntu-24.04.qcow2";
+    "/var/lib/netlab-dev/templates/ubuntu-24.04-guest.qcow2";
   const key = guestKey();
   let environment, template;
   let failure;
@@ -196,6 +197,13 @@ export async function verifyLinuxGuest(api, completed, containerTemplate) {
     await control("start");
     await connection.ready();
     ssh("test", "-f", "/home/netlab/data-kept");
+    const filesystem = await verifyLinuxFilesystem(
+      api,
+      completed,
+      environment.id,
+      vm.id,
+      connection,
+    );
     const memory = await verifyLinuxMemory(
       api,
       completed,
@@ -210,6 +218,7 @@ export async function verifyLinuxGuest(api, completed, containerTemplate) {
       system: "Ubuntu 24.04",
       interfaces: 2,
       suspendedShutdown: true,
+      filesystem,
       memory,
     };
   } catch (error) {
@@ -242,6 +251,84 @@ export async function verifyLinuxGuest(api, completed, containerTemplate) {
       { cause: failure },
     );
   return result;
+}
+
+export async function verifyLinuxFilesystem(
+  api,
+  completed,
+  id,
+  assetId,
+  connection,
+) {
+  const ssh = connection.run;
+  assert.equal(
+    ssh("systemctl", "is-active", "qemu-guest-agent.service").trim(),
+    "active",
+    "测试镜像中的 QEMU Guest Agent 未启动",
+  );
+  const beforeBoot = await connection.ready();
+  const marker = randomUUID();
+  ssh(
+    "sh",
+    "-ec",
+    `'printf "%s" "${marker}" > /home/netlab/filesystem-marker'`,
+  );
+  const started = performance.now();
+  const point = await api(`/environments/${id}/recovery-points`, "POST", {
+    name: "Ubuntu filesystem",
+    expectedRevision: (await api(`/environments/${id}`)).revision,
+  });
+  await completed(point.operationId);
+  const captureMs = Math.round(performance.now() - started);
+  const command = `SELECT definition->'captures'->'${assetId}'->>'consistency' FROM recovery_points WHERE id='${point.id}'`;
+  const actual = execFileSync(
+    "docker.exe",
+    [
+      "exec",
+      "netlab-postgres-1",
+      "psql",
+      "-U",
+      "netlab",
+      "-d",
+      "netlab",
+      "-Atc",
+      command,
+    ],
+    { encoding: "utf8", timeout: 10_000 },
+  ).trim();
+  assert.equal(actual, "filesystem");
+  assert.equal(
+    (await api(`/environments/${id}/recovery-points`)).find(
+      (item) => item.id === point.id,
+    ).consistency,
+    "crash",
+    "混合环境按最弱资产一致性汇总",
+  );
+  assert.equal(await connection.ready(), beforeBoot);
+  ssh("sh", "-ec", "'printf changed > /home/netlab/filesystem-marker'");
+  await completed(
+    (
+      await api(
+        `/environments/${id}/recovery-points/${point.id}/restore`,
+        "POST",
+        {
+          expectedRevision: (await api(`/environments/${id}`)).revision,
+        },
+      )
+    ).id,
+  );
+  await connection.ready();
+  assert.equal(ssh("cat", "/home/netlab/filesystem-marker").trim(), marker);
+  ssh("sh", "-ec", "'printf writable > /home/netlab/after-thaw'");
+  await completed(
+    (await api(`/environments/${id}/recovery-points/${point.id}`, "DELETE")).id,
+  );
+  return {
+    captureMs,
+    filesystemConsistent: true,
+    diskRestored: true,
+    guestWritable: true,
+  };
 }
 
 export async function verifyLinuxMemory(

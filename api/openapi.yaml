@@ -1006,6 +1006,7 @@ components:
         phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect, capture-recovery, delete-recovery, prepare-recovery, apply-recovery, rollback-recovery, cleanup-recovery]}
         recoveryPointId: {type: string}
         includeMemory: {type: boolean, x-go-type-skip-optional-pointer: true}
+        captureStates: {type: object, additionalProperties: {type: string}}
         recoverySources: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeRecoverySource'}}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
@@ -1047,8 +1048,18 @@ components:
         state: {type: string}
         error: {type: string}
         execution: {$ref: '#/components/schemas/AssetExecution'}
-        recoveryBytes: {type: integer, format: int64}
+        recovery: {$ref: '#/components/schemas/RecoveryCapture'}
         observedAt: {type: string, format: date-time}
+    RecoveryConsistency:
+      type: string
+      enum: [crash, filesystem, application]
+    RecoveryCapture:
+      type: object
+      required: [sizeBytes, memory, consistency]
+      properties:
+        sizeBytes: {type: integer, format: int64}
+        memory: {type: boolean}
+        consistency: {$ref: '#/components/schemas/RecoveryConsistency'}
     CaptureRecoveryPoint:
       type: object
       required: [name, expectedRevision]
@@ -1194,7 +1205,7 @@ components:
         state: {type: string, enum: [capturing, ready, failed, deleting]}
         assetCount: {type: integer}
         sizeBytes: {type: integer, format: int64}
-        consistency: {type: string, enum: [crash, filesystem, application]}
+        consistency: {$ref: '#/components/schemas/RecoveryConsistency'}
         memoryAssetCount: {type: integer, minimum: 0, x-go-type-skip-optional-pointer: true}
         operationId: {type: string}
         error: {type: string}

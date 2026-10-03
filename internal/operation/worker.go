@@ -344,6 +344,12 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 		}
 	}
 	grouped := map[string][]api.AssetExecution{}
+	captureStates := map[string]string{}
+	if p.Recovery != nil {
+		for _, target := range p.Recovery.Assets {
+			captureStates[target.Execution.Asset.Id] = target.State
+		}
+	}
 	recoverySources := map[string]api.NodeRecoverySource{}
 	if phase == api.NodePlanPhasePrepareRecovery {
 		var err error
@@ -388,6 +394,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 			if p.Recovery != nil {
 				plan.RecoveryPointId = &p.Recovery.ID
 				plan.IncludeMemory = p.Recovery.IncludeMemory
+				plan.CaptureStates = &captureStates
 				plan.RecoverySources = &recoverySources
 			}
 			result, err := w.Client.Execute(ctx, endpoints[id], plan)

@@ -181,11 +181,11 @@ const (
 	PrincipalKindUser  PrincipalKind = "user"
 )
 
-// Defines values for RecoveryPointSummaryConsistency.
+// Defines values for RecoveryConsistency.
 const (
-	Application RecoveryPointSummaryConsistency = "application"
-	Crash       RecoveryPointSummaryConsistency = "crash"
-	Filesystem  RecoveryPointSummaryConsistency = "filesystem"
+	Application RecoveryConsistency = "application"
+	Crash       RecoveryConsistency = "crash"
+	Filesystem  RecoveryConsistency = "filesystem"
 )
 
 // Defines values for RecoveryPointSummaryState.
@@ -658,14 +658,14 @@ type EnvironmentSummary struct {
 
 // ExecutionResult defines model for ExecutionResult.
 type ExecutionResult struct {
-	AssetId       string          `json:"assetId"`
-	EnvironmentId *string         `json:"environmentId,omitempty"`
-	Error         *string         `json:"error,omitempty"`
-	Execution     *AssetExecution `json:"execution,omitempty"`
-	InstanceId    string          `json:"instanceId"`
-	ObservedAt    time.Time       `json:"observedAt"`
-	RecoveryBytes *int64          `json:"recoveryBytes,omitempty"`
-	State         string          `json:"state"`
+	AssetId       string           `json:"assetId"`
+	EnvironmentId *string          `json:"environmentId,omitempty"`
+	Error         *string          `json:"error,omitempty"`
+	Execution     *AssetExecution  `json:"execution,omitempty"`
+	InstanceId    string           `json:"instanceId"`
+	ObservedAt    time.Time        `json:"observedAt"`
+	Recovery      *RecoveryCapture `json:"recovery,omitempty"`
+	State         string           `json:"state"`
 }
 
 // ExternalAttachment defines model for ExternalAttachment.
@@ -865,6 +865,7 @@ type NodePlan struct {
 	ArtifactEndpoints *map[string]string             `json:"artifactEndpoints,omitempty"`
 	Assets            []AssetExecution               `json:"assets"`
 	Attachments       *[]ExternalAttachment          `json:"attachments,omitempty"`
+	CaptureStates     *map[string]string             `json:"captureStates,omitempty"`
 	EnvironmentId     string                         `json:"environmentId"`
 	ExternalChassis   *map[string]string             `json:"externalChassis,omitempty"`
 	Gateway           *ServiceGateway                `json:"gateway,omitempty"`
@@ -1018,24 +1019,31 @@ type Problem struct {
 	Title  string `json:"title"`
 }
 
-// RecoveryPointSummary defines model for RecoveryPointSummary.
-type RecoveryPointSummary struct {
-	AssetCount       int                              `json:"assetCount"`
-	Consistency      *RecoveryPointSummaryConsistency `json:"consistency,omitempty"`
-	CreatedAt        time.Time                        `json:"createdAt"`
-	EnvironmentId    string                           `json:"environmentId"`
-	Error            *string                          `json:"error,omitempty"`
-	Id               string                           `json:"id"`
-	MemoryAssetCount int                              `json:"memoryAssetCount,omitempty"`
-	Name             string                           `json:"name"`
-	OperationId      *string                          `json:"operationId,omitempty"`
-	Revision         int                              `json:"revision"`
-	SizeBytes        int64                            `json:"sizeBytes"`
-	State            RecoveryPointSummaryState        `json:"state"`
+// RecoveryCapture defines model for RecoveryCapture.
+type RecoveryCapture struct {
+	Consistency RecoveryConsistency `json:"consistency"`
+	Memory      bool                `json:"memory"`
+	SizeBytes   int64               `json:"sizeBytes"`
 }
 
-// RecoveryPointSummaryConsistency defines model for RecoveryPointSummary.Consistency.
-type RecoveryPointSummaryConsistency string
+// RecoveryConsistency defines model for RecoveryConsistency.
+type RecoveryConsistency string
+
+// RecoveryPointSummary defines model for RecoveryPointSummary.
+type RecoveryPointSummary struct {
+	AssetCount       int                       `json:"assetCount"`
+	Consistency      *RecoveryConsistency      `json:"consistency,omitempty"`
+	CreatedAt        time.Time                 `json:"createdAt"`
+	EnvironmentId    string                    `json:"environmentId"`
+	Error            *string                   `json:"error,omitempty"`
+	Id               string                    `json:"id"`
+	MemoryAssetCount int                       `json:"memoryAssetCount,omitempty"`
+	Name             string                    `json:"name"`
+	OperationId      *string                   `json:"operationId,omitempty"`
+	Revision         int                       `json:"revision"`
+	SizeBytes        int64                     `json:"sizeBytes"`
+	State            RecoveryPointSummaryState `json:"state"`
+}
 
 // RecoveryPointSummaryState defines model for RecoveryPointSummary.State.
 type RecoveryPointSummaryState string

@@ -1453,6 +1453,9 @@ export interface components {
         | "cleanup-recovery";
       recoveryPointId?: string;
       includeMemory?: boolean;
+      captureStates?: {
+        [key: string]: string;
+      };
       recoverySources?: {
         [key: string]: components["schemas"]["NodeRecoverySource"];
       };
@@ -1492,10 +1495,17 @@ export interface components {
       state: string;
       error?: string;
       execution?: components["schemas"]["AssetExecution"];
-      /** Format: int64 */
-      recoveryBytes?: number;
+      recovery?: components["schemas"]["RecoveryCapture"];
       /** Format: date-time */
       observedAt: string;
+    };
+    /** @enum {string} */
+    RecoveryConsistency: "crash" | "filesystem" | "application";
+    RecoveryCapture: {
+      /** Format: int64 */
+      sizeBytes: number;
+      memory: boolean;
+      consistency: components["schemas"]["RecoveryConsistency"];
     };
     CaptureRecoveryPoint: {
       name: string;
@@ -1633,8 +1643,7 @@ export interface components {
       assetCount: number;
       /** Format: int64 */
       sizeBytes: number;
-      /** @enum {string} */
-      consistency?: "crash" | "filesystem" | "application";
+      consistency?: components["schemas"]["RecoveryConsistency"];
       memoryAssetCount?: number;
       operationId?: string;
       error?: string;

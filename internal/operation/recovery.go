@@ -13,12 +13,14 @@ import (
 
 // Recovery stores the applied configuration and the actual asset identities at capture time.
 type Recovery struct {
-	EnvironmentID string              `json:"environmentId"`
-	ID            string              `json:"id"`
-	Spec          api.EnvironmentSpec `json:"spec"`
-	Assets        []Target            `json:"assets"`
-	Bytes         int64               `json:"bytes"`
-	IncludeMemory bool                `json:"includeMemory,omitempty"`
+	EnvironmentID string                         `json:"environmentId"`
+	ID            string                         `json:"id"`
+	Spec          api.EnvironmentSpec            `json:"spec"`
+	Assets        []Target                       `json:"assets"`
+	Bytes         int64                          `json:"bytes"`
+	IncludeMemory bool                           `json:"includeMemory,omitempty"`
+	Captures      map[string]api.RecoveryCapture `json:"captures,omitempty"`
+	Consistency   api.RecoveryConsistency        `json:"consistency,omitempty"`
 }
 
 func restoresData(kind string) bool { return kind == "restore-recovery" || kind == "clone-recovery" }
@@ -67,19 +69,28 @@ func (w Worker) recovery(ctx context.Context, op *queries.Operation, p *Payload)
 		next := ""
 		switch op.Phase {
 		case "recovery-quiesce":
-			active := slices.DeleteFunc(slices.Clone(p.Recovery.Assets), func(t Target) bool { return t.State != "running" })
+			active := slices.DeleteFunc(slices.Clone(p.Recovery.Assets), func(t Target) bool { return t.State != "running" || t.Execution.Template.Kind == api.Vm })
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseSuspend, active)
 			next = "recovery-capture"
 		case "recovery-capture":
 			var results []api.ExecutionResult
 			results, err = w.batch(ctx, op, p, api.NodePlanPhaseCaptureRecovery, p.Recovery.Assets)
 			p.Recovery.Bytes = 0
+			p.Recovery.Captures = make(map[string]api.RecoveryCapture, len(results))
+			p.Recovery.Consistency = api.Application
+			if len(results) == 0 {
+				p.Recovery.Consistency = api.Crash
+			}
 			for _, result := range results {
 				if result.Error == nil {
-					if result.RecoveryBytes == nil {
+					if result.Recovery == nil {
 						err = errors.Join(err, fmt.Errorf("资产 %s 未返回捕获数据", result.AssetId))
 					} else {
-						p.Recovery.Bytes += *result.RecoveryBytes
+						p.Recovery.Bytes += result.Recovery.SizeBytes
+						p.Recovery.Captures[result.AssetId] = *result.Recovery
+						if result.Recovery.Consistency == api.Crash || (result.Recovery.Consistency == api.Filesystem && p.Recovery.Consistency == api.Application) {
+							p.Recovery.Consistency = result.Recovery.Consistency
+						}
 					}
 				}
 			}
