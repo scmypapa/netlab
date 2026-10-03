@@ -20,10 +20,11 @@ import {
   KeyRound,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import {
   api,
+  ApiError,
   type Asset,
   type Network as NetworkModel,
   type Schema,
@@ -35,6 +36,8 @@ import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
 import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ObjectInspector } from "./ObjectInspector";
+import { FileWorkspace } from "./FileWorkspace";
+import { SSHDialog } from "./SSHDialog";
 import { LogDrawer } from "./LogDrawer";
 import { ServiceDrawer } from "./ServiceDrawer";
 import { TaskTray } from "./TaskTray";
@@ -52,6 +55,7 @@ const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 export function WorkbenchPage() {
   const { id = "" } = useParams();
   const workbench = useWorkbench(id);
+  const queryClient = useQueryClient();
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
   const [capturing, setCapturing] = useState<Asset>();
   const [selection, setSelection] = useState<string>();
@@ -70,6 +74,9 @@ export function WorkbenchPage() {
   const [logging, setLogging] = useState<Asset>();
   const [serving, setServing] = useState<string>();
   const [vpnOpened, setVPNOpened] = useState(false);
+  const [filesOpened, setFilesOpened] = useState(false);
+  const [ssh, setSSH] = useState<{ asset: Asset; connect: boolean }>();
+  const [connectionError, setConnectionError] = useState<Error | null>(null);
   const [context, setContext] = useState<{
     x: number;
     y: number;
@@ -122,10 +129,16 @@ export function WorkbenchPage() {
     [layout, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
+  const fileAsset =
+    filesOpened &&
+    !workbench.editing &&
+    asset &&
+    allows(environment, "file", asset.id)
+      ? asset
+      : undefined;
   const servedAsset = spec.assets.find((item) => item.id === serving);
-  const connect = (kind: Schema<"ConsoleKind">) => {
-    if (!asset) return;
-    const connection = { id: asset.id, name: asset.name, kind };
+  const openConnection = (target: Asset, kind: Schema<"ConsoleKind">) => {
+    const connection = { id: target.id, name: target.name, kind };
     const key = consoleKey(connection);
     setConnections((items) =>
       items.some((item) => consoleKey(item) === key)
@@ -133,6 +146,21 @@ export function WorkbenchPage() {
         : [...items, connection],
     );
     setSelectedConnection(key);
+  };
+  const connect = async (kind: Schema<"ConsoleKind">) => {
+    if (!asset) return;
+    setConnectionError(null);
+    if (kind === "ssh") {
+      try {
+        await api.sshSettings(id, asset.id);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404)
+          setSSH({ asset, connect: true });
+        else setConnectionError(error as Error);
+        return;
+      }
+    }
+    openConnection(asset, kind);
   };
   const closeConnection = (key: string) => {
     const remaining = connections.filter((item) => consoleKey(item) !== key);
@@ -568,6 +596,18 @@ export function WorkbenchPage() {
               action="添加网段"
               onAction={() => adding("network")}
             />
+          ) : fileAsset ? (
+            <FileWorkspace
+              key={fileAsset.id}
+              environmentId={id}
+              asset={fileAsset}
+              onClose={() => setFilesOpened(false)}
+              onSettings={
+                templatesById.get(fileAsset.templateId)?.kind === "vm"
+                  ? () => setSSH({ asset: fileAsset, connect: false })
+                  : undefined
+              }
+            />
           ) : list ? (
             <div className="asset-list-area">
               <table className="data-table asset-table">
@@ -663,7 +703,7 @@ export function WorkbenchPage() {
             />
           )}
         </section>
-        {(asset || network) && (
+        {(asset || network) && !fileAsset && (
           <ObjectInspector
             asset={asset}
             network={network}
@@ -677,6 +717,8 @@ export function WorkbenchPage() {
             canCapture={Boolean(identity.data?.administrator)}
             onCapture={() => setCapturing(asset)}
             canConnect={allows(environment, "session", asset?.id)}
+            canFile={allows(environment, "file", asset?.id)}
+            onFiles={() => setFilesOpened(true)}
             canObserve={allows(environment, "observe", asset?.id)}
             canAccess={allows(environment, "access", asset?.id)}
             services={workbench.services.data ?? []}
@@ -700,6 +742,24 @@ export function WorkbenchPage() {
           />
         )}
       </div>
+      <ErrorMessage error={connectionError} />
+      {ssh && (
+        <SSHDialog
+          environmentId={id}
+          asset={ssh.asset}
+          onClose={() => setSSH(undefined)}
+          onSaved={() => {
+            if (ssh.connect) openConnection(ssh.asset, "ssh");
+            void queryClient.invalidateQueries({
+              queryKey: ["ssh", id, ssh.asset.id],
+            });
+            void queryClient.invalidateQueries({
+              queryKey: ["files", id, ssh.asset.id],
+            });
+            setSSH(undefined);
+          }}
+        />
+      )}
       {connections.length > 0 && (
         <Suspense fallback={<Loading />}>
           <ConsoleWorkspace

@@ -343,6 +343,55 @@ paths:
       operationId: assetAction
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ActionRequest'}}}}
       responses: {'202': {$ref: '#/components/responses/Accepted'}}
+  /environments/{id}/assets/{assetId}/ssh:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: assetSSHSettings
+      description: Personal connection settings; password, private key and passphrase are omitted.
+      responses: {'200': {description: SSH connection settings, content: {application/json: {schema: {$ref: '#/components/schemas/SSHSettings'}}}}, '404': {description: No saved connection}}
+    put:
+      operationId: saveAssetSSHSettings
+      description: Omitted authentication material retains the saved value for the same authentication method. Host key is explicitly confirmed by the caller.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SSHSettings'}}}}
+      responses: {'204': {description: Connection saved}}
+    delete:
+      operationId: deleteAssetSSHSettings
+      responses: {'204': {description: Personal connection removed}}
+  /environments/{id}/assets/{assetId}/ssh/host-key:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: assetSSHHostKey
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SSHProbe'}}}}
+      responses: {'200': {description: Presented SSH host key, content: {application/json: {schema: {type: object, required: [fingerprint], properties: {fingerprint: {type: string}}}}}}}
+  /environments/{id}/assets/{assetId}/files:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+      - {name: path, in: query, required: true, schema: {type: string}}
+    get:
+      operationId: assetFiles
+      responses:
+        '200': {description: Directory entries, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/FileEntry'}}}}}
+    post:
+      operationId: changeAssetFiles
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/FileCommand'}}}}
+      responses: {'204': {description: File command completed}}
+  /environments/{id}/assets/{assetId}/files/content:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+      - {name: path, in: query, required: true, schema: {type: string}}
+    get:
+      operationId: downloadAssetFile
+      responses: {'200': {description: File stream, content: {application/octet-stream: {schema: {type: string, format: binary}}}}}
+    put:
+      operationId: uploadAssetFile
+      requestBody: {required: true, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
+      responses: {'204': {description: File uploaded}}
   /environments/{id}/assets/{assetId}/console:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -463,9 +512,48 @@ components:
   securitySchemes:
     bearer: {type: http, scheme: bearer}
   schemas:
+    SSHProbe:
+      type: object
+      required: [port]
+      properties:
+        port: {type: integer, minimum: 1, maximum: 65535}
+        interfaceId: {type: string}
+    SSHSettings:
+      type: object
+      required: [username, port, authKind, hostKey]
+      properties:
+        username: {type: string, minLength: 1}
+        port: {type: integer, minimum: 1, maximum: 65535}
+        interfaceId: {type: string}
+        authKind: {type: string, enum: [password, key], x-enum-varnames: [SSHPassword, SSHKey]}
+        hostKey: {type: string, description: Confirmed SHA256 host-key fingerprint}
+        password: {type: string, writeOnly: true}
+        privateKey: {type: string, writeOnly: true}
+        passphrase: {type: string, writeOnly: true}
+    NodeSSH:
+      type: object
+      required: [address, settings]
+      properties:
+        address: {type: string}
+        settings: {$ref: '#/components/schemas/SSHSettings'}
+    FileEntry:
+      type: object
+      required: [name, kind, size, modifiedAt, mode]
+      properties:
+        name: {type: string}
+        kind: {type: string, enum: [directory, file, link, other], x-enum-varnames: [FileDirectory, FileRegular, FileLink, FileOther]}
+        size: {type: integer, format: int64}
+        modifiedAt: {type: string, format: date-time}
+        mode: {type: string}
+    FileCommand:
+      type: object
+      required: [action]
+      properties:
+        action: {type: string, enum: [mkdir, rename, remove], x-enum-varnames: [FileMkdir, FileRename, FileRemove]}
+        destination: {type: string}
     ConsoleKind:
       type: string
-      enum: [terminal, serial, vnc]
+      enum: [terminal, serial, vnc, ssh]
     ConsoleResize:
       type: object
       required: [cols, rows]

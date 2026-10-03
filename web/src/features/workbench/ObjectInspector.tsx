@@ -2,6 +2,7 @@ import { ActionIcon, Button, Menu } from "@mantine/core";
 import {
   Box,
   Copy,
+  FolderOpen,
   Cpu,
   HardDrive,
   MemoryStick,
@@ -42,6 +43,8 @@ export function ObjectInspector({
   canCapture,
   onCapture,
   canConnect,
+  canFile,
+  onFiles,
   canObserve,
   onClose,
   onEdit,
@@ -74,6 +77,8 @@ export function ObjectInspector({
   onDuplicate: () => void;
   onAction: (action: Schema<"ActionRequest">["action"]) => void;
   onConnect: (kind: Schema<"ConsoleKind">) => void;
+  canFile: boolean;
+  onFiles: () => void;
   onLogs: () => void;
   services: Schema<"ServiceEndpoint">[];
   canAccess: boolean;
@@ -114,7 +119,11 @@ export function ObjectInspector({
       </div>
       {(editing ||
         (assetState &&
-          (canOperate || canManage || canConnect || canObserve))) && (
+          (canOperate ||
+            canManage ||
+            canConnect ||
+            canFile ||
+            canObserve))) && (
         <div className="inspector-actions">
           {editing ? (
             <Button
@@ -160,6 +169,7 @@ export function ObjectInspector({
           {(editing ||
             (asset &&
               (canOperate ||
+                canFile ||
                 canManage ||
                 (canObserve && template?.kind === "container") ||
                 (canConnect && template?.kind === "vm")))) && (
@@ -198,6 +208,23 @@ export function ObjectInspector({
                 ) : (
                   asset && (
                     <>
+                      {canFile && (
+                        <Menu.Item
+                          leftSection={<FolderOpen size={15} />}
+                          onClick={onFiles}
+                        >
+                          文件
+                        </Menu.Item>
+                      )}
+                      {canConnect && (
+                        <Menu.Item
+                          leftSection={<SquareTerminal size={15} />}
+                          disabled={assetState?.state !== "running"}
+                          onClick={() => onConnect("ssh")}
+                        >
+                          SSH
+                        </Menu.Item>
+                      )}
                       {canObserve && template?.kind === "container" && (
                         <Menu.Item
                           leftSection={<SquareChartGantt size={15} />}

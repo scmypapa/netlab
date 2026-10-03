@@ -741,6 +741,88 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/assets/{assetId}/ssh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Personal connection settings; password, private key and passphrase are omitted. */
+    get: operations["assetSSHSettings"];
+    /** @description Omitted authentication material retains the saved value for the same authentication method. Host key is explicitly confirmed by the caller. */
+    put: operations["saveAssetSSHSettings"];
+    post?: never;
+    delete: operations["deleteAssetSSHSettings"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/assets/{assetId}/ssh/host-key": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["assetSSHHostKey"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/assets/{assetId}/files": {
+    parameters: {
+      query: {
+        path: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["assetFiles"];
+    put?: never;
+    post: operations["changeAssetFiles"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/assets/{assetId}/files/content": {
+    parameters: {
+      query: {
+        path: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["downloadAssetFile"];
+    put: operations["uploadAssetFile"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/assets/{assetId}/console": {
     parameters: {
       query?: never;
@@ -935,8 +1017,43 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    SSHProbe: {
+      port: number;
+      interfaceId?: string;
+    };
+    SSHSettings: {
+      username: string;
+      port: number;
+      interfaceId?: string;
+      /** @enum {string} */
+      authKind: "password" | "key";
+      /** @description Confirmed SHA256 host-key fingerprint */
+      hostKey: string;
+      password?: string;
+      privateKey?: string;
+      passphrase?: string;
+    };
+    NodeSSH: {
+      address: string;
+      settings: components["schemas"]["SSHSettings"];
+    };
+    FileEntry: {
+      name: string;
+      /** @enum {string} */
+      kind: "directory" | "file" | "link" | "other";
+      /** Format: int64 */
+      size: number;
+      /** Format: date-time */
+      modifiedAt: string;
+      mode: string;
+    };
+    FileCommand: {
+      /** @enum {string} */
+      action: "mkdir" | "rename" | "remove";
+      destination?: string;
+    };
     /** @enum {string} */
-    ConsoleKind: "terminal" | "serial" | "vnc";
+    ConsoleKind: "terminal" | "serial" | "vnc" | "ssh";
     ConsoleResize: {
       cols: number;
       rows: number;
@@ -3023,6 +3140,215 @@ export interface operations {
     };
     responses: {
       202: components["responses"]["Accepted"];
+    };
+  };
+  assetSSHSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description SSH connection settings */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SSHSettings"];
+        };
+      };
+      /** @description No saved connection */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  saveAssetSSHSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SSHSettings"];
+      };
+    };
+    responses: {
+      /** @description Connection saved */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  deleteAssetSSHSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Personal connection removed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  assetSSHHostKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SSHProbe"];
+      };
+    };
+    responses: {
+      /** @description Presented SSH host key */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            fingerprint: string;
+          };
+        };
+      };
+    };
+  };
+  assetFiles: {
+    parameters: {
+      query: {
+        path: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Directory entries */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["FileEntry"][];
+        };
+      };
+    };
+  };
+  changeAssetFiles: {
+    parameters: {
+      query: {
+        path: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["FileCommand"];
+      };
+    };
+    responses: {
+      /** @description File command completed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  downloadAssetFile: {
+    parameters: {
+      query: {
+        path: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description File stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+    };
+  };
+  uploadAssetFile: {
+    parameters: {
+      query: {
+        path: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/octet-stream": string;
+      };
+    };
+    responses: {
+      /** @description File uploaded */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
     };
   };
   assetConsole: {

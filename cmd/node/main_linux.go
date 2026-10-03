@@ -90,6 +90,22 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	for _, pattern := range []string{
+		"POST /node/v1/environments/{environmentId}/ssh/{kind}",
+		"GET /node/v1/environments/{environmentId}/ssh/{kind}",
+		"PUT /node/v1/environments/{environmentId}/ssh/files/content",
+		"GET /node/v1/environments/{environmentId}/ssh/files/content",
+	} {
+		mux.HandleFunc(pattern, executor.GuestAccess)
+	}
+	for _, pattern := range []string{
+		"GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/files",
+		"POST /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/files",
+		"GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/files/content",
+		"PUT /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/files/content",
+	} {
+		mux.HandleFunc(pattern, executor.ContainerFiles)
+	}
 	mux.HandleFunc("POST /node/v1/backup-repositories", func(w http.ResponseWriter, r *http.Request) {
 		var repository api.NodeBackupRepository
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&repository); err != nil {

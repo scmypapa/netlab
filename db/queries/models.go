@@ -112,6 +112,13 @@ type Grant struct {
 	Permissions []string
 }
 
+type GuestConnection struct {
+	PrincipalID   string
+	EnvironmentID string
+	AssetID       string
+	Encrypted     []byte
+}
+
 type Node struct {
 	ID               string
 	Name             string

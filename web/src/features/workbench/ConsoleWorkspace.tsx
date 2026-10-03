@@ -46,6 +46,7 @@ export default function ConsoleWorkspace({
                   )}
                   {tab.name}
                   {tab.kind === "serial" && " · 串口"}
+                  {tab.kind === "ssh" && " · SSH"}
                 </button>
                 <ActionIcon
                   variant="subtle"
@@ -146,7 +147,7 @@ function ConsoleConnection({
     socket.onopen = () => {
       setStatus("已连接");
       fitter.fit();
-      if (tab.kind === "terminal")
+      if (tab.kind === "terminal" || tab.kind === "ssh")
         socket.send(
           JSON.stringify({ cols: terminal.cols, rows: terminal.rows }),
         );
@@ -163,7 +164,10 @@ function ConsoleConnection({
         socket.send(new TextEncoder().encode(data));
     });
     const resize = terminal.onResize((size) => {
-      if (tab.kind === "terminal" && socket.readyState === WebSocket.OPEN)
+      if (
+        (tab.kind === "terminal" || tab.kind === "ssh") &&
+        socket.readyState === WebSocket.OPEN
+      )
         socket.send(JSON.stringify(size));
     });
     const observer = new ResizeObserver(() => {

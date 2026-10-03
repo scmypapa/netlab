@@ -18,16 +18,25 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	kind := r.URL.Query().Get("kind")
-	if kind != "terminal" && kind != "serial" && kind != "vnc" {
-		return httpError{http.StatusBadRequest, "请选择终端、串口或 VNC"}
+	if kind != "terminal" && kind != "serial" && kind != "vnc" && kind != "ssh" {
+		return httpError{http.StatusBadRequest, "请选择终端、串口、VNC 或 SSH"}
 	}
-	current, err := s.Queries.GetCurrentAsset(r.Context(), queries.GetCurrentAssetParams{EnvironmentID: id, AssetID: asset})
+	var endpoint string
+	var headers http.Header
+	var err error
+	if kind == "ssh" {
+		endpoint, headers, err = s.sshTarget(r.Context(), identity, id, asset, nil)
+		endpoint += "/node/v1/environments/" + url.PathEscape(id) + "/ssh/console"
+	} else {
+		var current queries.GetCurrentAssetRow
+		current, err = s.Queries.GetCurrentAsset(r.Context(), queries.GetCurrentAssetParams{EnvironmentID: id, AssetID: asset})
+		endpoint = current.Endpoint + fmt.Sprintf("/node/v1/environments/%s/assets/%s/instances/%s/console?kind=%s", url.PathEscape(id), url.PathEscape(asset), current.InstanceID, kind)
+	}
 	if err != nil {
 		return err
 	}
-	path := fmt.Sprintf("/node/v1/environments/%s/assets/%s/instances/%s/console?kind=%s", url.PathEscape(id), url.PathEscape(asset), current.InstanceID, kind)
-	endpoint := "wss" + strings.TrimPrefix(current.Endpoint, "https") + path
-	backend, response, err := websocket.Dial(r.Context(), endpoint, &websocket.DialOptions{HTTPClient: s.Nodes.HTTP, Subprotocols: []string{"binary"}})
+	endpoint = "wss" + strings.TrimPrefix(endpoint, "https")
+	backend, response, err := websocket.Dial(r.Context(), endpoint, &websocket.DialOptions{HTTPClient: s.Nodes.HTTP, HTTPHeader: headers, Subprotocols: []string{"binary"}})
 	if err != nil {
 		if response != nil && response.StatusCode == http.StatusConflict {
 			return httpError{http.StatusConflict, "资产当前无法打开控制台"}

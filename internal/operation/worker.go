@@ -237,6 +237,12 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			return
 		}
 	}
+	if op.EnvironmentID != nil {
+		if dbErr = q.DeleteUnusedGuestConnections(ctx, *op.EnvironmentID); dbErr != nil {
+			slog.Error("guest connection cleanup", "error", dbErr)
+			return
+		}
+	}
 	count, dbErr := q.FinishOperation(ctx, queries.FinishOperationParams{ID: op.ID, LeaseOwner: op.LeaseOwner, State: state, Phase: phase, Results: raw, Error: detail})
 	if dbErr != nil || count != 1 {
 		slog.Error("operation completion", "error", dbErr)

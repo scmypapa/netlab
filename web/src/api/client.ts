@@ -41,29 +41,48 @@ async function uploadTemplate(
   );
   for (const file of files)
     form.append("files", file, file.webkitRelativePath || file.name);
+  return uploadRequest<Template>("/templates", "POST", form, progress, signal);
+}
+
+function uploadRequest<T>(
+  path: string,
+  method: string,
+  body: XMLHttpRequestBodyInit,
+  progress: (percent: number) => void,
+  signal: AbortSignal,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const abort = () => xhr.abort();
-    xhr.open("POST", "/api/v1/templates");
+    xhr.open(method, "/api/v1" + path);
+    if (body instanceof File)
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable)
         progress(Math.round((event.loaded / event.total) * 100));
     };
     xhr.onloadend = () => signal.removeEventListener("abort", abort);
-    xhr.onerror = () => reject(new Error("镜像上传连接中断"));
+    xhr.onerror = () => reject(new Error("上传连接中断"));
     xhr.onabort = () => reject(new DOMException("上传已取消", "AbortError"));
     xhr.onload = async () => {
       try {
-        const response = new Response(xhr.responseText, { status: xhr.status });
+        const response = new Response(
+          xhr.status === 204 ? null : xhr.responseText,
+          { status: xhr.status },
+        );
         await checkResponse(response);
-        resolve((await response.json()) as Template);
+        resolve(
+          response.status === 204
+            ? (undefined as T)
+            : ((await response.json()) as T),
+        );
       } catch (error) {
         reject(error);
       }
     };
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) reject(new DOMException("上传已取消", "AbortError"));
-    else xhr.send(form);
+    else xhr.send(body);
   });
 }
 
@@ -174,6 +193,55 @@ function list<T>(
 }
 
 export const api = {
+  sshSettings: (id: string, assetId: string) =>
+    request<Schema<"SSHSettings">>(`/environments/${id}/assets/${assetId}/ssh`),
+  saveSSHSettings: (
+    id: string,
+    assetId: string,
+    settings: Schema<"SSHSettings">,
+  ) =>
+    request<void>(`/environments/${id}/assets/${assetId}/ssh`, "PUT", settings),
+  sshHostKey: (id: string, assetId: string, probe: Schema<"SSHProbe">) =>
+    request<{ fingerprint: string }>(
+      `/environments/${id}/assets/${assetId}/ssh/host-key`,
+      "POST",
+      probe,
+    ),
+  files: (id: string, assetId: string, path: string, signal?: AbortSignal) =>
+    request<Schema<"FileEntry">[]>(
+      `/environments/${id}/assets/${assetId}/files?path=${encodeURIComponent(path)}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+  fileCommand: (
+    id: string,
+    assetId: string,
+    path: string,
+    command: Schema<"FileCommand">,
+  ) =>
+    request<void>(
+      `/environments/${id}/assets/${assetId}/files?path=${encodeURIComponent(path)}`,
+      "POST",
+      command,
+    ),
+  uploadFile: (
+    id: string,
+    assetId: string,
+    path: string,
+    file: File,
+    progress: (value: number) => void,
+    signal: AbortSignal,
+  ) =>
+    uploadRequest<void>(
+      `/environments/${id}/assets/${assetId}/files/content?path=${encodeURIComponent(path)}`,
+      "PUT",
+      file,
+      progress,
+      signal,
+    ),
+  fileURL: (id: string, assetId: string, path: string) =>
+    `/api/v1/environments/${id}/assets/${assetId}/files/content?path=${encodeURIComponent(path)}`,
   backupRepositories: () =>
     request<Schema<"BackupRepository">[]>("/backup-repositories"),
   createBackupRepository: (body: Schema<"CreateBackupRepository">) =>

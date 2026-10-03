@@ -59,6 +59,7 @@ const (
 // Defines values for ConsoleKind.
 const (
 	Serial   ConsoleKind = "serial"
+	Ssh      ConsoleKind = "ssh"
 	Terminal ConsoleKind = "terminal"
 	Vnc      ConsoleKind = "vnc"
 )
@@ -82,6 +83,21 @@ const (
 	Ethernet    ExternalInterfaceKind = "ethernet"
 	LinuxBridge ExternalInterfaceKind = "linux-bridge"
 	OvsBridge   ExternalInterfaceKind = "ovs-bridge"
+)
+
+// Defines values for FileCommandAction.
+const (
+	FileMkdir  FileCommandAction = "mkdir"
+	FileRemove FileCommandAction = "remove"
+	FileRename FileCommandAction = "rename"
+)
+
+// Defines values for FileEntryKind.
+const (
+	FileDirectory FileEntryKind = "directory"
+	FileLink      FileEntryKind = "link"
+	FileOther     FileEntryKind = "other"
+	FileRegular   FileEntryKind = "file"
 )
 
 // Defines values for HardwareDiskBus.
@@ -208,6 +224,12 @@ const (
 	Manager  RolePresetKey = "manager"
 	Operator RolePresetKey = "operator"
 	Viewer   RolePresetKey = "viewer"
+)
+
+// Defines values for SSHSettingsAuthKind.
+const (
+	SSHKey      SSHSettingsAuthKind = "key"
+	SSHPassword SSHSettingsAuthKind = "password"
 )
 
 // Defines values for ScopeGrantScopeKind.
@@ -688,6 +710,27 @@ type ExternalInterface struct {
 // ExternalInterfaceKind defines model for ExternalInterface.Kind.
 type ExternalInterfaceKind string
 
+// FileCommand defines model for FileCommand.
+type FileCommand struct {
+	Action      FileCommandAction `json:"action"`
+	Destination *string           `json:"destination,omitempty"`
+}
+
+// FileCommandAction defines model for FileCommand.Action.
+type FileCommandAction string
+
+// FileEntry defines model for FileEntry.
+type FileEntry struct {
+	Kind       FileEntryKind `json:"kind"`
+	Mode       string        `json:"mode"`
+	ModifiedAt time.Time     `json:"modifiedAt"`
+	Name       string        `json:"name"`
+	Size       int64         `json:"size"`
+}
+
+// FileEntryKind defines model for FileEntry.Kind.
+type FileEntryKind string
+
 // GuestSettings defines model for GuestSettings.
 type GuestSettings struct {
 	Hostname          *string   `json:"hostname,omitempty"`
@@ -911,6 +954,12 @@ type NodeResult struct {
 	Vpn      *NodeVPNResult        `json:"vpn,omitempty"`
 }
 
+// NodeSSH defines model for NodeSSH.
+type NodeSSH struct {
+	Address  string      `json:"address"`
+	Settings SSHSettings `json:"settings"`
+}
+
 // NodeServiceBinding defines model for NodeServiceBinding.
 type NodeServiceBinding struct {
 	AssetId       string          `json:"assetId"`
@@ -1102,6 +1151,29 @@ type Route struct {
 	NetworkId   string `json:"networkId"`
 	NextHop     string `json:"nextHop"`
 }
+
+// SSHProbe defines model for SSHProbe.
+type SSHProbe struct {
+	InterfaceId *string `json:"interfaceId,omitempty"`
+	Port        int     `json:"port"`
+}
+
+// SSHSettings defines model for SSHSettings.
+type SSHSettings struct {
+	AuthKind SSHSettingsAuthKind `json:"authKind"`
+
+	// HostKey Confirmed SHA256 host-key fingerprint
+	HostKey     string  `json:"hostKey"`
+	InterfaceId *string `json:"interfaceId,omitempty"`
+	Passphrase  *string `json:"passphrase,omitempty"`
+	Password    *string `json:"password,omitempty"`
+	Port        int     `json:"port"`
+	PrivateKey  *string `json:"privateKey,omitempty"`
+	Username    string  `json:"username"`
+}
+
+// SSHSettingsAuthKind defines model for SSHSettings.AuthKind.
+type SSHSettingsAuthKind string
 
 // SaveBlueprint defines model for SaveBlueprint.
 type SaveBlueprint struct {
@@ -1412,6 +1484,26 @@ type AssetConsoleParams struct {
 	Kind ConsoleKind `form:"kind" json:"kind"`
 }
 
+// AssetFilesParams defines parameters for AssetFiles.
+type AssetFilesParams struct {
+	Path string `form:"path" json:"path"`
+}
+
+// ChangeAssetFilesParams defines parameters for ChangeAssetFiles.
+type ChangeAssetFilesParams struct {
+	Path string `form:"path" json:"path"`
+}
+
+// DownloadAssetFileParams defines parameters for DownloadAssetFile.
+type DownloadAssetFileParams struct {
+	Path string `form:"path" json:"path"`
+}
+
+// UploadAssetFileParams defines parameters for UploadAssetFile.
+type UploadAssetFileParams struct {
+	Path string `form:"path" json:"path"`
+}
+
 // AssetLogsParams defines parameters for AssetLogs.
 type AssetLogsParams struct {
 	Tail   *int                   `form:"tail,omitempty" json:"tail,omitempty"`
@@ -1509,8 +1601,17 @@ type EnvironmentActionJSONRequestBody = ActionRequest
 // AssetActionJSONRequestBody defines body for AssetAction for application/json ContentType.
 type AssetActionJSONRequestBody = ActionRequest
 
+// ChangeAssetFilesJSONRequestBody defines body for ChangeAssetFiles for application/json ContentType.
+type ChangeAssetFilesJSONRequestBody = FileCommand
+
 // ExposeAssetServiceJSONRequestBody defines body for ExposeAssetService for application/json ContentType.
 type ExposeAssetServiceJSONRequestBody = CreateService
+
+// SaveAssetSSHSettingsJSONRequestBody defines body for SaveAssetSSHSettings for application/json ContentType.
+type SaveAssetSSHSettingsJSONRequestBody = SSHSettings
+
+// AssetSSHHostKeyJSONRequestBody defines body for AssetSSHHostKey for application/json ContentType.
+type AssetSSHHostKeyJSONRequestBody = SSHProbe
 
 // CaptureAssetTemplateJSONRequestBody defines body for CaptureAssetTemplate for application/json ContentType.
 type CaptureAssetTemplateJSONRequestBody = CaptureTemplate
