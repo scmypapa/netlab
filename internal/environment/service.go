@@ -46,8 +46,8 @@ func Templates(ctx context.Context, q *queries.Queries, assets []api.Asset) (map
 	return result, nil
 }
 
-// ReferenceTemplates holds the template rows until the referencing write commits.
-func ReferenceTemplates(ctx context.Context, q *queries.Queries, assets []api.Asset) error {
+// ReferenceResources holds resource rows until the referencing write commits.
+func ReferenceResources(ctx context.Context, q *queries.Queries, assets []api.Asset) error {
 	ids := []string{}
 	seen := map[string]bool{}
 	for _, asset := range assets {
@@ -70,6 +70,25 @@ func ReferenceTemplates(ctx context.Context, q *queries.Queries, assets []api.As
 		}
 		if template.State != nil && *template.State == api.TemplateStateDeleting {
 			return Invalid("模板 %s 正在删除", template.Name)
+		}
+	}
+	poolIDs := []string{}
+	for _, asset := range assets {
+		if asset.StoragePoolId != nil && !seen["pool:"+*asset.StoragePoolId] {
+			poolIDs = append(poolIDs, *asset.StoragePoolId)
+			seen["pool:"+*asset.StoragePoolId] = true
+		}
+	}
+	pools, err := q.LockStoragePools(ctx, poolIDs)
+	if err != nil {
+		return err
+	}
+	if len(pools) != len(poolIDs) {
+		return Invalid("存储池已删除")
+	}
+	for _, pool := range pools {
+		if pool.State != "ready" {
+			return Invalid("存储池 %s 正在删除", pool.Name)
 		}
 	}
 	return nil
@@ -231,7 +250,7 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, err
 		}
 	}
-	if err = ReferenceTemplates(ctx, q, spec.Assets); err != nil {
+	if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
 		return api.Environment{}, err
 	}
 	if identity.Principal.Kind == "user" {
@@ -407,6 +426,31 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if err = AuthorizeChange(identity, row, before, spec); err != nil {
 		return api.ChangePreview{}, nil, err
 	}
+	requestedPools := map[string]string{}
+	for _, asset := range spec.Assets {
+		if asset.StoragePoolId != nil {
+			requestedPools[asset.Id] = *asset.StoragePoolId
+		}
+	}
+	if len(requestedPools) > 0 && current.AppliedSpec != nil {
+		actual, err := s.Queries.ListRuntimeAssets(ctx, id)
+		if err != nil {
+			return api.ChangePreview{}, nil, err
+		}
+		for _, asset := range actual {
+			pool, requested := requestedPools[asset.AssetID]
+			if !asset.Current || !requested {
+				continue
+			}
+			var execution api.AssetExecution
+			if err = json.Unmarshal(asset.Execution, &execution); err != nil {
+				return api.ChangePreview{}, nil, err
+			}
+			if execution.StoragePoolId == nil || *execution.StoragePoolId != pool {
+				return api.ChangePreview{}, nil, Invalid("资产 %s 的磁盘移动应通过迁移完成", execution.Asset.Name)
+			}
+		}
+	}
 	if request.Apply && request.ClientRequestId != nil {
 		previous, err := existingRequest(ctx, s.Queries, id, request.ClientRequestId, "change", "")
 		if err == nil {
@@ -448,7 +492,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if row.Status == "destroyed" {
 		return preview, nil, Invalid("环境已销毁")
 	}
-	if err = ReferenceTemplates(ctx, q, spec.Assets); err != nil {
+	if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
 		return preview, nil, err
 	}
 	if row.AppliedSpec == nil {
@@ -496,7 +540,7 @@ func (s Service) SaveDraft(ctx context.Context, identity access.Identity, id str
 	if row.Status == "destroyed" {
 		return Invalid("环境已销毁")
 	}
-	if err = ReferenceTemplates(ctx, q, input.Spec.Assets); err != nil {
+	if err = ReferenceResources(ctx, q, input.Spec.Assets); err != nil {
 		return err
 	}
 	if err = q.SaveDraft(ctx, queries.SaveDraftParams{ID: id, Draft: raw}); err != nil {

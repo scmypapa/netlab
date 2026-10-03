@@ -184,7 +184,7 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 	hardware.DiskController = (*execution.Template.Disks)[0].ControllerModel
 	if execution.Asset.Volumes != nil {
 		for index, volume := range *execution.Asset.Volumes {
-			info, err := domain.GetBlockInfo(v.volumePath(owner.Environment, owner.Asset, volume.Id), 0)
+			info, err := domain.GetBlockInfo(v.volumePath(owner.Environment, execution, volume.Id), 0)
 			if err != nil {
 				return nil, err
 			}

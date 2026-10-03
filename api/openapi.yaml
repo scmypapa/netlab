@@ -3,6 +3,23 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /storage-pools:
+    get:
+      operationId: listStoragePools
+      responses:
+        '200': {description: Storage pools and current capacity, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/StoragePool'}}}}}
+    post:
+      operationId: createStoragePool
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateStoragePool'}}}}
+      responses:
+        '201': {description: Registered storage, content: {application/json: {schema: {$ref: '#/components/schemas/StoragePool'}}}}
+  /storage-pools/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    delete:
+      operationId: deleteStoragePool
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+        '409': {description: Pool is referenced, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
   /environments/{id}/assets/{assetId}/templates:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -554,6 +571,7 @@ components:
         id: {type: string}
         name: {type: string}
         templateId: {type: string}
+        storagePoolId: {type: string, description: Omitted selects storage automatically; an existing asset keeps its storage until migrated.}
         resources: {$ref: '#/components/schemas/Resources'}
         interfaces: {type: array, items: {$ref: '#/components/schemas/Interface'}}
         volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
@@ -800,6 +818,7 @@ components:
         assetId: {type: string}
         instanceId: {type: string}
         nodeId: {type: string}
+        storagePoolId: {type: string}
         state: {type: string}
         error: {type: string}
         observedAt: {type: string, format: date-time}
@@ -866,6 +885,9 @@ components:
         template: {$ref: '#/components/schemas/Template'}
         instanceId: {type: string}
         previousInstanceId: {type: string}
+        storagePath: {type: string, description: Node-local managed storage selected by the scheduler}
+        storagePoolId: {type: string, description: Actual selected pool; omitted for node default storage}
+        storageFilesystem: {type: string, description: Physical filesystem reservation identity}
         interfaces: {type: array, items: {$ref: '#/components/schemas/ResolvedInterface'}}
     NodePlan:
       type: object
@@ -945,6 +967,38 @@ components:
         accessAddress: {type: string}
         networkChassis: {type: string}
         externalInterfaces: {type: array, items: {$ref: '#/components/schemas/ExternalInterface'}}
+        storage: {$ref: '#/components/schemas/StorageInfo'}
+    StorageInfo:
+      type: object
+      required: [path, filesystem, capacityBytes, availableBytes]
+      properties:
+        path: {type: string}
+        filesystem: {type: string}
+        capacityBytes: {type: integer, format: int64}
+        availableBytes: {type: integer, format: int64}
+    CreateStoragePool:
+      type: object
+      required: [nodeId, name, directory]
+      properties:
+        nodeId: {type: string}
+        name: {type: string}
+        directory: {type: string, description: Existing directory or mounted filesystem on this node}
+    StoragePool:
+      type: object
+      required: [id, nodeId, name, default, driver, allocatedGiB, capabilities]
+      properties:
+        id: {type: string}
+        nodeId: {type: string}
+        name: {type: string}
+        directory: {type: string, description: Original node storage location; visible to administrators}
+        default: {type: boolean}
+        driver: {type: string, enum: [directory]}
+        state: {type: string, enum: [ready, deleting]}
+        operationId: {type: string}
+        storage: {$ref: '#/components/schemas/StorageInfo'}
+        allocatedGiB: {type: integer, format: int64}
+        capabilities: {type: array, items: {type: string}}
+        error: {type: string}
     ExternalAttachment:
       type: object
       required: [nodeId, interface]

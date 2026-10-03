@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containerd/containerd"
 	containerevents "github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/namespaces"
@@ -230,14 +231,12 @@ func (e *Engine) containerObservation(ctx context.Context, id string) (api.Execu
 	if err != nil {
 		return api.ExecutionResult{}, err
 	}
-	labels, spec, err := containerMetadata(ctx, container)
+	info, err := container.Info(ctx, containerd.WithoutRefreshedMetadata)
 	if err != nil {
 		return api.ExecutionResult{}, err
 	}
-	if labels[environmentLabel] == "" || labels[assetLabel] == "" {
-		return api.ExecutionResult{}, nil
-	}
-	if !managedContainer(spec, e.cfg.DataDir, labels[environmentLabel], id) {
+	labels := info.Labels
+	if !managedContainer(labels, e.cfg.ID) {
 		return api.ExecutionResult{}, nil
 	}
 	state, err := containerState(ctx, container)

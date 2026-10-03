@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+  "/storage-pools": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listStoragePools"];
+    put?: never;
+    post: operations["createStoragePool"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/storage-pools/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["deleteStoragePool"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/assets/{assetId}/templates": {
     parameters: {
       query?: never;
@@ -879,6 +913,8 @@ export interface components {
       id: string;
       name: string;
       templateId: string;
+      /** @description Omitted selects storage automatically; an existing asset keeps its storage until migrated. */
+      storagePoolId?: string;
       resources: components["schemas"]["Resources"];
       interfaces: components["schemas"]["Interface"][];
       volumes?: components["schemas"]["Volume"][];
@@ -1095,6 +1131,7 @@ export interface components {
       assetId: string;
       instanceId: string;
       nodeId: string;
+      storagePoolId?: string;
       state: string;
       error?: string;
       /** Format: date-time */
@@ -1158,6 +1195,12 @@ export interface components {
       template: components["schemas"]["Template"];
       instanceId: string;
       previousInstanceId?: string;
+      /** @description Node-local managed storage selected by the scheduler */
+      storagePath?: string;
+      /** @description Actual selected pool; omitted for node default storage */
+      storagePoolId?: string;
+      /** @description Physical filesystem reservation identity */
+      storageFilesystem?: string;
       interfaces: components["schemas"]["ResolvedInterface"][];
     };
     NodePlan: {
@@ -1244,6 +1287,39 @@ export interface components {
       accessAddress?: string;
       networkChassis?: string;
       externalInterfaces?: components["schemas"]["ExternalInterface"][];
+      storage?: components["schemas"]["StorageInfo"];
+    };
+    StorageInfo: {
+      path: string;
+      filesystem: string;
+      /** Format: int64 */
+      capacityBytes: number;
+      /** Format: int64 */
+      availableBytes: number;
+    };
+    CreateStoragePool: {
+      nodeId: string;
+      name: string;
+      /** @description Existing directory or mounted filesystem on this node */
+      directory: string;
+    };
+    StoragePool: {
+      id: string;
+      nodeId: string;
+      name: string;
+      /** @description Original node storage location; visible to administrators */
+      directory?: string;
+      default: boolean;
+      /** @enum {string} */
+      driver: "directory";
+      /** @enum {string} */
+      state?: "ready" | "deleting";
+      operationId?: string;
+      storage?: components["schemas"]["StorageInfo"];
+      /** Format: int64 */
+      allocatedGiB: number;
+      capabilities: string[];
+      error?: string;
     };
     ExternalAttachment: {
       nodeId: string;
@@ -1391,6 +1467,73 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listStoragePools: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Storage pools and current capacity */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StoragePool"][];
+        };
+      };
+    };
+  };
+  createStoragePool: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateStoragePool"];
+      };
+    };
+    responses: {
+      /** @description Registered storage */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StoragePool"];
+        };
+      };
+    };
+  };
+  deleteStoragePool: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+      /** @description Pool is referenced */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
   captureAssetTemplate: {
     parameters: {
       query?: never;

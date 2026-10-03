@@ -135,7 +135,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		if p.BeforeSpec != nil {
 			assets = append(assets, p.BeforeSpec.Assets...)
 		}
-		if err = environment.ReferenceTemplates(ctx, q, assets); err != nil {
+		if err = environment.ReferenceResources(ctx, q, assets); err != nil {
 			return api.Operation{}, err
 		}
 	}
@@ -166,7 +166,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	}
 	phase := row.Phase
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)

@@ -4,6 +4,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -64,17 +65,14 @@ func (e *Engine) OpenLogs(ctx context.Context, env, asset, instance string, opti
 	if err != nil {
 		return nil, err
 	}
-	if labels[environmentLabel] != env || labels[assetLabel] != asset {
+	if !managedContainer(labels, e.cfg.ID) || labels[environmentLabel] != env || labels[assetLabel] != asset {
 		return nil, errors.New("container ownership does not match log request")
 	}
-	spec, err := container.Spec(ctx)
-	if err != nil {
+	var execution api.AssetExecution
+	if err = json.Unmarshal([]byte(labels[executionLabel]), &execution); err != nil {
 		return nil, err
 	}
-	if !managedContainer(spec, e.cfg.DataDir, env, instance) {
-		return nil, errors.New("container is managed by a different node storage root")
-	}
-	directory := instanceDir(e.cfg.DataDir, env, instance)
+	directory := assetDirectory(e.cfg.DataDir, env, execution)
 	reader := &LogReader{options: options, directory: directory, files: map[api.LogChunkStream]*os.File{}, ends: map[api.LogChunkStream]int64{}, closed: make(chan struct{})}
 	if options.Follow {
 		fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)

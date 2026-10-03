@@ -248,7 +248,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if _, err = e.container.Execute(ctx, env, api.NodePlanPhaseUpdate, client); err != nil {
 		t.Fatal(err)
 	}
-	temporaryPath := e.container.volumeDir(env, client.Asset.Id, "temporary")
+	temporaryPath := e.container.volumeDir(env, client, "temporary")
 	if _, err = os.Stat(filepath.Join(temporaryPath, "marker")); err != nil {
 		t.Fatal("update deleted an unmounted volume before commit", err)
 	}
@@ -261,7 +261,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if _, err = os.Stat(temporaryPath); !os.IsNotExist(err) {
 		t.Fatal("post-commit cleanup did not remove the temporary volume", err)
 	}
-	if _, err = os.Stat(filepath.Join(e.container.volumeDir(env, client.Asset.Id, "retained"), "marker")); err != nil {
+	if _, err = os.Stat(filepath.Join(e.container.volumeDir(env, client, "retained"), "marker")); err != nil {
 		t.Fatal("post-commit cleanup removed a retained volume", err)
 	}
 	plan.Assets[2] = client
@@ -308,7 +308,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 		t.Fatal("old instance cleanup cleared the replacement traffic policy")
 	}
 	checkContainerHTTP(t, ctx, webContainer, "192.168.82.32:80")
-	if _, err = os.Stat(filepath.Join(e.container.volumeDir(env, client.Asset.Id, "web-content"), "data-marker")); err != nil {
+	if _, err = os.Stat(filepath.Join(e.container.volumeDir(env, client, "web-content"), "data-marker")); err != nil {
 		t.Fatal("destroying the old instance removed the replacement volume", err)
 	}
 	newContainer, err := e.container.client.LoadContainer(ctx, replacement.InstanceId)
@@ -439,7 +439,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseForceStop, a); err != nil {
 		t.Fatal(err)
 	}
-	if image, err := inspectImage(ctx, vm.volumePath(env, a.Asset.Id, "data")); err != nil || image.VirtualSize != 2<<30 {
+	if image, err := inspectImage(ctx, vm.volumePath(env, a, "data")); err != nil || image.VirtualSize != 2<<30 {
 		t.Fatalf("data disk expansion: %+v %v", image, err)
 	}
 	updatedVolumes = updatedVolumes[:1]
@@ -449,13 +449,13 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	cleanup := a
 	removed := []api.Volume{{Id: "temporary", SizeGiB: 1}}
 	cleanup.Asset.Volumes = &removed
-	if _, err = os.Stat(vm.volumePath(env, a.Asset.Id, "temporary")); err != nil {
+	if _, err = os.Stat(vm.volumePath(env, a, "temporary")); err != nil {
 		t.Fatal("VM update deleted a data disk before commit", err)
 	}
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseCleanupVolumes, cleanup); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(vm.volumePath(env, a.Asset.Id, "temporary")); !os.IsNotExist(err) {
+	if _, err = os.Stat(vm.volumePath(env, a, "temporary")); !os.IsNotExist(err) {
 		t.Fatal("VM post-commit cleanup left an unused data disk", err)
 	}
 	failed := a
@@ -485,7 +485,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, a); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(vm.volumePath(env, a.Asset.Id, "data")); err != nil {
+	if _, err = os.Stat(vm.volumePath(env, a, "data")); err != nil {
 		t.Fatal("destroying the old VM removed the replacement data disk", err)
 	}
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, replacement); err != nil {
@@ -496,7 +496,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, stale); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(vm.volumePath(env, a.Asset.Id, "data")); !os.IsNotExist(err) {
+	if _, err = os.Stat(vm.volumePath(env, a, "data")); !os.IsNotExist(err) {
 		t.Fatal("VM destroy left its installed data disk behind", err)
 	}
 }

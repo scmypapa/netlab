@@ -7,13 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/oci"
 	"netlab.local/core/api"
 )
 
@@ -96,11 +94,7 @@ func (e *Engine) superviseContainers() error {
 		if err != nil {
 			return err
 		}
-		spec, err := item.Spec(c.ctx)
-		if err != nil {
-			return err
-		}
-		if !managedContainer(spec, c.data, labels[environmentLabel], item.ID()) {
+		if !managedContainer(labels, c.node) {
 			continue
 		}
 		task, err := item.Task(c.ctx, nil)
@@ -120,13 +114,9 @@ func (e *Engine) superviseContainers() error {
 	return nil
 }
 
-func managedContainer(spec *oci.Spec, data, env, instance string) bool {
-	for _, mount := range spec.Mounts {
-		if mount.Destination == "/etc/resolv.conf" && mount.Source == filepath.Join(instanceDir(data, env, instance), "resolv.conf") {
-			return true
-		}
-	}
-	return false
+func managedContainer(labels map[string]string, node string) bool {
+	owner, exists := labels[nodeLabel]
+	return exists && owner == node && labels[environmentLabel] != "" && labels[assetLabel] != ""
 }
 
 func (e *Engine) restartContainer(ctx context.Context, instance string, pid, code uint32) (err error) {

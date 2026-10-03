@@ -61,7 +61,7 @@ func (c *Containers) update(ctx context.Context, container containerd.Container,
 			mounts = append(mounts, mount)
 		}
 	}
-	volumeMounts, err := c.volumeMounts(env, a.Asset.Id, volumes)
+	volumeMounts, err := c.volumeMounts(env, a, volumes)
 	if err != nil {
 		return "unknown", err
 	}
@@ -98,13 +98,13 @@ func (c *Containers) update(ctx context.Context, container containerd.Container,
 		}
 	}
 	if mountsChanged {
-		if err = c.initializeVolumes(ctx, container, env, a.Asset.Id, volumes); err != nil {
+		if err = c.initializeVolumes(ctx, container, env, a, volumes); err != nil {
 			return state, err
 		}
 	}
 	spec.Mounts = mounts
 	if networkChanged {
-		if err = writeNetworkFiles(instanceDir(c.data, env, a.InstanceId), a.Interfaces); err != nil {
+		if err = writeNetworkFiles(assetDirectory(c.data, env, a), a.Interfaces); err != nil {
 			return state, err
 		}
 	}
@@ -162,7 +162,7 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 	if initializationMethod(a.Template) == api.CloudbaseInit && !reflect.DeepEqual(installed.Interfaces, a.Interfaces) {
 		return "stopped", fmt.Errorf("Cloudbase-Init network changes require replacing the virtual machine; its network plugin runs once per instance")
 	}
-	desiredText, err := DomainXML(env, instanceDir(v.data, env, a.InstanceId), v.bridge, a)
+	desiredText, err := DomainXML(env, assetDirectory(v.data, env, a), v.bridge, a)
 	if err != nil {
 		return "unknown", err
 	}
@@ -199,11 +199,11 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 		}
 	}
 	if a.Asset.Volumes != nil {
-		if err = v.prepareVolumes(ctx, env, a.Asset.Id, *a.Asset.Volumes); err != nil {
+		if err = v.prepareVolumes(ctx, env, a); err != nil {
 			return "stopped", err
 		}
 	}
-	media, err := stageInitialization(ctx, instanceDir(v.data, env, a.InstanceId), a)
+	media, err := stageInitialization(ctx, assetDirectory(v.data, env, a), a)
 	if err != nil {
 		return "stopped", err
 	}
@@ -220,7 +220,7 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 	}
 	defer updated.Free()
 	if media != "" {
-		if err = os.Rename(media, filepath.Join(instanceDir(v.data, env, a.InstanceId), "initialization.iso")); err != nil {
+		if err = os.Rename(media, filepath.Join(assetDirectory(v.data, env, a), "initialization.iso")); err != nil {
 			return "stopped", err
 		}
 	}

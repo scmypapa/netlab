@@ -39,8 +39,10 @@ const environmentLabel = "netlab.environment"
 const assetLabel = "netlab.asset"
 const networkLabel = "netlab.interfaces"
 const executionLabel = "netlab.execution"
+const nodeLabel = "netlab.node"
 
 type Containers struct {
+	node     string
 	client   *containerd.Client
 	data     string
 	ovs      *network.OVS
@@ -52,7 +54,7 @@ type Containers struct {
 	restart  func(context.Context, string, uint32, uint32) error
 }
 
-func NewContainers(ctx context.Context, socket, data string, ovs *network.OVS) (*Containers, error) {
+func NewContainers(ctx context.Context, socket, data, node string, ovs *network.OVS) (*Containers, error) {
 	c, err := containerd.New(socket, containerd.WithDefaultNamespace("netlab"))
 	if err != nil {
 		return nil, err
@@ -62,7 +64,7 @@ func NewContainers(ctx context.Context, socket, data string, ovs *network.OVS) (
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	return &Containers{client: c, data: data, ovs: ovs, ctx: namespaces.WithNamespace(ctx, "netlab"), cancel: cancel}, nil
+	return &Containers{client: c, data: data, node: node, ovs: ovs, ctx: namespaces.WithNamespace(ctx, "netlab"), cancel: cancel}, nil
 }
 func (c *Containers) Close() { c.cancel(); c.watches.Wait(); c.client.Close() }
 func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution) (string, error) {
@@ -84,7 +86,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 	if err != nil {
 		return "unknown", err
 	}
-	if labels[environmentLabel] != env || labels[assetLabel] != a.Asset.Id {
+	if !managedContainer(labels, c.node) || labels[environmentLabel] != env || labels[assetLabel] != a.Asset.Id {
 		return "unknown", errors.New("container ownership does not match plan")
 	}
 	state, err := containerState(ctx, container)
@@ -97,7 +99,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		if err != nil {
 			return state, err
 		}
-		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a.Asset.Id, id) }, true)
+		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, true)
 	case api.NodePlanPhaseUpdate:
 		return c.update(ctx, container, env, a)
 	case api.NodePlanPhaseStart:
@@ -150,7 +152,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 		if err != nil {
 			return "unknown", err
 		}
-		if labels[environmentLabel] != env || labels[assetLabel] != a.Asset.Id {
+		if !managedContainer(labels, c.node) || labels[environmentLabel] != env || labels[assetLabel] != a.Asset.Id {
 			return "unknown", errors.New("container ownership does not match plan")
 		}
 		return containerState(ctx, old)
@@ -165,7 +167,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	if err != nil {
 		return "absent", err
 	}
-	dir := instanceDir(c.data, env, a.InstanceId)
+	dir := assetDirectory(c.data, env, a)
 	if err = os.MkdirAll(dir, 0711); err != nil {
 		return "absent", err
 	}
@@ -174,7 +176,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	}
 	volumes := managedVolumes(config, a.Asset.Volumes)
 	mounts := []specs.Mount{{Destination: "/etc/resolv.conf", Type: "bind", Source: filepath.Join(dir, "resolv.conf"), Options: []string{"rbind", "ro"}}, {Destination: "/etc/hosts", Type: "bind", Source: filepath.Join(dir, "hosts"), Options: []string{"rbind", "ro"}}}
-	volumeMounts, err := c.volumeMounts(env, a.Asset.Id, volumes)
+	volumeMounts, err := c.volumeMounts(env, a, volumes)
 	if err != nil {
 		return "absent", err
 	}
@@ -191,7 +193,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	if err != nil {
 		return "absent", err
 	}
-	labels := map[string]string{environmentLabel: env, assetLabel: a.Asset.Id, networkLabel: string(networkJSON), executionLabel: string(executionJSON), desiredLabel: "stopped", "netlab.volumes": string(volumeJSON), "netlab.stop-signal": config.Config.StopSignal}
+	labels := map[string]string{nodeLabel: c.node, environmentLabel: env, assetLabel: a.Asset.Id, networkLabel: string(networkJSON), executionLabel: string(executionJSON), desiredLabel: "stopped", "netlab.volumes": string(volumeJSON), "netlab.stop-signal": config.Config.StopSignal}
 	opts := []oci.SpecOpts{oci.WithImageConfig(image), oci.WithHostname(a.Asset.Name), oci.WithMemoryLimit(uint64(a.Asset.Resources.MemoryMiB) << 20), oci.WithMounts(mounts), cpuLimit(a.Asset.Resources.Cpu)}
 	if a.Asset.Parameters != nil {
 		envs := []string{}
@@ -206,7 +208,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 		return "absent", err
 	}
 	// Initialize before mounting, so the first writable volume contains the image's data.
-	if err = c.initializeVolumes(ctx, created, env, a.Asset.Id, volumes); err != nil {
+	if err = c.initializeVolumes(ctx, created, env, a, volumes); err != nil {
 		return "absent", errors.Join(err, created.Delete(context.WithoutCancel(ctx), containerd.WithSnapshotCleanup))
 	}
 	return "prepared", nil
@@ -312,13 +314,13 @@ func managedVolumes(config imagespec.Image, configured *[]api.Volume) []api.Volu
 	return volumes
 }
 
-func (c *Containers) volumeMounts(env, asset string, volumes []api.Volume) ([]specs.Mount, error) {
+func (c *Containers) volumeMounts(env string, a api.AssetExecution, volumes []api.Volume) ([]specs.Mount, error) {
 	mounts := make([]specs.Mount, 0, len(volumes))
 	for _, volume := range volumes {
 		if !filepath.IsAbs(volume.MountPath) || filepath.Clean(volume.MountPath) == "/" {
 			return nil, fmt.Errorf("invalid container volume mount path %s", volume.MountPath)
 		}
-		mounts = append(mounts, specs.Mount{Destination: volume.MountPath, Type: "bind", Source: c.volumeDir(env, asset, volume.Id), Options: []string{"rbind", "rw"}})
+		mounts = append(mounts, specs.Mount{Destination: volume.MountPath, Type: "bind", Source: c.volumeDir(env, a, volume.Id), Options: []string{"rbind", "rw"}})
 	}
 	return mounts, nil
 }
@@ -409,7 +411,7 @@ func cpuLimit(cpus int) oci.SpecOpts {
 		return nil
 	}
 }
-func (c *Containers) initializeVolumes(ctx context.Context, container containerd.Container, env, asset string, volumes []api.Volume) error {
+func (c *Containers) initializeVolumes(ctx context.Context, container containerd.Container, env string, a api.AssetExecution, volumes []api.Volume) error {
 	if len(volumes) == 0 {
 		return nil
 	}
@@ -423,7 +425,7 @@ func (c *Containers) initializeVolumes(ctx context.Context, container containerd
 	}
 	return mount.WithTempMount(ctx, mounts, func(root string) error {
 		for _, v := range volumes {
-			dst := c.volumeDir(env, asset, v.Id)
+			dst := c.volumeDir(env, a, v.Id)
 			if _, err := os.Stat(dst); err == nil {
 				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
@@ -489,7 +491,7 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 	} else if !errdefs.IsNotFound(err) {
 		return "unknown", err
 	}
-	dir := instanceDir(c.data, env, a.InstanceId)
+	dir := assetDirectory(c.data, env, a)
 	task, err := container.NewTask(ctx, containerLogFiles(dir))
 	if err != nil {
 		return "stopped", err
@@ -610,14 +612,12 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 	}
 	results := []api.ExecutionResult{}
 	for _, item := range items {
-		labels, spec, err := containerMetadata(ctx, item)
+		info, err := item.Info(ctx, containerd.WithoutRefreshedMetadata)
 		if err != nil {
 			return results, err
 		}
-		if labels[assetLabel] == "" {
-			continue
-		}
-		if !managedContainer(spec, c.data, labels[environmentLabel], item.ID()) {
+		labels := info.Labels
+		if !managedContainer(labels, c.node) {
 			continue
 		}
 		state, err := containerState(ctx, item)
@@ -635,18 +635,18 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 	}
 	return results, nil
 }
-func (c *Containers) volumeDir(env, asset, volume string) string {
-	return filepath.Join(c.data, "environments", env, "volumes", asset, volume)
+func (c *Containers) volumeDir(env string, a api.AssetExecution, volume string) string {
+	return filepath.Join(storageRoot(c.data, a), "environments", env, "volumes", a.Asset.Id, volume)
 }
 func (c *Containers) removeFiles(ctx context.Context, env string, a api.AssetExecution) error {
-	if err := os.RemoveAll(instanceDir(c.data, env, a.InstanceId)); err != nil {
+	if err := os.RemoveAll(assetDirectory(c.data, env, a)); err != nil {
 		return err
 	}
 	references, err := c.volumeReferences(ctx, env, a.Asset.Id)
 	if err != nil {
 		return err
 	}
-	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a.Asset.Id, id) }, false)
+	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, false)
 }
 
 func (c *Containers) volumeReferences(ctx context.Context, env, asset string) (map[string]bool, error) {

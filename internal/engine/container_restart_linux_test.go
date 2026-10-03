@@ -5,8 +5,6 @@ package engine
 import (
 	"testing"
 
-	"github.com/containerd/containerd/oci"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"netlab.local/core/api"
 )
 
@@ -26,12 +24,12 @@ func TestContainerRestartPolicy(t *testing.T) {
 	}
 }
 
-func TestContainerMonitorStorageOwnership(t *testing.T) {
-	spec := &oci.Spec{Mounts: []specs.Mount{{Destination: "/etc/resolv.conf", Source: "/var/lib/netlab/environments/env/instances/instance/resolv.conf"}}}
-	if !managedContainer(spec, "/var/lib/netlab", "env", "instance") {
+func TestContainerMonitorOwnership(t *testing.T) {
+	labels := map[string]string{nodeLabel: "node", environmentLabel: "env", assetLabel: "asset"}
+	if !managedContainer(labels, "node") {
 		t.Fatal("own instance was excluded")
 	}
-	if managedContainer(spec, "/var/lib/other-netlab", "env", "instance") {
+	if managedContainer(labels, "other-node") {
 		t.Fatal("monitor would take over another node's instance")
 	}
 }

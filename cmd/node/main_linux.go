@@ -90,6 +90,34 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /node/v1/storage", func(w http.ResponseWriter, r *http.Request) {
+		info, err := engine.StorageInfo(r.URL.Query().Get("path"))
+		respond(w, info, err)
+	})
+	mux.HandleFunc("POST /node/v1/storage/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !pathID(r.PathValue("id")) {
+			http.Error(w, "invalid storage identity", http.StatusBadRequest)
+			return
+		}
+		var input api.CreateStoragePool
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		info, err := executor.RegisterStorage(r.PathValue("id"), input.Directory)
+		respond(w, info, err)
+	})
+	mux.HandleFunc("DELETE /node/v1/storage/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !pathID(r.PathValue("id")) {
+			http.Error(w, "invalid storage identity", http.StatusBadRequest)
+			return
+		}
+		if err := executor.RemoveStorage(r.PathValue("id"), r.URL.Query().Get("directory")); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/logs", func(w http.ResponseWriter, r *http.Request) {
 		options, err := logfile.Parse(r.URL.Query())
 		if err != nil {

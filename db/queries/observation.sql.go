@@ -100,7 +100,7 @@ func (q *Queries) ListObservedNodes(ctx context.Context) ([]ListObservedNodesRow
 }
 
 const listRuntimeAssetStates = `-- name: ListRuntimeAssetStates :many
-SELECT a.environment_id,a.asset_id,a.instance_id,a.node_id,a.current,a.observed_at,
+SELECT a.environment_id,a.asset_id,a.instance_id,a.node_id,a.current,a.observed_at,COALESCE(a.execution->>'storagePoolId','')::text AS storage_pool_id,
  CASE WHEN n.state='ready' THEN a.state ELSE 'unknown' END::text AS state,
  COALESCE(CASE WHEN n.state='ready' THEN a.error ELSE '节点连接已断开' END,'')::text AS error
 FROM runtime_assets a JOIN nodes n ON n.id=a.node_id WHERE a.environment_id=$1 ORDER BY a.asset_id,a.instance_id
@@ -113,6 +113,7 @@ type ListRuntimeAssetStatesRow struct {
 	NodeID        string
 	Current       bool
 	ObservedAt    pgtype.Timestamptz
+	StoragePoolID string
 	State         string
 	Error         string
 }
@@ -133,6 +134,7 @@ func (q *Queries) ListRuntimeAssetStates(ctx context.Context, environmentID stri
 			&i.NodeID,
 			&i.Current,
 			&i.ObservedAt,
+			&i.StoragePoolID,
 			&i.State,
 			&i.Error,
 		); err != nil {

@@ -186,6 +186,17 @@ const (
 	Udp ServiceProtocol = "udp"
 )
 
+// Defines values for StoragePoolDriver.
+const (
+	Directory StoragePoolDriver = "directory"
+)
+
+// Defines values for StoragePoolState.
+const (
+	Deleting StoragePoolState = "deleting"
+	Ready    StoragePoolState = "ready"
+)
+
 // Defines values for TemplateDiskBus.
 const (
 	Ide    TemplateDiskBus = "ide"
@@ -278,8 +289,11 @@ type Asset struct {
 
 	// RestartPolicy Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
 	RestartPolicy *RestartPolicy `json:"restartPolicy,omitempty"`
-	TemplateId    string         `json:"templateId"`
-	Volumes       *[]Volume      `json:"volumes,omitempty"`
+
+	// StoragePoolId Omitted selects storage automatically; an existing asset keeps its storage until migrated.
+	StoragePoolId *string   `json:"storagePoolId,omitempty"`
+	TemplateId    string    `json:"templateId"`
+	Volumes       *[]Volume `json:"volumes,omitempty"`
 }
 
 // AssetExecution defines model for AssetExecution.
@@ -288,17 +302,27 @@ type AssetExecution struct {
 	InstanceId         string              `json:"instanceId"`
 	Interfaces         []ResolvedInterface `json:"interfaces"`
 	PreviousInstanceId *string             `json:"previousInstanceId,omitempty"`
-	Template           Template            `json:"template"`
+
+	// StorageFilesystem Physical filesystem reservation identity
+	StorageFilesystem *string `json:"storageFilesystem,omitempty"`
+
+	// StoragePath Node-local managed storage selected by the scheduler
+	StoragePath *string `json:"storagePath,omitempty"`
+
+	// StoragePoolId Actual selected pool; omitted for node default storage
+	StoragePoolId *string  `json:"storagePoolId,omitempty"`
+	Template      Template `json:"template"`
 }
 
 // AssetState defines model for AssetState.
 type AssetState struct {
-	AssetId    string    `json:"assetId"`
-	Error      *string   `json:"error,omitempty"`
-	InstanceId string    `json:"instanceId"`
-	NodeId     string    `json:"nodeId"`
-	ObservedAt time.Time `json:"observedAt"`
-	State      string    `json:"state"`
+	AssetId       string    `json:"assetId"`
+	Error         *string   `json:"error,omitempty"`
+	InstanceId    string    `json:"instanceId"`
+	NodeId        string    `json:"nodeId"`
+	ObservedAt    time.Time `json:"observedAt"`
+	State         string    `json:"state"`
+	StoragePoolId *string   `json:"storagePoolId,omitempty"`
 }
 
 // Blueprint defines model for Blueprint.
@@ -417,6 +441,14 @@ type CreateServiceToken struct {
 	ExpiresAt *time.Time   `json:"expiresAt,omitempty"`
 	Grants    []ScopeGrant `json:"grants"`
 	Name      string       `json:"name"`
+}
+
+// CreateStoragePool defines model for CreateStoragePool.
+type CreateStoragePool struct {
+	// Directory Existing directory or mounted filesystem on this node
+	Directory string `json:"directory"`
+	Name      string `json:"name"`
+	NodeId    string `json:"nodeId"`
 }
 
 // CreateUser defines model for CreateUser.
@@ -654,6 +686,7 @@ type NodeInfo struct {
 	NetworkChassis     *string              `json:"networkChassis,omitempty"`
 	ServiceNetwork     *ServiceNetwork      `json:"serviceNetwork,omitempty"`
 	Slots              int                  `json:"slots"`
+	Storage            *StorageInfo         `json:"storage,omitempty"`
 	VmHardware         *VmHardware          `json:"vmHardware,omitempty"`
 }
 
@@ -916,6 +949,38 @@ type ServiceNetwork struct {
 
 // ServiceProtocol defines model for ServiceProtocol.
 type ServiceProtocol string
+
+// StorageInfo defines model for StorageInfo.
+type StorageInfo struct {
+	AvailableBytes int64  `json:"availableBytes"`
+	CapacityBytes  int64  `json:"capacityBytes"`
+	Filesystem     string `json:"filesystem"`
+	Path           string `json:"path"`
+}
+
+// StoragePool defines model for StoragePool.
+type StoragePool struct {
+	AllocatedGiB int64    `json:"allocatedGiB"`
+	Capabilities []string `json:"capabilities"`
+	Default      bool     `json:"default"`
+
+	// Directory Original node storage location; visible to administrators
+	Directory   *string           `json:"directory,omitempty"`
+	Driver      StoragePoolDriver `json:"driver"`
+	Error       *string           `json:"error,omitempty"`
+	Id          string            `json:"id"`
+	Name        string            `json:"name"`
+	NodeId      string            `json:"nodeId"`
+	OperationId *string           `json:"operationId,omitempty"`
+	State       *StoragePoolState `json:"state,omitempty"`
+	Storage     *StorageInfo      `json:"storage,omitempty"`
+}
+
+// StoragePoolDriver defines model for StoragePool.Driver.
+type StoragePoolDriver string
+
+// StoragePoolState defines model for StoragePool.State.
+type StoragePoolState string
 
 // Template defines model for Template.
 type Template struct {
@@ -1246,6 +1311,9 @@ type CreateServiceTokenJSONRequestBody = CreateServiceToken
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = Login
+
+// CreateStoragePoolJSONRequestBody defines body for CreateStoragePool for application/json ContentType.
+type CreateStoragePoolJSONRequestBody = CreateStoragePool
 
 // CreateTemplateJSONRequestBody defines body for CreateTemplate for application/json ContentType.
 type CreateTemplateJSONRequestBody = TemplateImport

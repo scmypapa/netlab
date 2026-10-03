@@ -29,6 +29,7 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
+	StoragePool         *api.CreateStoragePool     `json:"storagePool,omitempty"`
 	Spec                api.EnvironmentSpec        `json:"spec"`
 	BeforeStatus        string                     `json:"beforeStatus,omitempty"`
 	Template            *api.Template              `json:"template,omitempty"`
@@ -128,6 +129,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			err = w.prepareTemplate(ctx, &op, &payload)
 		} else if op.Kind == "delete-template" {
 			err = w.deleteTemplate(ctx, &op, &payload)
+		} else if op.Kind == "delete-storage-pool" {
+			err = w.deleteStoragePool(ctx, &op, &payload)
 		} else if op.Kind == "vpn-create" || op.Kind == "vpn-revoke" {
 			err = w.vpnOperation(ctx, &op, &payload)
 		} else {
@@ -177,6 +180,12 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
+	if op.Kind == "delete-storage-pool" && err == nil {
+		if dbErr = q.DeleteStoragePool(ctx, op.ScopeID); dbErr != nil {
+			slog.Error("storage deletion completion", "error", dbErr)
+			return
+		}
+	}
 	if op.Kind == "delete-template" && err == nil {
 		if dbErr = q.DeleteTemplate(ctx, payload.Template.Id); dbErr != nil {
 			slog.Error("template deletion completion", "error", dbErr)

@@ -59,6 +59,14 @@ export function AssetEditor({
   );
   const [disk, setDisk] = useState(asset?.resources.diskGiB ?? 20);
   const [advanced, setAdvanced] = useState(false);
+  const [storagePoolId, setStoragePoolId] = useState<string | null>(
+    asset?.storagePoolId ?? null,
+  );
+  const storage = useQuery({
+    queryKey: ["storage-pools"],
+    queryFn: api.storagePools,
+    enabled: advanced && !asset,
+  });
   const [restartPolicy, setRestartPolicy] = useState<Schema<"RestartPolicy">>(
     asset?.restartPolicy ?? "never",
   );
@@ -93,6 +101,7 @@ export function AssetEditor({
       id: asset?.id ?? crypto.randomUUID(),
       name,
       templateId,
+      storagePoolId: storagePoolId ?? undefined,
       resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
       media: template?.media?.length ? media : undefined,
       restartPolicy: template?.kind === "container" ? restartPolicy : undefined,
@@ -222,6 +231,22 @@ export function AssetEditor({
           <ChevronDown size={16} className={advanced ? "rotated" : ""} />
         </button>
         <Collapse in={advanced}>
+          {!asset && (
+            <Select
+              label="存储位置"
+              placeholder="自动分配"
+              clearable
+              value={storagePoolId}
+              onChange={setStoragePoolId}
+              data={(storage.data ?? [])
+                .filter(
+                  (pool) =>
+                    !pool.default && pool.state === "ready" && !pool.error,
+                )
+                .map((pool) => ({ value: pool.id, label: pool.name }))}
+            />
+          )}
+          <ErrorMessage error={storage.error} />
           <NumberInput
             label="系统盘 · GiB"
             min={1}

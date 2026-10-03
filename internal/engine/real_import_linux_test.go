@@ -215,7 +215,7 @@ func TestRealVMArtifactImports(t *testing.T) {
 			if _, err = os.Stat(instanceDir(data, env, instance)); !os.IsNotExist(err) {
 				t.Fatal("destroy left instance disks behind:", err)
 			}
-			if _, err = os.Stat(vm.volumePath(env, "guest", "scratch")); !os.IsNotExist(err) {
+			if _, err = os.Stat(vm.volumePath(env, a, "scratch")); !os.IsNotExist(err) {
 				t.Fatal("destroy left its ordinary data volume behind:", err)
 			}
 			t.Logf("%s: %d disks, original controllers/NICs, lossless conversion, lifecycle, expansion and destroy passed", fixture.name, fixture.disks)

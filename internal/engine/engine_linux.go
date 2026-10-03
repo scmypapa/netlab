@@ -73,7 +73,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 	if cfg.ContainerdSocket != "" {
-		if e.container, err = NewContainers(ctx, cfg.ContainerdSocket, cfg.DataDir, e.ovs); err != nil {
+		if e.container, err = NewContainers(ctx, cfg.ContainerdSocket, cfg.DataDir, cfg.ID, e.ovs); err != nil {
 			e.Close()
 			return nil, err
 		}
@@ -150,6 +150,11 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 		caps = append(caps, "vm")
 	}
 	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
+	storage, err := StorageInfo(e.cfg.DataDir)
+	if err != nil {
+		return api.NodeInfo{}, err
+	}
+	info.Storage = &storage
 	info.ServiceNetwork = ptr(e.gateway.Network())
 	address, err := network.AccessAddress(e.cfg.AdvertiseAddress)
 	if err != nil {

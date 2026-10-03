@@ -88,10 +88,14 @@ func (s *Server) environmentState(w http.ResponseWriter, r *http.Request, identi
 	result := api.EnvironmentState{Id: row.ID, Status: row.Status, Revision: int(row.Revision), UpdatedAt: row.UpdatedAt.Time, Assets: make([]api.AssetState, 0, len(current))}
 	for _, asset := range current {
 		var message *string
+		var pool *string
+		if asset.StoragePoolID != "" {
+			pool = &asset.StoragePoolID
+		}
 		if asset.Error != "" {
 			message = &asset.Error
 		}
-		result.Assets = append(result.Assets, api.AssetState{AssetId: asset.AssetID, InstanceId: asset.InstanceID, NodeId: asset.NodeID, State: asset.State, Error: message, ObservedAt: asset.ObservedAt.Time})
+		result.Assets = append(result.Assets, api.AssetState{AssetId: asset.AssetID, InstanceId: asset.InstanceID, NodeId: asset.NodeID, StoragePoolId: pool, State: asset.State, Error: message, ObservedAt: asset.ObservedAt.Time})
 	}
 	slices.SortFunc(result.Assets, func(a, b api.AssetState) int { return strings.Compare(a.AssetId, b.AssetId) })
 	if row.OperationID != nil {

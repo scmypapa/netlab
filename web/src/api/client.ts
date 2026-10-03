@@ -292,6 +292,11 @@ export const api = {
   createTemplate: (body: Schema<"TemplateImport">) =>
     request<Template>("/templates", "POST", body),
   nodes: (options?: ListOptions) => list<Node>("/nodes", options),
+  storagePools: () => request<Schema<"StoragePool">[]>("/storage-pools"),
+  createStoragePool: (input: Schema<"CreateStoragePool">) =>
+    request<Schema<"StoragePool">>("/storage-pools", "POST", input),
+  deleteStoragePool: (id: string) =>
+    request<Operation>(`/storage-pools/${id}`, "DELETE"),
   nodeInterfaces: (id: string) =>
     request<Schema<"ExternalInterface">[]>(`/nodes/${id}/interfaces`),
   registerNode: (body: Schema<"NodeRegistration">) =>

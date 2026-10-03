@@ -40,7 +40,7 @@ SELECT DISTINCT a.environment_id,'runtime.changed',jsonb_build_object('nodeId',a
 FROM runtime_assets a JOIN changed n ON n.id=a.node_id WHERE a.current;
 
 -- name: ListRuntimeAssetStates :many
-SELECT a.environment_id,a.asset_id,a.instance_id,a.node_id,a.current,a.observed_at,
+SELECT a.environment_id,a.asset_id,a.instance_id,a.node_id,a.current,a.observed_at,COALESCE(a.execution->>'storagePoolId','')::text AS storage_pool_id,
  CASE WHEN n.state='ready' THEN a.state ELSE 'unknown' END::text AS state,
  COALESCE(CASE WHEN n.state='ready' THEN a.error ELSE '节点连接已断开' END,'')::text AS error
 FROM runtime_assets a JOIN nodes n ON n.id=a.node_id WHERE a.environment_id=$1 ORDER BY a.asset_id,a.instance_id;

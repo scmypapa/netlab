@@ -75,7 +75,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if err != nil {
 			return state, err
 		}
-		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a.Asset.Id, id) }, true)
+		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a, id) }, true)
 	case api.NodePlanPhaseUpdate:
 		return v.update(ctx, d, env, a)
 	case api.NodePlanPhaseStart:
@@ -140,7 +140,7 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	} else if !noDomain(err) {
 		return "unknown", err
 	}
-	dir := instanceDir(v.data, env, a.InstanceId)
+	dir := assetDirectory(v.data, env, a)
 	if err := os.MkdirAll(dir, 0711); err != nil {
 		return "absent", err
 	}
@@ -180,7 +180,7 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 		}
 	}
 	if a.Asset.Volumes != nil {
-		if err = v.prepareVolumes(ctx, env, a.Asset.Id, *a.Asset.Volumes); err != nil {
+		if err = v.prepareVolumes(ctx, env, a); err != nil {
 			return "absent", err
 		}
 	}
@@ -211,7 +211,7 @@ func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
 	if err := os.RemoveAll(tpmDirectory(a.InstanceId)); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(instanceDir(v.data, env, a.InstanceId)); err != nil {
+	if err := os.RemoveAll(assetDirectory(v.data, env, a)); err != nil {
 		return err
 	}
 	if a.Asset.Volumes == nil || len(*a.Asset.Volumes) == 0 {
@@ -221,16 +221,16 @@ func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
 	if err != nil {
 		return err
 	}
-	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a.Asset.Id, id) }, false)
+	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a, id) }, false)
 }
 
-func (v *VirtualMachines) volumePath(env, asset, volume string) string {
-	return filepath.Join(v.data, "environments", env, "volumes", asset, volume+".qcow2")
+func (v *VirtualMachines) volumePath(env string, a api.AssetExecution, volume string) string {
+	return filepath.Join(storageRoot(v.data, a), "environments", env, "volumes", a.Asset.Id, volume+".qcow2")
 }
 
-func (v *VirtualMachines) prepareVolumes(ctx context.Context, env, asset string, volumes []api.Volume) error {
-	for _, volume := range volumes {
-		path := v.volumePath(env, asset, volume.Id)
+func (v *VirtualMachines) prepareVolumes(ctx context.Context, env string, a api.AssetExecution) error {
+	for _, volume := range *a.Asset.Volumes {
+		path := v.volumePath(env, a, volume.Id)
 		if err := os.MkdirAll(filepath.Dir(path), 0711); err != nil {
 			return err
 		}
@@ -261,23 +261,17 @@ func (v *VirtualMachines) prepareVolumes(ctx context.Context, env, asset string,
 
 func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, error) {
 	references := make(map[string]bool)
-	instances, err := os.ReadDir(filepath.Join(v.data, "environments", env, "instances"))
-	if errors.Is(err, os.ErrNotExist) {
-		return references, nil
-	}
+	domains, err := v.conn.ListAllDomains(0)
 	if err != nil {
 		return nil, err
 	}
-	for _, instance := range instances {
-		domain, err := v.conn.LookupDomainByUUIDString(instance.Name())
-		if noDomain(err) {
-			continue
+	defer func() {
+		for i := range domains {
+			domains[i].Free()
 		}
-		if err != nil {
-			return nil, err
-		}
+	}()
+	for _, domain := range domains {
 		text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
-		domain.Free()
 		if noDomain(err) {
 			continue
 		}
@@ -289,8 +283,11 @@ func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, 
 			return nil, err
 		}
 		var owner Ownership
+		if config.Metadata == nil {
+			continue
+		}
 		if err = xml.Unmarshal([]byte(config.Metadata.XML), &owner); err != nil {
-			return nil, err
+			continue
 		}
 		if owner.Environment == env && owner.Asset == asset {
 			for _, disk := range config.Devices.Disks {

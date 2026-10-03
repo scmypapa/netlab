@@ -52,6 +52,9 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/storage-pools":                                      s.listStoragePools,
+		"POST /api/v1/storage-pools":                                     s.createStoragePool,
+		"DELETE /api/v1/storage-pools/{id}":                              s.deleteStoragePool,
 		"GET /api/v1/principals":                                         s.listPrincipals,
 		"POST /api/v1/principals":                                        s.createUser,
 		"PUT /api/v1/principals/{id}":                                    s.updateUser,

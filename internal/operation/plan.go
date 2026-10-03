@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
@@ -186,6 +187,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				state = "running"
 			}
 			execution := api.AssetExecution{Asset: a, Template: t, InstanceId: uuid.NewString(), Interfaces: environment.Resolve(p.Spec, a, nics)}
+			if exists {
+				execution.StoragePoolId, execution.StoragePath, execution.StorageFilesystem = old.Execution.StoragePoolId, old.Execution.StoragePath, old.Execution.StorageFilesystem
+			}
 			replace := exists && (environment.RequiresReplacement(t, old.Execution.Asset, a, !reflect.DeepEqual(old.Execution.Interfaces, execution.Interfaces)) || old.Execution.Template.Version != t.Version || op.Kind == "rebuild" && (op.AssetID == nil || *op.AssetID == a.Id))
 			if !exists || replace {
 				if replace {
@@ -206,6 +210,12 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		}
 		for _, t := range current {
 			p.Old = append(p.Old, t)
+		}
+	}
+	storage := map[string]storageCandidate{}
+	if len(p.Targets)+len(p.Updates) > 0 {
+		if storage, err = w.storage(ctx, nodes); err != nil {
+			return err
 		}
 	}
 	// Requirements are immutable here; locks cover only fresh capacity and reservations.
@@ -233,6 +243,48 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	locked, err := q.LockNodes(ctx, ids)
 	if err != nil {
 		return err
+	}
+	diskUsed, diskCapacity := map[string]int64{}, map[string]int64{}
+	if len(storage) > 0 {
+		poolIDs := []string{}
+		for id, pool := range storage {
+			if id != defaultStorage(pool.node) {
+				poolIDs = append(poolIDs, id)
+			}
+		}
+		pools, err := q.LockStoragePools(ctx, poolIDs)
+		if err != nil {
+			return err
+		}
+		poolReady := map[string]bool{}
+		for _, pool := range pools {
+			poolReady[pool.ID] = pool.State == "ready"
+		}
+		for id, pool := range storage {
+			if id != defaultStorage(pool.node) {
+				pool.ready = poolReady[id]
+				storage[id] = pool
+			}
+		}
+		allocated, err := q.StorageReservations(ctx, ids)
+		if err != nil {
+			return err
+		}
+		for _, r := range allocated {
+			id := r.PoolID
+			if id == "" {
+				id = defaultStorage(r.NodeID)
+			}
+			if pool, ok := storage[id]; ok && pool.err == nil {
+				diskUsed[pool.filesystem()] += r.DiskGib
+			}
+		}
+		for _, pool := range storage {
+			if pool.err == nil {
+				key := pool.filesystem()
+				diskCapacity[key] = pool.info.CapacityBytes >> 30
+			}
+		}
 	}
 	capacity, used := map[string]api.Resources{}, map[string]api.Resources{}
 	reservations, err := q.GetNodeReservations(ctx, ids)
@@ -262,7 +314,8 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			capacity[n.ID] = override
 		}
 	}
-	for _, t := range p.Updates {
+	for i := range p.Updates {
+		t := &p.Updates[i]
 		old := findInstance(p.Before, t.Execution.InstanceId)
 		delta := resources(t.Execution.Asset)
 		before := resources(old.Execution.Asset)
@@ -273,6 +326,15 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if !fits(u, capacity[t.NodeID]) {
 			return fmt.Errorf("资产 %s 的节点容量不足", t.Execution.Asset.Name)
 		}
+		pool := storage[actualPool(t.NodeID, t.Execution)]
+		if pool.err != nil {
+			return fmt.Errorf("资产 %s 的存储不可用：%w", t.Execution.Asset.Name, pool.err)
+		}
+		if !pool.ready || diskUsed[pool.filesystem()]+delta.DiskGiB > diskCapacity[pool.filesystem()] {
+			return fmt.Errorf("资产 %s 的存储容量不足", t.Execution.Asset.Name)
+		}
+		diskUsed[pool.filesystem()] += delta.DiskGiB
+		assignStorage(&t.Execution, pool)
 		used[t.NodeID] = u
 	}
 	// Large requirements go first, then choose the lowest dominant utilization.
@@ -283,8 +345,31 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		t := &p.Targets[i]
 		requirement := resources(t.Execution.Asset)
 		best := ""
+		var bestPool storageCandidate
 		score := 2.0
+		preferred := ""
+		if t.Execution.Asset.StoragePoolId != nil {
+			preferred = *t.Execution.Asset.StoragePoolId
+		}
+		previousNode := ""
+		diskRequirement := requirement.DiskGiB
+		if t.Execution.PreviousInstanceId != nil {
+			old := findInstance(p.Before, *t.Execution.PreviousInstanceId)
+			preferred, previousNode = actualPool(old.NodeID, old.Execution), old.NodeID
+			if t.Execution.Asset.Volumes != nil && old.Execution.Asset.Volumes != nil {
+				for _, volume := range *t.Execution.Asset.Volumes {
+					for _, existing := range *old.Execution.Asset.Volumes {
+						if volume.Id == existing.Id {
+							diskRequirement -= min(volume.SizeGiB, existing.SizeGiB)
+						}
+					}
+				}
+			}
+		}
 		for _, n := range locked {
+			if previousNode != "" && n.ID != previousNode {
+				continue
+			}
 			c, ok := capacity[n.ID]
 			if !ok || !supports(infos[n.ID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
 				continue
@@ -293,24 +378,29 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			if !fits(u, c) {
 				continue
 			}
-			s := max(float64(u.Cpu)/float64(c.Cpu), float64(u.MemoryMiB)/float64(c.MemoryMiB), float64(u.DiskGiB)/float64(c.DiskGiB))
-			if s < score {
-				best, score = n.ID, s
+			for _, pool := range storage {
+				key := pool.filesystem()
+				if pool.node != n.ID || !pool.ready || pool.err != nil || preferred != "" && preferred != pool.id || diskUsed[key]+diskRequirement > diskCapacity[key] {
+					continue
+				}
+				s := max(float64(u.Cpu)/float64(c.Cpu), float64(u.MemoryMiB)/float64(c.MemoryMiB), float64(diskUsed[key]+diskRequirement)/float64(diskCapacity[key]), 1-float64(pool.info.AvailableBytes)/float64(pool.info.CapacityBytes))
+				if s < score || s == score && pool.id < bestPool.id {
+					best, bestPool, score = n.ID, pool, s
+				}
 			}
 		}
 		if best == "" {
-			return fmt.Errorf("没有节点可承载资产 %s（%d 核，%d MiB，%d GiB）", t.Execution.Asset.Name, requirement.Cpu, requirement.MemoryMiB, requirement.DiskGiB)
-		}
-		// Replacement keeps shared local volumes on their owning node.
-		if t.Execution.PreviousInstanceId != nil && t.Execution.Asset.Volumes != nil && len(*t.Execution.Asset.Volumes) > 0 {
-			old := findInstance(p.Before, *t.Execution.PreviousInstanceId)
-			c, ok := capacity[old.NodeID]
-			if !ok || !fits(add(used[old.NodeID], requirement), c) || !supports(infos[old.NodeID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
-				return fmt.Errorf("资产 %s 的数据卷所在节点容量不足", t.Execution.Asset.Name)
+			failures := []string{}
+			for _, pool := range storage {
+				if pool.err != nil {
+					failures = append(failures, pool.err.Error())
+				}
 			}
-			best = old.NodeID
+			return fmt.Errorf("没有节点可承载资产 %s（%d 核，%d MiB，%d GiB）%s", t.Execution.Asset.Name, requirement.Cpu, requirement.MemoryMiB, requirement.DiskGiB, strings.Join(failures, "；"))
 		}
 		t.NodeID = best
+		assignStorage(&t.Execution, bestPool)
+		diskUsed[bestPool.filesystem()] += diskRequirement
 		used[best] = add(used[best], requirement)
 	}
 	if !serviceOnly {
@@ -372,7 +462,7 @@ func add(a, b api.Resources) api.Resources {
 	return api.Resources{Cpu: a.Cpu + b.Cpu, MemoryMiB: a.MemoryMiB + b.MemoryMiB, DiskGiB: a.DiskGiB + b.DiskGiB}
 }
 func fits(a, b api.Resources) bool {
-	return a.Cpu <= b.Cpu && a.MemoryMiB <= b.MemoryMiB && a.DiskGiB <= b.DiskGiB
+	return a.Cpu <= b.Cpu && a.MemoryMiB <= b.MemoryMiB
 }
 func findInstance(targets []Target, id string) Target {
 	for _, t := range targets {

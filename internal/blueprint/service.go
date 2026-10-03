@@ -137,7 +137,7 @@ func (s Service) Save(ctx context.Context, identity access.Identity, environment
 	if int(source.Revision) != expectedRevision {
 		return api.Blueprint{}, api.BlueprintVersion{}, environment.ErrConflict
 	}
-	if err = environment.ReferenceTemplates(ctx, q, spec.Assets); err != nil {
+	if err = environment.ReferenceResources(ctx, q, spec.Assets); err != nil {
 		return api.Blueprint{}, api.BlueprintVersion{}, err
 	}
 	if blueprintID == "" {

@@ -1,9 +1,10 @@
-import { Button, Modal, TextInput } from "@mantine/core";
+import { Button, Drawer, Modal, TextInput } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@mantine/hooks";
 import { Cpu, Plus, Search, Server } from "lucide-react";
 import { useState } from "react";
-import { api } from "../../api/client";
+import { api, type Node } from "../../api/client";
+import { StoragePanel } from "./StoragePanel";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime, memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
@@ -20,6 +21,7 @@ export function NodesPage() {
     { refetchInterval: 15_000 },
   );
   const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<Node>();
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const register = useMutation({
@@ -76,7 +78,10 @@ export function NodesPage() {
               {items.map((node) => (
                 <tr key={node.id}>
                   <td>
-                    <div className="object-link">
+                    <button
+                      className="object-link text-link"
+                      onClick={() => setSelected(node)}
+                    >
                       <span className="object-symbol">
                         <Server size={20} />
                       </span>
@@ -86,7 +91,7 @@ export function NodesPage() {
                           {dateTime(node.observedAt)}
                         </span>
                       </span>
-                    </div>
+                    </button>
                   </td>
                   <td>
                     <Capacity
@@ -143,6 +148,16 @@ export function NodesPage() {
         )
       )}
       <LoadMore list={nodes} />
+      <Drawer
+        opened={Boolean(selected)}
+        onClose={() => setSelected(undefined)}
+        title={selected?.name}
+        position="right"
+        size={680}
+        closeButtonProps={{ "aria-label": "关闭节点" }}
+      >
+        {selected && <StoragePanel node={selected} />}
+      </Drawer>
       <Modal
         opened={adding}
         onClose={() => setAdding(false)}
