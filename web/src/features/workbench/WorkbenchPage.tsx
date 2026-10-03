@@ -937,6 +937,13 @@ export function WorkbenchPage() {
             allowsProject(identity.data, "compose", environment.projectId)
           }
           canCapture={["running", "stopped", "suspended"].includes(status)}
+          canCaptureMemory={environment.spec.assets.some(
+            (asset) =>
+              templatesById.get(asset.templateId)?.kind === "vm" &&
+              ["running", "suspended"].includes(
+                assetStates.get(asset.id) ?? "",
+              ),
+          )}
           onClose={() => setRecoveryOpened(false)}
         />
       )}

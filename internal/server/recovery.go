@@ -31,7 +31,7 @@ func (s *Server) listRecoveryPoints(w http.ResponseWriter, r *http.Request, iden
 	result := make([]api.RecoveryPointSummary, 0, len(rows))
 	for _, row := range rows {
 		item := api.RecoveryPointSummary{Id: row.ID, EnvironmentId: id, Name: row.Name, Revision: int(row.Revision), State: api.RecoveryPointSummaryState(row.State),
-			AssetCount: int(row.AssetCount), SizeBytes: row.SizeBytes, OperationId: &row.OperationID, Error: row.Error, CreatedAt: row.CreatedAt.Time}
+			AssetCount: int(row.AssetCount), MemoryAssetCount: int(row.MemoryAssetCount), SizeBytes: row.SizeBytes, OperationId: &row.OperationID, Error: row.Error, CreatedAt: row.CreatedAt.Time}
 		if row.State == "ready" {
 			consistency := api.Crash
 			item.Consistency = &consistency
@@ -70,7 +70,7 @@ func (s *Server) captureRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 	if row.Status != "running" && row.Status != "stopped" && row.Status != "suspended" {
 		return environment.Invalid("请等待环境进入稳定运行状态")
 	}
-	recovery := operation.Recovery{ID: uuid.NewString(), EnvironmentID: id, Assets: []operation.Target{}}
+	recovery := operation.Recovery{ID: uuid.NewString(), EnvironmentID: id, Assets: []operation.Target{}, IncludeMemory: input.IncludeMemory}
 	if err = json.Unmarshal(row.AppliedSpec, &recovery.Spec); err != nil {
 		return err
 	}

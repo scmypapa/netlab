@@ -140,10 +140,6 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 	if len(config.Devices.Interfaces) > 0 {
 		hardware.NicModel = api.HardwareNicModel(config.Devices.Interfaces[0].Model.Type)
 	}
-	hardware.CpuModel = ptr(config.CPU.Mode)
-	if config.CPU.Model != nil {
-		hardware.CpuModel = ptr(config.CPU.Model.Value)
-	}
 	execution.Template.Hardware = &hardware
 	execution.Asset.Resources.Cpu = int(config.VCPU.Value)
 	info, err := domain.GetInfo()

@@ -18,6 +18,7 @@ type Recovery struct {
 	Spec          api.EnvironmentSpec `json:"spec"`
 	Assets        []Target            `json:"assets"`
 	Bytes         int64               `json:"bytes"`
+	IncludeMemory bool                `json:"includeMemory,omitempty"`
 }
 
 func restoresData(kind string) bool { return kind == "restore-recovery" || kind == "clone-recovery" }

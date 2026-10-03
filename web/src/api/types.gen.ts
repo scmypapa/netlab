@@ -1452,6 +1452,7 @@ export interface components {
         | "rollback-recovery"
         | "cleanup-recovery";
       recoveryPointId?: string;
+      includeMemory?: boolean;
       recoverySources?: {
         [key: string]: components["schemas"]["NodeRecoverySource"];
       };
@@ -1499,6 +1500,7 @@ export interface components {
     CaptureRecoveryPoint: {
       name: string;
       expectedRevision: number;
+      includeMemory?: boolean;
     };
     RestoreRecoveryPoint: {
       expectedRevision: number;
@@ -1633,6 +1635,7 @@ export interface components {
       sizeBytes: number;
       /** @enum {string} */
       consistency?: "crash" | "filesystem" | "application";
+      memoryAssetCount?: number;
       operationId?: string;
       error?: string;
       /** Format: date-time */

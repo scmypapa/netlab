@@ -36,13 +36,14 @@ type recoveryManifest struct {
 	Disks         []recoveryDisk     `json:"disks,omitempty"`
 	Volumes       []api.Volume       `json:"volumes,omitempty"`
 	Bytes         int64              `json:"bytes"`
+	Memory        bool               `json:"memory,omitempty"`
 }
 
 func recoveryDirectory(data, point string, a api.AssetExecution) string {
 	return filepath.Join(storageRoot(data, a), "recovery-points", point, a.Asset.Id)
 }
 
-func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.AssetExecution) (int64, error) {
+func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.AssetExecution, includeMemory bool) (int64, error) {
 	directory := recoveryDirectory(e.cfg.DataDir, point, a)
 	manifestPath := filepath.Join(directory, "manifest.json")
 	if raw, err := os.ReadFile(manifestPath); err == nil {
@@ -73,7 +74,7 @@ func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.A
 		if e.vm == nil {
 			return 0, errors.New("virtual machine runtime not configured")
 		}
-		err = e.vm.captureRecovery(ctx, env, a, staging, &manifest)
+		err = e.vm.captureRecovery(ctx, env, a, staging, &manifest, includeMemory)
 	case api.Container:
 		if e.container == nil {
 			return 0, errors.New("container runtime not configured")
@@ -110,7 +111,7 @@ func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.A
 	return manifest.Bytes, nil
 }
 
-func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api.AssetExecution, directory string, manifest *recoveryManifest) error {
+func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api.AssetExecution, directory string, manifest *recoveryManifest, includeMemory bool) error {
 	domain, err := v.conn.LookupDomainByUUIDString(a.InstanceId)
 	if err != nil {
 		return err
@@ -136,6 +137,12 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 	}
 	if err = os.WriteFile(filepath.Join(directory, "domain.xml"), []byte(text), 0600); err != nil {
 		return err
+	}
+	if includeMemory && state == "suspended" {
+		if err = captureRecoveryMemory(domain, filepath.Join(directory, "memory.save"), config.Devices.Disks); err != nil {
+			return err
+		}
+		manifest.Memory = true
 	}
 	backupDisks := []libvirtxml.DomainBackupPushDisk{}
 	for _, disk := range config.Devices.Disks {
@@ -237,6 +244,22 @@ func (c *Containers) captureRecovery(ctx context.Context, env, point string, a a
 		}
 	}
 	return nil
+}
+
+func captureRecoveryMemory(domain *libvirt.Domain, path string, disks []libvirtxml.DomainDisk) error {
+	plan := libvirtxml.DomainSnapshot{Memory: &libvirtxml.DomainSnapshotMemory{Snapshot: "external", File: path}, Disks: &libvirtxml.DomainSnapshotDisks{}}
+	for _, disk := range disks {
+		plan.Disks.Disks = append(plan.Disks.Disks, libvirtxml.DomainSnapshotDisk{Name: disk.Target.Dev, Snapshot: "no"})
+	}
+	text, err := plan.Marshal()
+	if err != nil {
+		return err
+	}
+	snapshot, err := domain.CreateSnapshotXML(text, libvirt.DOMAIN_SNAPSHOT_CREATE_NO_METADATA)
+	if err != nil {
+		return err
+	}
+	return snapshot.Free()
 }
 
 func backupRecoveryDisks(ctx context.Context, domain *libvirt.Domain, disks []libvirtxml.DomainBackupPushDisk) error {

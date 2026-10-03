@@ -212,6 +212,14 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	if err != nil {
 		return err
 	}
+	restoreMemory := manifest.Memory && a.InstanceId == manifest.Execution.InstanceId
+	if restoreMemory {
+		text, err := v.conn.DomainSaveImageGetXMLDesc(filepath.Join(input, "memory.save"), 0)
+		if err != nil {
+			return err
+		}
+		raw = []byte(text)
+	}
 	var domain libvirtxml.Domain
 	if err = domain.Unmarshal(string(raw)); err != nil {
 		return err
@@ -250,7 +258,11 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 			disk.Source.File.File = filepath.Join(directory, filepath.Base(disk.Source.File.File))
 		}
 	}
-	for _, name := range []string{"nvram.fd", "tpm.tar", "initialization.iso"} {
+	files := []string{"nvram.fd", "tpm.tar", "initialization.iso"}
+	if restoreMemory {
+		files = append(files, "memory.save")
+	}
+	for _, name := range files {
 		if err = os.Rename(filepath.Join(input, name), filepath.Join(staging, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -289,7 +301,9 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 		return err
 	}
 	domain.Metadata = &libvirtxml.DomainMetadata{XML: string(metadata)}
-	domain.GenID = &libvirtxml.DomainGenID{Value: uuid.NewString()}
+	if !restoreMemory {
+		domain.GenID = &libvirtxml.DomainGenID{Value: uuid.NewString()}
+	}
 	config, err := domain.Marshal()
 	if err != nil {
 		return err
@@ -394,7 +408,7 @@ func (v *VirtualMachines) applyRecovery(ctx context.Context, env string, a api.A
 			return "unknown", err
 		}
 		if observed.DataSetId == a.DataSetId {
-			return vmState(domain)
+			return v.restoreRecoveryMemory(domain, directory)
 		}
 		state, err := vmState(domain)
 		if err != nil || state != "stopped" {
@@ -435,6 +449,52 @@ func (v *VirtualMachines) applyRecovery(ctx context.Context, env string, a api.A
 		return "stopped", err
 	}
 	defer domain.Free()
+	return v.restoreRecoveryMemory(domain, directory)
+}
+
+func (v *VirtualMachines) restoreRecoveryMemory(domain *libvirt.Domain, directory string) (string, error) {
+	state, err := vmState(domain)
+	if err != nil {
+		return state, err
+	}
+	path := filepath.Join(directory, "memory.save")
+	if _, err = os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return state, nil
+	} else if err != nil {
+		return state, err
+	}
+	text, err := os.ReadFile(filepath.Join(directory, "domain.xml"))
+	if err != nil {
+		return state, err
+	}
+	if state == "stopped" {
+		if err = v.conn.DomainRestoreFlags(path, string(text), libvirt.DOMAIN_SAVE_PAUSED); err != nil {
+			return state, err
+		}
+	}
+	var configured, active libvirtxml.Domain
+	if err = configured.Unmarshal(string(text)); err != nil {
+		return state, err
+	}
+	actual, err := domain.GetXMLDesc(0)
+	if err != nil {
+		return state, err
+	}
+	if err = active.Unmarshal(actual); err != nil {
+		return state, err
+	}
+	configured.GenID = active.GenID
+	persistent, err := configured.Marshal()
+	if err != nil {
+		return state, err
+	}
+	defined, err := v.conn.DomainDefineXML(persistent)
+	if err != nil {
+		return state, err
+	}
+	if err = defined.Free(); err != nil {
+		return state, err
+	}
 	return vmState(domain)
 }
 

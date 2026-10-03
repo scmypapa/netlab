@@ -22,17 +22,19 @@ import (
 	"libvirt.org/go/libvirtxml"
 )
 
-func TestRealRecoveryPreservesExternalBackup(t *testing.T) {
-	if os.Getenv("NETLAB_REAL_BACKUP_JOB") == "" {
-		t.Skip("set NETLAB_REAL_BACKUP_JOB to exercise native libvirt backup jobs")
-	}
+func recoveryTestVM(t *testing.T) (context.Context, *libvirt.Connect, *libvirt.Domain, string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	directory, err := os.MkdirTemp(os.TempDir(), "backup-job-")
+	t.Cleanup(cancel)
+	directory, err := os.MkdirTemp(os.TempDir(), "recovery-job-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(directory)
+	t.Cleanup(func() {
+		if err := os.RemoveAll(directory); err != nil {
+			t.Error(err)
+		}
+	})
 	if err = os.Chmod(directory, 0777); err != nil {
 		t.Fatal(err)
 	}
@@ -44,18 +46,42 @@ func TestRealRecoveryPreservesExternalBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer connection.Close()
-	config := "<domain type='kvm'><name>netlab-backup-job-" + uuid.NewString() + "</name><memory unit='MiB'>128</memory><vcpu>1</vcpu><os><type arch='x86_64'>hvm</type></os><devices><disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='" + disk + "'/><target dev='vda' bus='virtio'/></disk></devices></domain>"
-	domain, err := connection.DomainCreateXML(config, libvirt.DOMAIN_START_PAUSED)
+	t.Cleanup(func() {
+		if _, err := connection.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	config := "<domain type='kvm'><name>netlab-recovery-job-" + uuid.NewString() + "</name><genid>" + uuid.NewString() + "</genid><memory unit='MiB'>128</memory><vcpu>1</vcpu><os><type arch='x86_64'>hvm</type></os><devices><disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='" + disk + "'/><target dev='vda' bus='virtio'/></disk></devices></domain>"
+	domain, err := connection.DomainDefineXML(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer domain.Free()
-	defer func() {
-		if err := domain.Destroy(); err != nil {
+	t.Cleanup(func() {
+		if active, err := domain.IsActive(); err != nil {
+			t.Error(err)
+		} else if active {
+			if err = domain.Destroy(); err != nil {
+				t.Error(err)
+			}
+		}
+		if err := domain.Undefine(); err != nil {
 			t.Error(err)
 		}
-	}()
+		if err := domain.Free(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err = domain.CreateWithFlags(libvirt.DOMAIN_START_PAUSED); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, connection, domain, directory
+}
+
+func TestRealRecoveryPreservesExternalBackup(t *testing.T) {
+	if os.Getenv("NETLAB_REAL_BACKUP_JOB") == "" {
+		t.Skip("set NETLAB_REAL_BACKUP_JOB to exercise native libvirt backup jobs")
+	}
+	ctx, _, domain, directory := recoveryTestVM(t)
 	backup := libvirtxml.DomainBackup{Pull: &libvirtxml.DomainBackupPull{
 		Server: &libvirtxml.DomainBackupPullServer{UNIX: &libvirtxml.DomainBackupPullServerUNIX{Socket: filepath.Join(directory, "backup.sock")}},
 		Disks:  &libvirtxml.DomainBackupPullDisks{Disks: []libvirtxml.DomainBackupPullDisk{{Name: "vda", Backup: "yes", Scratch: &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: filepath.Join(directory, "scratch.qcow2")}}}}},
@@ -83,6 +109,100 @@ func TestRealRecoveryPreservesExternalBackup(t *testing.T) {
 	after, err := domain.BackupGetXMLDesc(0)
 	if err != nil || after != before {
 		t.Fatalf("external backup was changed: %v", err)
+	}
+}
+
+func TestRealRecoveryMemoryNative(t *testing.T) {
+	if os.Getenv("NETLAB_REAL_MEMORY") == "" {
+		t.Skip("set NETLAB_REAL_MEMORY to exercise native VM memory snapshots")
+	}
+	ctx, connection, domain, directory := recoveryTestVM(t)
+	disk := filepath.Join(directory, "source.qcow2")
+	initial, err := domain.GetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory := filepath.Join(directory, "memory.save")
+	xml, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var definition libvirtxml.Domain
+	if err = definition.Unmarshal(xml); err != nil {
+		t.Fatal(err)
+	}
+	if err = captureRecoveryMemory(domain, memory, definition.Devices.Disks); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := vmState(domain); err != nil || state != "suspended" {
+		t.Fatalf("capture resumed the guest: %s %v", state, err)
+	}
+	actual, err := domain.GetID()
+	if err != nil || actual != initial {
+		t.Fatalf("memory capture changed native instance: %d -> %d: %v", initial, actual, err)
+	}
+	xml, err = connection.DomainSaveImageGetXMLDesc(memory, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = domain.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(directory, "restored.qcow2")
+	if err = copyArtifact(ctx, disk, target); err != nil {
+		t.Fatal(err)
+	}
+	var restored libvirtxml.Domain
+	if err = restored.Unmarshal(xml); err != nil {
+		t.Fatal(err)
+	}
+	restored.Devices.Disks[0].Source.File.File = target
+	generation := restored.GenID.Value
+	xml, err = restored.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(directory, "domain.xml"), []byte(xml), 0600); err != nil {
+		t.Fatal(err)
+	}
+	virtual := VirtualMachines{conn: connection}
+	state, err := virtual.restoreRecoveryMemory(domain, directory)
+	if err != nil || state != "suspended" {
+		t.Fatalf("memory restore did not preserve paused state: %s %v", state, err)
+	}
+	xml, err = domain.GetXMLDesc(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.Unmarshal(xml); err != nil {
+		t.Fatal(err)
+	}
+	if restored.GenID.Value == generation {
+		t.Fatal("memory restore did not advance VM generation ID")
+	}
+	generation = restored.GenID.Value
+	xml, err = domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.Unmarshal(xml); err != nil || restored.GenID.Value != generation {
+		t.Fatalf("persistent generation differs from running guest: %v", err)
+	}
+	restoredDomain, err := connection.LookupDomainByName(restored.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoredDomain.Free()
+	initial, err = restoredDomain.GetID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = virtual.restoreRecoveryMemory(restoredDomain, directory); err != nil {
+		t.Fatal(err)
+	}
+	actual, err = restoredDomain.GetID()
+	if err != nil || actual != initial {
+		t.Fatalf("retry restarted restored memory: %d -> %d: %v", initial, actual, err)
 	}
 }
 

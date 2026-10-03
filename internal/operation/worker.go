@@ -387,6 +387,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 			plan := api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts}
 			if p.Recovery != nil {
 				plan.RecoveryPointId = &p.Recovery.ID
+				plan.IncludeMemory = p.Recovery.IncludeMemory
 				plan.RecoverySources = &recoverySources
 			}
 			result, err := w.Client.Execute(ctx, endpoints[id], plan)

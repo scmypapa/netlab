@@ -40,6 +40,7 @@ export function RecoveryDrawer({
   canManage,
   canClone,
   canCapture,
+  canCaptureMemory,
   onClose,
 }: {
   id: string;
@@ -49,12 +50,14 @@ export function RecoveryDrawer({
   canManage: boolean;
   canClone: boolean;
   canCapture: boolean;
+  canCaptureMemory: boolean;
   onClose: () => void;
 }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [includeMemory, setIncludeMemory] = useState(false);
   const [section, setSection] = useState("points");
   const [removing, setRemoving] = useState<RecoveryItem>();
   const [restoring, setRestoring] = useState<RecoveryItem>();
@@ -106,7 +109,11 @@ export function RecoveryDrawer({
   };
   const capture = useMutation({
     mutationFn: () =>
-      api.captureRecoveryPoint(id, { name, expectedRevision: revision }),
+      api.captureRecoveryPoint(id, {
+        name,
+        expectedRevision: revision,
+        includeMemory,
+      }),
     onSuccess: () => {
       setCreating(false);
       refresh();
@@ -216,6 +223,10 @@ export function RecoveryDrawer({
                     {point.kind === "point" && (
                       <span>{point.assetCount} 个资产</span>
                     )}
+                    {point.kind === "point" &&
+                      (point.memoryAssetCount ?? 0) > 0 && (
+                        <span>含 {point.memoryAssetCount} 台虚拟机内存</span>
+                      )}
                     {point.state === "ready" && (
                       <span>
                         {new Intl.NumberFormat("zh-CN", {
@@ -331,6 +342,15 @@ export function RecoveryDrawer({
             required
           />
           <p>捕获期间资产暂停，完成后恢复原状态。</p>
+          {canCaptureMemory && (
+            <Checkbox
+              label="保存虚拟机内存"
+              checked={includeMemory}
+              onChange={(event) =>
+                setIncludeMemory(event.currentTarget.checked)
+              }
+            />
+          )}
           <div className="dialog-actions">
             <Button variant="default" onClick={() => setCreating(false)}>
               取消

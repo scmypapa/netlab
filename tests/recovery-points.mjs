@@ -10,6 +10,7 @@ const execute = promisify(execFile),
   run = randomUUID(),
   base = "http://127.0.0.1:8090",
   second = "http://127.0.0.1:8091";
+const includeMemory = process.env.NETLAB_RECOVERY_MEMORY === "1";
 const workers = new Map(
   JSON.parse(
     await readFile(
@@ -523,7 +524,11 @@ try {
     point = await api(
       `/environments/${environment.id}/recovery-points`,
       "POST",
-      { name: `Before change ${run}`, expectedRevision: before.revision },
+      {
+        name: `Before change ${run}`,
+        expectedRevision: before.revision,
+        includeMemory,
+      },
       201,
     );
     const failed = await operation(point.operationId, "failed");
@@ -561,6 +566,7 @@ try {
     report.point = point;
     assert.equal(point.state, "ready");
     assert.equal(point.assetCount, 4);
+    assert.equal(point.memoryAssetCount ?? 0, includeMemory ? 2 : 0);
     assert(point.sizeBytes > 0);
     const after = await api(`/environments/${environment.id}/state`);
     assert.equal(after.revision, before.revision);
@@ -586,6 +592,12 @@ try {
           );
         assert.equal(manifest.execution.instanceId, actual.instanceId);
         assert.equal(manifest.environmentId, environment.id);
+        assert.equal(
+          Boolean(manifest.memory),
+          includeMemory && manifest.execution.template.kind === "vm",
+        );
+        if (manifest.memory)
+          await node(actual.nodeId, "test", "-s", `${directory}/memory.save`);
         if (manifest.execution.template.kind === "container") {
           if (actual.state === "suspended")
             await action("resume", actual.assetId);

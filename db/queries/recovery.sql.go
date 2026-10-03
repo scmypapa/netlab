@@ -91,7 +91,11 @@ func (q *Queries) GetRecoveryPoint(ctx context.Context, id string) (RecoveryPoin
 }
 
 const listRecoveryPoints = `-- name: ListRecoveryPoints :many
-SELECT p.id,p.environment_id,p.name,p.revision,p.state,p.asset_count,p.size_bytes,p.operation_id,p.created_at,o.error
+SELECT p.id,p.environment_id,p.name,p.revision,p.state,p.asset_count,p.size_bytes,p.operation_id,p.created_at,o.error,
+CASE WHEN p.state='ready' AND p.definition->>'includeMemory'='true' THEN
+  (SELECT count(*)::int FROM jsonb_array_elements(p.definition->'assets') a
+   WHERE a->'execution'->'template'->>'kind'='vm' AND a->>'state' IN ('running','suspended'))
+ELSE 0 END::int AS memory_asset_count
 FROM recovery_points p JOIN operations o ON o.id=p.operation_id
 WHERE p.environment_id=$1
 AND ($2::text='' OR (p.created_at,p.id)<(SELECT created_at,id FROM recovery_points WHERE id=$2))
@@ -105,16 +109,17 @@ type ListRecoveryPointsParams struct {
 }
 
 type ListRecoveryPointsRow struct {
-	ID            string
-	EnvironmentID string
-	Name          string
-	Revision      int32
-	State         string
-	AssetCount    int32
-	SizeBytes     int64
-	OperationID   string
-	CreatedAt     pgtype.Timestamptz
-	Error         *string
+	ID               string
+	EnvironmentID    string
+	Name             string
+	Revision         int32
+	State            string
+	AssetCount       int32
+	SizeBytes        int64
+	OperationID      string
+	CreatedAt        pgtype.Timestamptz
+	Error            *string
+	MemoryAssetCount int32
 }
 
 func (q *Queries) ListRecoveryPoints(ctx context.Context, arg ListRecoveryPointsParams) ([]ListRecoveryPointsRow, error) {
@@ -137,6 +142,7 @@ func (q *Queries) ListRecoveryPoints(ctx context.Context, arg ListRecoveryPoints
 			&i.OperationID,
 			&i.CreatedAt,
 			&i.Error,
+			&i.MemoryAssetCount,
 		); err != nil {
 			return nil, err
 		}

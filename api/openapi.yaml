@@ -1005,6 +1005,7 @@ components:
         environmentId: {type: string}
         phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect, capture-recovery, delete-recovery, prepare-recovery, apply-recovery, rollback-recovery, cleanup-recovery]}
         recoveryPointId: {type: string}
+        includeMemory: {type: boolean, x-go-type-skip-optional-pointer: true}
         recoverySources: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeRecoverySource'}}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
@@ -1054,6 +1055,7 @@ components:
       properties:
         name: {type: string}
         expectedRevision: {type: integer, minimum: 0}
+        includeMemory: {type: boolean, x-go-type-skip-optional-pointer: true}
     RestoreRecoveryPoint:
       type: object
       required: [expectedRevision]
@@ -1193,6 +1195,7 @@ components:
         assetCount: {type: integer}
         sizeBytes: {type: integer, format: int64}
         consistency: {type: string, enum: [crash, filesystem, application]}
+        memoryAssetCount: {type: integer, minimum: 0, x-go-type-skip-optional-pointer: true}
         operationId: {type: string}
         error: {type: string}
         createdAt: {type: string, format: date-time}
