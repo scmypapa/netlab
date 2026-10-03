@@ -49,7 +49,7 @@ WITH candidate AS (
  FROM candidate c WHERE o.id=c.id RETURNING o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id
 ), active AS (
  UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
- FROM claimed c WHERE e.id=c.environment_id RETURNING e.id
+ FROM claimed c WHERE e.id=c.environment_id AND c.scope_kind='environment' RETURNING e.id
 )
 SELECT claimed.id, claimed.environment_id, claimed.scope_kind, claimed.scope_id, claimed.kind, claimed.asset_id, claimed.state, claimed.phase, claimed.payload, claimed.results, claimed.error, claimed.expected_revision, claimed.lease_owner, claimed.lease_until, claimed.created_at, claimed.updated_at, claimed.client_request_id FROM claimed
 `
@@ -1067,8 +1067,11 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]Template, error) {
 }
 
 const listVisibleOperations = `-- name: ListVisibleOperations :many
-SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id,COALESCE(e.project_id,'')::text AS project_id,e.owner_id,e.operation_id AS current_operation_id
+SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id,COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
+ COALESCE(CASE o.scope_kind WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
 FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
+LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
 WHERE ($1::text='' OR o.environment_id=$1)
 AND ($2::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=$2))
 AND ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS
@@ -1094,7 +1097,7 @@ type ListVisibleOperationsRow struct {
 	Operation          Operation
 	ProjectID          string
 	OwnerID            *string
-	CurrentOperationID *string
+	CurrentOperationID string
 }
 
 func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOperationsParams) ([]ListVisibleOperationsRow, error) {
@@ -1703,6 +1706,10 @@ WHERE v.spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object
 UNION
 SELECT '恢复点：'||p.name FROM recovery_points p
 CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a(value)
+WHERE a.value->'execution'->'template'->>'id'=$1
+UNION
+SELECT '备份：'||b.name FROM backups b
+CROSS JOIN LATERAL jsonb_array_elements(b.definition->'recovery'->'assets') a(value)
 WHERE a.value->'execution'->'template'->>'id'=$1
 UNION
 SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id

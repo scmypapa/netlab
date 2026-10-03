@@ -229,7 +229,7 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 		return api.Environment{}, err
 	}
 	spec := source.Spec
-	if source.Recovery == nil {
+	if source.Definition == nil {
 		templates, err := Templates(ctx, s.Queries, spec.Assets)
 		if err != nil {
 			return api.Environment{}, err
@@ -256,6 +256,15 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
 	var owner *string
+	if source.Backup != nil {
+		backup, err := q.LockBackup(ctx, source.Backup.ID)
+		if err != nil {
+			return api.Environment{}, err
+		}
+		if backup.State != "ready" {
+			return api.Environment{}, Invalid("备份尚不可用")
+		}
+	}
 	if request.BlueprintVersionId != nil {
 		if _, err = q.LockBlueprintVersion(ctx, *request.BlueprintVersionId); err != nil {
 			return api.Environment{}, err
@@ -296,7 +305,7 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 		}
 		row.BlueprintVersionID = request.BlueprintVersionId
 	}
-	if request.BlueprintVersionId != nil || source.Recovery != nil {
+	if request.BlueprintVersionId != nil || source.Definition != nil {
 		row.View, err = json.Marshal(source.View)
 		if err != nil {
 			return api.Environment{}, err
@@ -305,15 +314,16 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, err
 		}
 	}
-	if source.Recovery != nil || request.Run != nil && *request.Run {
+	if source.Definition != nil || request.Run != nil && *request.Run {
 		var op queries.Operation
 		var createErr error
-		if source.Recovery != nil {
+		if source.Definition != nil {
 			payload, err := json.Marshal(struct {
 				Spec     api.EnvironmentSpec `json:"spec"`
 				Recovery json.RawMessage     `json:"recovery"`
 				Run      bool                `json:"run"`
-			}{spec, source.Recovery.Definition, request.Run != nil && *request.Run})
+				BackupID *string             `json:"backupId,omitempty"`
+			}{spec, source.Definition, request.Run != nil && *request.Run, request.BackupId})
 			if err != nil {
 				return api.Environment{}, err
 			}

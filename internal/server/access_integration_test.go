@@ -401,6 +401,7 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		}
 	})
 	testTemplateLifecycleAPI(t, ctx, pool, s, admin, call)
-	testStoragePoolsAPI(t,ctx,s,admin,call)
-	testRecoveryAPI(t,ctx,s,admin,call)
+	testStoragePoolsAPI(t, ctx, s, admin, call)
+	testRecoveryAPI(t, ctx, s, admin, call)
+	testBackupsAPI(t, ctx, s, admin, call)
 }

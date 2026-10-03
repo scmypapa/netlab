@@ -10,6 +10,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Backup struct {
+	ID            string
+	EnvironmentID string
+	RepositoryID  string
+	Name          string
+	Definition    []byte
+	Result        []byte
+	SizeBytes     int64
+	State         string
+	OperationID   string
+	CreatedAt     pgtype.Timestamptz
+}
+
+type BackupRepository struct {
+	ID          string
+	NodeID      string
+	Name        string
+	Location    string
+	Credentials []byte
+	NativeID    *string
+	State       string
+	OperationID *string
+	CreatedAt   pgtype.Timestamptz
+}
+
 type Blueprint struct {
 	ID        string
 	ProjectID string

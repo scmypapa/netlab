@@ -30,6 +30,7 @@ const phaseLabels: Record<string, string> = {
   destroy: "销毁资产",
   queued: "等待执行",
   running: "执行中",
+  "backup-complete": "备份完成",
 };
 
 export function TaskTray({
@@ -49,7 +50,10 @@ export function TaskTray({
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
-  const latest = operation ?? operations[0];
+  const latest =
+    operation && ["queued", "running"].includes(operation.state)
+      ? operation
+      : (operations[0] ?? operation);
   const shown = operations.find((item) => item.id === selected) ?? latest;
   return (
     <section className={`task-tray ${open ? "is-open" : ""}`}>
@@ -70,11 +74,13 @@ export function TaskTray({
           )}
         </span>
         <span>
-          {latest && ["running", "queued"].includes(latest.state) && (
-            <span className="task-progress">
-              {latest.completed} / {latest.total}
-            </span>
-          )}
+          {latest &&
+            latest.total > 0 &&
+            ["running", "queued"].includes(latest.state) && (
+              <span className="task-progress">
+                {latest.completed} / {latest.total}
+              </span>
+            )}
           {open ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
         </span>
       </button>

@@ -29,6 +29,10 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
+	BackupID            *string                    `json:"backupId,omitempty"`
+	BackupInitialize    bool                       `json:"backupInitialize,omitempty"`
+	BackupNativeID      *string                    `json:"backupNativeId,omitempty"`
+	BackupResult        *api.NodeBackupResult      `json:"backupResult,omitempty"`
 	Recovery            *Recovery                  `json:"recovery,omitempty"`
 	Run                 bool                       `json:"run,omitempty"`
 	StoragePool         *api.CreateStoragePool     `json:"storagePool,omitempty"`
@@ -133,6 +137,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			err = w.deleteTemplate(ctx, &op, &payload)
 		} else if op.Kind == "delete-storage-pool" {
 			err = w.deleteStoragePool(ctx, &op, &payload)
+		} else if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
+			err = w.backup(ctx, &op, &payload)
 		} else if op.Kind == "capture-recovery" || op.Kind == "delete-recovery" {
 			err = w.recovery(ctx, &op, &payload)
 			results = payload.Results
@@ -185,6 +191,12 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
+	if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
+		if dbErr = w.finishBackup(ctx, q, op, &payload, err); dbErr != nil {
+			slog.Error("backup completion", "error", dbErr)
+			return
+		}
+	}
 	if op.Kind == "capture-recovery" || op.Kind == "delete-recovery" {
 		if dbErr = w.finishRecovery(ctx, q, op, &payload, err); dbErr != nil {
 			slog.Error("recovery completion", "error", dbErr)
@@ -310,7 +322,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 		return []api.ExecutionResult{}, nil
 	}
 	artifacts := map[string]string{}
-	if phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery {
+	if phase == api.NodePlanPhasePrepare {
 		for _, target := range targets {
 			if origin := target.Execution.Template.ArtifactNodeId; origin != nil {
 				artifacts[*origin] = ""
@@ -334,20 +346,10 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	grouped := map[string][]api.AssetExecution{}
 	recoverySources := map[string]api.NodeRecoverySource{}
 	if phase == api.NodePlanPhasePrepareRecovery {
-		ids := []string{}
-		for _, source := range p.Recovery.Assets {
-			ids = append(ids, source.NodeID)
-		}
-		rows, err := w.Queries.GetNodeEndpoints(ctx, ids)
+		var err error
+		recoverySources, err = w.recoverySources(ctx, p)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", errPersistence, err)
-		}
-		origins := map[string]string{}
-		for _, row := range rows {
-			origins[row.ID] = row.Endpoint
-		}
-		for _, source := range p.Recovery.Assets {
-			recoverySources[source.Execution.Asset.Id] = api.NodeRecoverySource{EnvironmentId: p.Recovery.EnvironmentID, NodeId: source.NodeID, Endpoint: origins[source.NodeID], Execution: source.Execution}
+			return nil, err
 		}
 	}
 	endpoints := map[string]string{}

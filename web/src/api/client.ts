@@ -174,6 +174,32 @@ function list<T>(
 }
 
 export const api = {
+  backupRepositories: () =>
+    request<Schema<"BackupRepository">[]>("/backup-repositories"),
+  createBackupRepository: (body: Schema<"CreateBackupRepository">) =>
+    request<Schema<"BackupRepository">>("/backup-repositories", "POST", body),
+  deleteBackupRepository: (id: string) =>
+    request<void>(`/backup-repositories/${id}`, "DELETE"),
+  backupRepositoryCredentials: (id: string) =>
+    request<Schema<"BackupCredentials">>(
+      `/backup-repositories/${id}/credentials`,
+    ),
+  backups: (id: string, options?: ListOptions) =>
+    list<Schema<"BackupSummary">>(`/environments/${id}/backups`, options),
+  createBackup: (id: string, body: Schema<"CreateBackup">) =>
+    request<Schema<"BackupSummary">>(
+      `/environments/${id}/backups`,
+      "POST",
+      body,
+    ),
+  deleteBackup: (id: string, backupId: string) =>
+    request<Operation>(`/environments/${id}/backups/${backupId}`, "DELETE"),
+  restoreBackup: (id: string, backupId: string, expectedRevision: number) =>
+    request<Operation>(
+      `/environments/${id}/backups/${backupId}/restore`,
+      "POST",
+      { expectedRevision },
+    ),
   captureTemplate: (
     id: string,
     assetId: string,

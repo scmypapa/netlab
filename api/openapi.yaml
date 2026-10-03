@@ -3,6 +3,58 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /backup-repositories:
+    get:
+      operationId: listBackupRepositories
+      responses:
+        '200': {description: Backup repositories, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/BackupRepository'}}}}}
+    post:
+      operationId: createBackupRepository
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateBackupRepository'}}}}
+      responses:
+        '201': {description: Repository connection queued, content: {application/json: {schema: {$ref: '#/components/schemas/BackupRepository'}}}}
+  /backup-repositories/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    delete:
+      operationId: deleteBackupRepository
+      responses:
+        '204': {description: Registration removed; repository data retained}
+        '409': {description: Repository contains backups or an active task}
+  /backup-repositories/{id}/credentials:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: backupRepositoryCredentials
+      responses:
+        '200': {description: Repository credentials; administrator only, content: {application/json: {schema: {$ref: '#/components/schemas/BackupCredentials'}}}}
+  /environments/{id}/backups:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listBackups
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Environment backups, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/BackupSummary'}}}}}
+    post:
+      operationId: createBackup
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateBackup'}}}}
+      responses:
+        '201': {description: Backup queued, content: {application/json: {schema: {$ref: '#/components/schemas/BackupSummary'}}}}
+  /environments/{id}/backups/{backupId}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: backupId, in: path, required: true, schema: {type: string}}
+    delete:
+      operationId: deleteBackup
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+  /environments/{id}/backups/{backupId}/restore:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: backupId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: restoreBackup
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RestoreRecoveryPoint'}}}}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
   /environments/{id}/recovery-points:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -994,6 +1046,97 @@ components:
         nodeId: {type: string}
         endpoint: {type: string}
         execution: {$ref: '#/components/schemas/AssetExecution'}
+        backup: {$ref: '#/components/schemas/NodeBackupSource'}
+    NodeBackupRepository:
+      type: object
+      required: [location, password]
+      properties:
+        location: {type: string}
+        password: {type: string, format: password}
+        accessKey: {type: string}
+        secretKey: {type: string, format: password}
+        region: {type: string}
+    BackupCredentials:
+      type: object
+      required: [password]
+      properties:
+        password: {type: string, format: password}
+        accessKey: {type: string}
+        secretKey: {type: string, format: password}
+        region: {type: string}
+    CreateBackupRepository:
+      type: object
+      required: [name, nodeId, location]
+      properties:
+        name: {type: string}
+        nodeId: {type: string}
+        location: {type: string, description: Absolute directory or s3:https://endpoint/bucket/path}
+        initialize: {type: boolean, default: true}
+        password: {type: string, format: password, writeOnly: true}
+        accessKey: {type: string}
+        secretKey: {type: string, format: password, writeOnly: true}
+        region: {type: string}
+    BackupRepository:
+      type: object
+      required: [id, name, nodeId, state]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        nodeId: {type: string}
+        location: {type: string}
+        state: {type: string, enum: [connecting, ready, failed]}
+        operationId: {type: string}
+        error: {type: string}
+    CreateBackup:
+      type: object
+      required: [name, repositoryId, recoveryPointId]
+      properties:
+        name: {type: string}
+        repositoryId: {type: string}
+        recoveryPointId: {type: string}
+    BackupSummary:
+      type: object
+      required: [id, environmentId, repositoryId, name, state, sizeBytes, createdAt]
+      properties:
+        id: {type: string}
+        environmentId: {type: string}
+        repositoryId: {type: string}
+        name: {type: string}
+        state: {type: string, enum: [creating, ready, failed, deleting]}
+        sizeBytes: {type: integer, format: int64}
+        operationId: {type: string}
+        error: {type: string}
+        createdAt: {type: string, format: date-time}
+    NodeBackupSource:
+      type: object
+      required: [repository, snapshotId, sizeBytes]
+      properties:
+        repository: {$ref: '#/components/schemas/NodeBackupRepository'}
+        snapshotId: {type: string}
+        sizeBytes: {type: integer, format: int64}
+    NodeBackupPart:
+      type: object
+      required: [snapshotId, sizeBytes]
+      properties:
+        snapshotId: {type: string}
+        sizeBytes: {type: integer, format: int64}
+    NodeBackupPlan:
+      type: object
+      required: [repository, recoveryPointId, sources, definition]
+      properties:
+        repository: {$ref: '#/components/schemas/NodeBackupRepository'}
+        recoveryPointId: {type: string}
+        sources: {type: array, items: {$ref: '#/components/schemas/NodeRecoverySource'}}
+        definition:
+          type: object
+          additionalProperties: true
+          x-go-type: json.RawMessage
+    NodeBackupResult:
+      type: object
+      required: [manifestSnapshotId, parts]
+      properties:
+        manifestSnapshotId: {type: string}
+        parts: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeBackupPart'}}
     RecoveryPointSummary:
       type: object
       required: [id, environmentId, name, revision, state, assetCount, sizeBytes, createdAt]
@@ -1118,6 +1261,7 @@ components:
         externalReference: {type: string}
         blueprintVersionId: {type: string}
         recoveryPointId: {type: string, description: Create an independent copy of this recovery point; run defaults to false}
+        backupId: {type: string, description: Restore an independent environment from this backup; run defaults to false}
         clientRequestId: {type: string}
         run: {type: boolean}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}

@@ -199,8 +199,10 @@ func (q *Queries) MarkRecoveryDeleting(ctx context.Context, arg MarkRecoveryDele
 }
 
 const recoveryPointInUse = `-- name: RecoveryPointInUse :one
-SELECT EXISTS(SELECT 1 FROM operations WHERE payload->'recovery'->>'id'=$1::text
-AND (state IN ('queued','running') OR (phase IN ('rollback','cleanup') AND state IN ('failed','partially_applied'))))
+SELECT EXISTS(SELECT 1 FROM operations o WHERE o.payload->'recovery'->>'id'=$1::text
+AND (NOT (o.payload ? 'backupId') OR o.kind='create-backup')
+AND (o.state IN ('queued','running') OR (o.phase IN ('rollback','cleanup') AND o.state IN ('failed','partially_applied'))
+OR (o.kind='create-backup' AND o.state='failed' AND EXISTS(SELECT 1 FROM backups b WHERE b.operation_id=o.id))))
 `
 
 func (q *Queries) RecoveryPointInUse(ctx context.Context, dollar_1 string) (bool, error) {

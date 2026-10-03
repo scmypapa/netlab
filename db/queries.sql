@@ -89,6 +89,10 @@ SELECT '恢复点：'||p.name FROM recovery_points p
 CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a(value)
 WHERE a.value->'execution'->'template'->>'id'=sqlc.arg(template_id)
 UNION
+SELECT '备份：'||b.name FROM backups b
+CROSS JOIN LATERAL jsonb_array_elements(b.definition->'recovery'->'assets') a(value)
+WHERE a.value->'execution'->'template'->>'id'=sqlc.arg(template_id)
+UNION
 SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 WHERE o.state IN ('queued','running') AND (
  o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',sqlc.arg(template_id)::text))) OR
@@ -141,7 +145,7 @@ WITH candidate AS (
  FROM candidate c WHERE o.id=c.id RETURNING o.*
 ), active AS (
  UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
- FROM claimed c WHERE e.id=c.environment_id RETURNING e.id
+ FROM claimed c WHERE e.id=c.environment_id AND c.scope_kind='environment' RETURNING e.id
 )
 SELECT claimed.* FROM claimed;
 -- name: RenewLease :execrows
@@ -190,8 +194,11 @@ WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor))
 AND (sqlc.arg(search)::text='' OR n.name ILIKE '%'||sqlc.arg(search)||'%')
 GROUP BY n.id ORDER BY n.id LIMIT sqlc.arg(page_limit);
 -- name: ListVisibleOperations :many
-SELECT sqlc.embed(o),COALESCE(e.project_id,'')::text AS project_id,e.owner_id,e.operation_id AS current_operation_id
+SELECT sqlc.embed(o),COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
+ COALESCE(CASE o.scope_kind WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
 FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
+LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
 WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))
 AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
 AND (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS

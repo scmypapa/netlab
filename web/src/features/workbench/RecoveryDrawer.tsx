@@ -6,8 +6,10 @@ import {
   Modal,
   Checkbox,
   TextInput,
+  SegmentedControl,
+  Select,
 } from "@mantine/core";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   Copy,
@@ -25,6 +27,10 @@ import { LoadMore } from "../../foundation/LoadMore";
 import { Status } from "../../foundation/Status";
 import { useCursorList } from "../../foundation/useCursorList";
 import styles from "./RecoveryDrawer.module.css";
+
+type RecoveryItem =
+  | (Schema<"RecoveryPointSummary"> & { kind: "point" })
+  | (Schema<"BackupSummary"> & { kind: "backup" });
 
 export function RecoveryDrawer({
   id,
@@ -49,16 +55,53 @@ export function RecoveryDrawer({
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [removing, setRemoving] = useState<Schema<"RecoveryPointSummary">>();
-  const [restoring, setRestoring] = useState<Schema<"RecoveryPointSummary">>();
-  const [cloning, setCloning] = useState<Schema<"RecoveryPointSummary">>();
+  const [section, setSection] = useState("points");
+  const [removing, setRemoving] = useState<RecoveryItem>();
+  const [restoring, setRestoring] = useState<RecoveryItem>();
+  const [cloning, setCloning] = useState<RecoveryItem>();
+  const [backingUp, setBackingUp] = useState<Schema<"RecoveryPointSummary">>();
+  const [repositoryId, setRepositoryId] = useState<string | null>(null);
+  const [backupName, setBackupName] = useState("");
   const [cloneName, setCloneName] = useState("");
   const [runClone, setRunClone] = useState(false);
-  const points = useCursorList(["recovery-points", id], (page) =>
-    api.recoveryPoints(id, page),
+  const points = useCursorList(
+    ["recovery-points", id],
+    (page) => api.recoveryPoints(id, page),
+    {
+      refetchInterval: (items) =>
+        items.some((point) => ["capturing", "deleting"].includes(point.state))
+          ? 2000
+          : false,
+    },
   );
+  const backups = useCursorList(
+    ["backups", id],
+    (page) => api.backups(id, page),
+    {
+      refetchInterval: (items) =>
+        items.some((backup) => ["creating", "deleting"].includes(backup.state))
+          ? 2000
+          : false,
+    },
+  );
+  const repositories = useQuery({
+    queryKey: ["backup-repositories"],
+    queryFn: api.backupRepositories,
+    enabled: Boolean(backingUp),
+  });
+  const list = section === "points" ? points : backups;
+  const items: RecoveryItem[] =
+    section === "points"
+      ? (points.data ?? []).map((point) => ({ ...point, kind: "point" }))
+      : (backups.data ?? []).map((backup) => ({ ...backup, kind: "backup" }));
   const refresh = () => {
-    for (const key of ["recovery-points", "state", "operations", "environment"])
+    for (const key of [
+      "recovery-points",
+      "backups",
+      "state",
+      "operations",
+      "environment",
+    ])
       void client.invalidateQueries({ queryKey: [key, id] });
   };
   const capture = useMutation({
@@ -70,15 +113,20 @@ export function RecoveryDrawer({
     },
   });
   const remove = useMutation({
-    mutationFn: (pointId: string) => api.deleteRecoveryPoint(id, pointId),
+    mutationFn: (item: RecoveryItem) =>
+      item.kind === "point"
+        ? api.deleteRecoveryPoint(id, item.id)
+        : api.deleteBackup(id, item.id),
     onSuccess: () => {
       setRemoving(undefined);
       refresh();
     },
   });
   const restore = useMutation({
-    mutationFn: (pointId: string) =>
-      api.restoreRecoveryPoint(id, pointId, revision),
+    mutationFn: (item: RecoveryItem) =>
+      item.kind === "point"
+        ? api.restoreRecoveryPoint(id, item.id, revision)
+        : api.restoreBackup(id, item.id, revision),
     onSuccess: () => {
       setRestoring(undefined);
       refresh();
@@ -89,7 +137,9 @@ export function RecoveryDrawer({
       api.createEnvironment({
         name: cloneName,
         projectId,
-        recoveryPointId: cloning!.id,
+        ...(cloning!.kind === "point"
+          ? { recoveryPointId: cloning!.id }
+          : { backupId: cloning!.id }),
         run: runClone,
       }),
     onSuccess: (environment) => {
@@ -98,18 +148,40 @@ export function RecoveryDrawer({
       navigate(`/environments/${environment.id}`);
     },
   });
+  const backup = useMutation({
+    mutationFn: () =>
+      api.createBackup(id, {
+        name: backupName,
+        recoveryPointId: backingUp!.id,
+        repositoryId: repositoryId!,
+      }),
+    onSuccess: () => {
+      setBackingUp(undefined);
+      setSection("backups");
+      refresh();
+    },
+  });
   return (
     <>
       <Drawer
         opened
         onClose={onClose}
-        title="恢复点"
+        title="恢复与备份"
         position="right"
         size="lg"
       >
         <div className={styles.body}>
-          <ErrorMessage error={points.error} />
-          {canManage && (
+          <SegmentedControl
+            fullWidth
+            value={section}
+            onChange={setSection}
+            data={[
+              { label: "恢复点", value: "points" },
+              { label: "备份", value: "backups" },
+            ]}
+          />
+          <ErrorMessage error={list.error} />
+          {canManage && section === "points" && (
             <div className={styles.toolbar}>
               <Button
                 leftSection={<Plus size={15} />}
@@ -124,10 +196,10 @@ export function RecoveryDrawer({
               </Button>
             </div>
           )}
-          {points.isLoading ? (
+          {list.isLoading ? (
             <Loading />
-          ) : points.data?.length ? (
-            points.data.map((point) => (
+          ) : items.length ? (
+            items.map((point) => (
               <article key={point.id} className={styles.point}>
                 <div className={styles.icon}>
                   <Archive size={20} />
@@ -141,7 +213,9 @@ export function RecoveryDrawer({
                     <time dateTime={point.createdAt}>
                       {dateTime(point.createdAt)}
                     </time>
-                    <span>{point.assetCount} 个资产</span>
+                    {point.kind === "point" && (
+                      <span>{point.assetCount} 个资产</span>
+                    )}
                     {point.state === "ready" && (
                       <span>
                         {new Intl.NumberFormat("zh-CN", {
@@ -168,6 +242,20 @@ export function RecoveryDrawer({
                       </ActionIcon>
                     </Menu.Target>
                     <Menu.Dropdown>
+                      {point.kind === "point" && (
+                        <Menu.Item
+                          leftSection={<Archive size={15} />}
+                          disabled={point.state !== "ready"}
+                          onClick={() => {
+                            backup.reset();
+                            setBackingUp(point);
+                            setBackupName(point.name);
+                            setRepositoryId(null);
+                          }}
+                        >
+                          保存为备份
+                        </Menu.Item>
+                      )}
                       {canClone && (
                         <Menu.Item
                           leftSection={<Copy size={15} />}
@@ -196,8 +284,9 @@ export function RecoveryDrawer({
                         color="red"
                         leftSection={<Trash2 size={15} />}
                         disabled={
-                          busy ||
+                          (point.kind === "point" && busy) ||
                           point.state === "capturing" ||
+                          point.state === "creating" ||
                           point.state === "deleting"
                         }
                         onClick={() => {
@@ -213,9 +302,12 @@ export function RecoveryDrawer({
               </article>
             ))
           ) : (
-            <Empty icon={<Archive size={26} />} title="暂无恢复点" />
+            <Empty
+              icon={<Archive size={26} />}
+              title={section === "points" ? "暂无恢复点" : "暂无备份"}
+            />
           )}
-          <LoadMore list={points} />
+          <LoadMore list={list} />
         </div>
       </Drawer>
       <Modal
@@ -256,7 +348,7 @@ export function RecoveryDrawer({
       <Modal
         opened={Boolean(removing)}
         onClose={() => setRemoving(undefined)}
-        title="删除恢复点"
+        title={removing?.kind === "backup" ? "删除备份" : "删除恢复点"}
         centered
       >
         <ErrorMessage error={remove.error} />
@@ -268,7 +360,7 @@ export function RecoveryDrawer({
           <Button
             color="red"
             loading={remove.isPending}
-            onClick={() => removing && remove.mutate(removing.id)}
+            onClick={() => removing && remove.mutate(removing)}
           >
             删除
           </Button>
@@ -289,11 +381,56 @@ export function RecoveryDrawer({
           <Button
             loading={restore.isPending}
             disabled={busy}
-            onClick={() => restoring && restore.mutate(restoring.id)}
+            onClick={() => restoring && restore.mutate(restoring)}
           >
             恢复
           </Button>
         </div>
+      </Modal>
+      <Modal
+        opened={Boolean(backingUp)}
+        onClose={() => setBackingUp(undefined)}
+        title="保存为备份"
+        centered
+      >
+        <form
+          className="form-stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            backup.mutate();
+          }}
+        >
+          <ErrorMessage error={backup.error ?? repositories.error} />
+          <TextInput
+            label="名称"
+            value={backupName}
+            onChange={(event) => setBackupName(event.currentTarget.value)}
+            autoFocus
+            required
+          />
+          <Select
+            label="备份仓库"
+            value={repositoryId}
+            onChange={setRepositoryId}
+            data={(repositories.data ?? [])
+              .filter((repo) => repo.state === "ready")
+              .map((repo) => ({ value: repo.id, label: repo.name }))}
+            placeholder="选择仓库"
+            required
+          />
+          <div className="dialog-actions">
+            <Button variant="default" onClick={() => setBackingUp(undefined)}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              loading={backup.isPending}
+              disabled={!repositoryId || !backupName.trim()}
+            >
+              备份
+            </Button>
+          </div>
+        </form>
       </Modal>
       <Modal
         opened={Boolean(cloning)}

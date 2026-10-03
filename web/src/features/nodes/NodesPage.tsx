@@ -1,10 +1,11 @@
-import { Button, Drawer, Modal, TextInput } from "@mantine/core";
+import { Button, Drawer, Modal, TextInput, Tabs } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@mantine/hooks";
 import { Cpu, Plus, Search, Server } from "lucide-react";
 import { useState } from "react";
 import { api, type Node } from "../../api/client";
 import { StoragePanel } from "./StoragePanel";
+import { BackupRepositoryPanel } from "./BackupRepositoryPanel";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime, memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
@@ -156,7 +157,20 @@ export function NodesPage() {
         size={680}
         closeButtonProps={{ "aria-label": "关闭节点" }}
       >
-        {selected && <StoragePanel node={selected} />}
+        {selected && (
+          <Tabs defaultValue="storage">
+            <Tabs.List mb="md">
+              <Tabs.Tab value="storage">存储池</Tabs.Tab>
+              <Tabs.Tab value="backups">备份仓库</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel value="storage">
+              <StoragePanel node={selected} />
+            </Tabs.Panel>
+            <Tabs.Panel value="backups">
+              <BackupRepositoryPanel node={selected} />
+            </Tabs.Panel>
+          </Tabs>
+        )}
       </Drawer>
       <Modal
         opened={adding}

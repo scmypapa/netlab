@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
@@ -156,16 +157,43 @@ func (s *Server) restoreRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 			return httpError{http.StatusConflict, "请先完成当前环境的清理任务"}
 		}
 	}
-	point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: r.PathValue("pointId"), EnvironmentID: id})
-	if err != nil {
-		return err
-	}
-	if point.State != "ready" {
-		return httpError{http.StatusConflict, "恢复点尚不可用"}
-	}
 	var recovery operation.Recovery
-	if err = json.Unmarshal(point.Definition, &recovery); err != nil {
-		return err
+	var backupID *string
+	if requested := r.PathValue("backupId"); requested != "" {
+		backup, err := q.LockBackup(ctx, requested)
+		if err != nil {
+			return err
+		}
+		if backup.EnvironmentID != id {
+			return pgx.ErrNoRows
+		}
+		if backup.State != "ready" {
+			return httpError{http.StatusConflict, "备份尚不可用"}
+		}
+		var definition operation.BackupDefinition
+		if err = json.Unmarshal(backup.Definition, &definition); err != nil {
+			return err
+		}
+		recovery, backupID = definition.Recovery, &backup.ID
+		for i := range recovery.Spec.Assets {
+			recovery.Spec.Assets[i].StoragePoolId = nil
+		}
+		if recovery.Spec.Services != nil {
+			for i := range *recovery.Spec.Services {
+				(*recovery.Spec.Services)[i].ListenPort = nil
+			}
+		}
+	} else {
+		point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: r.PathValue("pointId"), EnvironmentID: id})
+		if err != nil {
+			return err
+		}
+		if point.State != "ready" {
+			return httpError{http.StatusConflict, "恢复点尚不可用"}
+		}
+		if err = json.Unmarshal(point.Definition, &recovery); err != nil {
+			return err
+		}
 	}
 	recovery.EnvironmentID = id
 	before := api.EnvironmentSpec{}
@@ -180,7 +208,7 @@ func (s *Server) restoreRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 	if err = environment.ReferenceResources(ctx, q, recovery.Spec.Assets); err != nil {
 		return err
 	}
-	payload, err := json.Marshal(operation.Payload{Recovery: &recovery, Spec: recovery.Spec, BeforeStatus: row.Status})
+	payload, err := json.Marshal(operation.Payload{Recovery: &recovery, Spec: recovery.Spec, BeforeStatus: row.Status, BackupID: backupID})
 	if err != nil {
 		return err
 	}

@@ -36,6 +36,7 @@ type Engine struct {
 	vpn       *network.VPN
 	external  *network.External
 	slots     chan struct{}
+	ioSlots   chan struct{}
 	mu        sync.Mutex
 	locks     map[string]*objectLock
 }
@@ -51,7 +52,8 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0711); err != nil {
 		return nil, err
 	}
-	e := &Engine{cfg: cfg, slots: make(chan struct{}, max(1, runtime.NumCPU()/2)), locks: make(map[string]*objectLock)}
+	concurrency := max(1, runtime.NumCPU()/2)
+	e := &Engine{cfg: cfg, slots: make(chan struct{}, concurrency), ioSlots: make(chan struct{}, concurrency), locks: make(map[string]*objectLock)}
 	var err error
 	if e.ovs, err = network.NewOVS(ctx, cfg.OVSEndpoint, cfg.Bridge); err != nil {
 		return nil, err
@@ -243,16 +245,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			if plan.Phase == api.NodePlanPhasePrepareRecovery || plan.Phase == api.NodePlanPhaseApplyRecovery || plan.Phase == api.NodePlanPhaseRollbackRecovery || plan.Phase == api.NodePlanPhaseCleanupRecovery {
 				switch plan.Phase {
 				case api.NodePlanPhasePrepareRecovery:
-					if a.Template.ArtifactNodeId != nil {
-						endpoint := ""
-						if plan.ArtifactEndpoints != nil {
-							endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
-						}
-						err = e.fetchTemplateArtifact(ctx, a.Template, endpoint)
-					}
-					if err == nil {
-						err = e.prepareRecovery(ctx, plan, a)
-					}
+					err = e.prepareRecovery(ctx, plan, a)
 					state = "prepared"
 				case api.NodePlanPhaseApplyRecovery:
 					if a.Template.Kind == api.Container {

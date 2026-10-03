@@ -52,6 +52,14 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/backup-repositories":                                  s.listBackupRepositories,
+		"POST /api/v1/backup-repositories":                                 s.createBackupRepository,
+		"DELETE /api/v1/backup-repositories/{id}":                          s.deleteBackupRepository,
+		"GET /api/v1/backup-repositories/{id}/credentials":                 s.backupRepositoryCredentials,
+		"GET /api/v1/environments/{id}/backups":                            s.listBackups,
+		"POST /api/v1/environments/{id}/backups":                           s.createBackup,
+		"DELETE /api/v1/environments/{id}/backups/{backupId}":              s.deleteBackup,
+		"POST /api/v1/environments/{id}/backups/{backupId}/restore":        s.restoreRecoveryPoint,
 		"GET /api/v1/environments/{id}/recovery-points":                    s.listRecoveryPoints,
 		"POST /api/v1/environments/{id}/recovery-points":                   s.captureRecoveryPoint,
 		"DELETE /api/v1/environments/{id}/recovery-points/{pointId}":       s.deleteRecoveryPoint,

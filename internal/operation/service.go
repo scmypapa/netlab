@@ -3,7 +3,9 @@ package operation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
@@ -21,6 +23,9 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 		return false
 	}
 	if row.EnvironmentID == nil {
+		if row.ScopeKind == "backup-repository" && (environment.OperationID == nil || *environment.OperationID != row.ID) {
+			return false
+		}
 		return identity.Administrator()
 	}
 	asset := ""
@@ -28,6 +33,24 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 		asset = *row.AssetID
 	}
 	return environment.OperationID != nil && *environment.OperationID == row.ID && authorizedOperation(identity, row, environment, asset) == nil
+}
+
+func (s Service) CurrentOperationID(ctx context.Context, row queries.Operation, current *string) (*string, error) {
+	var err error
+	switch row.ScopeKind {
+	case "backup":
+		var backup queries.Backup
+		backup, err = s.Queries.GetBackup(ctx, row.ScopeID)
+		current = &backup.OperationID
+	case "backup-repository":
+		var repository queries.BackupRepository
+		repository, err = s.Queries.GetBackupRepository(ctx, row.ScopeID)
+		current = repository.OperationID
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return current, err
 }
 
 func authorizedOperation(identity access.Identity, row queries.Operation, runtime queries.Environment, asset string) error {
@@ -109,7 +132,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
 	revision := row.ExpectedRevision
-	if row.EnvironmentID != nil {
+	if row.ScopeKind == "environment" {
 		e, readErr := q.LockEnvironment(ctx, *row.EnvironmentID)
 		if readErr != nil {
 			return api.Operation{}, readErr
@@ -118,6 +141,30 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 			return api.Operation{}, environment.ErrConflict
 		}
 		revision = e.Revision
+	} else if row.ScopeKind == "backup" {
+		backup, err := q.LockBackup(ctx, row.ScopeID)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if backup.OperationID != id {
+			return api.Operation{}, environment.ErrConflict
+		}
+		if row.Kind == "create-backup" {
+			if err = q.MarkBackupCreating(ctx, backup.ID); err != nil {
+				return api.Operation{}, err
+			}
+		}
+	} else if row.ScopeKind == "backup-repository" {
+		repository, err := q.LockBackupRepository(ctx, row.ScopeID)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if repository.OperationID == nil || *repository.OperationID != id {
+			return api.Operation{}, environment.ErrConflict
+		}
+		if err = q.CompleteBackupRepository(ctx, queries.CompleteBackupRepositoryParams{ID: repository.ID, State: "connecting", NativeID: repository.NativeID}); err != nil {
+			return api.Operation{}, err
+		}
 	}
 	row, err = q.LockOperation(ctx, id)
 	if err != nil {
@@ -165,7 +212,15 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	}
 	phase := row.Phase
-	if restoresData(row.Kind) {
+	if restoresData(row.Kind) && p.BackupID != nil {
+		backup, err := q.LockBackup(ctx, *p.BackupID)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if backup.State != "ready" {
+			return api.Operation{}, environment.Invalid("备份尚不可用")
+		}
+	} else if restoresData(row.Kind) || row.Kind == "create-backup" {
 		point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: p.Recovery.ID, EnvironmentID: p.Recovery.EnvironmentID})
 		if err != nil {
 			return api.Operation{}, err
@@ -186,7 +241,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	}
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery, Run: p.Run}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery, Run: p.Run, BackupID: p.BackupID, BackupInitialize: p.BackupInitialize}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)
@@ -197,7 +252,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	if row.EnvironmentID != nil {
+	if row.ScopeKind == "environment" {
 		if row.Kind == "delete-recovery" {
 			err = q.SetRecoveryDeleteOperation(ctx, queries.SetRecoveryDeleteOperationParams{ID: *row.EnvironmentID, OperationID: &id})
 		} else {

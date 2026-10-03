@@ -90,6 +90,72 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /node/v1/backup-repositories", func(w http.ResponseWriter, r *http.Request) {
+		var repository api.NodeBackupRepository
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&repository); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		id, err := executor.ConnectBackupRepository(r.Context(), repository, r.URL.Query().Get("initialize") == "true")
+		respond(w, map[string]string{"id": id}, err)
+	})
+	mux.HandleFunc("POST /node/v1/backups/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
+			http.Error(w, "invalid backup identity", http.StatusBadRequest)
+			return
+		}
+		var plan api.NodeBackupPlan
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&plan); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := uuid.Parse(plan.RecoveryPointId); err != nil {
+			http.Error(w, "invalid recovery point identity", http.StatusBadRequest)
+			return
+		}
+		for _, source := range plan.Sources {
+			if err := validateExecutionPaths(source.Execution); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		result, err := executor.BackupRecovery(r.Context(), r.PathValue("id"), plan)
+		respond(w, result, err)
+	})
+	mux.HandleFunc("DELETE /node/v1/backups/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
+			http.Error(w, "invalid backup identity", http.StatusBadRequest)
+			return
+		}
+		var repository api.NodeBackupRepository
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&repository); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := executor.DeleteBackup(r.Context(), r.PathValue("id"), repository); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /node/v1/backups/assets/{assetId}/artifact", func(w http.ResponseWriter, r *http.Request) {
+		if !pathID(r.PathValue("assetId")) {
+			http.Error(w, "invalid backup asset identity", http.StatusBadRequest)
+			return
+		}
+		var source api.NodeBackupSource
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&source); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		reader, size := executor.OpenBackupArtifact(r.Context(), r.PathValue("assetId"), source)
+		defer reader.Close()
+		w.Header().Set("Content-Type", "application/x-tar")
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+		if _, err := io.Copy(w, reader); err != nil {
+			slog.Warn("backup transfer interrupted", "error", err)
+		}
+	})
 	mux.HandleFunc("GET /node/v1/storage", func(w http.ResponseWriter, r *http.Request) {
 		info, err := engine.StorageInfo(r.URL.Query().Get("path"))
 		respond(w, info, err)

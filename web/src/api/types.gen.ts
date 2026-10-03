@@ -4,6 +4,114 @@
  */
 
 export interface paths {
+  "/backup-repositories": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listBackupRepositories"];
+    put?: never;
+    post: operations["createBackupRepository"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/backup-repositories/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["deleteBackupRepository"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/backup-repositories/{id}/credentials": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["backupRepositoryCredentials"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/backups": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["listBackups"];
+    put?: never;
+    post: operations["createBackup"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/backups/{backupId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        backupId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["deleteBackup"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/backups/{backupId}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        backupId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["restoreBackup"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/recovery-points": {
     parameters: {
       query?: never;
@@ -1345,6 +1453,92 @@ export interface components {
       nodeId: string;
       endpoint: string;
       execution: components["schemas"]["AssetExecution"];
+      backup?: components["schemas"]["NodeBackupSource"];
+    };
+    NodeBackupRepository: {
+      location: string;
+      /** Format: password */
+      password: string;
+      accessKey?: string;
+      /** Format: password */
+      secretKey?: string;
+      region?: string;
+    };
+    BackupCredentials: {
+      /** Format: password */
+      password: string;
+      accessKey?: string;
+      /** Format: password */
+      secretKey?: string;
+      region?: string;
+    };
+    CreateBackupRepository: {
+      name: string;
+      nodeId: string;
+      /** @description Absolute directory or s3:https://endpoint/bucket/path */
+      location: string;
+      /** @default true */
+      initialize: boolean;
+      /** Format: password */
+      password?: string;
+      accessKey?: string;
+      /** Format: password */
+      secretKey?: string;
+      region?: string;
+    };
+    BackupRepository: {
+      id: string;
+      name: string;
+      nodeId: string;
+      location?: string;
+      /** @enum {string} */
+      state: "connecting" | "ready" | "failed";
+      operationId?: string;
+      error?: string;
+    };
+    CreateBackup: {
+      name: string;
+      repositoryId: string;
+      recoveryPointId: string;
+    };
+    BackupSummary: {
+      id: string;
+      environmentId: string;
+      repositoryId: string;
+      name: string;
+      /** @enum {string} */
+      state: "creating" | "ready" | "failed" | "deleting";
+      /** Format: int64 */
+      sizeBytes: number;
+      operationId?: string;
+      error?: string;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    NodeBackupSource: {
+      repository: components["schemas"]["NodeBackupRepository"];
+      snapshotId: string;
+      /** Format: int64 */
+      sizeBytes: number;
+    };
+    NodeBackupPart: {
+      snapshotId: string;
+      /** Format: int64 */
+      sizeBytes: number;
+    };
+    NodeBackupPlan: {
+      repository: components["schemas"]["NodeBackupRepository"];
+      recoveryPointId: string;
+      sources: components["schemas"]["NodeRecoverySource"][];
+      definition: {
+        [key: string]: unknown;
+      };
+    };
+    NodeBackupResult: {
+      manifestSnapshotId: string;
+      parts: {
+        [key: string]: components["schemas"]["NodeBackupPart"];
+      };
     };
     RecoveryPointSummary: {
       id: string;
@@ -1459,6 +1653,8 @@ export interface components {
       blueprintVersionId?: string;
       /** @description Create an independent copy of this recovery point; run defaults to false */
       recoveryPointId?: string;
+      /** @description Restore an independent environment from this backup; run defaults to false */
+      backupId?: string;
       clientRequestId?: string;
       run?: boolean;
       spec?: components["schemas"]["EnvironmentSpec"];
@@ -1569,6 +1765,184 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listBackupRepositories: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Backup repositories */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupRepository"][];
+        };
+      };
+    };
+  };
+  createBackupRepository: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateBackupRepository"];
+      };
+    };
+    responses: {
+      /** @description Repository connection queued */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupRepository"];
+        };
+      };
+    };
+  };
+  deleteBackupRepository: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Registration removed; repository data retained */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Repository contains backups or an active task */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  backupRepositoryCredentials: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Repository credentials; administrator only */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupCredentials"];
+        };
+      };
+    };
+  };
+  listBackups: {
+    parameters: {
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Environment backups */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupSummary"][];
+        };
+      };
+    };
+  };
+  createBackup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateBackup"];
+      };
+    };
+    responses: {
+      /** @description Backup queued */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupSummary"];
+        };
+      };
+    };
+  };
+  deleteBackup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        backupId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  restoreBackup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        backupId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RestoreRecoveryPoint"];
+      };
+    };
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
   listRecoveryPoints: {
     parameters: {
       query?: {

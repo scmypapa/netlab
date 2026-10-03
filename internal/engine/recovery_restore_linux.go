@@ -9,11 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/containerd/containerd"
 	filesystem "github.com/containerd/containerd/archive"
@@ -83,7 +80,7 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 		}
 	}()
 	input := filepath.Join(staging, "input")
-	if source.NodeId == e.cfg.ID {
+	if source.NodeId == e.cfg.ID && source.Backup == nil {
 		sourceDir := recoveryDirectory(e.cfg.DataDir, *plan.RecoveryPointId, source.Execution)
 		entries, readErr := os.ReadDir(sourceDir)
 		if readErr != nil {
@@ -95,24 +92,12 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 			}
 		}
 	} else {
-		raw, marshalErr := json.Marshal(source.Execution)
-		if marshalErr != nil {
-			return marshalErr
+		reader, _, sourceErr := e.openRecoverySource(ctx, *plan.RecoveryPointId, source)
+		if sourceErr != nil {
+			return sourceErr
 		}
-		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/node/v1/environments/%s/recovery-points/%s/assets/%s/artifact", strings.TrimRight(source.Endpoint, "/"), source.EnvironmentId, *plan.RecoveryPointId, url.PathEscape(a.Asset.Id)), strings.NewReader(string(raw)))
-		if requestErr != nil {
-			return requestErr
-		}
-		response, requestErr := e.cfg.ArtifactHTTP.Do(request)
-		if requestErr != nil {
-			return requestErr
-		}
-		defer response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			message, readErr := io.ReadAll(io.LimitReader(response.Body, 16384))
-			return errors.Join(fmt.Errorf("recovery artifact: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message))), readErr)
-		}
-		if err = receiveDirectoryArtifact(response.Body, input); err != nil {
+		defer reader.Close()
+		if err = receiveDirectoryArtifact(reader, input); err != nil {
 			return err
 		}
 	}

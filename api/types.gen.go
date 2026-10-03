@@ -4,6 +4,7 @@
 package api
 
 import (
+	"encoding/json"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -23,6 +24,21 @@ const (
 	ActionRequestActionStart     ActionRequestAction = "start"
 	ActionRequestActionStop      ActionRequestAction = "stop"
 	ActionRequestActionSuspend   ActionRequestAction = "suspend"
+)
+
+// Defines values for BackupRepositoryState.
+const (
+	BackupRepositoryStateConnecting BackupRepositoryState = "connecting"
+	BackupRepositoryStateFailed     BackupRepositoryState = "failed"
+	BackupRepositoryStateReady      BackupRepositoryState = "ready"
+)
+
+// Defines values for BackupSummaryState.
+const (
+	BackupSummaryStateCreating BackupSummaryState = "creating"
+	BackupSummaryStateDeleting BackupSummaryState = "deleting"
+	BackupSummaryStateFailed   BackupSummaryState = "failed"
+	BackupSummaryStateReady    BackupSummaryState = "ready"
 )
 
 // Defines values for ChangeItemEffect.
@@ -349,6 +365,44 @@ type AssetState struct {
 	StoragePoolId *string   `json:"storagePoolId,omitempty"`
 }
 
+// BackupCredentials defines model for BackupCredentials.
+type BackupCredentials struct {
+	AccessKey *string `json:"accessKey,omitempty"`
+	Password  string  `json:"password"`
+	Region    *string `json:"region,omitempty"`
+	SecretKey *string `json:"secretKey,omitempty"`
+}
+
+// BackupRepository defines model for BackupRepository.
+type BackupRepository struct {
+	Error       *string               `json:"error,omitempty"`
+	Id          string                `json:"id"`
+	Location    *string               `json:"location,omitempty"`
+	Name        string                `json:"name"`
+	NodeId      string                `json:"nodeId"`
+	OperationId *string               `json:"operationId,omitempty"`
+	State       BackupRepositoryState `json:"state"`
+}
+
+// BackupRepositoryState defines model for BackupRepository.State.
+type BackupRepositoryState string
+
+// BackupSummary defines model for BackupSummary.
+type BackupSummary struct {
+	CreatedAt     time.Time          `json:"createdAt"`
+	EnvironmentId string             `json:"environmentId"`
+	Error         *string            `json:"error,omitempty"`
+	Id            string             `json:"id"`
+	Name          string             `json:"name"`
+	OperationId   *string            `json:"operationId,omitempty"`
+	RepositoryId  string             `json:"repositoryId"`
+	SizeBytes     int64              `json:"sizeBytes"`
+	State         BackupSummaryState `json:"state"`
+}
+
+// BackupSummaryState defines model for BackupSummary.State.
+type BackupSummaryState string
+
 // Blueprint defines model for Blueprint.
 type Blueprint struct {
 	AssetCount      int           `json:"assetCount"`
@@ -445,8 +499,31 @@ type ConsoleResize struct {
 	Rows int `json:"rows"`
 }
 
+// CreateBackup defines model for CreateBackup.
+type CreateBackup struct {
+	Name            string `json:"name"`
+	RecoveryPointId string `json:"recoveryPointId"`
+	RepositoryId    string `json:"repositoryId"`
+}
+
+// CreateBackupRepository defines model for CreateBackupRepository.
+type CreateBackupRepository struct {
+	AccessKey  *string `json:"accessKey,omitempty"`
+	Initialize *bool   `json:"initialize,omitempty"`
+
+	// Location Absolute directory or s3:https://endpoint/bucket/path
+	Location  string  `json:"location"`
+	Name      string  `json:"name"`
+	NodeId    string  `json:"nodeId"`
+	Password  *string `json:"password,omitempty"`
+	Region    *string `json:"region,omitempty"`
+	SecretKey *string `json:"secretKey,omitempty"`
+}
+
 // CreateEnvironment defines model for CreateEnvironment.
 type CreateEnvironment struct {
+	// BackupId Restore an independent environment from this backup; run defaults to false
+	BackupId           *string `json:"backupId,omitempty"`
 	BlueprintVersionId *string `json:"blueprintVersionId,omitempty"`
 	ClientRequestId    *string `json:"clientRequestId,omitempty"`
 	ExternalReference  *string `json:"externalReference,omitempty"`
@@ -709,6 +786,42 @@ type Node struct {
 	VmHardware   *VmHardware `json:"vmHardware,omitempty"`
 }
 
+// NodeBackupPart defines model for NodeBackupPart.
+type NodeBackupPart struct {
+	SizeBytes  int64  `json:"sizeBytes"`
+	SnapshotId string `json:"snapshotId"`
+}
+
+// NodeBackupPlan defines model for NodeBackupPlan.
+type NodeBackupPlan struct {
+	Definition      json.RawMessage      `json:"definition"`
+	RecoveryPointId string               `json:"recoveryPointId"`
+	Repository      NodeBackupRepository `json:"repository"`
+	Sources         []NodeRecoverySource `json:"sources"`
+}
+
+// NodeBackupRepository defines model for NodeBackupRepository.
+type NodeBackupRepository struct {
+	AccessKey *string `json:"accessKey,omitempty"`
+	Location  string  `json:"location"`
+	Password  string  `json:"password"`
+	Region    *string `json:"region,omitempty"`
+	SecretKey *string `json:"secretKey,omitempty"`
+}
+
+// NodeBackupResult defines model for NodeBackupResult.
+type NodeBackupResult struct {
+	ManifestSnapshotId string                    `json:"manifestSnapshotId"`
+	Parts              map[string]NodeBackupPart `json:"parts"`
+}
+
+// NodeBackupSource defines model for NodeBackupSource.
+type NodeBackupSource struct {
+	Repository NodeBackupRepository `json:"repository"`
+	SizeBytes  int64                `json:"sizeBytes"`
+	SnapshotId string               `json:"snapshotId"`
+}
+
 // NodeInfo defines model for NodeInfo.
 type NodeInfo struct {
 	AccessAddress      *string              `json:"accessAddress,omitempty"`
@@ -754,10 +867,11 @@ type NodePlanPhase string
 
 // NodeRecoverySource defines model for NodeRecoverySource.
 type NodeRecoverySource struct {
-	Endpoint      string         `json:"endpoint"`
-	EnvironmentId string         `json:"environmentId"`
-	Execution     AssetExecution `json:"execution"`
-	NodeId        string         `json:"nodeId"`
+	Backup        *NodeBackupSource `json:"backup,omitempty"`
+	Endpoint      string            `json:"endpoint"`
+	EnvironmentId string            `json:"environmentId"`
+	Execution     AssetExecution    `json:"execution"`
+	NodeId        string            `json:"nodeId"`
 }
 
 // NodeRegistration defines model for NodeRegistration.
@@ -1271,6 +1385,12 @@ type AssetLogsParams struct {
 // AssetLogsParamsStream defines parameters for AssetLogs.
 type AssetLogsParamsStream string
 
+// ListBackupsParams defines parameters for ListBackups.
+type ListBackupsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // EnvironmentEventsParams defines parameters for EnvironmentEvents.
 type EnvironmentEventsParams struct {
 	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
@@ -1337,6 +1457,9 @@ type CreateTemplateMultipartBody struct {
 	Template TemplateImport       `json:"template"`
 }
 
+// CreateBackupRepositoryJSONRequestBody defines body for CreateBackupRepository for application/json ContentType.
+type CreateBackupRepositoryJSONRequestBody = CreateBackupRepository
+
 // SaveBlueprintVersionJSONRequestBody defines body for SaveBlueprintVersion for application/json ContentType.
 type SaveBlueprintVersionJSONRequestBody = SaveBlueprintVersion
 
@@ -1354,6 +1477,12 @@ type ExposeAssetServiceJSONRequestBody = CreateService
 
 // CaptureAssetTemplateJSONRequestBody defines body for CaptureAssetTemplate for application/json ContentType.
 type CaptureAssetTemplateJSONRequestBody = CaptureTemplate
+
+// CreateBackupJSONRequestBody defines body for CreateBackup for application/json ContentType.
+type CreateBackupJSONRequestBody = CreateBackup
+
+// RestoreBackupJSONRequestBody defines body for RestoreBackup for application/json ContentType.
+type RestoreBackupJSONRequestBody = RestoreRecoveryPoint
 
 // SaveEnvironmentBlueprintJSONRequestBody defines body for SaveEnvironmentBlueprint for application/json ContentType.
 type SaveEnvironmentBlueprintJSONRequestBody = SaveBlueprint

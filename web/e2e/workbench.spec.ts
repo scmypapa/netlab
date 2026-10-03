@@ -533,6 +533,105 @@ test("恢复点克隆通过创建接口打开独立环境", async ({ page }) => 
   });
 });
 
+test("备份复用恢复工作区，提交、恢复和克隆请求贯通", async ({ page }) => {
+  await fixture(page, {
+    identity: {
+      id: "administrator",
+      name: "admin",
+      administrator: true,
+      grants: [],
+    },
+  });
+  const point = {
+    id: "point",
+    environmentId: "env",
+    name: "调整前",
+    revision: 1,
+    state: "ready",
+    assetCount: 2,
+    sizeBytes: 1024,
+    createdAt: "2026-10-03T08:00:00Z",
+  };
+  const backup = {
+    id: "backup",
+    environmentId: "env",
+    repositoryId: "repository",
+    name: "独立备份",
+    state: "ready",
+    sizeBytes: 1024,
+    createdAt: point.createdAt,
+  };
+  let saved = false,
+    restored = false,
+    cloned: unknown;
+  await page.route("**/api/v1/environments/env/recovery-points**", (route) =>
+    route.fulfill({ json: [point] }),
+  );
+  await page.route("**/api/v1/backup-repositories", (route) =>
+    route.fulfill({
+      json: [
+        { id: "repository", name: "存储仓库", nodeId: "node", state: "ready" },
+      ],
+    }),
+  );
+  await page.route("**/api/v1/environments/env/backups**", async (route) => {
+    const request = route.request();
+    if (request.url().endsWith("/restore")) {
+      expect(request.postDataJSON()).toEqual({ expectedRevision: 1 });
+      restored = true;
+      await route.fulfill({ status: 202, json: { id: "restore" } });
+    } else if (request.method() === "POST") {
+      expect(request.postDataJSON()).toEqual({
+        name: "独立备份",
+        repositoryId: "repository",
+        recoveryPointId: "point",
+      });
+      saved = true;
+      await route.fulfill({ status: 201, json: backup });
+    } else await route.fulfill({ json: saved ? [backup] : [] });
+  });
+  await page.route("**/api/v1/environments", (route) => {
+    cloned = route.request().postDataJSON();
+    return route.fulfill({ status: 201, json: { id: "clone" } });
+  });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "环境操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复点", exact: true }).click();
+  await page.getByRole("button", { name: "调整前操作" }).click();
+  await page.getByRole("menuitem", { name: "保存为备份" }).click();
+  const save = page.getByRole("dialog", { name: "保存为备份", exact: true });
+  await save.getByRole("textbox", { name: "名称" }).fill("独立备份");
+  await save.getByRole("textbox", { name: "备份仓库" }).click();
+  await page.getByRole("option", { name: "存储仓库", exact: true }).click();
+  await save.getByRole("button", { name: "备份", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "独立备份" })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "独立备份操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "恢复环境" })
+    .getByRole("button", { name: "恢复", exact: true })
+    .click();
+  await expect.poll(() => restored).toBe(true);
+  await page.getByRole("button", { name: "独立备份操作" }).click();
+  await page.getByRole("menuitem", { name: "克隆为新环境" }).click();
+  const clone = page.getByRole("dialog", { name: "克隆为新环境", exact: true });
+  await clone.getByRole("textbox", { name: "环境名称" }).fill("备份副本");
+  await clone.getByRole("button", { name: "创建环境", exact: true }).click();
+  await expect(page).toHaveURL(/\/environments\/clone$/);
+  expect(cloned).toEqual({
+    name: "备份副本",
+    projectId: "lab-project",
+    backupId: "backup",
+    run: false,
+  });
+});
+
 test("draft persists across exit; applying removal uses preview revision", async ({
   page,
 }) => {

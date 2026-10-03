@@ -9,8 +9,10 @@ SELECT * FROM recovery_points WHERE id=$1 AND environment_id=$2 FOR UPDATE;
 -- name: GetRecoveryPoint :one
 SELECT * FROM recovery_points WHERE id=$1;
 -- name: RecoveryPointInUse :one
-SELECT EXISTS(SELECT 1 FROM operations WHERE payload->'recovery'->>'id'=$1::text
-AND (state IN ('queued','running') OR (phase IN ('rollback','cleanup') AND state IN ('failed','partially_applied'))));
+SELECT EXISTS(SELECT 1 FROM operations o WHERE o.payload->'recovery'->>'id'=$1::text
+AND (NOT (o.payload ? 'backupId') OR o.kind='create-backup')
+AND (o.state IN ('queued','running') OR (o.phase IN ('rollback','cleanup') AND o.state IN ('failed','partially_applied'))
+OR (o.kind='create-backup' AND o.state='failed' AND EXISTS(SELECT 1 FROM backups b WHERE b.operation_id=o.id))));
 -- name: CreateRecoveryPoint :exec
 INSERT INTO recovery_points(id,environment_id,name,revision,definition,asset_count,operation_id) VALUES($1,$2,$3,$4,$5,$6,$7);
 -- name: CompleteRecoveryPoint :exec

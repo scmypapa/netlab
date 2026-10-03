@@ -210,7 +210,7 @@ func (s *Server) listOperations(w http.ResponseWriter, r *http.Request, identity
 		if err != nil {
 			return err
 		}
-		item.Retryable = operation.Retryable(identity, row.Operation, queries.Environment{ProjectID: row.ProjectID, OwnerID: row.OwnerID, OperationID: row.CurrentOperationID})
+		item.Retryable = operation.Retryable(identity, row.Operation, queries.Environment{ProjectID: row.ProjectID, OwnerID: row.OwnerID, OperationID: &row.CurrentOperationID})
 		result = append(result, item)
 	}
 	return writeJSON(w, http.StatusOK, result)
@@ -233,6 +233,10 @@ func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	result, err := environment.Operation(row)
+	if err != nil {
+		return err
+	}
+	runtime.OperationID, err = (operation.Service{Queries: s.Queries}).CurrentOperationID(r.Context(), row, runtime.OperationID)
 	if err != nil {
 		return err
 	}

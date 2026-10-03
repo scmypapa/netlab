@@ -1,7 +1,7 @@
 version: '2'
 sql:
   - engine: postgresql
-    queries: [queries.sql, blueprints.sql, access.sql, observation.sql, services.sql, vpn.sql, external.sql, storage.sql, recovery.sql]
+    queries: [queries.sql, blueprints.sql, access.sql, observation.sql, services.sql, vpn.sql, external.sql, storage.sql, recovery.sql, backups.sql]
     schema: migrations
     gen:
       go:

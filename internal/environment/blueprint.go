@@ -11,24 +11,54 @@ import (
 )
 
 type creationSource struct {
-	Spec     api.EnvironmentSpec
-	View     api.CanvasView
-	Recovery *queries.RecoveryPoint
+	Spec       api.EnvironmentSpec
+	View       api.CanvasView
+	Recovery   *queries.RecoveryPoint
+	Backup     *queries.Backup
+	Definition json.RawMessage
 }
 
 func (s Service) CreationSpec(ctx context.Context, identity access.Identity, request api.CreateEnvironment) (creationSource, error) {
 	var source creationSource
 	count := 0
-	for _, present := range []bool{request.Spec != nil, request.BlueprintVersionId != nil, request.RecoveryPointId != nil} {
+	for _, present := range []bool{request.Spec != nil, request.BlueprintVersionId != nil, request.RecoveryPointId != nil, request.BackupId != nil} {
 		if present {
 			count++
 		}
 	}
 	if count != 1 {
-		return source, Invalid("请选择一个环境模板、恢复点或环境设计")
+		return source, Invalid("请选择一个环境模板、恢复点、备份或环境设计")
 	}
 	if request.Spec != nil {
 		source.Spec = *request.Spec
+		return source, nil
+	}
+	if request.BackupId != nil {
+		backup, err := s.Queries.GetBackup(ctx, *request.BackupId)
+		if err != nil {
+			return source, err
+		}
+		if _, err = s.Authorized(ctx, identity, backup.EnvironmentID, "manage", ""); err != nil {
+			return source, err
+		}
+		if backup.State != "ready" {
+			return source, Invalid("备份尚不可用")
+		}
+		var definition struct {
+			Recovery json.RawMessage `json:"recovery"`
+			View     api.CanvasView  `json:"view"`
+		}
+		if err = json.Unmarshal(backup.Definition, &definition); err != nil {
+			return source, err
+		}
+		var captured struct {
+			Spec api.EnvironmentSpec `json:"spec"`
+		}
+		if err = json.Unmarshal(definition.Recovery, &captured); err != nil {
+			return source, err
+		}
+		source.Spec, source.Definition, source.View, source.Backup = captured.Spec, definition.Recovery, definition.View, &backup
+		clearRecoveryPlacement(&source.Spec)
 		return source, nil
 	}
 	if request.RecoveryPointId != nil {
@@ -49,15 +79,8 @@ func (s Service) CreationSpec(ctx context.Context, identity access.Identity, req
 		if err = json.Unmarshal(point.Definition, &captured); err != nil {
 			return source, err
 		}
-		source.Spec, source.Recovery = captured.Spec, &point
-		for i := range source.Spec.Assets {
-			source.Spec.Assets[i].StoragePoolId = nil
-		}
-		if source.Spec.Services != nil {
-			for i := range *source.Spec.Services {
-				(*source.Spec.Services)[i].ListenPort = nil
-			}
-		}
+		source.Spec, source.Recovery, source.Definition = captured.Spec, &point, point.Definition
+		clearRecoveryPlacement(&source.Spec)
 		err = json.Unmarshal(env.View, &source.View)
 		return source, err
 	}
@@ -76,6 +99,17 @@ func (s Service) CreationSpec(ctx context.Context, identity access.Identity, req
 	}
 	instantiate(&source.Spec, &source.View)
 	return source, nil
+}
+
+func clearRecoveryPlacement(spec *api.EnvironmentSpec) {
+	for i := range spec.Assets {
+		spec.Assets[i].StoragePoolId = nil
+	}
+	if spec.Services != nil {
+		for i := range *spec.Services {
+			(*spec.Services)[i].ListenPort = nil
+		}
+	}
 }
 
 // Each creation has its own logical identities; addresses remain in isolated networks.
