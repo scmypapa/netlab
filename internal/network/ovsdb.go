@@ -119,10 +119,10 @@ type Interface struct {
 }
 
 type OVN struct {
-	client    client.Client
-	provider  netip.Prefix
-	chassis   string
-	vpnRecord func(string) *vpnRecord
+	client       client.Client
+	provider     netip.Prefix
+	chassis      string
+	accessRecord func(string) *accessRecord
 }
 type OVS struct {
 	client client.Client

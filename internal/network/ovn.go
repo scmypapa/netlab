@@ -38,12 +38,13 @@ func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 		}
 		models = append(models, gateway...)
 	}
-	if n.vpnRecord != nil {
-		if record := n.vpnRecord(plan.EnvironmentId); record != nil && len(record.Peers) > 0 {
-			if err := vpnRangeConflict(*record, plan); err != nil {
+	if n.accessRecord != nil {
+		if record := n.accessRecord(plan.EnvironmentId); record != nil {
+			desired, err := accessNetwork(*record, plan)
+			if err != nil {
 				return err
 			}
-			record.Networks = plan.Spec.Networks
+			record = &desired
 			var router *Router
 			for _, item := range models {
 				if current, ok := item.(*Router); ok {
@@ -54,7 +55,7 @@ func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 			if router == nil {
 				return fmt.Errorf("VPN environment router is missing")
 			}
-			models = append(models, vpnModels(plan.EnvironmentId, record, router, n.chassis)...)
+			models = append(models, accessModels(plan.EnvironmentId, record, router, n.chassis)...)
 		}
 	}
 	ops, err := n.deleteOperations(ctx, plan.EnvironmentId)

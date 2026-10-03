@@ -33,7 +33,7 @@ type Engine struct {
 	ovn       *network.OVN
 	ovs       *network.OVS
 	gateway   *network.Gateway
-	vpn       *network.VPN
+	access    *network.Access
 	external  *network.External
 	slots     chan struct{}
 	ioSlots   chan struct{}
@@ -70,7 +70,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.Close()
 		return nil, err
 	}
-	if e.vpn, err = network.NewVPN(ctx, cfg.DataDir, e.ovs, e.ovn); err != nil {
+	if e.access, err = network.NewAccess(ctx, cfg.DataDir, e.ovs, e.ovn); err != nil {
 		e.Close()
 		return nil, err
 	}
@@ -197,9 +197,12 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			result.Error = ptr(err.Error())
 			return result
 		}
+		if err := e.access.Prepare(ctx, plan); err != nil {
+			result.Error = ptr(err.Error())
+		}
 		return result
 	case api.NodePlanPhaseRemoveNetwork:
-		if err := e.vpn.Remove(ctx, plan.EnvironmentId); err != nil {
+		if err := e.access.Remove(ctx, plan.EnvironmentId); err != nil {
 			result.Error = ptr(err.Error())
 			return result
 		}
@@ -208,7 +211,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		}
 		return result
 	case api.NodePlanPhaseVpn:
-		value, err := e.vpn.Apply(ctx, plan)
+		value, err := e.access.Apply(ctx, plan)
 		if err != nil {
 			result.Error = ptr(err.Error())
 		} else {

@@ -15,7 +15,7 @@ type vpnPeer struct {
 	Addresses []string    `json:"addresses"`
 }
 
-type vpnRecord struct {
+type accessRecord struct {
 	PrivateKey string        `json:"privateKey"`
 	Transit    []string      `json:"transit"`
 	Clients    []string      `json:"clients"`
@@ -26,12 +26,12 @@ type vpnRecord struct {
 
 const vpnMTU = 1280
 
-func vpnName(environment string) string { return "nlvpn-" + environment }
-func vpnDevice(environment string) string {
+func accessName(environment string) string { return "nlaccess-" + environment }
+func accessDevice(environment string) string {
 	id := strings.ReplaceAll(environment, "-", "")
 	return "nv" + id[len(id)-12:]
 }
-func vpnPort(environment string) string { return objectName("vpn", environment, "access") }
+func accessPort(environment string) string { return objectName("access", environment, "access") }
 
 func freePrefix(bits int, pools []string, occupied []netip.Prefix) (netip.Prefix, error) {
 	for _, value := range pools {
@@ -64,7 +64,7 @@ func freePrefix(bits int, pools []string, occupied []netip.Prefix) (netip.Prefix
 			candidate = netip.PrefixFrom(next, bits).Masked()
 		}
 	}
-	return netip.Prefix{}, fmt.Errorf("no private VPN range outside environment and access networks")
+	return netip.Prefix{}, fmt.Errorf("no private access range outside environment and VPN networks")
 }
 
 func vpnRanges(plan api.NodePlan) ([]string, []string, error) {
@@ -110,7 +110,7 @@ func vpnRanges(plan api.NodePlan) ([]string, []string, error) {
 	return transit, clients, nil
 }
 
-func assignVPNPeers(record vpnRecord, peers []api.VPNPeer) ([]vpnPeer, error) {
+func assignVPNPeers(record accessRecord, peers []api.VPNPeer) ([]vpnPeer, error) {
 	previous := map[string]vpnPeer{}
 	used := map[string]bool{}
 	for _, peer := range record.Peers {
@@ -167,7 +167,7 @@ func assignVPNPeers(record vpnRecord, peers []api.VPNPeer) ([]vpnPeer, error) {
 	return result, nil
 }
 
-func vpnRangeConflict(record vpnRecord, plan api.NodePlan) error {
+func vpnRangeConflict(record accessRecord, plan api.NodePlan) error {
 	for _, value := range append(slices.Clone(record.Transit), record.Clients...) {
 		reserved := netip.MustParsePrefix(value)
 		for _, network := range plan.Spec.Networks {
@@ -188,16 +188,16 @@ func vpnRangeConflict(record vpnRecord, plan api.NodePlan) error {
 	return nil
 }
 
-func vpnModels(environment string, record *vpnRecord, router *Router, chassis string) []model.Model {
-	if record == nil || len(record.Peers) == 0 {
+func accessModels(environment string, record *accessRecord, router *Router, chassis string) []model.Model {
+	if record == nil {
 		return nil
 	}
 	owner := func() map[string]string {
 		ids := ownership(environment)
-		ids["netlab.component"] = "vpn"
+		ids["netlab.component"] = "access"
 		return ids
 	}
-	rp := &RouterPort{UUID: "vpn_rp", Name: objectName("vpn_rp", environment, "access"), ExternalIDs: owner()}
+	rp := &RouterPort{UUID: "access_rp", Name: objectName("access_rp", environment, "access"), ExternalIDs: owner()}
 	var addresses []string
 	for _, value := range record.Transit {
 		prefix := netip.MustParsePrefix(value)
@@ -206,9 +206,9 @@ func vpnModels(environment string, record *vpnRecord, router *Router, chassis st
 	}
 	rp.MAC = routerMAC(netip.MustParsePrefix(record.Transit[0]).Addr().Next())
 	portMAC := routerMAC(netip.MustParsePrefix(record.Transit[0]).Addr().Next().Next())
-	port := &SwitchPort{UUID: "vpn_port", Name: vpnPort(environment), Addresses: []string{portMAC + " " + strings.Join(addresses, " ")}, PortSecurity: []string{portMAC + " " + strings.Join(addresses, " ")}, ExternalIDs: owner()}
-	connection := &SwitchPort{UUID: "vpn_connection", Name: objectName("vpn_sp", environment, "router"), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": rp.Name}, ExternalIDs: owner()}
-	sw := &Switch{UUID: "vpn_switch", Name: objectName("vpn_ls", environment, "access"), Ports: []string{port.UUID, connection.UUID}, ExternalIDs: owner()}
+	port := &SwitchPort{UUID: "access_port", Name: accessPort(environment), Addresses: []string{portMAC + " " + strings.Join(addresses, " ")}, PortSecurity: []string{portMAC + " " + strings.Join(addresses, " ")}, ExternalIDs: owner()}
+	connection := &SwitchPort{UUID: "access_connection", Name: objectName("access_sp", environment, "router"), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": rp.Name}, ExternalIDs: owner()}
+	sw := &Switch{UUID: "access_switch", Name: objectName("access_ls", environment, "access"), Ports: []string{port.UUID, connection.UUID}, ExternalIDs: owner()}
 	router.Ports = append(router.Ports, rp.UUID)
 	if router.Options == nil {
 		router.Options = map[string]string{}
@@ -225,7 +225,7 @@ func vpnModels(environment string, record *vpnRecord, router *Router, chassis st
 				source = transit.Addr().Next().Next()
 			}
 		}
-		set := &AddressSet{UUID: fmt.Sprintf("vpn_targets%d", index), Name: strings.ReplaceAll(objectName("vpn_targets", environment, network.Id), "-", "_"), Addresses: []string{prefix.String()}, ExternalIDs: owner()}
+		set := &AddressSet{UUID: fmt.Sprintf("vpn_targets%d", index), Name: strings.ReplaceAll(objectName("access_targets", environment, network.Id), "-", "_"), Addresses: []string{prefix.String()}, ExternalIDs: owner()}
 		nat := &NAT{UUID: fmt.Sprintf("vpn_nat%d", index), Type: "snat", LogicalIP: source.String(), ExternalIP: network.RouterAddress(), AllowedExtIPs: &set.UUID, ExternalIDs: owner()}
 		router.NAT = append(router.NAT, nat.UUID)
 		models = append(models, set, nat)
@@ -233,7 +233,24 @@ func vpnModels(environment string, record *vpnRecord, router *Router, chassis st
 	return models
 }
 
-func removeVPNReferences(router *Router, ports []RouterPort, nats []NAT) {
+func accessNetwork(record accessRecord, plan api.NodePlan) (accessRecord, error) {
+	if err := vpnRangeConflict(record, plan); err != nil {
+		if len(record.Peers) > 0 {
+			return record, err
+		}
+		if plan.Vpn == nil {
+			plan.Vpn = &api.NodeVPNPlan{}
+		}
+		var err error
+		if record.Transit, record.Clients, err = vpnRanges(plan); err != nil {
+			return record, err
+		}
+	}
+	record.Networks = slices.Clone(plan.Spec.Networks)
+	return record, nil
+}
+
+func removeAccessReferences(router *Router, ports []RouterPort, nats []NAT) {
 	for _, port := range ports {
 		router.Ports = slices.DeleteFunc(router.Ports, func(id string) bool { return id == port.UUID })
 	}

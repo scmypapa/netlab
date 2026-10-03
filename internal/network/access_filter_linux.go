@@ -54,7 +54,7 @@ func vpnDNAT(access, destination netip.Prefix) []expr.Any {
 	}
 }
 
-func applyVPNKernel(record *vpnRecord) error {
+func applyAccessFilter(record *accessRecord) error {
 	c := &nftables.Conn{}
 	tables, err := c.ListTables()
 	if err != nil {
@@ -69,8 +69,14 @@ func applyVPNKernel(record *vpnRecord) error {
 	drop := nftables.ChainPolicyDrop
 	input := c.AddChain(&nftables.Chain{Name: "input", Table: table, Type: nftables.ChainTypeFilter, Hooknum: nftables.ChainHookInput, Priority: nftables.ChainPriorityFilter, Policy: &drop})
 	c.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: append(vpnInterface(expr.MetaKeyIIFNAME, "lo"), &expr.Verdict{Kind: expr.VerdictAccept})})
+	c.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: append(vpnInterface(expr.MetaKeyIIFNAME, "access0"),
+		&expr.Ct{Register: 1, Key: expr.CtKeySTATE},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED), Xor: make([]byte, 4)},
+		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: make([]byte, 4)},
+		&expr.Verdict{Kind: expr.VerdictAccept},
+	)})
 	// NDP is scoped to the OVN transit link; tunneled traffic cannot reach namespace services.
-	c.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: append(vpnInterface(expr.MetaKeyIIFNAME, "vpn0"),
+	c.AddRule(&nftables.Rule{Table: table, Chain: input, Exprs: append(vpnInterface(expr.MetaKeyIIFNAME, "access0"),
 		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_ICMPV6}},
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 0, Len: 1},
@@ -97,7 +103,7 @@ func applyVPNKernel(record *vpnRecord) error {
 					match = append(match, vpnPrefix(access, false)...)
 					c.AddRule(&nftables.Rule{Table: table, Chain: nat, Exprs: append(match, vpnDNAT(access, destination)...)})
 				}
-				match = append(vpnInterface(expr.MetaKeyIIFNAME, "wg0"), vpnInterface(expr.MetaKeyOIFNAME, "vpn0")...)
+				match = append(vpnInterface(expr.MetaKeyIIFNAME, "wg0"), vpnInterface(expr.MetaKeyOIFNAME, "access0")...)
 				match = append(match, vpnPrefix(source, true)...)
 				match = append(match, vpnPrefix(destination, false)...)
 				c.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: append(match, &expr.Verdict{Kind: expr.VerdictAccept})})
@@ -105,7 +111,7 @@ func applyVPNKernel(record *vpnRecord) error {
 		}
 	}
 	c.AddRule(&nftables.Rule{Table: table, Chain: filter, Exprs: append(vpnInterface(expr.MetaKeyIIFNAME, "wg0"), &expr.Verdict{Kind: expr.VerdictDrop})})
-	reply := append(vpnInterface(expr.MetaKeyIIFNAME, "vpn0"), vpnInterface(expr.MetaKeyOIFNAME, "wg0")...)
+	reply := append(vpnInterface(expr.MetaKeyIIFNAME, "access0"), vpnInterface(expr.MetaKeyOIFNAME, "wg0")...)
 	c.AddRule(&nftables.Rule{Table: table, Chain: forward, Exprs: append(reply,
 		&expr.Ct{Register: 1, Key: expr.CtKeySTATE},
 		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED), Xor: make([]byte, 4)},
@@ -113,6 +119,6 @@ func applyVPNKernel(record *vpnRecord) error {
 		&expr.Verdict{Kind: expr.VerdictAccept},
 	)})
 	post := c.AddChain(&nftables.Chain{Name: "source", Table: table, Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
-	c.AddRule(&nftables.Rule{Table: table, Chain: post, Exprs: append(vpnInterface(expr.MetaKeyOIFNAME, "vpn0"), &expr.Masq{})})
+	c.AddRule(&nftables.Rule{Table: table, Chain: post, Exprs: append(vpnInterface(expr.MetaKeyOIFNAME, "access0"), &expr.Masq{})})
 	return c.Flush()
 }

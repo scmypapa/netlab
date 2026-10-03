@@ -4,6 +4,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -46,7 +48,7 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 	}
 	ovn.chassis = roots[0].ExternalIDs["system-id"]
 	directory := t.TempDir()
-	vpn, err := NewVPN(ctx, directory, ovs, ovn)
+	vpn, err := NewAccess(ctx, directory, ovs, ovn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,12 +63,12 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 		}
 	}()
 	guestID := uuid.NewString()
-	guest, err := vpnNamespace(guestID)
+	guest, err := accessNamespace(guestID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer guest.Close()
-	defer netns.DeleteNamed(vpnName(guestID))
+	defer netns.DeleteNamed(accessName(guestID))
 	gw4, gw6 := "192.168.218.1", "fd12:218::1"
 	plan := api.NodePlan{EnvironmentId: environment, Spec: api.EnvironmentSpec{Networks: []api.Network{
 		{Id: "v4", Name: "IPv4", Cidr: "192.168.218.0/24", Gateway: &gw4},
@@ -78,7 +80,7 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 		port := objectName("test_vpn_guest", environment, config.id)
 		plan.Spec.Assets = append(plan.Spec.Assets, asset)
 		plan.Assets = append(plan.Assets, api.AssetExecution{Asset: asset, Interfaces: []api.ResolvedInterface{{Id: config.id, PortName: port}}})
-		host := fmt.Sprintf("nt%d%s", i, vpnDevice(environment)[2:])
+		host := fmt.Sprintf("nt%d%s", i, accessDevice(environment)[2:])
 		if err = netlink.LinkAdd(&netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: host, MTU: 1400}, PeerName: config.id, PeerNamespace: netlink.NsFd(guest.Fd())}); err != nil {
 			t.Fatal(err)
 		}
@@ -125,6 +127,50 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 		defer listener.Close()
 		go http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "vpn-real-payload") }))
 	}
+	if err = vpn.Prepare(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	assertNoWireguard := func() {
+		handle, err := ns.GetNS(filepath.Join("/run/netns", accessName(environment)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer handle.Close()
+		if err = handle.Do(func(_ ns.NetNS) error {
+			_, err := netlink.LinkByName("wg0")
+			var missing netlink.LinkNotFoundError
+			if errors.As(err, &missing) {
+				return nil
+			}
+			return fmt.Errorf("unexpected WireGuard interface: %v", err)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkAccess := func() {
+		for _, address := range []string{"192.168.218.10", "fd12:218::10"} {
+			deadline := time.Now().Add(12 * time.Second)
+			for {
+				connection, err := vpn.Dial(ctx, environment, netip.MustParseAddr(address), 8087)
+				if err == nil {
+					connection.SetDeadline(time.Now().Add(time.Second))
+					fmt.Fprintf(connection, "GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+					data, readErr := io.ReadAll(connection)
+					connection.Close()
+					if readErr == nil && containsPayload(data) {
+						break
+					}
+					err = fmt.Errorf("guest response: %v", readErr)
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("environment connection %s: %v", address, err)
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+	assertNoWireguard()
+	checkAccess()
 	clientKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Fatal(err)
@@ -142,13 +188,13 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 		t.Fatalf("incomplete VPN result: %#v", result)
 	}
 	clientID := uuid.NewString()
-	client, err := vpnNamespace(clientID)
+	client, err := accessNamespace(clientID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	defer netns.DeleteNamed(vpnName(clientID))
-	wg := &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: "nc" + vpnDevice(clientID)[2:]}, LinkType: "wireguard"}
+	defer netns.DeleteNamed(accessName(clientID))
+	wg := &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: "nc" + accessDevice(clientID)[2:]}, LinkType: "wireguard"}
 	if err = netlink.LinkAdd(wg); err != nil {
 		t.Fatal(err)
 	}
@@ -270,9 +316,19 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 	if err = check("100.100.218.10:8087"); err != nil {
 		t.Fatalf("remaining network stopped working: %v", err)
 	}
-	vpn, err = NewVPN(ctx, directory, ovs, ovn)
+	var beforeRouter, afterRouter []Router
+	if err = ovn.client.Where(&Router{Name: objectName("lr", environment, "gateway")}).List(ctx, &beforeRouter); err != nil {
+		t.Fatal(err)
+	}
+	vpn, err = NewAccess(ctx, directory, ovs, ovn)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err = ovn.client.Where(&Router{Name: objectName("lr", environment, "gateway")}).List(ctx, &afterRouter); err != nil {
+		t.Fatal(err)
+	}
+	if len(beforeRouter) != 1 || len(afterRouter) != 1 || !slices.Equal(beforeRouter[0].Ports, afterRouter[0].Ports) || !slices.Equal(beforeRouter[0].NAT, afterRouter[0].NAT) {
+		t.Fatal("node reload rewrote persistent OVN topology")
 	}
 	if err = check("100.100.218.10:8087"); err != nil {
 		t.Fatalf("reloading node metadata disturbed active VPN: %v", err)
@@ -285,8 +341,10 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 	if withdrawn.ListenPort != 0 || withdrawn.PublicKey != result.PublicKey {
 		t.Fatal("empty VPN did not preserve identity and release port")
 	}
-	if _, err = os.Stat(filepath.Join("/run/netns", vpnName(environment))); !os.IsNotExist(err) {
-		t.Fatal("VPN namespace was not released")
+	assertNoWireguard()
+	checkAccess()
+	if err = check("100.100.218.10:8087"); err == nil {
+		t.Fatal("revoked VPN still reaches the guest")
 	}
 	plan.Vpn.Peers = []api.VPNPeer{peer}
 	restored, err := vpn.Apply(ctx, plan)
@@ -300,7 +358,7 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 
 func vpnHandshake(t *testing.T, environment string, public wgtypes.Key) time.Time {
 	t.Helper()
-	handle, err := ns.GetNS(filepath.Join("/run/netns", vpnName(environment)))
+	handle, err := ns.GetNS(filepath.Join("/run/netns", accessName(environment)))
 	if err != nil {
 		t.Fatal(err)
 	}

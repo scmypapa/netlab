@@ -20,22 +20,21 @@ import (
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
-	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"netlab.local/core/api"
 )
 
-type VPN struct {
+type Access struct {
 	mu        sync.RWMutex
 	directory string
 	ovs       *OVS
 	ovn       *OVN
-	records   map[string]vpnRecord
+	records   map[string]accessRecord
 }
 
-func NewVPN(ctx context.Context, directory string, ovs *OVS, ovn *OVN) (*VPN, error) {
-	v := &VPN{directory: filepath.Join(directory, "vpn"), ovs: ovs, ovn: ovn, records: map[string]vpnRecord{}}
+func NewAccess(ctx context.Context, directory string, ovs *OVS, ovn *OVN) (*Access, error) {
+	v := &Access{directory: filepath.Join(directory, "access"), ovs: ovs, ovn: ovn, records: map[string]accessRecord{}}
 	if err := os.MkdirAll(v.directory, 0700); err != nil {
 		return nil, err
 	}
@@ -51,13 +50,13 @@ func NewVPN(ctx context.Context, directory string, ovs *OVS, ovn *OVN) (*VPN, er
 		if err != nil {
 			return nil, err
 		}
-		var record vpnRecord
+		var record accessRecord
 		if err := json.Unmarshal(data, &record); err != nil {
 			return nil, err
 		}
 		v.records[entry.Name()[:len(entry.Name())-5]] = record
 	}
-	ovn.vpnRecord = func(environment string) *vpnRecord {
+	ovn.accessRecord = func(environment string) *accessRecord {
 		v.mu.RLock()
 		defer v.mu.RUnlock()
 		record, exists := v.records[environment]
@@ -67,11 +66,9 @@ func NewVPN(ctx context.Context, directory string, ovs *OVS, ovn *OVN) (*VPN, er
 		return &record
 	}
 	for environment, record := range v.records {
-		if len(record.Peers) == 0 {
-			continue
-		}
-		if err := v.apply(ctx, environment, &record, record); err != nil {
-			return nil, fmt.Errorf("restore VPN environment %s: %w", environment, err)
+		// OVN topology persists independently; startup restores only host resources.
+		if err := v.applyKernel(ctx, environment, &record, record); err != nil {
+			return nil, fmt.Errorf("restore environment access %s: %w", environment, err)
 		}
 		if err := v.writeRecord(environment, record); err != nil {
 			return nil, err
@@ -81,8 +78,8 @@ func NewVPN(ctx context.Context, directory string, ovs *OVS, ovn *OVN) (*VPN, er
 	return v, nil
 }
 
-func (v *VPN) writeRecord(environment string, record vpnRecord) error {
-	file, err := os.CreateTemp(v.directory, ".vpn-")
+func (v *Access) writeRecord(environment string, record accessRecord) error {
+	file, err := os.CreateTemp(v.directory, ".access-")
 	if err != nil {
 		return err
 	}
@@ -98,7 +95,7 @@ func (v *VPN) writeRecord(environment string, record vpnRecord) error {
 	return err
 }
 
-func (v *VPN) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, error) {
+func (v *Access) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, error) {
 	if plan.Vpn == nil {
 		return api.NodeVPNResult{}, fmt.Errorf("VPN application requires the complete peer set")
 	}
@@ -106,9 +103,6 @@ func (v *VPN) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, 
 	previous, exists := v.records[plan.EnvironmentId]
 	v.mu.RUnlock()
 	if !exists {
-		if len(plan.Vpn.Peers) == 0 {
-			return api.NodeVPNResult{Mtu: vpnMTU, Peers: []api.NodeVPNPeer{}}, nil
-		}
 		key, err := wgtypes.GeneratePrivateKey()
 		if err != nil {
 			return api.NodeVPNResult{}, err
@@ -117,7 +111,7 @@ func (v *VPN) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, 
 		if err != nil {
 			return api.NodeVPNResult{}, err
 		}
-		previous = vpnRecord{PrivateKey: key.String(), Transit: transit, Clients: clients, Networks: slices.Clone(plan.Spec.Networks)}
+		previous = accessRecord{PrivateKey: key.String(), Transit: transit, Clients: clients, Networks: slices.Clone(plan.Spec.Networks)}
 		// The server key belongs to the environment, including while it has no peers.
 		if err := v.writeRecord(plan.EnvironmentId, previous); err != nil {
 			return api.NodeVPNResult{}, err
@@ -126,18 +120,9 @@ func (v *VPN) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, 
 		v.records[plan.EnvironmentId] = previous
 		v.mu.Unlock()
 	}
-	next := previous
-	next.Networks = slices.Clone(plan.Spec.Networks)
-	var err error
-	if len(plan.Vpn.Peers) > 0 {
-		if err = vpnRangeConflict(previous, plan); err != nil {
-			if len(previous.Peers) > 0 {
-				return api.NodeVPNResult{}, err
-			}
-			if next.Transit, next.Clients, err = vpnRanges(plan); err != nil {
-				return api.NodeVPNResult{}, err
-			}
-		}
+	next, err := accessNetwork(previous, plan)
+	if err != nil {
+		return api.NodeVPNResult{}, err
 	}
 	if next.Peers, err = assignVPNPeers(next, plan.Vpn.Peers); err != nil {
 		return api.NodeVPNResult{}, err
@@ -168,15 +153,15 @@ func (v *VPN) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResult, 
 	return result, nil
 }
 
-func (v *VPN) apply(ctx context.Context, environment string, record *vpnRecord, previous vpnRecord) error {
-	if len(record.Peers) == 0 {
-		record.ListenPort = 0
-		if err := v.ovn.applyVPN(ctx, environment, nil); err != nil {
-			return err
-		}
-		return v.removeKernel(ctx, environment)
+func (v *Access) apply(ctx context.Context, environment string, record *accessRecord, previous accessRecord) error {
+	if err := v.applyKernel(ctx, environment, record, previous); err != nil {
+		return err
 	}
-	handle, err := vpnNamespace(environment)
+	return v.ovn.applyAccess(ctx, environment, record)
+}
+
+func (v *Access) applyKernel(ctx context.Context, environment string, record *accessRecord, previous accessRecord) error {
+	handle, err := accessNamespace(environment)
 	if err != nil {
 		return err
 	}
@@ -184,11 +169,15 @@ func (v *VPN) apply(ctx context.Context, environment string, record *vpnRecord, 
 	if err = v.connect(ctx, environment, handle, record); err != nil {
 		return err
 	}
-	if err = handle.Do(func(_ ns.NetNS) error { return applyVPNKernel(record) }); err != nil {
+	if err = v.configureWireguard(environment, handle, record); err != nil {
 		return err
 	}
-	if err = v.ovn.applyVPN(ctx, environment, record); err != nil {
+	if err = handle.Do(func(_ ns.NetNS) error { return applyAccessFilter(record) }); err != nil {
 		return err
+	}
+	if len(record.Peers) == 0 {
+		record.ListenPort = 0
+		return nil
 	}
 	return handle.Do(func(_ ns.NetNS) error {
 		client, err := wgctrl.New()
@@ -237,8 +226,8 @@ func (v *VPN) apply(ctx context.Context, environment string, record *vpnRecord, 
 	})
 }
 
-func vpnNamespace(environment string) (ns.NetNS, error) {
-	path := filepath.Join("/run/netns", vpnName(environment))
+func accessNamespace(environment string) (ns.NetNS, error) {
+	path := filepath.Join("/run/netns", accessName(environment))
 	if _, err := os.Stat(path); err == nil {
 		return ns.GetNS(path)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -251,7 +240,7 @@ func vpnNamespace(environment string) (ns.NetNS, error) {
 		return nil, err
 	}
 	defer current.Close()
-	created, err := netns.NewNamed(vpnName(environment))
+	created, err := netns.NewNamed(accessName(environment))
 	restore := netns.Set(current)
 	if created.IsOpen() {
 		created.Close()
@@ -262,12 +251,12 @@ func vpnNamespace(environment string) (ns.NetNS, error) {
 	return ns.GetNS(path)
 }
 
-func (v *VPN) connect(ctx context.Context, environment string, handle ns.NetNS, record *vpnRecord) error {
+func (v *Access) connect(ctx context.Context, environment string, handle ns.NetNS, record *accessRecord) error {
 	var missing netlink.LinkNotFoundError
-	hostName := vpnDevice(environment)
+	hostName := accessDevice(environment)
 	host, err := netlink.LinkByName(hostName)
 	if errors.As(err, &missing) {
-		link := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: hostName, MTU: 1400}, PeerName: "vpn0", PeerNamespace: netlink.NsFd(handle.Fd())}
+		link := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: hostName, MTU: 1400}, PeerName: "access0", PeerNamespace: netlink.NsFd(handle.Fd())}
 		if err = netlink.LinkAdd(link); err != nil {
 			return err
 		}
@@ -279,32 +268,11 @@ func (v *VPN) connect(ctx context.Context, environment string, handle ns.NetNS, 
 	if err = netlink.LinkSetUp(host); err != nil {
 		return err
 	}
-	if err = v.ovs.Attach(ctx, hostName, vpnPort(environment), environment, "vpn", "vpn"); err != nil {
+	if err = v.ovs.Attach(ctx, hostName, accessPort(environment), environment, "access", "access"); err != nil {
 		return err
-	}
-	hasWG := false
-	if err = handle.Do(func(_ ns.NetNS) error {
-		_, err := netlink.LinkByName("wg0")
-		hasWG = err == nil
-		if errors.As(err, &missing) {
-			return nil
-		}
-		return err
-	}); err != nil {
-		return err
-	}
-	if !hasWG {
-		// Creation in the host namespace keeps encrypted UDP on the host's routing table.
-		wireguard := &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: "nw" + hostName[2:]}, LinkType: "wireguard"}
-		if err = netlink.LinkAdd(wireguard); err != nil {
-			return err
-		}
-		if err = netlink.LinkSetNsFd(wireguard, int(handle.Fd())); err != nil {
-			return errors.Join(err, netlink.LinkDel(wireguard))
-		}
 	}
 	return handle.Do(func(_ ns.NetNS) error {
-		peer, err := netlink.LinkByName("vpn0")
+		peer, err := netlink.LinkByName("access0")
 		if err != nil {
 			return err
 		}
@@ -313,39 +281,10 @@ func (v *VPN) connect(ctx context.Context, environment string, handle ns.NetNS, 
 		if err = netlink.LinkSetHardwareAddr(peer, mac); err != nil {
 			return err
 		}
-		for _, value := range record.Transit {
-			prefix := netip.MustParsePrefix(value)
-			address, _ := netlink.ParseAddr(netip.PrefixFrom(prefix.Addr().Next().Next(), prefix.Bits()).String())
-			address.Flags = unix.IFA_F_NODAD
-			if err = netlink.AddrReplace(peer, address); err != nil {
-				return err
-			}
+		if err = replaceAccessAddresses(peer, record.Transit, 2); err != nil {
+			return err
 		}
 		if err = netlink.LinkSetUp(peer); err != nil {
-			return err
-		}
-		wg, err := netlink.LinkByName("wg0")
-		if !hasWG {
-			wg, err = netlink.LinkByName("nw" + hostName[2:])
-			if err == nil {
-				err = netlink.LinkSetName(wg, "wg0")
-			}
-		}
-		if err != nil {
-			return err
-		}
-		if err = netlink.LinkSetMTU(wg, vpnMTU); err != nil {
-			return err
-		}
-		for _, value := range record.Clients {
-			prefix := netip.MustParsePrefix(value)
-			address, _ := netlink.ParseAddr(netip.PrefixFrom(prefix.Addr().Next(), prefix.Bits()).String())
-			address.Flags = unix.IFA_F_NODAD
-			if err = netlink.AddrReplace(wg, address); err != nil {
-				return err
-			}
-		}
-		if err = netlink.LinkSetUp(wg); err != nil {
 			return err
 		}
 		desired := make(map[string]bool, len(record.Networks))
@@ -386,9 +325,70 @@ func (v *VPN) connect(ctx context.Context, environment string, handle ns.NetNS, 
 	})
 }
 
-func (v *VPN) removeKernel(ctx context.Context, environment string) error {
-	if _, err := os.Stat(filepath.Join("/run/netns", vpnName(environment))); err == nil {
-		handle, err := ns.GetNS(filepath.Join("/run/netns", vpnName(environment)))
+func (v *Access) configureWireguard(environment string, handle ns.NetNS, record *accessRecord) error {
+	hostName := accessDevice(environment)
+	var missing netlink.LinkNotFoundError
+	var err error
+	if len(record.Peers) == 0 {
+		return handle.Do(func(_ ns.NetNS) error {
+			link, err := netlink.LinkByName("wg0")
+			if errors.As(err, &missing) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			return netlink.LinkDel(link)
+		})
+	}
+	hasWG := false
+	if err = handle.Do(func(_ ns.NetNS) error {
+		_, err := netlink.LinkByName("wg0")
+		hasWG = err == nil
+		if errors.As(err, &missing) {
+			return nil
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	if !hasWG {
+		// Creation in the host namespace keeps encrypted UDP on the host's routing table.
+		wireguard := &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: "nw" + hostName[2:]}, LinkType: "wireguard"}
+		if err = netlink.LinkAdd(wireguard); err != nil {
+			return err
+		}
+		if err = netlink.LinkSetNsFd(wireguard, int(handle.Fd())); err != nil {
+			return errors.Join(err, netlink.LinkDel(wireguard))
+		}
+	}
+	return handle.Do(func(_ ns.NetNS) error {
+		wg, err := netlink.LinkByName("wg0")
+		if !hasWG {
+			wg, err = netlink.LinkByName("nw" + hostName[2:])
+			if err == nil {
+				err = netlink.LinkSetName(wg, "wg0")
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if err = netlink.LinkSetMTU(wg, vpnMTU); err != nil {
+			return err
+		}
+		if err = replaceAccessAddresses(wg, record.Clients, 1); err != nil {
+			return err
+		}
+		if err = netlink.LinkSetUp(wg); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (v *Access) removeKernel(ctx context.Context, environment string) error {
+	if _, err := os.Stat(filepath.Join("/run/netns", accessName(environment))); err == nil {
+		handle, err := ns.GetNS(filepath.Join("/run/netns", accessName(environment)))
 		if err != nil {
 			return err
 		}
@@ -399,16 +399,16 @@ func (v *VPN) removeKernel(ctx context.Context, environment string) error {
 		if err != nil {
 			return err
 		}
-		if err := netns.DeleteNamed(vpnName(environment)); err != nil {
+		if err := netns.DeleteNamed(accessName(environment)); err != nil {
 			return err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if _, err := v.ovs.Detach(ctx, vpnDevice(environment), environment, "vpn", "vpn"); err != nil {
+	if _, err := v.ovs.Detach(ctx, accessDevice(environment), environment, "access", "access"); err != nil {
 		return err
 	}
-	link, err := netlink.LinkByName(vpnDevice(environment))
+	link, err := netlink.LinkByName(accessDevice(environment))
 	var missing netlink.LinkNotFoundError
 	if errors.As(err, &missing) {
 		return nil
@@ -419,7 +419,7 @@ func (v *VPN) removeKernel(ctx context.Context, environment string) error {
 	return netlink.LinkDel(link)
 }
 
-func (v *VPN) Remove(ctx context.Context, environment string) error {
+func (v *Access) Remove(ctx context.Context, environment string) error {
 	if err := v.removeKernel(ctx, environment); err != nil {
 		return err
 	}
@@ -447,7 +447,7 @@ func (filter vpnConnections) MatchConntrackFlow(flow *netlink.ConntrackFlow) boo
 	return filter[address.Unmap()]
 }
 
-func clearChangedVPNConnections(previous, next vpnRecord) error {
+func clearChangedVPNConnections(previous, next accessRecord) error {
 	current := map[string]vpnPeer{}
 	for _, peer := range next.Peers {
 		current[peer.Peer.Id] = peer
