@@ -145,7 +145,7 @@
 ### 本地存储
 
 - Ubuntu 测试发行版通过 WSL 原生迁移放到 `D:\wsl\Ubuntu`，账号、证书、模板和数据库现场保留；Docker 原有存储仍为 `D:\DockerDesktopWSL\main`。
-- 控制面与节点工作区、测试报告和 nginx 镜像包位于 D 盘。新建并行工作区位于 `D:\newgz\netlab-runtime` 和 `D:\newgz\netlab-observe`。
+- 控制面与节点工作区、测试报告和 nginx 镜像包位于 D 盘。2026-10-03 清理 9 个已完成且改动已合入主线的旧工作区及 5 份过期控制面构建；旧代码仍保存在 Git 历史中，构建可重新生成。当前保留 `D:\newgz\netlab` 主工作区、正在运行的控制面构建及真实测试报告。原平台位于 `D:\newgz\newGZCTF-main`。
 - Go 缓存已移至仓库外：`GOCACHE=D:\.cache\netlab\go-build`、`GOMODCACHE=D:\.cache\netlab\go-mod`、`GOPATH=D:\.cache\netlab\go`；临时目录为 `D:\.cache\netlab\tmp`。避免 `go test ./...` 将模块缓存扫描为项目源码。pnpm store 位于 `D:\.pnpm-store\v10`。
 
 ### 尚未完成
@@ -403,7 +403,7 @@ ISO 模板包含空系统盘、安装光盘和可选驱动光盘。Windows 11 �
 
 原始失败保留于 `data/storage-pools-*-first.json`：脚本误用创建参数、节点归属错误、D 盘耗尽导致 containerd/OVN/libvirt 的 I/O 错误，以及脚本在非 OVN 数据库节点查询本地 socket。磁盘故障一轮清理失败也保留在报告中；恢复环境后沿原任务完成清理，并移除该轮已无实例引用的测试目录残留。最后连续验收未手工跳过任何步骤。
 
-门禁：真实 PostgreSQL 下 server、operation、environment 与 queries 测试，Linux 执行器测试、控制面与节点构建，前端类型检查、构建及存储交互 **1/1** 通过，含 390 宽度。未重复全部前端测试。本地双控制面使用 `netlab-controller.storage4.exe`，节点使用 `netlab-node-storage4` 构建；原平台与生产服务器未修改。D 盘剩余不足 1 GiB，大型镜像、备份与恢复验收需要先释放空间。
+门禁：真实 PostgreSQL 下 server、operation、environment 与 queries 测试，Linux 执行器测试、控制面与节点构建，前端类型检查、构建及存储交互 **1/1** 通过，含 390 宽度。未重复全部前端测试。本地双控制面使用 `netlab-controller.storage4.exe`，节点使用 `netlab-node-storage4` 构建；原平台与生产服务器未修改。该轮 D 盘剩余不足 1 GiB；2026-10-03 用户释放空间后，D 盘可用约 52.5 GiB。
 
 ### 恢复点捕获与删除：连续双节点验收
 
