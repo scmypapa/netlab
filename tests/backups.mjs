@@ -9,7 +9,9 @@ const execute = promisify(execFile), run = randomUUID();
 const base = "http://127.0.0.1:8090/api/v1";
 const workers = JSON.parse(await readFile("D:/.cache/netlab/artifacts/multi-node-workers.json", "utf8"));
 const root = `/var/lib/netlab-dev/test-tmp/backup-${run}`;
-const report = { startedAt: new Date().toISOString(), steps: [], cleanupErrors: [], vmGuestVerified: false };
+const repositoryConfig = process.env.NETLAB_BACKUP_REPOSITORY_CONFIG
+  ? JSON.parse(await readFile(process.env.NETLAB_BACKUP_REPOSITORY_CONFIG, "utf8")) : { location: root + "/repository" };
+const report = { startedAt: new Date().toISOString(), backend: repositoryConfig.location.startsWith("s3:") ? "s3" : "directory", steps: [], cleanupErrors: [], vmGuestVerified: false };
 const pools = [], clones = [], directories = new Set();
 const identities = new Set(), diskFiles = [];
 let cookie, env, point, repository, backup, vmTemplate;
@@ -34,6 +36,13 @@ async function operation(id, expected="succeeded") {
     await delay(150);
   }
   throw new Error("operation timeout: "+id);
+}
+async function nativeSnapshots(credentials, group) {
+  const variables = { RESTIC_REPOSITORY: repositoryConfig.location, RESTIC_PASSWORD: credentials.password,
+    AWS_ACCESS_KEY_ID: credentials.accessKey ?? "", AWS_SECRET_ACCESS_KEY: credentials.secretKey ?? "", AWS_DEFAULT_REGION: credentials.region ?? "" };
+  const env = { ...process.env, ...variables, WSLENV: [process.env.WSLENV, ...Object.keys(variables).map((name) => name + "/u")].filter(Boolean).join(":") };
+  const result = await execute("wsl.exe", ["-d", "Ubuntu", "-u", "root", "--exec", "/usr/local/bin/restic", "--json", "--no-cache", "snapshots", "--tag", group], { env, timeout: 30000 });
+  return JSON.parse(result.stdout);
 }
 async function uploadTemplate(definition, filename) {
   const bytes=(await execute("wsl.exe",["-d","Ubuntu","-u","root","--exec","cat",filename],{encoding:"buffer",maxBuffer:2**20})).stdout;
@@ -111,10 +120,10 @@ try {
     }
     report.environmentId=env.id;
   });
-  await step("捕获固定恢复点，备份至加密目录仓库",async()=>{
+  await step("捕获固定恢复点，备份至加密" + (report.backend === "s3" ? " S3" : "目录") + "仓库",async()=>{
     const state=await api(`/environments/${env.id}/state`);
     point=await api(`/environments/${env.id}/recovery-points`,"POST",{name:"Backup source",expectedRevision:state.revision},201); await operation(point.operationId);
-    repository=await api("/backup-repositories","POST",{name:"Directory "+run,nodeId:primary,location:root+"/repository"},201); await operation(repository.operationId);
+    repository=await api("/backup-repositories","POST",{name:"Backup "+run,nodeId:primary,...repositoryConfig},201); await operation(repository.operationId);
     backup=await api(`/environments/${env.id}/backups`,"POST",{name:"Durable "+run,repositoryId:repository.id,recoveryPointId:point.id},201);
     const beforeBackup=await api(`/environments/${env.id}/state`);
     await operation(backup.operationId);
@@ -140,9 +149,12 @@ try {
   });
   await step("销毁、删除备份及仓库，检查数据、原生实例和容量释放",async()=>{
     for(const environment of [env,...clones]) await action(environment,"destroy");
+    const credentials = await api("/backup-repositories/" + repository.id + "/credentials");
+    const group = "netlab:backup:" + backup.id;
+    assert.equal((await nativeSnapshots(credentials, group)).length, 5);
     await operation((await api(`/environments/${env.id}/backups/${backup.id}`,"DELETE",undefined,202)).id); backup=undefined;
     assert.equal((await api(`/environments/${env.id}/backups`)).length,0);
-    assert.equal((await node(primary,"find",root+"/repository/snapshots","-type","f")).trim(),"");
+    assert.equal((await nativeSnapshots(credentials, group)).length, 0);
     await api("/backup-repositories/"+repository.id,"DELETE",undefined,204); repository=undefined;
     for(const environment of [env,...clones]) assert.equal((await api(`/environments/${environment.id}/state`)).assets.length,0);
     for(const disk of diskFiles) await node(disk.nodeId,"test","!","-e",disk.path);
