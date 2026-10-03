@@ -337,6 +337,21 @@ func (q *Queries) FinishOperation(ctx context.Context, arg FinishOperationParams
 	return result.RowsAffected(), nil
 }
 
+const finishTemplateCapture = `-- name: FinishTemplateCapture :exec
+UPDATE environments SET status=$3,updated_at=now() WHERE id=$1 AND operation_id=$2
+`
+
+type FinishTemplateCaptureParams struct {
+	ID          string
+	OperationID *string
+	Status      string
+}
+
+func (q *Queries) FinishTemplateCapture(ctx context.Context, arg FinishTemplateCaptureParams) error {
+	_, err := q.db.Exec(ctx, finishTemplateCapture, arg.ID, arg.OperationID, arg.Status)
+	return err
+}
+
 const getCredential = `-- name: GetCredential :one
 SELECT p.id, p.name, p.kind, p.password_hash, p.administrator, p.disabled, p.created_at,c.expires_at AS credential_expires_at FROM credentials c JOIN principals p ON p.id=c.principal_id WHERE c.hash=$1 AND NOT p.disabled
 `

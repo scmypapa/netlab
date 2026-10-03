@@ -478,7 +478,7 @@ func ovfDisks(descriptor string, t api.Template) (api.Template, []importDisk, ma
 	return t, disks, files, nil
 }
 
-func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template) (api.Template, error) {
+func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template, capture *api.TemplateCaptureSource) (api.Template, error) {
 	if !filepath.IsLocal(t.Id) || t.Id == "." || strings.ContainsAny(t.Id, "/\\") {
 		return t, errors.New("template id must be a single stable identifier")
 	}
@@ -507,6 +507,9 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template) (
 	if err = os.Chmod(staging, 0711); err != nil {
 		return t, err
 	}
+	if capture != nil {
+		return v.captureTemplate(ctx, t, *capture, staging, directory)
+	}
 	u, err := url.Parse(t.Source)
 	if err != nil {
 		return t, err
@@ -514,9 +517,6 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template) (
 	format := strings.ToLower(strings.TrimPrefix(filepath.Ext(u.Path), "."))
 	if t.Format != nil {
 		format = string(*t.Format)
-	}
-	if format == "iso" {
-		return t, errors.New("an ISO is installation media; prepare an installed system disk before publishing a VM template")
 	}
 	name := filepath.Base(u.Path)
 	if name == "." || name == "/" {
@@ -533,8 +533,10 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template) (
 		if err != nil {
 			return t, err
 		}
-	} else if err = copyArtifact(ctx, t.Source, input); err != nil {
-		return t, err
+	} else if format != "iso" {
+		if err = copyArtifact(ctx, t.Source, input); err != nil {
+			return t, err
+		}
 	}
 	var disks []importDisk
 	if format == "ova" || format == "ovf" {
@@ -582,6 +584,14 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template) (
 			return t, errors.New("bare VM disk imports need virtual hardware")
 		}
 		disks = []importDisk{{definition: api.TemplateDisk{Id: "boot", Bus: api.TemplateDiskBus(t.Hardware.DiskBus), BootOrder: 1, ControllerModel: t.Hardware.DiskController}, path: input, origin: t.Source}}
+		if format == "iso" {
+			disks[0].path, disks[0].capacity = "", t.Resources.DiskGiB*(1<<30)
+			media := []api.TemplateMedia{{Id: "installer", Source: t.Source}}
+			if t.Media != nil {
+				media = append(media, (*t.Media)...)
+			}
+			t.Media, t.Initialization = &media, ptr(api.None)
+		}
 	}
 	t, err = v.pinHardware(t)
 	if err != nil {
@@ -623,6 +633,36 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template) (
 		}
 	}
 	t.Disks = &definitions
+	if t.Media != nil {
+		ids := map[string]bool{}
+		for index, media := range *t.Media {
+			if media.Id == "" || ids[media.Id] {
+				return t, errors.New("installation media IDs must be unique")
+			}
+			ids[media.Id] = true
+			source := media.Source
+			parsed, err := url.Parse(source)
+			if err != nil {
+				return t, err
+			}
+			if parsed.Scheme == "" && !filepath.IsAbs(source) {
+				if _, err = artifactPath(filepath.Dir(input), source); err != nil {
+					return t, err
+				}
+				source, err = artifactReference(t.Source, source)
+				if err != nil {
+					return t, err
+				}
+			}
+			if err = copyArtifact(ctx, source, templateMediaPath(staging, index)); err != nil {
+				return t, fmt.Errorf("media %s: %w", media.Id, err)
+			}
+		}
+	}
+	return commitVMTemplate(t, staging, directory)
+}
+
+func commitVMTemplate(t api.Template, staging, directory string) (api.Template, error) {
 	data, err := json.Marshal(t)
 	if err != nil {
 		return t, err

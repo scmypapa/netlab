@@ -314,6 +314,10 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 }
 func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePreparation) (api.Template, error) {
 	t := request.Template
+	if request.Capture != nil {
+		unlock := e.lock(request.Capture.EnvironmentId)
+		defer unlock()
+	}
 	unlock := e.lock("template:" + t.Id)
 	defer unlock()
 	select {
@@ -345,7 +349,7 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 		if e.vm == nil {
 			return t, errors.New("virtual machine runtime not configured")
 		}
-		t, err = e.vm.prepareTemplate(ctx, t)
+		t, err = e.vm.prepareTemplate(ctx, t, request.Capture)
 	default:
 		err = fmt.Errorf("invalid template kind %s", t.Kind)
 	}

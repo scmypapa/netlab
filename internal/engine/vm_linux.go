@@ -144,11 +144,23 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	if err := os.MkdirAll(dir, 0711); err != nil {
 		return "absent", err
 	}
-	template, err := v.prepareTemplate(ctx, a.Template)
+	template, err := v.prepareTemplate(ctx, a.Template, nil)
 	if err != nil {
 		return "absent", err
 	}
 	a.Template = template
+	if err = restoreTemplateState(ctx, templateDirectory(v.data, template.Id, template.Version), dir, a.InstanceId, template); err != nil {
+		return "absent", err
+	}
+	if template.Media != nil {
+		for index := range *template.Media {
+			target := templateMediaPath(dir, index)
+			source := templateMediaPath(templateDirectory(v.data, template.Id, template.Version), index)
+			if err = os.Symlink(source, target); err != nil && !errors.Is(err, os.ErrExist) {
+				return "absent", err
+			}
+		}
+	}
 	sizes, err := systemDiskSizes(a)
 	if err != nil {
 		return "absent", err
@@ -196,8 +208,14 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	return vmState(d)
 }
 func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
+	if err := os.RemoveAll(tpmDirectory(a.InstanceId)); err != nil {
+		return err
+	}
 	if err := os.RemoveAll(instanceDir(v.data, env, a.InstanceId)); err != nil {
 		return err
+	}
+	if a.Asset.Volumes == nil || len(*a.Asset.Volumes) == 0 {
+		return nil
 	}
 	references, err := v.volumeReferences(env, a.Asset.Id)
 	if err != nil {
@@ -260,6 +278,9 @@ func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, 
 		}
 		text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
 		domain.Free()
+		if noDomain(err) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}

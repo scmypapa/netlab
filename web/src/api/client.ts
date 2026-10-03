@@ -174,6 +174,16 @@ function list<T>(
 }
 
 export const api = {
+  captureTemplate: (
+    id: string,
+    assetId: string,
+    body: Schema<"CaptureTemplate">,
+  ) =>
+    request<Template>(
+      `/environments/${id}/assets/${assetId}/templates`,
+      "POST",
+      body,
+    ),
   uploadTemplate,
   assetLogs,
   principals: (options?: ListOptions) =>

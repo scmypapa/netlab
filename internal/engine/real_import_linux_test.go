@@ -127,7 +127,7 @@ func TestRealVMArtifactImports(t *testing.T) {
 			if fixture.disks == 1 {
 				template.Hardware = &api.Hardware{Firmware: api.Bios, Machine: "pc", DiskBus: api.HardwareDiskBusIde, NicModel: api.HardwareNicModelE1000}
 			}
-			prepared, err := vm.prepareTemplate(ctx, template)
+			prepared, err := vm.prepareTemplate(ctx, template, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,7 +144,7 @@ func TestRealVMArtifactImports(t *testing.T) {
 				}
 			}
 			before, _ := os.Stat(systemDiskPath(cache, 0))
-			if _, err = vm.prepareTemplate(ctx, prepared); err != nil {
+			if _, err = vm.prepareTemplate(ctx, prepared, nil); err != nil {
 				t.Fatal(err)
 			}
 			after, _ := os.Stat(systemDiskPath(cache, 0))

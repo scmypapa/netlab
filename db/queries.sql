@@ -57,6 +57,8 @@ SELECT * FROM environments WHERE id=$1 FOR UPDATE;
 UPDATE environments SET applied_spec=$2,spec=$2,revision=revision+1,status=$3,draft=NULL,error=$4,updated_at=now() WHERE id=$1;
 -- name: SetEnvironmentState :exec
 UPDATE environments SET status=$2,error=$3,updated_at=now() WHERE id=$1;
+-- name: FinishTemplateCapture :exec
+UPDATE environments SET status=$3,updated_at=now() WHERE id=$1 AND operation_id=$2;
 -- name: SetNetworkOwner :exec
 UPDATE environments SET network_node_id=$2 WHERE id=$1;
 -- name: ListTemplates :many

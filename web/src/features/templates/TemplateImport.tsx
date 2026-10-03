@@ -33,6 +33,7 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
   const [source, setSource] = useState("");
   const [inputMode, setInputMode] = useState("file");
   const [files, setFiles] = useState<File[]>([]);
+  const [driverFiles, setDriverFiles] = useState<File[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [authentication, setAuthentication] = useState(false);
@@ -53,14 +54,27 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
   const local = !registry && inputMode === "file";
   const needsHardware = kind === "vm" && (!appliance || specifyHardware);
   const profiles = useTemplateHardware(needsHardware);
+  function installationDefaults(system: string) {
+    setHardware(undefined);
+    setMemoryGiB(system.startsWith("Windows") ? 4 : 2);
+    setDisk(system.startsWith("Windows") ? 64 : 20);
+  }
   useEffect(() => {
     if (!hardware && profiles.data?.length) {
+      const available = profiles.data.filter(
+        ({ machine }) =>
+          os !== "Windows 11" ||
+          (machine.firmware.includes("uefi") &&
+            machine.secureBoot &&
+            machine.tpm2),
+      );
       const profile =
-        profiles.data.find(({ machine }) => machine.aliases.includes("q35")) ??
-        profiles.data[0];
-      setHardware(defaultHardware(profile));
+        available.find(({ machine }) => machine.aliases.includes("q35")) ??
+        available[0];
+      if (profile)
+        setHardware(defaultHardware(profile, format === "iso" ? os : "Linux"));
     }
-  }, [hardware, profiles.data]);
+  }, [hardware, profiles.data, os, format]);
   const profile = profiles.data?.find(
     ({ machine }) => machine.name === hardware?.machine,
   );
@@ -81,7 +95,16 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
         source,
         version: 1,
         format,
-        initialization: kind === "vm" ? initialization : "none",
+        initialization:
+          kind === "vm" && format !== "iso" ? initialization : "none",
+        ...(format === "iso"
+          ? {
+              media: driverFiles.map((file, index) => ({
+                id: `drivers-${index}`,
+                source: file.name,
+              })),
+            }
+          : {}),
         resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
         ...(kind === "vm" ? { ...(needsHardware ? { hardware } : {}) } : {}),
         ...(registry && (authentication || plainHttp)
@@ -96,7 +119,12 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
       setProgress(0);
       upload.current = new AbortController();
       return local
-        ? api.uploadTemplate(input, files, setProgress, upload.current.signal)
+        ? api.uploadTemplate(
+            input,
+            [...files, ...(format === "iso" ? driverFiles : [])],
+            setProgress,
+            upload.current.signal,
+          )
         : api.createTemplate(input);
     },
     onSuccess: onCreated,
@@ -132,7 +160,15 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
       <SegmentedControl
         fullWidth
         aria-label="镜像来源"
-        value={kind === "container" ? format : appliance ? "appliance" : "disk"}
+        value={
+          kind === "container"
+            ? format
+            : appliance
+              ? "appliance"
+              : format === "iso"
+                ? "iso"
+                : "disk"
+        }
         onChange={(value) => {
           setFormat(
             (value === "appliance"
@@ -144,6 +180,7 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
           setSpecifyHardware(false);
           setFiles([]);
           setSource("");
+          if (value === "iso") installationDefaults(os);
         }}
         data={
           kind === "container"
@@ -154,6 +191,7 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
             : [
                 { value: "disk", label: "系统磁盘" },
                 { value: "appliance", label: "整机镜像" },
+                { value: "iso", label: "安装系统" },
               ]
         }
       />
@@ -167,8 +205,19 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
         <Select
           label="操作系统"
           value={os}
-          onChange={(value) => setOs(value!)}
-          data={["Linux", "Windows", "其他"]}
+          onChange={(value) => {
+            setOs(value!);
+            if (format === "iso") installationDefaults(value!);
+          }}
+          data={[
+            "Linux",
+            "Windows",
+            "Windows 7",
+            "Windows 10",
+            "Windows 11",
+            "Windows Server",
+            "其他",
+          ]}
           allowDeselect={false}
         />
         {kind === "vm" && (
@@ -181,9 +230,12 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
               setFiles([]);
               setSource("");
             }}
-            data={(appliance ? ["ova", "ovf"] : ["qcow2", "raw", "vmdk"]).map(
-              (value) => ({ value, label: value.toUpperCase() }),
-            )}
+            data={(appliance
+              ? ["ova", "ovf"]
+              : format === "iso"
+                ? ["iso"]
+                : ["qcow2", "raw", "vmdk"]
+            ).map((value) => ({ value, label: value.toUpperCase() }))}
           />
         )}
       </div>
@@ -194,6 +246,7 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
           value={inputMode}
           onChange={(value) => {
             setInputMode(value);
+            setDriverFiles([]);
             setSource("");
             setFiles([]);
           }}
@@ -305,6 +358,16 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
           />
         </>
       )}
+      {format === "iso" && local && (
+        <FileInput
+          label="驱动光盘"
+          placeholder="选择 ISO 文件"
+          accept=".iso"
+          multiple
+          value={driverFiles}
+          onChange={setDriverFiles}
+        />
+      )}
       {!appliance && (
         <>
           <h3 className="form-section-title">默认规格</h3>
@@ -370,30 +433,34 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
               )}
             </>
           )}
-          <button
-            className="disclosure"
-            type="button"
-            aria-expanded={advanced}
-            onClick={() => setAdvanced(!advanced)}
-          >
-            来宾初始化
-            <ChevronDown size={16} className={advanced ? "rotated" : ""} />
-          </button>
-          <Collapse in={advanced}>
-            <Select
-              label="初始化方式"
-              value={initialization}
-              allowDeselect={false}
-              onChange={(value) =>
-                setInitialization(value as typeof initialization)
-              }
-              data={[
-                { value: "none", label: "保留镜像配置" },
-                { value: "cloud-init", label: "cloud-init" },
-                { value: "cloudbase-init", label: "Cloudbase-Init" },
-              ]}
-            />
-          </Collapse>
+          {format !== "iso" && (
+            <>
+              <button
+                className="disclosure"
+                type="button"
+                aria-expanded={advanced}
+                onClick={() => setAdvanced(!advanced)}
+              >
+                来宾初始化
+                <ChevronDown size={16} className={advanced ? "rotated" : ""} />
+              </button>
+              <Collapse in={advanced}>
+                <Select
+                  label="初始化方式"
+                  value={initialization}
+                  allowDeselect={false}
+                  onChange={(value) =>
+                    setInitialization(value as typeof initialization)
+                  }
+                  data={[
+                    { value: "none", label: "保留镜像配置" },
+                    { value: "cloud-init", label: "cloud-init" },
+                    { value: "cloudbase-init", label: "Cloudbase-Init" },
+                  ]}
+                />
+              </Collapse>
+            </>
+          )}
         </>
       )}
       <ErrorMessage error={create.error} />

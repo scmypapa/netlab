@@ -4,6 +4,25 @@
  */
 
 export interface paths {
+  "/environments/{id}/assets/{assetId}/templates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["captureAssetTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/nodes/{id}/interfaces": {
     parameters: {
       query?: never;
@@ -806,11 +825,17 @@ export interface components {
       resources: components["schemas"]["Resources"];
       hardware?: components["schemas"]["Hardware"];
       disks?: components["schemas"]["TemplateDisk"][];
+      media?: components["schemas"]["TemplateMedia"][];
+      readonly stateFiles?: string[];
       nicModels?: string[];
       initialization?: components["schemas"]["TemplateInitialization"];
       volumes?: components["schemas"]["Volume"][];
       state?: components["schemas"]["TemplateState"];
       error?: string;
+    };
+    TemplateMedia: {
+      id: string;
+      source: string;
     };
     Network: {
       id: string;
@@ -843,6 +868,8 @@ export interface components {
       };
       restartPolicy?: components["schemas"]["RestartPolicy"];
       guest?: components["schemas"]["GuestSettings"];
+      /** @description Attached template media IDs. Omitted attaches all; an empty array ejects all. */
+      media?: string[];
     };
     /**
      * @description Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
@@ -1152,6 +1179,17 @@ export interface components {
       template: components["schemas"]["Template"];
       artifactEndpoint?: string;
       registry?: components["schemas"]["RegistryCredentials"];
+      capture?: components["schemas"]["TemplateCaptureSource"];
+    };
+    TemplateCaptureSource: {
+      environmentId: string;
+      assetId: string;
+      instanceId: string;
+    };
+    CaptureTemplate: {
+      name: string;
+      expectedRevision: number;
+      initialization?: components["schemas"]["TemplateInitialization"];
     };
     ExecutionResult: {
       environmentId?: string;
@@ -1333,6 +1371,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  captureAssetTemplate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CaptureTemplate"];
+      };
+    };
+    responses: {
+      /** @description Template capture queued; source VM remains stopped */
+      201: {
+        headers: {
+          /** @description Operation resource */
+          "Operation-Location"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Template"];
+        };
+      };
+    };
+  };
   listNodeInterfaces: {
     parameters: {
       query?: never;

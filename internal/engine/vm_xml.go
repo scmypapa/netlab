@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"libvirt.org/go/libvirtxml"
@@ -145,6 +146,26 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		media.Device, media.Driver.Type, media.Serial = "cdrom", "raw", ""
 		media.ReadOnly = &libvirtxml.DomainDiskReadOnly{}
 	}
+	if a.Template.Media != nil {
+		order := uint(1)
+		for _, disk := range *a.Template.Disks {
+			order = max(order, uint(disk.BootOrder)+1)
+		}
+		for index, media := range *a.Template.Media {
+			if a.Asset.Media != nil && !slices.Contains(*a.Asset.Media, media.Id) {
+				continue
+			}
+			path := templateMediaPath(directory, index)
+			if err := appendDisk(path, api.TemplateDisk{Id: media.Id, Bus: api.Sata}, false); err != nil {
+				return "", err
+			}
+			disk := &d.Devices.Disks[len(d.Devices.Disks)-1]
+			disk.Device, disk.Driver.Type, disk.Serial = "cdrom", "raw", ""
+			disk.ReadOnly = &libvirtxml.DomainDiskReadOnly{}
+			disk.Boot = &libvirtxml.DomainDeviceBoot{Order: order}
+			order++
+		}
+	}
 	for index, i := range a.Interfaces {
 		model := string(h.NicModel)
 		if a.Template.NicModels != nil && index < len(*a.Template.NicModels) {
@@ -169,6 +190,10 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	}
 	d.Clock = &libvirtxml.DomainClock{Offset: clock}
 	return d.Marshal()
+}
+
+func templateMediaPath(directory string, index int) string {
+	return filepath.Join(directory, fmt.Sprintf("media-%d.iso", index))
 }
 
 func systemDiskPath(directory string, index int) string {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -363,4 +364,37 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		t.Fatal("ungranted file permission")
 	}
 	testServiceAccessAPI(t, ctx, pool, s, admin, call)
+	t.Run("template retry retains the accepted source and credentials", func(t *testing.T) {
+		for _, scenario := range []struct{ kind, phase, field, payload string }{
+			{"capture-template", "queued", "templateCapture", `{"template":{"id":"capture"},"templateCapture":{"environmentId":"env-b","assetId":"vm","instanceId":"instance"},"beforeStatus":"stopped"}`},
+			{"prepare-template", "prepare", "templateCredentials", `{"template":{"id":"import"},"templateCredentials":"AQIDBA=="}`},
+		} {
+			id := uuid.NewString()
+			var environmentID *string
+			if scenario.kind == "capture-template" {
+				value := "env-b"
+				environmentID = &value
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,state,phase,payload,expected_revision) VALUES($1,$2,CASE WHEN $2::text IS NULL THEN 'template' ELSE 'environment' END,COALESCE($2,$1),$3,'failed',$4,$5,0)`, id, environmentID, scenario.kind, scenario.phase, scenario.payload); err != nil {
+				t.Fatal(err)
+			}
+			if environmentID != nil {
+				if _, err := pool.Exec(ctx, `UPDATE environments SET operation_id=$1 WHERE id=$2`, id, *environmentID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			call("POST", "/operations/"+id+"/retry", admin, nil, 202)
+			var raw []byte
+			if err := pool.QueryRow(ctx, `SELECT payload FROM operations WHERE id=$1`, id).Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			var before, after map[string]any
+			if err := json.Unmarshal([]byte(scenario.payload), &before); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(raw, &after); err != nil || !reflect.DeepEqual(before[scenario.field], after[scenario.field]) {
+				t.Fatalf("%s retry lost %s: %s, %v", scenario.kind, scenario.field, raw, err)
+			}
+		}
+	})
 }

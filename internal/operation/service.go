@@ -31,6 +31,9 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 }
 
 func authorizedOperation(identity access.Identity, row queries.Operation, runtime queries.Environment, asset string) error {
+	if row.Kind == "capture-template" && !identity.Administrator() {
+		return access.ErrForbidden
+	}
 	runtime.ID = *row.EnvironmentID
 	if row.Kind == "change" {
 		var p Payload
@@ -129,7 +132,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	}
 	phase := row.Phase
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)

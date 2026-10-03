@@ -265,9 +265,12 @@ type ActionRequestAction string
 
 // Asset defines model for Asset.
 type Asset struct {
-	Guest      *GuestSettings     `json:"guest,omitempty"`
-	Id         string             `json:"id"`
-	Interfaces []Interface        `json:"interfaces"`
+	Guest      *GuestSettings `json:"guest,omitempty"`
+	Id         string         `json:"id"`
+	Interfaces []Interface    `json:"interfaces"`
+
+	// Media Attached template media IDs. Omitted attaches all; an empty array ejects all.
+	Media      *[]string          `json:"media,omitempty"`
 	Name       string             `json:"name"`
 	Parameters *map[string]string `json:"parameters,omitempty"`
 	Resources  Resources          `json:"resources"`
@@ -338,6 +341,13 @@ type BlueprintVersionSummary struct {
 type CanvasView struct {
 	Collapsed *[]string         `json:"collapsed,omitempty"`
 	Positions *map[string]Point `json:"positions,omitempty"`
+}
+
+// CaptureTemplate defines model for CaptureTemplate.
+type CaptureTemplate struct {
+	ExpectedRevision int                     `json:"expectedRevision"`
+	Initialization   *TemplateInitialization `json:"initialization,omitempty"`
+	Name             string                  `json:"name"`
 }
 
 // ChangeItem defines model for ChangeItem.
@@ -698,9 +708,10 @@ type NodeServiceBinding struct {
 
 // NodeTemplatePreparation defines model for NodeTemplatePreparation.
 type NodeTemplatePreparation struct {
-	ArtifactEndpoint *string              `json:"artifactEndpoint,omitempty"`
-	Registry         *RegistryCredentials `json:"registry,omitempty"`
-	Template         Template             `json:"template"`
+	ArtifactEndpoint *string                `json:"artifactEndpoint,omitempty"`
+	Capture          *TemplateCaptureSource `json:"capture,omitempty"`
+	Registry         *RegistryCredentials   `json:"registry,omitempty"`
+	Template         Template               `json:"template"`
 }
 
 // NodeVPNPeer defines model for NodeVPNPeer.
@@ -914,14 +925,23 @@ type Template struct {
 	Id             string                  `json:"id"`
 	Initialization *TemplateInitialization `json:"initialization,omitempty"`
 	Kind           TemplateKind            `json:"kind"`
+	Media          *[]TemplateMedia        `json:"media,omitempty"`
 	Name           string                  `json:"name"`
 	NicModels      *[]string               `json:"nicModels,omitempty"`
 	Os             string                  `json:"os"`
 	Resources      Resources               `json:"resources"`
 	Source         string                  `json:"source"`
 	State          *TemplateState          `json:"state,omitempty"`
+	StateFiles     *[]string               `json:"stateFiles,omitempty"`
 	Version        int                     `json:"version"`
 	Volumes        *[]Volume               `json:"volumes,omitempty"`
+}
+
+// TemplateCaptureSource defines model for TemplateCaptureSource.
+type TemplateCaptureSource struct {
+	AssetId       string `json:"assetId"`
+	EnvironmentId string `json:"environmentId"`
+	InstanceId    string `json:"instanceId"`
 }
 
 // TemplateDisk defines model for TemplateDisk.
@@ -951,6 +971,7 @@ type TemplateImport struct {
 	Id             string                  `json:"id"`
 	Initialization *TemplateInitialization `json:"initialization,omitempty"`
 	Kind           TemplateKind            `json:"kind"`
+	Media          *[]TemplateMedia        `json:"media,omitempty"`
 	Name           string                  `json:"name"`
 	NicModels      *[]string               `json:"nicModels,omitempty"`
 	Os             string                  `json:"os"`
@@ -958,6 +979,7 @@ type TemplateImport struct {
 	Resources      Resources               `json:"resources"`
 	Source         string                  `json:"source"`
 	State          *TemplateState          `json:"state,omitempty"`
+	StateFiles     *[]string               `json:"stateFiles,omitempty"`
 	Version        int                     `json:"version"`
 	Volumes        *[]Volume               `json:"volumes,omitempty"`
 }
@@ -967,6 +989,12 @@ type TemplateInitialization string
 
 // TemplateKind defines model for TemplateKind.
 type TemplateKind string
+
+// TemplateMedia defines model for TemplateMedia.
+type TemplateMedia struct {
+	Id     string `json:"id"`
+	Source string `json:"source"`
+}
 
 // TemplateState defines model for TemplateState.
 type TemplateState string
@@ -1178,6 +1206,9 @@ type AssetActionJSONRequestBody = ActionRequest
 
 // ExposeAssetServiceJSONRequestBody defines body for ExposeAssetService for application/json ContentType.
 type ExposeAssetServiceJSONRequestBody = CreateService
+
+// CaptureAssetTemplateJSONRequestBody defines body for CaptureAssetTemplate for application/json ContentType.
+type CaptureAssetTemplateJSONRequestBody = CaptureTemplate
 
 // SaveEnvironmentBlueprintJSONRequestBody defines body for SaveEnvironmentBlueprint for application/json ContentType.
 type SaveEnvironmentBlueprintJSONRequestBody = SaveBlueprint

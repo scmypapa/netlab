@@ -163,6 +163,14 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 		for index := range files {
 			files[index] = fmt.Sprintf("disk-%d.qcow2", index)
 		}
+		if prepared.Media != nil {
+			for index := range *prepared.Media {
+				files = append(files, fmt.Sprintf("media-%d.iso", index))
+			}
+		}
+		if prepared.StateFiles != nil {
+			files = append(files, (*prepared.StateFiles)...)
+		}
 	}
 	for _, name := range files {
 		if _, err = os.Stat(filepath.Join(staging, name)); err != nil {

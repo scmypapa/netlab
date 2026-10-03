@@ -44,6 +44,7 @@ export const actionLabels: Record<string, string> = {
   changes: "应用变更",
   change: "应用变更",
   "prepare-template": "准备模板",
+  "capture-template": "固化模板",
   create: "创建环境",
   "vpn-create": "创建 VPN",
   "vpn-revoke": "撤销 VPN",

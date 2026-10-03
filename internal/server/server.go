@@ -86,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 		"POST /api/v1/operations/{id}/retry":                             s.retryOperation,
 		"GET /api/v1/templates":                                          s.listTemplates,
 		"POST /api/v1/templates":                                         s.createTemplate,
+		"POST /api/v1/environments/{id}/assets/{assetId}/templates":        s.captureTemplate,
 		"GET /api/v1/nodes":                                              s.listNodes,
 		"GET /api/v1/nodes/{id}/interfaces":                              s.nodeInterfaces,
 		"POST /api/v1/nodes":                                             s.registerNode,

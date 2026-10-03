@@ -106,6 +106,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	state := api.TemplateStateImporting
 	input.State, input.Error = &state, nil
 	input.ArtifactNodeId = nil
+	input.StateFiles = nil
 	p := operation.Payload{Template: &input}
 	if request.Registry != nil {
 		if input.Kind != api.Container || files != nil {

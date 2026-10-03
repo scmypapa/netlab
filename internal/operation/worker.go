@@ -29,28 +29,29 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
-	Spec                api.EnvironmentSpec      `json:"spec"`
-	BeforeStatus        string                   `json:"beforeStatus,omitempty"`
-	Template            *api.Template            `json:"template,omitempty"`
-	TemplateCredentials []byte                   `json:"templateCredentials,omitempty"`
-	Targets             []Target                 `json:"targets,omitempty"`
-	Old                 []Target                 `json:"old,omitempty"`
-	Unchanged           []Target                 `json:"unchanged,omitempty"`
-	Updates             []Target                 `json:"updates,omitempty"`
-	Owner               *Target                  `json:"owner,omitempty"`
-	ExternalChassis     map[string]string        `json:"externalChassis,omitempty"`
-	Committed           bool                     `json:"committed,omitempty"`
-	BeforeSpec          *api.EnvironmentSpec     `json:"beforeSpec,omitempty"`
-	Before              []Target                 `json:"before,omitempty"`
-	Results             []api.ExecutionResult    `json:"results,omitempty"`
-	Failure             *string                  `json:"failure,omitempty"`
-	Gateway             *api.ServiceGateway      `json:"gateway,omitempty"`
-	Bindings            []api.NodeServiceBinding `json:"bindings,omitempty"`
-	BeforeBindings      []api.NodeServiceBinding `json:"beforeBindings,omitempty"`
-	VPNChange           *environment.VPNChange   `json:"vpnChange,omitempty"`
-	VPNPlan             *api.NodeVPNPlan         `json:"vpnPlan,omitempty"`
-	VPNBefore           *api.NodeVPNPlan         `json:"vpnBefore,omitempty"`
-	VPNResult           *api.NodeVPNResult       `json:"vpnResult,omitempty"`
+	Spec                api.EnvironmentSpec        `json:"spec"`
+	BeforeStatus        string                     `json:"beforeStatus,omitempty"`
+	Template            *api.Template              `json:"template,omitempty"`
+	TemplateCredentials []byte                     `json:"templateCredentials,omitempty"`
+	TemplateCapture     *api.TemplateCaptureSource `json:"templateCapture,omitempty"`
+	Targets             []Target                   `json:"targets,omitempty"`
+	Old                 []Target                   `json:"old,omitempty"`
+	Unchanged           []Target                   `json:"unchanged,omitempty"`
+	Updates             []Target                   `json:"updates,omitempty"`
+	Owner               *Target                    `json:"owner,omitempty"`
+	ExternalChassis     map[string]string          `json:"externalChassis,omitempty"`
+	Committed           bool                       `json:"committed,omitempty"`
+	BeforeSpec          *api.EnvironmentSpec       `json:"beforeSpec,omitempty"`
+	Before              []Target                   `json:"before,omitempty"`
+	Results             []api.ExecutionResult      `json:"results,omitempty"`
+	Failure             *string                    `json:"failure,omitempty"`
+	Gateway             *api.ServiceGateway        `json:"gateway,omitempty"`
+	Bindings            []api.NodeServiceBinding   `json:"bindings,omitempty"`
+	BeforeBindings      []api.NodeServiceBinding   `json:"beforeBindings,omitempty"`
+	VPNChange           *environment.VPNChange     `json:"vpnChange,omitempty"`
+	VPNPlan             *api.NodeVPNPlan           `json:"vpnPlan,omitempty"`
+	VPNBefore           *api.NodeVPNPlan           `json:"vpnBefore,omitempty"`
+	VPNResult           *api.NodeVPNResult         `json:"vpnResult,omitempty"`
 }
 type Worker struct {
 	Pool    *pgxpool.Pool
@@ -123,7 +124,7 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	err := json.Unmarshal(op.Payload, &payload)
 	results := []api.ExecutionResult{}
 	if err == nil {
-		if op.Kind == "prepare-template" {
+		if op.Kind == "prepare-template" || op.Kind == "capture-template" {
 			err = w.prepareTemplate(ctx, &op, &payload)
 		} else if op.Kind == "vpn-create" || op.Kind == "vpn-revoke" {
 			err = w.vpnOperation(ctx, &op, &payload)
@@ -171,6 +172,12 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
+	if op.Kind == "capture-template" {
+		if dbErr = q.FinishTemplateCapture(ctx, queries.FinishTemplateCaptureParams{ID: *op.EnvironmentID, OperationID: &op.ID, Status: payload.BeforeStatus}); dbErr != nil {
+			slog.Error("template capture completion", "error", dbErr)
+			return
+		}
+	}
 	count, dbErr := q.FinishOperation(ctx, queries.FinishOperationParams{ID: op.ID, LeaseOwner: op.LeaseOwner, State: state, Phase: phase, Results: raw, Error: detail})
 	if dbErr != nil || count != 1 {
 		slog.Error("operation completion", "error", dbErr)
@@ -222,7 +229,7 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 		return err
 	}
 	var prepared api.Template
-	request := api.NodeTemplatePreparation{Template: t}
+	request := api.NodeTemplatePreparation{Template: t, Capture: p.TemplateCapture}
 	if len(p.TemplateCredentials) > 0 {
 		raw, err := w.Secrets.Decrypt(p.TemplateCredentials, fmt.Sprintf("%s/%d", t.Id, t.Version))
 		if err != nil {

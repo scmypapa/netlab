@@ -32,14 +32,21 @@ export function useTemplateHardware(enabled: boolean) {
   });
 }
 
-export function defaultHardware(profile: HardwareProfile): Schema<"Hardware"> {
+export function defaultHardware(
+  profile: HardwareProfile,
+  os = "Linux",
+): Schema<"Hardware"> {
   const { machine, hardware } = profile;
   const bus = machine.diskBuses.includes("sata")
     ? "sata"
     : machine.diskBuses[0];
+  const windows11 = os === "Windows 11";
   return {
     machine: machine.name,
-    firmware: machine.firmware[0] as Schema<"Hardware">["firmware"],
+    firmware: (windows11
+      ? "uefi"
+      : machine.firmware[0]) as Schema<"Hardware">["firmware"],
+    ...(windows11 ? { secureBoot: true, tpm: true } : {}),
     diskBus: bus as Schema<"Hardware">["diskBus"],
     diskController: bus === "scsi" ? hardware.diskControllers[0] : undefined,
     nicModel: (hardware.nicModels.includes("e1000")

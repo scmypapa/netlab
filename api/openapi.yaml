@@ -3,6 +3,19 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /environments/{id}/assets/{assetId}/templates:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: captureAssetTemplate
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CaptureTemplate'}}}}
+      responses:
+        '201':
+          description: Template capture queued; source VM remains stopped
+          headers:
+            Operation-Location: {schema: {type: string}, description: Operation resource}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}
   /nodes/{id}/interfaces:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -488,11 +501,19 @@ components:
         resources: {$ref: '#/components/schemas/Resources'}
         hardware: {$ref: '#/components/schemas/Hardware'}
         disks: {type: array, items: {$ref: '#/components/schemas/TemplateDisk'}}
+        media: {type: array, items: {$ref: '#/components/schemas/TemplateMedia'}}
+        stateFiles: {type: array, items: {type: string}, readOnly: true}
         nicModels: {type: array, items: {type: string}}
         initialization: {$ref: '#/components/schemas/TemplateInitialization'}
         volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
         state: {$ref: '#/components/schemas/TemplateState'}
         error: {type: string}
+    TemplateMedia:
+      type: object
+      required: [id, source]
+      properties:
+        id: {type: string}
+        source: {type: string}
     Network:
       type: object
       required: [id, name, cidr]
@@ -528,6 +549,7 @@ components:
         parameters: {type: object, additionalProperties: {type: string}}
         restartPolicy: {$ref: '#/components/schemas/RestartPolicy'}
         guest: {$ref: '#/components/schemas/GuestSettings'}
+        media: {type: array, items: {type: string}, description: Attached template media IDs. Omitted attaches all; an empty array ejects all.}
     RestartPolicy:
       type: string
       enum: [never, on-failure, always]
@@ -856,6 +878,21 @@ components:
         template: {$ref: '#/components/schemas/Template'}
         artifactEndpoint: {type: string}
         registry: {$ref: '#/components/schemas/RegistryCredentials'}
+        capture: {$ref: '#/components/schemas/TemplateCaptureSource'}
+    TemplateCaptureSource:
+      type: object
+      required: [environmentId, assetId, instanceId]
+      properties:
+        environmentId: {type: string}
+        assetId: {type: string}
+        instanceId: {type: string}
+    CaptureTemplate:
+      type: object
+      required: [name, expectedRevision]
+      properties:
+        name: {type: string, minLength: 1}
+        expectedRevision: {type: integer}
+        initialization: {$ref: '#/components/schemas/TemplateInitialization'}
     ExecutionResult:
       type: object
       required: [assetId, instanceId, state, observedAt]

@@ -34,7 +34,7 @@ func OperationPermission(kind string) string {
 		return "access"
 	case "change":
 		return "compose"
-	case "destroy", "rebuild":
+	case "destroy", "rebuild", "capture-template":
 		return "manage"
 	default:
 		return "operate"

@@ -1,6 +1,9 @@
-import { Drawer } from "@mantine/core";
+import { Button, Drawer } from "@mantine/core";
+import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Box, Monitor } from "lucide-react";
-import type { Template } from "../../api/client";
+import { api, type Template } from "../../api/client";
+import { ErrorMessage } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
 
@@ -18,6 +21,37 @@ export function TemplateDetails({
   onClose: () => void;
 }) {
   const hardware = template.hardware;
+  const navigate = useNavigate();
+  const install = useMutation({
+    mutationFn: () => {
+      const networkId = crypto.randomUUID();
+      return api.createEnvironment({
+        name: `${template.name} · 安装`,
+        run: true,
+        spec: {
+          networks: [{ id: networkId, name: "安装网络", cidr: "10.0.0.0/24" }],
+          assets: [
+            {
+              id: crypto.randomUUID(),
+              name: template.name,
+              templateId: template.id,
+              resources: template.resources,
+              interfaces: [
+                {
+                  id: crypto.randomUUID(),
+                  networkId,
+                  mac: "",
+                  address: "",
+                  primary: true,
+                },
+              ],
+            },
+          ],
+        },
+      });
+    },
+    onSuccess: (environment) => navigate(`/environments/${environment.id}`),
+  });
   const localSource =
     template.source.startsWith("/") || template.source.startsWith("file:");
   return (
@@ -44,6 +78,19 @@ export function TemplateDetails({
         <div className="template-failure" role="alert">
           {template.error}
         </div>
+      )}
+      {template.format === "iso" && template.state === "ready" && (
+        <>
+          <Button
+            fullWidth
+            leftSection={<Monitor size={16} />}
+            loading={install.isPending}
+            onClick={() => install.mutate()}
+          >
+            安装系统
+          </Button>
+          <ErrorMessage error={install.error} />
+        </>
       )}
       <div className="template-specs">
         <div>
@@ -126,7 +173,9 @@ export function TemplateDetails({
               <dd className="template-source">
                 {localSource
                   ? template.source.split("/").at(-1)
-                  : template.source}
+                  : template.source.startsWith("asset:")
+                    ? "运行资产"
+                    : template.source}
               </dd>
             </>
           )}

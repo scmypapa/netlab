@@ -47,6 +47,7 @@ export function AssetEditor({
   const [chosenTemplate, setChosenTemplate] = useState(
     templates.find((item) => item.id === asset?.templateId),
   );
+  const [media, setMedia] = useState(asset?.media);
   const [name, setName] = useState(asset?.name ?? "");
   const [networkIds, setNetworkIds] = useState(
     asset?.interfaces.map((item) => item.networkId) ??
@@ -76,6 +77,7 @@ export function AssetEditor({
     const template = templates.find((item) => item.id === id);
     setChosenTemplate(template);
     if (template) {
+      setMedia(template.media?.map((item) => item.id));
       setCpu(template.resources.cpu);
       setMemoryGiB(template.resources.memoryMiB / 1024);
       setDisk(template.resources.diskGiB);
@@ -92,6 +94,7 @@ export function AssetEditor({
       name,
       templateId,
       resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
+      media: template?.media?.length ? media : undefined,
       restartPolicy: template?.kind === "container" ? restartPolicy : undefined,
       guest: initialized
         ? {
@@ -196,6 +199,17 @@ export function AssetEditor({
               { value: "on-failure", label: "异常退出时重启" },
               { value: "always", label: "自动重启" },
             ]}
+          />
+        )}
+        {Boolean(template?.media?.length) && (
+          <MultiSelect
+            label="光驱"
+            data={template!.media!.map((item) => ({
+              value: item.id,
+              label: item.source.split("/").at(-1) ?? item.source,
+            }))}
+            value={media ?? template!.media!.map((item) => item.id)}
+            onChange={setMedia}
           />
         )}
         <button

@@ -211,6 +211,59 @@ test("OVF uploads the descriptor and associated disks with a selected main file"
   expect(imported[0]).toMatchObject({ format: "ovf", source: "machine.ovf" });
 });
 
+test("ISO installation selects Windows 11 hardware and uploads its driver disc", async ({
+  page,
+}) => {
+  const imported = await fixture(page),
+    drawer = page.getByRole("dialog");
+  await drawer.getByRole("button", { name: "虚拟机", exact: true }).click();
+  await drawer
+    .getByRole("textbox", { name: "模板名称" })
+    .fill("Windows 11 installation");
+  await drawer.getByRole("textbox", { name: "操作系统" }).click();
+  await page.getByRole("option", { name: "Windows 11", exact: true }).click();
+  await drawer.getByText("安装系统", { exact: true }).click();
+  await expect(
+    drawer.getByRole("textbox", { name: "固件", exact: true }),
+  ).toHaveValue("UEFI");
+  await expect(
+    drawer.getByRole("switch", { name: "Secure Boot", exact: true }),
+  ).toBeChecked();
+  await expect(
+    drawer.getByRole("switch", { name: "TPM 2.0", exact: true }),
+  ).toBeChecked();
+  await drawer
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "windows.iso",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("installer fixture"),
+    });
+  await drawer
+    .locator('input[type="file"]')
+    .last()
+    .setInputFiles({
+      name: "virtio.iso",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("driver fixture"),
+    });
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await drawer.getByRole("button", { name: "导入模板", exact: true }).click();
+  await expect(drawer).not.toBeVisible();
+  expect(imported[0]).toMatchObject({
+    format: "iso",
+    initialization: "none",
+    resources: { cpu: 2, memoryMiB: 4096, diskGiB: 64 },
+    media: [{ source: "virtio.iso" }],
+  });
+});
+
 test("registry authentication is submitted only with a registry import", async ({
   page,
 }) => {

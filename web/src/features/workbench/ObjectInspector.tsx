@@ -39,6 +39,8 @@ export function ObjectInspector({
   busy,
   canOperate,
   canManage,
+  canCapture,
+  onCapture,
   canConnect,
   canObserve,
   onClose,
@@ -62,6 +64,8 @@ export function ObjectInspector({
   busy: boolean;
   canOperate: boolean;
   canManage: boolean;
+  canCapture: boolean;
+  onCapture: () => void;
   canConnect: boolean;
   canObserve: boolean;
   onClose: () => void;
@@ -274,6 +278,15 @@ export function ObjectInspector({
                           onClick={() => onAction("rebuild")}
                         >
                           重建资产
+                        </Menu.Item>
+                      )}
+                      {canCapture && template?.kind === "vm" && (
+                        <Menu.Item
+                          leftSection={<Copy size={15} />}
+                          disabled={busy || assetState?.state !== "stopped"}
+                          onClick={onCapture}
+                        >
+                          固化模板
                         </Menu.Item>
                       )}
                     </>

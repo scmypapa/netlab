@@ -109,6 +109,24 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		if !ok {
 			return spec, Invalid("资产 %s 引用的模板不存在", a.Name)
 		}
+		mediaIDs := []string{}
+		if t.Media != nil {
+			for _, media := range *t.Media {
+				mediaIDs = append(mediaIDs, media.Id)
+			}
+		}
+		if a.Media == nil && len(mediaIDs) > 0 {
+			a.Media = &mediaIDs
+		}
+		if a.Media != nil {
+			seen := map[string]bool{}
+			for _, id := range *a.Media {
+				if seen[id] || !slices.Contains(mediaIDs, id) {
+					return spec, Invalid("资产 %s 的安装介质无效", a.Name)
+				}
+				seen[id] = true
+			}
+		}
 		if a.RestartPolicy != nil {
 			if t.Kind != api.Container || (*a.RestartPolicy != api.Never && *a.RestartPolicy != api.OnFailure && *a.RestartPolicy != api.Always) {
 				return spec, Invalid("资产 %s 的容器重启策略无效", a.Name)

@@ -20,8 +20,15 @@ import {
   KeyRound,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import type { Asset, Network as NetworkModel, Schema } from "../../api/client";
+import {
+  api,
+  type Asset,
+  type Network as NetworkModel,
+  type Schema,
+} from "../../api/client";
+import { CaptureTemplateDialog } from "../templates/CaptureTemplateDialog";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
 import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
@@ -44,6 +51,8 @@ const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 export function WorkbenchPage() {
   const { id = "" } = useParams();
   const workbench = useWorkbench(id);
+  const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const [capturing, setCapturing] = useState<Asset>();
   const [selection, setSelection] = useState<string>();
   const [tree, setTree] = useState(false);
   const [list, setList] = useState(false);
@@ -657,6 +666,8 @@ export function WorkbenchPage() {
             busy={busy}
             canOperate={allows(environment, "operate", asset?.id)}
             canManage={allows(environment, "manage", asset?.id)}
+            canCapture={Boolean(identity.data?.administrator)}
+            onCapture={() => setCapturing(asset)}
             canConnect={allows(environment, "session", asset?.id)}
             canObserve={allows(environment, "observe", asset?.id)}
             canAccess={allows(environment, "access", asset?.id)}
@@ -691,6 +702,18 @@ export function WorkbenchPage() {
             onClose={closeConnection}
           />
         </Suspense>
+      )}
+      {capturing && (
+        <CaptureTemplateDialog
+          environmentId={id}
+          asset={capturing}
+          revision={environment.revision}
+          defaultInitialization={
+            templatesById.get(capturing.templateId)?.initialization
+          }
+          onClose={() => setCapturing(undefined)}
+          onCreated={workbench.refresh}
+        />
       )}
       <TaskTray
         operations={workbench.operations.data ?? []}
