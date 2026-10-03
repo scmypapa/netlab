@@ -23,6 +23,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 	networks := map[string]api.Network{}
 	prefixes := map[string]netip.Prefix{}
 	addresses := map[string]map[netip.Addr]bool{}
+	attachments := map[string]bool{}
 	for i := range spec.Networks {
 		n := &spec.Networks[i]
 		if n.Id == "" {
@@ -37,18 +38,49 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		}
 		p = p.Masked()
 		n.Cidr = p.String()
-		gateway := p.Addr().Next()
-		if n.Gateway != nil {
+		gateway := netip.Addr{}
+		if n.Gateway != nil && *n.Gateway != "" {
 			gateway, err = netip.ParseAddr(*n.Gateway)
 			if err != nil {
 				return spec, Invalid("网段 %s 的网关地址无效", n.Name)
 			}
+		} else if n.External == nil {
+			gateway = p.Addr().Next()
 		}
-		if !usable(p, gateway) {
+		if gateway.IsValid() && !usable(p, gateway) && !(n.External != nil && p.Addr().Is6() && gateway.Is6() && gateway.IsLinkLocalUnicast()) {
 			return spec, Invalid("网段 %s 没有可用网关地址", n.Name)
 		}
-		g := gateway.String()
-		n.Gateway = &g
+		n.Gateway = nil
+		if gateway.IsValid() {
+			g := gateway.String()
+			n.Gateway = &g
+		}
+		pool := p
+		if n.External != nil {
+			key := n.External.Key()
+			if attachments[key] {
+				return spec, Invalid("网段 %s 与其他网段重复使用外部接口和 VLAN", n.Name)
+			}
+			attachments[key] = true
+			if n.External.NodeId == "" || n.External.Interface == "" || (n.External.Vlan != nil && (*n.External.Vlan < 1 || *n.External.Vlan > 4094)) {
+				return spec, Invalid("网段 %s 的外部接口或 VLAN 无效", n.Name)
+			}
+			if n.AllocationPool == nil {
+				return spec, Invalid("网段 %s 需要设置 Netlab 可分配地址段", n.Name)
+			}
+			pool, err = netip.ParsePrefix(*n.AllocationPool)
+			if err != nil || pool.Bits() < p.Bits() || !p.Contains(pool.Addr()) {
+				return spec, Invalid("网段 %s 的可分配地址段不在该 LAN 内", n.Name)
+			}
+			pool = pool.Masked()
+			value := pool.String()
+			n.AllocationPool = &value
+			if !usable(pool, pool.Addr().Next().Next()) || gateway == pool.Addr().Next() {
+				return spec, Invalid("网段 %s 的可分配地址段需要包含路由地址和资产地址", n.Name)
+			}
+		} else {
+			n.AllocationPool = nil
+		}
 		if n.Mtu == nil {
 			mtu := 1400
 			n.Mtu = &mtu
@@ -57,8 +89,11 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			return spec, Invalid("网段 %s 的 MTU 应在 1280–9000 之间", n.Name)
 		}
 		networks[n.Id] = *n
-		prefixes[n.Id] = p
+		prefixes[n.Id] = pool
 		addresses[n.Id] = map[netip.Addr]bool{gateway: true}
+		if n.External != nil {
+			addresses[n.Id][pool.Addr().Next()] = true
+		}
 	}
 	assetIDs, interfaceIDs, macs := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for i := range spec.Assets {

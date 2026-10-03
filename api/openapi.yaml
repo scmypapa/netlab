@@ -3,6 +3,12 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /nodes/{id}/interfaces:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listNodeInterfaces
+      responses:
+        '200': {description: Current host interfaces, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ExternalInterface'}}}}}
   /principals:
     get:
       operationId: listPrincipals
@@ -454,6 +460,8 @@ components:
         name: {type: string}
         cidr: {type: string}
         gateway: {type: string}
+        allocationPool: {type: string, description: Address prefix reserved for Netlab on an existing LAN}
+        external: {$ref: '#/components/schemas/ExternalAttachment'}
         dnsAssetId: {type: string}
         dnsServers: {type: array, items: {type: string}}
         mtu: {type: integer}
@@ -788,12 +796,14 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
+        phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect]}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
         gateway: {$ref: '#/components/schemas/ServiceGateway'}
         services: {type: array, items: {$ref: '#/components/schemas/NodeServiceBinding'}}
         vpn: {$ref: '#/components/schemas/NodeVPNPlan'}
+        attachments: {type: array, items: {$ref: '#/components/schemas/ExternalAttachment'}}
+        externalChassis: {type: object, additionalProperties: {type: string}}
     ExecutionResult:
       type: object
       required: [assetId, instanceId, state, observedAt]
@@ -833,6 +843,25 @@ components:
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
         serviceNetwork: {$ref: '#/components/schemas/ServiceNetwork'}
         accessAddress: {type: string}
+        networkChassis: {type: string}
+        externalInterfaces: {type: array, items: {$ref: '#/components/schemas/ExternalInterface'}}
+    ExternalAttachment:
+      type: object
+      required: [nodeId, interface]
+      properties:
+        nodeId: {type: string}
+        interface: {type: string}
+        vlan: {type: integer, minimum: 1, maximum: 4094}
+    ExternalInterface:
+      type: object
+      required: [name, kind, mac, mtu, addresses, available]
+      properties:
+        name: {type: string}
+        kind: {type: string, enum: [ethernet, linux-bridge, ovs-bridge]}
+        mac: {type: string}
+        mtu: {type: integer}
+        addresses: {type: array, items: {type: string}}
+        available: {type: boolean}
     VmHardware:
       type: object
       required: [machines, cpuModes, cpuModels, nicModels, diskControllers]

@@ -106,14 +106,32 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 		sw := &Switch{UUID: fmt.Sprintf("sw%d", i), Name: objectName("ls", plan.EnvironmentId, nw.Id), ExternalIDs: ownership(plan.EnvironmentId)}
 		switches[nw.Id] = sw
 		models = append(models, sw)
-		if nw.Gateway != nil && *nw.Gateway != "" {
-			gw, err := netip.ParseAddr(*nw.Gateway)
+		if nw.External != nil {
+			if nw.AllocationPool == nil {
+				return nil, fmt.Errorf("external network %s has no allocation pool", nw.Name)
+			}
+			if _, err := netip.ParsePrefix(*nw.AllocationPool); err != nil {
+				return nil, err
+			}
+			chassis := ""
+			if plan.ExternalChassis != nil {
+				chassis = (*plan.ExternalChassis)[nw.External.NodeId]
+			}
+			if chassis == "" {
+				return nil, fmt.Errorf("external network %s has no resolved chassis", nw.Name)
+			}
+			port := &SwitchPort{UUID: fmt.Sprintf("external%d", i), Name: objectName("external", plan.EnvironmentId, nw.Id), Type: "l2gateway", Addresses: []string{"unknown"}, TagRequest: nw.External.Vlan, Options: map[string]string{"network_name": externalNetwork(nw.External.NodeId, nw.External.Interface), "l2gateway-chassis": chassis}, ExternalIDs: ownership(plan.EnvironmentId)}
+			sw.Ports = append(sw.Ports, port.UUID)
+			models = append(models, port)
+		}
+		if address := nw.RouterAddress(); address != "" {
+			gw, err := netip.ParseAddr(address)
 			if err != nil {
 				return nil, err
 			}
 			mac := routerMAC(gw)
 			rp := &RouterPort{UUID: fmt.Sprintf("rp%d", i), Name: objectName("lrp", plan.EnvironmentId, nw.Id), MAC: mac, Networks: []string{netip.PrefixFrom(gw, p.Bits()).String()}, ExternalIDs: ownership(plan.EnvironmentId)}
-			if p.Addr().Is6() {
+			if p.Addr().Is6() && nw.External == nil {
 				rp.IPv6RA = map[string]string{"address_mode": "dhcpv6_stateful", "send_periodic": "true"}
 			}
 			lp := &SwitchPort{UUID: fmt.Sprintf("gw%d", i), Name: objectName("gw", plan.EnvironmentId, nw.Id), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": rp.Name}, ExternalIDs: ownership(plan.EnvironmentId)}
@@ -152,8 +170,8 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 			options := map[string]string{}
 			if ip.Is4() {
 				server := prefix.Addr().Next()
-				if nw.Gateway != nil && *nw.Gateway != "" {
-					server, _ = netip.ParseAddr(*nw.Gateway)
+				if address := nw.RouterAddress(); address != "" {
+					server, _ = netip.ParseAddr(address)
 				}
 				options["server_id"] = server.String()
 				options["server_mac"] = routerMAC(server)

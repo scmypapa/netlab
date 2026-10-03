@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/model"
@@ -30,6 +31,7 @@ type SwitchPort struct {
 	Options      map[string]string `ovsdb:"options"`
 	DHCPv4       *string           `ovsdb:"dhcpv4_options"`
 	DHCPv6       *string           `ovsdb:"dhcpv6_options"`
+	TagRequest   *int              `ovsdb:"tag_request"`
 	ExternalIDs  map[string]string `ovsdb:"external_ids"`
 }
 type DHCP struct {
@@ -125,6 +127,7 @@ type OVN struct {
 type OVS struct {
 	client client.Client
 	bridge string
+	mu     sync.Mutex
 }
 
 func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {

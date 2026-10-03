@@ -51,6 +51,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	}
 	byNode := map[string]queries.ListNodesRow{}
 	infos := map[string]api.NodeInfo{}
+	p.ExternalChassis = map[string]string{}
 	for _, n := range nodes {
 		byNode[n.ID] = n
 		var info api.NodeInfo
@@ -58,6 +59,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			return err
 		}
 		infos[n.ID] = info
+		if info.NetworkChassis != nil {
+			p.ExternalChassis[n.ID] = *info.NetworkChassis
+		}
 	}
 	if len(row.AppliedSpec) > 0 {
 		if err = json.Unmarshal(row.AppliedSpec, &p.BeforeSpec); err != nil {
@@ -136,6 +140,29 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	if serviceOnly {
 		p.Unchanged = p.Before
 	} else {
+		externalNodes := map[string]bool{}
+		for _, nw := range p.Spec.Networks {
+			if nw.External != nil {
+				externalNodes[nw.External.NodeId] = true
+			}
+		}
+		for id := range externalNodes {
+			node, exists := byNode[id]
+			if !exists {
+				return fmt.Errorf("外部网络节点不存在")
+			}
+			info, err := w.Client.Info(ctx, node.Endpoint)
+			if err != nil {
+				return err
+			}
+			if info.Id != id {
+				return fmt.Errorf("外部网络节点身份不匹配")
+			}
+			infos[id] = info
+			if info.NetworkChassis != nil {
+				p.ExternalChassis[id] = *info.NetworkChassis
+			}
+		}
 		templates, err := environment.Templates(ctx, w.Queries, p.Spec.Assets)
 		if err != nil {
 			return err
@@ -223,6 +250,8 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if err = json.Unmarshal(n.Info, &info); err != nil {
 			return err
 		}
+		info.ExternalInterfaces = infos[n.ID].ExternalInterfaces
+		info.NetworkChassis = infos[n.ID].NetworkChassis
 		infos[n.ID] = info
 		capacity[n.ID] = infos[n.ID].Capacity
 		if len(n.CapacityOverride) > 0 {
@@ -297,6 +326,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			return err
 		}
 		if err = q.ReserveResourceUpdates(ctx, raw); err != nil {
+			return err
+		}
+		if err = reserveExternal(ctx, q, row.ID, p.Spec, infos); err != nil {
 			return err
 		}
 	}

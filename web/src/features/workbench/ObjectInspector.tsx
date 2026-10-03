@@ -429,7 +429,9 @@ export function ObjectInspector({
               </div>
               <div>
                 <dt>网关</dt>
-                <dd className="mono">{network.gateway || "自动"}</dd>
+                <dd className="mono">
+                  {network.gateway || (network.external ? "—" : "自动")}
+                </dd>
               </div>
               <div>
                 <dt>DNS</dt>
@@ -444,6 +446,23 @@ export function ObjectInspector({
                 <dt>MTU</dt>
                 <dd>{network.mtu || 1442}</dd>
               </div>
+              {network.external && (
+                <>
+                  <div>
+                    <dt>外部接口</dt>
+                    <dd>
+                      {network.external.interface}
+                      {network.external.vlan
+                        ? ` · VLAN ${network.external.vlan}`
+                        : ""}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>可分配地址</dt>
+                    <dd className="mono">{network.allocationPool}</dd>
+                  </div>
+                </>
+              )}
             </dl>
           </section>
           <section className="inspector-section">

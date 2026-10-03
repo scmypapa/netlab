@@ -39,3 +39,33 @@ func TestPortDNSAndDefaultGateway(t *testing.T) {
 		t.Fatal("environment DNS asset was not resolved")
 	}
 }
+
+func TestExternalGatewayUsesResolvedChassis(t *testing.T) {
+	pool, gateway := "fd11::100/120", "fd11::1"
+	vlan := 200
+	chassis := map[string]string{"node": "actual-ovs-chassis"}
+	plan := api.NodePlan{EnvironmentId: "external", ExternalChassis: &chassis, Spec: api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "fd11::/64", Gateway: &gateway, AllocationPool: &pool, External: &api.ExternalAttachment{NodeId: "node", Interface: "eth1", Vlan: &vlan}}}}}
+	models, err := Compile(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range models {
+		switch v := item.(type) {
+		case *SwitchPort:
+			if v.Type == "l2gateway" {
+				found = true
+				if v.Options["l2gateway-chassis"] != "actual-ovs-chassis" || v.TagRequest == nil || *v.TagRequest != 200 {
+					t.Fatalf("wrong gateway binding: %+v", v)
+				}
+			}
+		case *RouterPort:
+			if len(v.IPv6RA) != 0 || len(v.Networks) != 1 || v.Networks[0] != "fd11::101/64" {
+				t.Fatalf("external LAN gateway or RA changed: %+v", v)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("external gateway not compiled")
+	}
+}

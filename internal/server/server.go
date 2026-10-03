@@ -85,6 +85,7 @@ func (s *Server) Handler() http.Handler {
 		"GET /api/v1/templates":                                          s.listTemplates,
 		"POST /api/v1/templates":                                         s.createTemplate,
 		"GET /api/v1/nodes":                                              s.listNodes,
+		"GET /api/v1/nodes/{id}/interfaces":                              s.nodeInterfaces,
 		"POST /api/v1/nodes":                                             s.registerNode,
 		"GET /api/v1/blueprints":                                         s.listBlueprints,
 		"GET /api/v1/blueprints/{id}":                                    s.getBlueprint,

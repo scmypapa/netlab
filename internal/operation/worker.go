@@ -28,26 +28,27 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
-	Spec           api.EnvironmentSpec      `json:"spec"`
-	BeforeStatus   string                   `json:"beforeStatus,omitempty"`
-	Template       *api.Template            `json:"template,omitempty"`
-	Targets        []Target                 `json:"targets,omitempty"`
-	Old            []Target                 `json:"old,omitempty"`
-	Unchanged      []Target                 `json:"unchanged,omitempty"`
-	Updates        []Target                 `json:"updates,omitempty"`
-	Owner          *Target                  `json:"owner,omitempty"`
-	Committed      bool                     `json:"committed,omitempty"`
-	BeforeSpec     *api.EnvironmentSpec     `json:"beforeSpec,omitempty"`
-	Before         []Target                 `json:"before,omitempty"`
-	Results        []api.ExecutionResult    `json:"results,omitempty"`
-	Failure        *string                  `json:"failure,omitempty"`
-	Gateway        *api.ServiceGateway      `json:"gateway,omitempty"`
-	Bindings       []api.NodeServiceBinding `json:"bindings,omitempty"`
-	BeforeBindings []api.NodeServiceBinding `json:"beforeBindings,omitempty"`
-	VPNChange      *environment.VPNChange   `json:"vpnChange,omitempty"`
-	VPNPlan        *api.NodeVPNPlan         `json:"vpnPlan,omitempty"`
-	VPNBefore      *api.NodeVPNPlan         `json:"vpnBefore,omitempty"`
-	VPNResult      *api.NodeVPNResult       `json:"vpnResult,omitempty"`
+	Spec            api.EnvironmentSpec      `json:"spec"`
+	BeforeStatus    string                   `json:"beforeStatus,omitempty"`
+	Template        *api.Template            `json:"template,omitempty"`
+	Targets         []Target                 `json:"targets,omitempty"`
+	Old             []Target                 `json:"old,omitempty"`
+	Unchanged       []Target                 `json:"unchanged,omitempty"`
+	Updates         []Target                 `json:"updates,omitempty"`
+	Owner           *Target                  `json:"owner,omitempty"`
+	ExternalChassis map[string]string        `json:"externalChassis,omitempty"`
+	Committed       bool                     `json:"committed,omitempty"`
+	BeforeSpec      *api.EnvironmentSpec     `json:"beforeSpec,omitempty"`
+	Before          []Target                 `json:"before,omitempty"`
+	Results         []api.ExecutionResult    `json:"results,omitempty"`
+	Failure         *string                  `json:"failure,omitempty"`
+	Gateway         *api.ServiceGateway      `json:"gateway,omitempty"`
+	Bindings        []api.NodeServiceBinding `json:"bindings,omitempty"`
+	BeforeBindings  []api.NodeServiceBinding `json:"beforeBindings,omitempty"`
+	VPNChange       *environment.VPNChange   `json:"vpnChange,omitempty"`
+	VPNPlan         *api.NodeVPNPlan         `json:"vpnPlan,omitempty"`
+	VPNBefore       *api.NodeVPNPlan         `json:"vpnBefore,omitempty"`
+	VPNResult       *api.NodeVPNResult       `json:"vpnResult,omitempty"`
 }
 type Worker struct {
 	Pool    *pgxpool.Pool
@@ -354,6 +355,15 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	return results, executionErr
 }
 func (w Worker) network(ctx context.Context, op *queries.Operation, p *Payload, remove bool) error {
+	if !remove {
+		specs := []api.EnvironmentSpec{p.Spec}
+		if p.BeforeSpec != nil && op.Phase != "rollback" {
+			specs = append(specs, *p.BeforeSpec)
+		}
+		if err := w.external(ctx, op, specs...); err != nil {
+			return err
+		}
+	}
 	if p.Owner == nil {
 		if len(p.Spec.Networks) == 0 {
 			return nil
@@ -377,12 +387,15 @@ func (w Worker) network(ctx context.Context, op *queries.Operation, p *Payload, 
 	if len(nodes) == 0 {
 		return errors.New("环境网络所属节点不存在")
 	}
-	result, err := w.Client.Execute(ctx, nodes[0].Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec, Gateway: p.Gateway, Services: &p.Bindings})
+	result, err := w.Client.Execute(ctx, nodes[0].Endpoint, api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: p.Spec, Gateway: p.Gateway, Services: &p.Bindings, ExternalChassis: &p.ExternalChassis})
 	if err != nil {
 		return err
 	}
 	if result.Error != nil {
 		return errors.New(*result.Error)
+	}
+	if remove {
+		return w.external(ctx, op)
 	}
 	return nil
 }

@@ -59,6 +59,13 @@ const (
 	EnvironmentStatusUnknown    EnvironmentStatus = "unknown"
 )
 
+// Defines values for ExternalInterfaceKind.
+const (
+	Ethernet    ExternalInterfaceKind = "ethernet"
+	LinuxBridge ExternalInterfaceKind = "linux-bridge"
+	OvsBridge   ExternalInterfaceKind = "ovs-bridge"
+)
+
 // Defines values for HardwareDiskBus.
 const (
 	HardwareDiskBusIde    HardwareDiskBus = "ide"
@@ -90,21 +97,22 @@ const (
 
 // Defines values for NodePlanPhase.
 const (
-	NodePlanPhaseCleanupVolumes NodePlanPhase = "cleanup-volumes"
-	NodePlanPhaseDestroy        NodePlanPhase = "destroy"
-	NodePlanPhaseForceStop      NodePlanPhase = "force-stop"
-	NodePlanPhaseInspect        NodePlanPhase = "inspect"
-	NodePlanPhaseNetwork        NodePlanPhase = "network"
-	NodePlanPhasePolicies       NodePlanPhase = "policies"
-	NodePlanPhasePrepare        NodePlanPhase = "prepare"
-	NodePlanPhaseRemoveNetwork  NodePlanPhase = "remove-network"
-	NodePlanPhaseResume         NodePlanPhase = "resume"
-	NodePlanPhaseServices       NodePlanPhase = "services"
-	NodePlanPhaseStart          NodePlanPhase = "start"
-	NodePlanPhaseStop           NodePlanPhase = "stop"
-	NodePlanPhaseSuspend        NodePlanPhase = "suspend"
-	NodePlanPhaseUpdate         NodePlanPhase = "update"
-	NodePlanPhaseVpn            NodePlanPhase = "vpn"
+	NodePlanPhaseCleanupVolumes      NodePlanPhase = "cleanup-volumes"
+	NodePlanPhaseDestroy             NodePlanPhase = "destroy"
+	NodePlanPhaseExternalAttachments NodePlanPhase = "external-attachments"
+	NodePlanPhaseForceStop           NodePlanPhase = "force-stop"
+	NodePlanPhaseInspect             NodePlanPhase = "inspect"
+	NodePlanPhaseNetwork             NodePlanPhase = "network"
+	NodePlanPhasePolicies            NodePlanPhase = "policies"
+	NodePlanPhasePrepare             NodePlanPhase = "prepare"
+	NodePlanPhaseRemoveNetwork       NodePlanPhase = "remove-network"
+	NodePlanPhaseResume              NodePlanPhase = "resume"
+	NodePlanPhaseServices            NodePlanPhase = "services"
+	NodePlanPhaseStart               NodePlanPhase = "start"
+	NodePlanPhaseStop                NodePlanPhase = "stop"
+	NodePlanPhaseSuspend             NodePlanPhase = "suspend"
+	NodePlanPhaseUpdate              NodePlanPhase = "update"
+	NodePlanPhaseVpn                 NodePlanPhase = "vpn"
 )
 
 // Defines values for OperationState.
@@ -502,6 +510,26 @@ type ExecutionResult struct {
 	State         string          `json:"state"`
 }
 
+// ExternalAttachment defines model for ExternalAttachment.
+type ExternalAttachment struct {
+	Interface string `json:"interface"`
+	NodeId    string `json:"nodeId"`
+	Vlan      *int   `json:"vlan,omitempty"`
+}
+
+// ExternalInterface defines model for ExternalInterface.
+type ExternalInterface struct {
+	Addresses []string              `json:"addresses"`
+	Available bool                  `json:"available"`
+	Kind      ExternalInterfaceKind `json:"kind"`
+	Mac       string                `json:"mac"`
+	Mtu       int                   `json:"mtu"`
+	Name      string                `json:"name"`
+}
+
+// ExternalInterfaceKind defines model for ExternalInterface.Kind.
+type ExternalInterfaceKind string
+
 // GuestSettings defines model for GuestSettings.
 type GuestSettings struct {
 	Hostname          *string   `json:"hostname,omitempty"`
@@ -574,13 +602,16 @@ type Login struct {
 
 // Network defines model for Network.
 type Network struct {
-	Cidr       string    `json:"cidr"`
-	DnsAssetId *string   `json:"dnsAssetId,omitempty"`
-	DnsServers *[]string `json:"dnsServers,omitempty"`
-	Gateway    *string   `json:"gateway,omitempty"`
-	Id         string    `json:"id"`
-	Mtu        *int      `json:"mtu,omitempty"`
-	Name       string    `json:"name"`
+	// AllocationPool Address prefix reserved for Netlab on an existing LAN
+	AllocationPool *string             `json:"allocationPool,omitempty"`
+	Cidr           string              `json:"cidr"`
+	DnsAssetId     *string             `json:"dnsAssetId,omitempty"`
+	DnsServers     *[]string           `json:"dnsServers,omitempty"`
+	External       *ExternalAttachment `json:"external,omitempty"`
+	Gateway        *string             `json:"gateway,omitempty"`
+	Id             string              `json:"id"`
+	Mtu            *int                `json:"mtu,omitempty"`
+	Name           string              `json:"name"`
 }
 
 // Node defines model for Node.
@@ -600,14 +631,16 @@ type Node struct {
 
 // NodeInfo defines model for NodeInfo.
 type NodeInfo struct {
-	AccessAddress  *string         `json:"accessAddress,omitempty"`
-	Capabilities   []string        `json:"capabilities"`
-	Capacity       Resources       `json:"capacity"`
-	Id             string          `json:"id"`
-	Name           string          `json:"name"`
-	ServiceNetwork *ServiceNetwork `json:"serviceNetwork,omitempty"`
-	Slots          int             `json:"slots"`
-	VmHardware     *VmHardware     `json:"vmHardware,omitempty"`
+	AccessAddress      *string              `json:"accessAddress,omitempty"`
+	Capabilities       []string             `json:"capabilities"`
+	Capacity           Resources            `json:"capacity"`
+	ExternalInterfaces *[]ExternalInterface `json:"externalInterfaces,omitempty"`
+	Id                 string               `json:"id"`
+	Name               string               `json:"name"`
+	NetworkChassis     *string              `json:"networkChassis,omitempty"`
+	ServiceNetwork     *ServiceNetwork      `json:"serviceNetwork,omitempty"`
+	Slots              int                  `json:"slots"`
+	VmHardware         *VmHardware          `json:"vmHardware,omitempty"`
 }
 
 // NodeObservation defines model for NodeObservation.
@@ -620,14 +653,16 @@ type NodeObservation struct {
 
 // NodePlan defines model for NodePlan.
 type NodePlan struct {
-	Assets        []AssetExecution      `json:"assets"`
-	EnvironmentId string                `json:"environmentId"`
-	Gateway       *ServiceGateway       `json:"gateway,omitempty"`
-	OperationId   string                `json:"operationId"`
-	Phase         NodePlanPhase         `json:"phase"`
-	Services      *[]NodeServiceBinding `json:"services,omitempty"`
-	Spec          EnvironmentSpec       `json:"spec"`
-	Vpn           *NodeVPNPlan          `json:"vpn,omitempty"`
+	Assets          []AssetExecution      `json:"assets"`
+	Attachments     *[]ExternalAttachment `json:"attachments,omitempty"`
+	EnvironmentId   string                `json:"environmentId"`
+	ExternalChassis *map[string]string    `json:"externalChassis,omitempty"`
+	Gateway         *ServiceGateway       `json:"gateway,omitempty"`
+	OperationId     string                `json:"operationId"`
+	Phase           NodePlanPhase         `json:"phase"`
+	Services        *[]NodeServiceBinding `json:"services,omitempty"`
+	Spec            EnvironmentSpec       `json:"spec"`
+	Vpn             *NodeVPNPlan          `json:"vpn,omitempty"`
 }
 
 // NodePlanPhase defines model for NodePlan.Phase.

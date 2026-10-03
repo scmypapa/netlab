@@ -145,6 +145,9 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		case "remove-network":
 			err = w.network(ctx, op, p, true)
 			if err == nil {
+				err = releaseExternal(ctx, w.Queries, *op.EnvironmentID, api.EnvironmentSpec{})
+			}
+			if err == nil {
 				err = w.Queries.ReleaseAllAccessPorts(ctx, *op.EnvironmentID)
 			}
 			if err == nil {
@@ -296,6 +299,15 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 }
 
 func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) error {
+	if op.Kind == "change" && p.BeforeSpec != nil && environment.ServiceOnly(*p.BeforeSpec, p.Spec) {
+		return nil
+	}
+	if err := w.external(ctx, op, p.Spec); err != nil {
+		return err
+	}
+	if err := releaseExternal(ctx, w.Queries, *op.EnvironmentID, p.Spec); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
 	results, err := w.batch(ctx, op, p, api.NodePlanPhaseDestroy, p.Old)
 	if releaseErr := w.releaseDestroyed(ctx, results); releaseErr != nil {
 		err = errors.Join(err, releaseErr)
@@ -483,6 +495,13 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
 	if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	retained := api.EnvironmentSpec{}
+	if p.BeforeSpec != nil {
+		retained = *p.BeforeSpec
+	}
+	if err = releaseExternal(ctx, q, *op.EnvironmentID, retained); err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	if err = q.DeleteUnusedVPNAliases(ctx, *op.EnvironmentID); err != nil {

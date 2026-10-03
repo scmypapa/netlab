@@ -21,6 +21,8 @@ func providerNetwork(nodeID string) string {
 }
 
 func (n *OVS) EnsureProvider(ctx context.Context, nodeID string) (string, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	var roots []OpenVSwitch
 	if err := n.client.List(ctx, &roots); err != nil {
 		return "", err
@@ -77,6 +79,8 @@ func (n *OVS) EnsureProvider(ctx context.Context, nodeID string) (string, error)
 func (n *OVN) ConfigureGateway(prefix netip.Prefix, chassis string) {
 	n.provider, n.chassis = prefix, chassis
 }
+
+func (n *OVN) Chassis() string { return n.chassis }
 
 // The provider is a separate logical switch. Guest addresses and interfaces stay unchanged.
 func gatewayModels(plan api.NodePlan, router *Router, prefix netip.Prefix, chassis string) ([]model.Model, error) {
@@ -136,6 +140,13 @@ func (n *OVN) ApplyServices(ctx context.Context, plan api.NodePlan) error {
 	var routers []Router
 	if err := n.client.Where(router).List(ctx, &routers); err != nil {
 		return fmt.Errorf("environment router: %w", err)
+	}
+	if len(routers) == 0 && (plan.Services == nil || len(*plan.Services) == 0) {
+		ops, err := n.gatewayDeleteOperations(plan.EnvironmentId)
+		if err != nil {
+			return err
+		}
+		return transact(ctx, n.client, ops)
 	}
 	if len(routers) != 1 {
 		return fmt.Errorf("environment router %s: expected one match, found %d", router.Name, len(routers))

@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+  "/nodes/{id}/interfaces": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["listNodeInterfaces"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/principals": {
     parameters: {
       query?: never;
@@ -782,6 +800,9 @@ export interface components {
       name: string;
       cidr: string;
       gateway?: string;
+      /** @description Address prefix reserved for Netlab on an existing LAN */
+      allocationPool?: string;
+      external?: components["schemas"]["ExternalAttachment"];
       dnsAssetId?: string;
       dnsServers?: string[];
       mtu?: number;
@@ -1082,6 +1103,7 @@ export interface components {
       /** @enum {string} */
       phase:
         | "network"
+        | "external-attachments"
         | "services"
         | "vpn"
         | "policies"
@@ -1101,6 +1123,10 @@ export interface components {
       gateway?: components["schemas"]["ServiceGateway"];
       services?: components["schemas"]["NodeServiceBinding"][];
       vpn?: components["schemas"]["NodeVPNPlan"];
+      attachments?: components["schemas"]["ExternalAttachment"][];
+      externalChassis?: {
+        [key: string]: string;
+      };
     };
     ExecutionResult: {
       environmentId?: string;
@@ -1134,6 +1160,22 @@ export interface components {
       vmHardware?: components["schemas"]["VmHardware"];
       serviceNetwork?: components["schemas"]["ServiceNetwork"];
       accessAddress?: string;
+      networkChassis?: string;
+      externalInterfaces?: components["schemas"]["ExternalInterface"][];
+    };
+    ExternalAttachment: {
+      nodeId: string;
+      interface: string;
+      vlan?: number;
+    };
+    ExternalInterface: {
+      name: string;
+      /** @enum {string} */
+      kind: "ethernet" | "linux-bridge" | "ovs-bridge";
+      mac: string;
+      mtu: number;
+      addresses: string[];
+      available: boolean;
     };
     VmHardware: {
       machines: components["schemas"]["VmMachine"][];
@@ -1266,6 +1308,28 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listNodeInterfaces: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current host interfaces */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ExternalInterface"][];
+        };
+      };
+    };
+  };
   listPrincipals: {
     parameters: {
       query?: {

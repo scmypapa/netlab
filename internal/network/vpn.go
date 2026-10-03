@@ -226,7 +226,7 @@ func vpnModels(environment string, record *vpnRecord, router *Router, chassis st
 			}
 		}
 		set := &AddressSet{UUID: fmt.Sprintf("vpn_targets%d", index), Name: strings.ReplaceAll(objectName("vpn_targets", environment, network.Id), "-", "_"), Addresses: []string{prefix.String()}, ExternalIDs: owner()}
-		nat := &NAT{UUID: fmt.Sprintf("vpn_nat%d", index), Type: "snat", LogicalIP: source.String(), ExternalIP: *network.Gateway, AllowedExtIPs: &set.UUID, ExternalIDs: owner()}
+		nat := &NAT{UUID: fmt.Sprintf("vpn_nat%d", index), Type: "snat", LogicalIP: source.String(), ExternalIP: network.RouterAddress(), AllowedExtIPs: &set.UUID, ExternalIDs: owner()}
 		router.NAT = append(router.NAT, nat.UUID)
 		models = append(models, set, nat)
 	}

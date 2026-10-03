@@ -239,6 +239,8 @@ export const api = {
   createTemplate: (body: Template) =>
     request<Template>("/templates", "POST", body),
   nodes: (options?: ListOptions) => list<Node>("/nodes", options),
+  nodeInterfaces: (id: string) =>
+    request<Schema<"ExternalInterface">[]>(`/nodes/${id}/interfaces`),
   registerNode: (body: Schema<"NodeRegistration">) =>
     request<Node>("/nodes", "POST", body),
 };

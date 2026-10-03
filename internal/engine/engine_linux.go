@@ -31,6 +31,7 @@ type Engine struct {
 	ovs       *network.OVS
 	gateway   *network.Gateway
 	vpn       *network.VPN
+	external  *network.External
 	slots     chan struct{}
 	mu        sync.Mutex
 	locks     map[string]*objectLock
@@ -53,6 +54,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 	if e.ovn, err = network.NewOVN(ctx, cfg.OVNEndpoint); err != nil {
+		e.Close()
+		return nil, err
+	}
+	if e.external, err = network.NewExternal(ctx, e.ovs, cfg.DataDir, cfg.ID); err != nil {
 		e.Close()
 		return nil, err
 	}
@@ -148,6 +153,12 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 		return api.NodeInfo{}, err
 	}
 	info.AccessAddress = &address
+	info.NetworkChassis = ptr(e.ovn.Chassis())
+	interfaces, err := e.external.Interfaces(context.Background())
+	if err != nil {
+		return api.NodeInfo{}, err
+	}
+	info.ExternalInterfaces = &interfaces
 	if e.vm != nil {
 		info.VmHardware = &e.vm.hardware
 	}
@@ -162,6 +173,15 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		return result
 	}
 	switch plan.Phase {
+	case api.NodePlanPhaseExternalAttachments:
+		var attachments []api.ExternalAttachment
+		if plan.Attachments != nil {
+			attachments = *plan.Attachments
+		}
+		if err := e.external.Apply(ctx, plan.EnvironmentId, attachments); err != nil {
+			result.Error = ptr(err.Error())
+		}
+		return result
 	case api.NodePlanPhaseNetwork:
 		if err := e.ovn.Apply(ctx, plan); err != nil {
 			result.Error = ptr(err.Error())

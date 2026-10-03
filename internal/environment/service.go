@@ -179,6 +179,9 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	if err != nil {
 		return api.Environment{}, err
 	}
+	if err = AuthorizeExternal(identity, api.EnvironmentSpec{}, spec); err != nil {
+		return api.Environment{}, err
+	}
 	if len(Services(spec)) > 0 && !identity.Allows("access", project, "", "", nil) {
 		return api.Environment{}, access.ErrForbidden
 	}

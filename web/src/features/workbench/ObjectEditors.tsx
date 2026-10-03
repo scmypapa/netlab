@@ -5,19 +5,24 @@ import {
   MultiSelect,
   NumberInput,
   Select,
+  SegmentedControl,
   Textarea,
   TextInput,
 } from "@mantine/core";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import type {
-  Asset,
-  EnvironmentSpec,
-  Network,
-  Schema,
-  Template,
+import { useQuery } from "@tanstack/react-query";
+import {
+  api,
+  type Asset,
+  type EnvironmentSpec,
+  type Network,
+  type Schema,
+  type Template,
 } from "../../api/client";
 import { LoadMore, type CursorPagination } from "../../foundation/LoadMore";
+import { useCursorList } from "../../foundation/useCursorList";
+import { ErrorMessage } from "../../foundation/Feedback";
 
 export function AssetEditor({
   asset,
@@ -275,6 +280,27 @@ export function NetworkEditor({
     network?.cidr ?? `10.${spec.networks.length + 1}.0.0/24`,
   );
   const [gateway, setGateway] = useState(network?.gateway ?? "");
+  const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const [external, setExternal] = useState(Boolean(network?.external));
+  const [nodeId, setNodeId] = useState(network?.external?.nodeId ?? "");
+  const [interfaceName, setInterfaceName] = useState(
+    network?.external?.interface ?? "",
+  );
+  const [vlan, setVlan] = useState<number | string>(
+    network?.external?.vlan ?? "",
+  );
+  const [pool, setPool] = useState(network?.allocationPool ?? "");
+  const nodes = useCursorList(
+    ["nodes", "external-picker"],
+    (page) => api.nodes(page),
+    { enabled: external && identity.data?.administrator },
+  );
+  const selectedNode = nodes.data?.find((item) => item.id === nodeId);
+  const interfaces = useQuery({
+    queryKey: ["node-interfaces", nodeId],
+    queryFn: () => api.nodeInterfaces(nodeId),
+    enabled: external && Boolean(selectedNode) && identity.data?.administrator,
+  });
   const [dnsAssetId, setDnsAssetId] = useState<string | null>(
     network?.dnsAssetId ?? null,
   );
@@ -293,6 +319,14 @@ export function NetworkEditor({
       name,
       cidr,
       gateway: gateway || undefined,
+      external: external
+        ? {
+            nodeId,
+            interface: interfaceName,
+            vlan: vlan === "" ? undefined : Number(vlan),
+          }
+        : undefined,
+      allocationPool: external ? pool : undefined,
       dnsAssetId: dnsAssetId || undefined,
       dnsServers: dnsServers
         .split(",")
@@ -321,6 +355,65 @@ export function NetworkEditor({
           value={name}
           onChange={(event) => setName(event.currentTarget.value)}
         />
+        {identity.data?.administrator && (
+          <SegmentedControl
+            aria-label="网络接入方式"
+            value={external ? "external" : "internal"}
+            onChange={(value) => {
+              setExternal(value === "external");
+              setGateway("");
+            }}
+            data={[
+              { value: "internal", label: "虚拟网络" },
+              { value: "external", label: "已有 LAN" },
+            ]}
+          />
+        )}
+        {external && (
+          <>
+            <ErrorMessage error={nodes.error ?? interfaces.error} />
+            <Select
+              label="接入节点"
+              required
+              searchable
+              value={nodeId}
+              onChange={(value) => {
+                setNodeId(value ?? "");
+                setInterfaceName("");
+              }}
+              data={(nodes.data ?? []).map((item) => ({
+                value: item.id,
+                label: item.name,
+                disabled: item.state !== "ready",
+              }))}
+              disabled={!identity.data?.administrator}
+            />
+            <LoadMore list={nodes} />
+            <Select
+              label="外部接口"
+              required
+              value={interfaceName}
+              onChange={(value) => setInterfaceName(value ?? "")}
+              data={(interfaces.data ?? [])
+                .filter((item) => item.available)
+                .map((item) => ({
+                  value: item.name,
+                  label: `${item.name}${item.addresses.length ? ` · ${item.addresses.join(", ")}` : ""}`,
+                }))}
+              disabled={!identity.data?.administrator}
+            />
+            <NumberInput
+              label="VLAN"
+              placeholder="不打标签"
+              value={vlan}
+              min={1}
+              max={4094}
+              allowDecimal={false}
+              onChange={setVlan}
+              disabled={!identity.data?.administrator}
+            />
+          </>
+        )}
         <TextInput
           label="网络地址 / 前缀"
           placeholder="10.1.0.0/24"
@@ -328,23 +421,43 @@ export function NetworkEditor({
           value={cidr}
           onChange={(event) => setCidr(event.currentTarget.value)}
         />
+        {external && (
+          <>
+            <TextInput
+              label="Netlab 可分配地址段"
+              placeholder="192.168.1.128/26"
+              required
+              value={pool}
+              onChange={(event) => setPool(event.currentTarget.value)}
+              disabled={!identity.data?.administrator}
+            />
+            <TextInput
+              label="LAN 网关"
+              placeholder="无网关可留空"
+              value={gateway}
+              onChange={(event) => setGateway(event.currentTarget.value)}
+            />
+          </>
+        )}
         <button
           className="disclosure"
           type="button"
           aria-expanded={advanced}
           onClick={() => setAdvanced(!advanced)}
         >
-          网关与 DNS
+          网络参数
           <ChevronDown size={16} className={advanced ? "rotated" : ""} />
         </button>
         <Collapse in={advanced}>
           <div className="form-stack">
-            <TextInput
-              label="网关"
-              placeholder="自动分配"
-              value={gateway}
-              onChange={(event) => setGateway(event.currentTarget.value)}
-            />
+            {!external && (
+              <TextInput
+                label="网关"
+                placeholder="自动分配"
+                value={gateway}
+                onChange={(event) => setGateway(event.currentTarget.value)}
+              />
+            )}
             <Select
               label="环境内 DNS"
               clearable

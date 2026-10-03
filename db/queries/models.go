@@ -72,6 +72,14 @@ type Event struct {
 	CreatedAt     pgtype.Timestamptz
 }
 
+type ExternalNetworkLease struct {
+	NodeID        string
+	Interface     string
+	Vlan          int32
+	EnvironmentID string
+	NetworkID     string
+}
+
 type Grant struct {
 	PrincipalID string
 	ScopeKind   string

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -173,4 +174,29 @@ func (s *Server) registerNode(w http.ResponseWriter, r *http.Request, identity a
 	result := api.Node{Id: info.Id, Name: input.Name, Endpoint: input.Endpoint, Capacity: info.Capacity, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: int(reserved.Cpu), MemoryMiB: reserved.MemoryMib, DiskGiB: reserved.DiskGib}, State: &state, ObservedAt: time.Now().UTC()}
 	result.VmHardware = info.VmHardware
 	return writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) nodeInterfaces(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	if err := requireAdministrator(identity); err != nil {
+		return err
+	}
+	nodes, err := s.Queries.GetNodeEndpoints(r.Context(), []string{r.PathValue("id")})
+	if err != nil {
+		return err
+	}
+	if len(nodes) == 0 {
+		return httpError{http.StatusNotFound, "节点不存在"}
+	}
+	info, err := s.Nodes.Info(r.Context(), nodes[0].Endpoint)
+	if err != nil {
+		return err
+	}
+	if info.Id != nodes[0].ID {
+		return fmt.Errorf("node interface inventory identity mismatch")
+	}
+	interfaces := []api.ExternalInterface{}
+	if info.ExternalInterfaces != nil {
+		interfaces = *info.ExternalInterfaces
+	}
+	return writeJSON(w, http.StatusOK, interfaces)
 }

@@ -273,7 +273,26 @@ async function fixture(
           capabilities: ["container", "vm"],
           slots: 4,
           observedAt: environment.updatedAt,
-          state: "online",
+          state: "ready",
+        },
+      ];
+    else if (path === "/nodes/node/interfaces")
+      response = [
+        {
+          name: "eth0",
+          kind: "ethernet",
+          mac: "02:00:00:00:00:01",
+          mtu: 1500,
+          addresses: ["192.0.2.10/24"],
+          available: false,
+        },
+        {
+          name: "br-lan",
+          kind: "linux-bridge",
+          mac: "02:00:00:00:00:02",
+          mtu: 1500,
+          addresses: ["192.0.2.254/24"],
+          available: true,
         },
       ];
     else if (path.endsWith("/retry")) {
@@ -1061,4 +1080,58 @@ test("asset read permission does not expose service management", async ({
   await expect(
     page.getByRole("button", { name: "管理服务入口", exact: true }),
   ).toHaveCount(0);
+});
+
+test("external LAN editor reads live interfaces and preserves the LAN gateway", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "应用网段", exact: true }).click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑网段" });
+  await editor.getByText("已有 LAN", { exact: true }).click();
+  await editor.getByRole("textbox", { name: "接入节点", exact: true }).click();
+  await page.getByRole("option", { name: "计算节点", exact: true }).click();
+  await editor.getByRole("textbox", { name: "外部接口", exact: true }).click();
+  await expect(page.getByRole("option", { name: /eth0/ })).toHaveCount(0);
+  await page
+    .getByRole("option", { name: "br-lan · 192.0.2.254/24", exact: true })
+    .click();
+  await editor.getByRole("textbox", { name: "VLAN", exact: true }).fill("100");
+  await editor
+    .getByRole("textbox", { name: "网络地址 / 前缀", exact: true })
+    .fill("192.0.2.0/24");
+  await editor
+    .getByRole("textbox", { name: "Netlab 可分配地址段", exact: true })
+    .fill("192.0.2.128/26");
+  await editor
+    .getByRole("textbox", { name: "LAN 网关", exact: true })
+    .fill("192.0.2.1");
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.screenshot({ path: "test-results/external-lan-1366.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "test-results/external-lan-390.png" });
+  expect(
+    await editor.evaluate((element) => element.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await editor.getByRole("button", { name: "更新网段", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  expect(
+    calls.find((call) => call.path.endsWith("/draft"))?.body,
+  ).toMatchObject({
+    spec: {
+      networks: [
+        {
+          id: "lan",
+          cidr: "192.0.2.0/24",
+          gateway: "192.0.2.1",
+          allocationPool: "192.0.2.128/26",
+          external: { nodeId: "node", interface: "br-lan", vlan: 100 },
+        },
+      ],
+    },
+  });
 });
