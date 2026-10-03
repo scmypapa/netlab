@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
@@ -160,5 +161,72 @@ func testBackupsAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 		call("DELETE", path+"/"+backup.Id, reader.Token, nil, 403)
 		call("DELETE", path+"/"+backup.Id, admin, nil, 202)
 		call("POST", path+"/"+backup.Id+"/restore", admin, api.RestoreRecoveryPoint{ExpectedRevision: 1}, 409)
+
+		// Imported catalog entries have no source environment in this database.
+		importedID := uuid.NewString()
+		native := api.NodeBackupResult{ManifestSnapshotId: "catalog-manifest", Parts: map[string]api.NodeBackupPart{}, Templates: map[string]api.NodeBackupPart{}}
+		definition, _ := json.Marshal(operation.BackupDefinition{Recovery: recovery})
+		catalog, _ := json.Marshal([]map[string]any{{"id": importedID, "name": "Imported", "definition": json.RawMessage(definition), "result": native, "size_bytes": 0, "created_at": time.Now()}})
+		params := queries.ImportRepositoryBackupsParams{RepositoryID: repository.Id, OperationID: *repository.OperationId, Records: catalog}
+		if err = s.Queries.ImportRepositoryBackups(ctx, params); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.Queries.ImportRepositoryBackups(ctx, params); err != nil {
+			t.Fatal("catalog replay", err)
+		}
+		imported, err := s.Queries.GetBackup(ctx, importedID)
+		if err != nil || imported.EnvironmentID != nil || imported.State != "ready" {
+			t.Fatal("imported catalog identity", err)
+		}
+		catalogPath := "/backup-repositories/" + repository.Id + "/backups"
+		call("GET", catalogPath, reader.Token, nil, 403)
+		var entries []api.BackupSummary
+		json.Unmarshal(call("GET", catalogPath, admin, nil, 200), &entries)
+		if len(entries) != 2 {
+			t.Fatal("repository catalog", len(entries))
+		}
+		var composer api.IssuedServiceToken
+		json.Unmarshal(call("POST", "/service-tokens", admin, api.CreateServiceToken{Name: "Composer", Grants: []api.ScopeGrant{{ScopeKind: "project", ScopeId: "default", Permissions: []api.Permission{"compose"}}}}, 201), &composer)
+		call("POST", "/environments", composer.Token, api.CreateEnvironment{Name: "Unauthorized import", BackupId: &importedID}, 403)
+		var importedClone api.Environment
+		json.Unmarshal(call("POST", "/environments", admin, api.CreateEnvironment{Name: "Imported clone", BackupId: &importedID}, 201), &importedClone)
+		call("DELETE", catalogPath+"/"+importedID, admin, nil, 409)
+		if err = s.Queries.DeleteBackup(ctx, backup.Id); err != nil {
+			t.Fatal(err)
+		}
+		call("DELETE", "/backup-repositories/"+repository.Id, admin, nil, 409)
+		if _, err = s.Pool.Exec(ctx, "UPDATE operations SET state='failed',phase='rolled-back' WHERE id=$1", *importedClone.OperationId); err != nil {
+			t.Fatal(err)
+		}
+		call("POST", "/backup-repositories/"+repository.Id+"/refresh", reader.Token, nil, 403)
+		json.Unmarshal(call("POST", "/backup-repositories/"+repository.Id+"/refresh", admin, nil, 202), &task)
+		call("POST", "/backup-repositories/"+repository.Id+"/refresh", admin, nil, 409)
+		if _, err = s.Pool.Exec(ctx, "UPDATE operations SET state='succeeded' WHERE id=$1", task.Id); err != nil {
+			t.Fatal(err)
+		}
+		call("DELETE", "/backup-repositories/"+repository.Id, admin, nil, 204)
+		if _, err = s.Queries.GetBackup(ctx, importedID); err == nil {
+			t.Fatal("detached catalog entry remains")
+		}
+		ready := api.TemplateStateReady
+		oldOrigin, newOrigin := uuid.NewString(), uuid.NewString()
+		template := api.Template{Id: uuid.NewString(), Name: "Immutable template", Version: 1, State: &ready, ArtifactNodeId: &oldOrigin}
+		rawTemplate, _ := json.Marshal(template)
+		if err = s.Queries.CreateTemplate(ctx, queries.CreateTemplateParams{ID: template.Id, Definition: rawTemplate}); err != nil {
+			t.Fatal(err)
+		}
+		template.Name, template.ArtifactNodeId = "Backup description", &newOrigin
+		rawTemplates, _ := json.Marshal([]api.Template{template})
+		if err = s.Queries.RegisterBackupTemplates(ctx, rawTemplates); err != nil {
+			t.Fatal(err)
+		}
+		registered, err := s.Queries.GetTemplates(ctx, []string{template.Id})
+		if err != nil || len(registered) != 1 {
+			t.Fatal(err)
+		}
+		json.Unmarshal(registered[0].Definition, &template)
+		if template.Name != "Immutable template" || template.ArtifactNodeId == nil || *template.ArtifactNodeId != newOrigin {
+			t.Fatal("restored artifact origin changed immutable template metadata")
+		}
 	})
 }

@@ -180,6 +180,18 @@ export const api = {
     request<Schema<"BackupRepository">>("/backup-repositories", "POST", body),
   deleteBackupRepository: (id: string) =>
     request<void>(`/backup-repositories/${id}`, "DELETE"),
+  refreshBackupRepository: (id: string) =>
+    request<Operation>(`/backup-repositories/${id}/refresh`, "POST"),
+  repositoryBackups: (id: string, options?: ListOptions) =>
+    list<Schema<"BackupSummary">>(
+      `/backup-repositories/${id}/backups`,
+      options,
+    ),
+  deleteRepositoryBackup: (id: string, backupId: string) =>
+    request<Operation>(
+      `/backup-repositories/${id}/backups/${backupId}`,
+      "DELETE",
+    ),
   backupRepositoryCredentials: (id: string) =>
     request<Schema<"BackupCredentials">>(
       `/backup-repositories/${id}/credentials`,

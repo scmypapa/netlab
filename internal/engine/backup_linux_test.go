@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
@@ -29,9 +30,20 @@ func TestResticRecoveryTransfer(t *testing.T) {
 	remote := &Engine{cfg: Config{ID: uuid.NewString(), DataDir: t.TempDir()}}
 	env, point, backupID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	content := bytes.Repeat([]byte("immutable recovery data\n"), 1<<12)
+	template := api.Template{Id: "transfer-template", Name: "Transfer template", Kind: api.Container, Version: 1}
+	templateDir := templateDirectory(local.cfg.DataDir, template.Id, template.Version)
+	if err := os.MkdirAll(templateDir, 0711); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRecoveryJSON(filepath.Join(templateDir, "template.json"), template); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "image.tar"), content, 0640); err != nil {
+		t.Fatal(err)
+	}
 	assets := []api.AssetExecution{
-		{InstanceId: uuid.NewString(), Asset: api.Asset{Id: "local", Name: "Local archive"}},
-		{InstanceId: uuid.NewString(), Asset: api.Asset{Id: "remote", Name: "Remote archive"}},
+		{InstanceId: uuid.NewString(), Asset: api.Asset{Id: "local", Name: "Local archive"}, Template: template},
+		{InstanceId: uuid.NewString(), Asset: api.Asset{Id: "remote", Name: "Remote archive"}, Template: template},
 	}
 	for i, node := range []*Engine{local, remote} {
 		directory := recoveryDirectory(node.cfg.DataDir, point, assets[i])
@@ -85,7 +97,7 @@ func TestResticRecoveryTransfer(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition := json.RawMessage(`{"spec":{"networks":[],"assets":[]},"state":"captured"}`)
-	plan := api.NodeBackupPlan{Repository: repository, RecoveryPointId: point, Definition: definition,
+	plan := api.NodeBackupPlan{Repository: repository, Name: "Transfer backup", CreatedAt: time.Now(), RecoveryPointId: point, Definition: definition,
 		Sources: []api.NodeRecoverySource{
 			{EnvironmentId: env, NodeId: local.cfg.ID, Execution: assets[0]},
 			{EnvironmentId: env, NodeId: remote.cfg.ID, Endpoint: server.URL, Execution: assets[1]},
@@ -114,6 +126,22 @@ func TestResticRecoveryTransfer(t *testing.T) {
 	}
 	if err := json.Unmarshal(manifest.Bytes(), &portable); err != nil || !bytes.Equal(portable.Definition, definition) || len(portable.Parts) != 2 {
 		t.Fatalf("portable manifest: %s %v", manifest.String(), err)
+	}
+	catalog, err := local.BackupCatalog(ctx, repository)
+	if err != nil || len(catalog) != 1 || catalog[0].Id != backupID || catalog[0].SnapshotId == nil || *catalog[0].SnapshotId != complete.ManifestSnapshotId || len(catalog[0].Templates) != 1 {
+		t.Fatalf("published catalog: %+v %v", catalog, err)
+	}
+	if err = os.RemoveAll(templateDir); err != nil {
+		t.Fatal(err)
+	}
+	part := complete.Templates["transfer-template/1"]
+	restored, err := local.RestoreBackupTemplate(ctx, api.NodeRestoreBackupTemplate{Template: template,
+		Source: api.NodeBackupSource{Repository: repository, SnapshotId: part.SnapshotId, SizeBytes: part.SizeBytes}})
+	if err != nil || restored.ArtifactNodeId == nil || *restored.ArtifactNodeId != local.cfg.ID {
+		t.Fatalf("restored template: %+v %v", restored, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(templateDir, "image.tar")); err != nil || !bytes.Equal(data, content) {
+		t.Fatalf("restored template artifact differs: %v", err)
 	}
 	for i, node := range []*Engine{local, remote} {
 		if err := os.RemoveAll(recoveryDirectory(node.cfg.DataDir, point, assets[i])); err != nil {

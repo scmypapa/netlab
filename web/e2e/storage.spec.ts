@@ -1,5 +1,96 @@
 import { expect, test } from "@playwright/test";
 
+test("仓库目录中的备份通过标准创建接口恢复", async ({ page }) => {
+  let restored = false;
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request(),
+      path = new URL(request.url()).pathname.replace("/api/v1", "");
+    let response: unknown = [],
+      status = 200;
+    if (path === "/identity")
+      response = { id: "admin", name: "admin", administrator: true };
+    if (path === "/nodes")
+      response = [
+        {
+          id: "node",
+          name: "恢复节点",
+          state: "ready",
+          endpoint: "https://node.test",
+          observedAt: "2026-10-03T08:00:00Z",
+          capacity: { cpu: 8, memoryMiB: 16384, diskGiB: 100 },
+          reserved: { cpu: 0, memoryMiB: 0, diskGiB: 0 },
+          capabilities: ["vm", "container"],
+          slots: 4,
+        },
+      ];
+    if (path === "/backup-repositories")
+      response = [
+        {
+          id: "repository",
+          name: "历史备份",
+          nodeId: "node",
+          state: "ready",
+          location: "/mnt/backups",
+        },
+      ];
+    if (path === "/backup-repositories/repository/backups")
+      response = [
+        {
+          id: "backup",
+          name: "混合网络",
+          repositoryId: "repository",
+          state: "ready",
+          sizeBytes: 2 ** 30,
+          createdAt: "2026-10-03T08:00:00Z",
+        },
+      ];
+    if (path === "/environments" && request.method() === "POST") {
+      expect(request.postDataJSON()).toEqual({
+        name: "恢复环境",
+        backupId: "backup",
+        run: false,
+      });
+      restored = true;
+      status = 201;
+      response = { id: "restored" };
+    }
+    await route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
+  });
+  await page.goto("/resources");
+  await page.getByRole("button", { name: /恢复节点/ }).click();
+  await page.getByRole("tab", { name: "备份仓库" }).click();
+  await page.getByRole("button", { name: "历史备份操作" }).click();
+  await page.getByRole("menuitem", { name: "查看备份" }).click();
+  await expect(page.getByText("混合网络", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "../data/backup-catalog-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.screenshot({
+    path: "../data/backup-catalog-desktop.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "混合网络操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复为新环境" }).click();
+  const dialog = page.getByRole("dialog", { name: "从备份创建环境" });
+  await dialog.getByRole("textbox", { name: "环境名称" }).fill("恢复环境");
+  await dialog.getByRole("checkbox", { name: "创建后启动" }).uncheck();
+  await dialog.getByRole("button", { name: "创建", exact: true }).click();
+  await expect.poll(() => restored).toBe(true);
+  await expect(page).toHaveURL(/environments\/restored/);
+});
+
 test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) => {
   let added = false,
     failed = false,

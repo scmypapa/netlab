@@ -147,12 +147,18 @@ func (s *Server) deleteBackupRepository(w http.ResponseWriter, r *http.Request, 
 			return httpError{http.StatusConflict, "仓库正在连接"}
 		}
 	}
+	if _, err = q.LockRepositoryBackups(ctx, row.ID); err != nil {
+		return err
+	}
 	inUse, err := q.BackupRepositoryInUse(ctx, row.ID)
 	if err != nil {
 		return err
 	}
 	if inUse {
 		return httpError{http.StatusConflict, "仓库仍有备份"}
+	}
+	if err = q.DeleteRepositoryCatalog(ctx, row.ID); err != nil {
+		return err
 	}
 	if err = q.DeleteBackupRepository(ctx, row.ID); err != nil {
 		return err
@@ -170,15 +176,24 @@ func backupSummary(row queries.Backup, failure *string) api.BackupSummary {
 }
 
 func (s *Server) listBackups(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
-	ctx, id := r.Context(), r.PathValue("id")
-	if _, err := s.Environments.Authorized(ctx, identity, id, "read", ""); err != nil {
-		return err
+	ctx, id, repository := r.Context(), r.PathValue("id"), r.PathValue("repositoryId")
+	if repository != "" {
+		if err := requireAdministrator(identity); err != nil {
+			return err
+		}
+		if _, err := s.Queries.GetBackupRepository(ctx, repository); err != nil {
+			return err
+		}
+	} else {
+		if _, err := s.Environments.Authorized(ctx, identity, id, "read", ""); err != nil {
+			return err
+		}
 	}
 	cursor, limit, err := pagination(r)
 	if err != nil {
 		return err
 	}
-	rows, err := s.Queries.ListBackups(ctx, queries.ListBackupsParams{EnvironmentID: id, Cursor: cursor, PageLimit: limit})
+	rows, err := s.Queries.ListBackups(ctx, queries.ListBackupsParams{EnvironmentID: id, RepositoryID: repository, Cursor: cursor, PageLimit: limit})
 	if err != nil {
 		return err
 	}
@@ -247,7 +262,7 @@ func (s *Server) createBackup(w http.ResponseWriter, r *http.Request, identity a
 	if err != nil {
 		return err
 	}
-	if err = q.CreateBackup(ctx, queries.CreateBackupParams{ID: id, EnvironmentID: envID, RepositoryID: repository.ID, Name: input.Name, Definition: raw, OperationID: op.ID}); err != nil {
+	if err = q.CreateBackup(ctx, queries.CreateBackupParams{ID: id, EnvironmentID: &envID, RepositoryID: repository.ID, Name: input.Name, Definition: raw, OperationID: op.ID}); err != nil {
 		return err
 	}
 	row, err := q.GetBackup(ctx, id)
@@ -262,9 +277,15 @@ func (s *Server) createBackup(w http.ResponseWriter, r *http.Request, identity a
 }
 
 func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
-	ctx, envID := r.Context(), r.PathValue("id")
-	if _, err := s.Environments.Authorized(ctx, identity, envID, "manage", ""); err != nil {
-		return err
+	ctx, envID, repository := r.Context(), r.PathValue("id"), r.PathValue("repositoryId")
+	if repository != "" {
+		if err := requireAdministrator(identity); err != nil {
+			return err
+		}
+	} else {
+		if _, err := s.Environments.Authorized(ctx, identity, envID, "manage", ""); err != nil {
+			return err
+		}
 	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -276,7 +297,7 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, identity a
 	if err != nil {
 		return err
 	}
-	if row.EnvironmentID != envID {
+	if repository != "" && row.RepositoryID != repository || repository == "" && (row.EnvironmentID == nil || *row.EnvironmentID != envID) {
 		return pgx.ErrNoRows
 	}
 	op, err := q.LockOperation(ctx, row.OperationID)
@@ -297,7 +318,7 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, identity a
 	if err != nil {
 		return err
 	}
-	op, err = q.CreateOperation(ctx, queries.CreateOperationParams{ID: uuid.NewString(), EnvironmentID: &envID, ScopeKind: "backup", ScopeID: row.ID, Kind: "delete-backup", Payload: payload})
+	op, err = q.CreateOperation(ctx, queries.CreateOperationParams{ID: uuid.NewString(), EnvironmentID: row.EnvironmentID, ScopeKind: "backup", ScopeID: row.ID, Kind: "delete-backup", Payload: payload})
 	if err != nil {
 		return err
 	}
@@ -311,5 +332,47 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, identity a
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusAccepted, result)
+}
+
+func (s *Server) refreshBackupRepository(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	if err := requireAdministrator(identity); err != nil {
+		return err
+	}
+	ctx := r.Context()
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	row, err := q.LockBackupRepository(ctx, r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	if row.OperationID != nil {
+		op, err := q.LockOperation(ctx, *row.OperationID)
+		if err != nil {
+			return err
+		}
+		if op.State == "queued" || op.State == "running" {
+			return httpError{http.StatusConflict, "仓库任务尚未完成"}
+		}
+	}
+	op, err := q.CreateOperation(ctx, queries.CreateOperationParams{ID: uuid.NewString(), ScopeKind: "backup-repository", ScopeID: row.ID, Kind: "connect-backup-repository", Payload: []byte(`{}`)})
+	if err != nil {
+		return err
+	}
+	if err = q.MarkBackupRepositoryConnecting(ctx, queries.MarkBackupRepositoryConnectingParams{ID: row.ID, OperationID: &op.ID}); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	result, err := environment.Operation(op)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Operation-Location", "/api/v1/operations/"+op.ID)
 	return writeJSON(w, http.StatusAccepted, result)
 }

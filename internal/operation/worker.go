@@ -322,7 +322,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 		return []api.ExecutionResult{}, nil
 	}
 	artifacts := map[string]string{}
-	if phase == api.NodePlanPhasePrepare {
+	if phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery {
 		for _, target := range targets {
 			if origin := target.Execution.Template.ArtifactNodeId; origin != nil {
 				artifacts[*origin] = ""

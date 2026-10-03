@@ -12,7 +12,7 @@ import (
 
 type Backup struct {
 	ID            string
-	EnvironmentID string
+	EnvironmentID *string
 	RepositoryID  string
 	Name          string
 	Definition    []byte

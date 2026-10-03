@@ -24,7 +24,10 @@ func (q *Queries) BackupInUse(ctx context.Context, dollar_1 string) (bool, error
 }
 
 const backupRepositoryInUse = `-- name: BackupRepositoryInUse :one
-SELECT EXISTS(SELECT 1 FROM backups WHERE repository_id=$1)
+SELECT EXISTS(SELECT 1 FROM backups b JOIN operations own ON own.id=b.operation_id WHERE b.repository_id=$1
+AND (b.environment_id IS NOT NULL OR own.state IN ('queued','running') OR EXISTS
+(SELECT 1 FROM operations o WHERE o.payload->>'backupId'=b.id AND o.scope_kind='environment'
+AND (o.state IN ('queued','running') OR (o.phase IN ('rollback','cleanup') AND o.state IN ('failed','partially_applied'))))))
 `
 
 func (q *Queries) BackupRepositoryInUse(ctx context.Context, repositoryID string) (bool, error) {
@@ -76,7 +79,7 @@ INSERT INTO backups(id,environment_id,repository_id,name,definition,operation_id
 
 type CreateBackupParams struct {
 	ID            string
-	EnvironmentID string
+	EnvironmentID *string
 	RepositoryID  string
 	Name          string
 	Definition    []byte
@@ -138,6 +141,15 @@ func (q *Queries) DeleteBackupRepository(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteRepositoryCatalog = `-- name: DeleteRepositoryCatalog :exec
+DELETE FROM backups WHERE repository_id=$1 AND environment_id IS NULL
+`
+
+func (q *Queries) DeleteRepositoryCatalog(ctx context.Context, repositoryID string) error {
+	_, err := q.db.Exec(ctx, deleteRepositoryCatalog, repositoryID)
+	return err
+}
+
 const getBackup = `-- name: GetBackup :one
 SELECT id, environment_id, repository_id, name, definition, result, size_bytes, state, operation_id, created_at FROM backups WHERE id=$1
 `
@@ -179,6 +191,24 @@ func (q *Queries) GetBackupRepository(ctx context.Context, id string) (BackupRep
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const importRepositoryBackups = `-- name: ImportRepositoryBackups :exec
+INSERT INTO backups(id,repository_id,name,definition,result,size_bytes,state,operation_id,created_at)
+SELECT x.id,$1,x.name,x.definition,x.result,x.size_bytes,'ready',$2,x.created_at
+FROM jsonb_to_recordset($3::jsonb) AS x(id text,name text,definition jsonb,result jsonb,size_bytes bigint,created_at timestamptz)
+ON CONFLICT(id) DO NOTHING
+`
+
+type ImportRepositoryBackupsParams struct {
+	RepositoryID string
+	OperationID  string
+	Records      []byte
+}
+
+func (q *Queries) ImportRepositoryBackups(ctx context.Context, arg ImportRepositoryBackupsParams) error {
+	_, err := q.db.Exec(ctx, importRepositoryBackups, arg.RepositoryID, arg.OperationID, arg.Records)
+	return err
 }
 
 const listBackupRepositories = `-- name: ListBackupRepositories :many
@@ -224,20 +254,22 @@ func (q *Queries) ListBackupRepositories(ctx context.Context) ([]ListBackupRepos
 const listBackups = `-- name: ListBackups :many
 SELECT b.id,b.environment_id,b.repository_id,b.name,b.state,b.size_bytes,b.operation_id,b.created_at,o.error
 FROM backups b JOIN operations o ON o.id=b.operation_id
-WHERE b.environment_id=$1
-AND ($2::text='' OR (b.created_at,b.id)<(SELECT created_at,id FROM backups WHERE id=$2))
-ORDER BY b.created_at DESC,b.id DESC LIMIT $3
+WHERE ($1::text='' OR b.environment_id=$1::text)
+AND ($2::text='' OR b.repository_id=$2::text)
+AND ($3::text='' OR (b.created_at,b.id)<(SELECT created_at,id FROM backups WHERE id=$3))
+ORDER BY b.created_at DESC,b.id DESC LIMIT $4
 `
 
 type ListBackupsParams struct {
 	EnvironmentID string
+	RepositoryID  string
 	Cursor        string
 	PageLimit     int32
 }
 
 type ListBackupsRow struct {
 	ID            string
-	EnvironmentID string
+	EnvironmentID *string
 	RepositoryID  string
 	Name          string
 	State         string
@@ -248,7 +280,12 @@ type ListBackupsRow struct {
 }
 
 func (q *Queries) ListBackups(ctx context.Context, arg ListBackupsParams) ([]ListBackupsRow, error) {
-	rows, err := q.db.Query(ctx, listBackups, arg.EnvironmentID, arg.Cursor, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listBackups,
+		arg.EnvironmentID,
+		arg.RepositoryID,
+		arg.Cursor,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -320,6 +357,30 @@ func (q *Queries) LockBackupRepository(ctx context.Context, id string) (BackupRe
 	return i, err
 }
 
+const lockRepositoryBackups = `-- name: LockRepositoryBackups :many
+SELECT id FROM backups WHERE repository_id=$1 ORDER BY id FOR UPDATE
+`
+
+func (q *Queries) LockRepositoryBackups(ctx context.Context, repositoryID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, lockRepositoryBackups, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markBackupCreating = `-- name: MarkBackupCreating :exec
 UPDATE backups SET state='creating' WHERE id=$1
 `
@@ -340,5 +401,45 @@ type MarkBackupDeletingParams struct {
 
 func (q *Queries) MarkBackupDeleting(ctx context.Context, arg MarkBackupDeletingParams) error {
 	_, err := q.db.Exec(ctx, markBackupDeleting, arg.ID, arg.OperationID)
+	return err
+}
+
+const markBackupRepositoryConnecting = `-- name: MarkBackupRepositoryConnecting :exec
+UPDATE backup_repositories SET state='connecting',operation_id=$2 WHERE id=$1
+`
+
+type MarkBackupRepositoryConnectingParams struct {
+	ID          string
+	OperationID *string
+}
+
+func (q *Queries) MarkBackupRepositoryConnecting(ctx context.Context, arg MarkBackupRepositoryConnectingParams) error {
+	_, err := q.db.Exec(ctx, markBackupRepositoryConnecting, arg.ID, arg.OperationID)
+	return err
+}
+
+const registerBackupTemplates = `-- name: RegisterBackupTemplates :exec
+INSERT INTO templates(id,definition)
+SELECT x->>'id',x FROM jsonb_array_elements($1::jsonb) x
+ON CONFLICT(id) DO UPDATE SET definition=jsonb_set(templates.definition,'{artifactNodeId}',EXCLUDED.definition->'artifactNodeId')
+WHERE templates.definition->>'version'=EXCLUDED.definition->>'version' AND templates.definition->>'state'='ready'
+`
+
+func (q *Queries) RegisterBackupTemplates(ctx context.Context, records []byte) error {
+	_, err := q.db.Exec(ctx, registerBackupTemplates, records)
+	return err
+}
+
+const setBackupRepositoryNativeID = `-- name: SetBackupRepositoryNativeID :exec
+UPDATE backup_repositories SET native_id=$2 WHERE id=$1
+`
+
+type SetBackupRepositoryNativeIDParams struct {
+	ID       string
+	NativeID *string
+}
+
+func (q *Queries) SetBackupRepositoryNativeID(ctx context.Context, arg SetBackupRepositoryNativeIDParams) error {
+	_, err := q.db.Exec(ctx, setBackupRepositoryNativeID, arg.ID, arg.NativeID)
 	return err
 }

@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile } from "node:fs/promises";
+import { openAsBlob } from "node:fs";
+import { Agent, request } from "node:https";
 import { delay } from "./guest-ssh.mjs";
 
 const execute = promisify(execFile), run = randomUUID();
@@ -13,8 +15,9 @@ const repositoryConfig = process.env.NETLAB_BACKUP_REPOSITORY_CONFIG
   ? JSON.parse(await readFile(process.env.NETLAB_BACKUP_REPOSITORY_CONFIG, "utf8")) : { location: root + "/repository" };
 const report = { startedAt: new Date().toISOString(), backend: repositoryConfig.location.startsWith("s3:") ? "s3" : "directory", steps: [], cleanupErrors: [], vmGuestVerified: false };
 const pools = [], clones = [], directories = new Set();
+const recovered = [];
 const identities = new Set(), diskFiles = [];
-let cookie, env, point, repository, backup, vmTemplate;
+let env, point, repository, backup, vmTemplate, containerTemplate, recoveryRepository;
 let baseline;
 const quote = (value) => `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 async function node(id, ...args) {
@@ -22,20 +25,39 @@ async function node(id, ...args) {
   const command = worker.host ? ["ssh", "-i", worker.keyPath, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", `UserKnownHostsFile=${worker.keyPath}.hosts`, `root@${worker.host}`, args.map(quote).join(" ")] : args;
   return (await execute("wsl.exe", ["-d", "Ubuntu", "-u", "root", "--exec", ...command], { timeout: 180000, maxBuffer: 2**20 })).stdout;
 }
-async function api(path, method = "GET", body, status = 200) {
-  const response = await fetch(base + path, { method, headers: {"Content-Type":"application/json", ...(cookie ? {Cookie:cookie} : {})}, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (response.headers.get("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
-  const raw = await response.text();
-  assert.equal(response.status, status, `${method} ${path}: ${raw}`);
-  return raw ? JSON.parse(raw) : undefined;
-}
-async function operation(id, expected="succeeded") {
-  for (const deadline=Date.now()+180000; Date.now()<deadline;) {
-    const op=await api("/operations/"+id);
-    if (["succeeded","failed","partially_applied"].includes(op.state)) { assert.equal(op.state,expected,op.error); return op; }
-    await delay(150);
+function apiClient(address) {
+  let cookie;
+  async function api(path, method = "GET", body, status = 200) {
+    const multipart = body instanceof FormData;
+    const response = await fetch(address + path, { method, headers: { ...(multipart ? {} : {"Content-Type":"application/json"}), ...(cookie ? {Cookie:cookie} : {}) }, body: body === undefined ? undefined : multipart ? body : JSON.stringify(body) });
+    if (response.headers.get("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
+    const raw = await response.text();
+    assert.equal(response.status, status, `${method} ${path}: ${raw}`);
+    return raw ? JSON.parse(raw) : undefined;
   }
-  throw new Error("operation timeout: "+id);
+  async function operation(id, expected="succeeded") {
+    for (const deadline=Date.now()+180000; Date.now()<deadline;) {
+      const op=await api("/operations/"+id);
+      if (["succeeded","failed","partially_applied"].includes(op.state)) { assert.equal(op.state,expected,op.error); return op; }
+      await delay(150);
+    }
+    throw new Error("operation timeout: "+id);
+  }
+  async function action(environment, command, assetId) {
+    return operation((await api(`/environments/${environment.id}${assetId ? '/assets/'+assetId : ''}/actions`,"POST",{action:command},202)).id);
+  }
+  return {api,operation,action};
+}
+const source = apiClient(base), { api, operation, action } = source;
+const recovery = process.env.NETLAB_BACKUP_RECOVERY_API ? apiClient(process.env.NETLAB_BACKUP_RECOVERY_API) : undefined;
+const nodeAgent = new Agent({ca:await readFile("data/pki/ca.crt"),cert:await readFile("data/pki/controller.crt"),key:await readFile("data/pki/controller.key")});
+async function removeTemplateCache(worker, template) {
+  const endpoint=baseline.find((node)=>node.id===worker.nodeId).endpoint;
+  await new Promise((resolve,reject)=>{
+    const call=request(endpoint+`/node/v1/templates/${template.id}/versions/${template.version}`,{method:"DELETE",agent:nodeAgent},(response)=>{
+      let raw=""; response.on("data",(chunk)=>raw+=chunk); response.on("end",()=>response.statusCode===204 ? resolve() : reject(new Error("native template removal: "+response.statusCode+": "+raw)));
+    }); call.on("error",reject); call.end();
+  });
 }
 async function nativeSnapshots(credentials, group) {
   const variables = { RESTIC_REPOSITORY: repositoryConfig.location, RESTIC_PASSWORD: credentials.password,
@@ -44,15 +66,9 @@ async function nativeSnapshots(credentials, group) {
   const result = await execute("wsl.exe", ["-d", "Ubuntu", "-u", "root", "--exec", "/usr/local/bin/restic", "--json", "--no-cache", "snapshots", "--tag", group], { env, timeout: 30000 });
   return JSON.parse(result.stdout);
 }
-async function uploadTemplate(definition, filename) {
-  const bytes=(await execute("wsl.exe",["-d","Ubuntu","-u","root","--exec","cat",filename],{encoding:"buffer",maxBuffer:2**20})).stdout;
-  const body=new FormData(); body.append("template",JSON.stringify(definition)); body.append("files",new Blob([bytes]),"backup.qcow2");
-  const response=await fetch(base+"/templates",{method:"POST",headers:{Cookie:cookie},body});
-  const raw=await response.text(); assert.equal(response.status,201,raw); return JSON.parse(raw);
-}
-async function action(environment, command, assetId) {
-  const task=await api(`/environments/${environment.id}${assetId ? '/assets/'+assetId : ''}/actions`,"POST",{action:command},202);
-  return operation(task.id);
+async function uploadTemplate(definition, file, name) {
+  const body=new FormData(); body.append("template",JSON.stringify(definition)); body.append("files",file,name);
+  return api("/templates","POST",body,201);
 }
 async function step(name, executeStep) {
   const item={name,startedAt:new Date().toISOString()}, start=Date.now(); report.steps.push(item);
@@ -63,7 +79,8 @@ async function vmDisk(asset) {
   const disks=(await node(asset.nodeId,"virsh","domblklist",asset.instanceId,"--details")).split("\n").map((line)=>line.match(/^\s*file\s+disk\s+\S+\s+(.+)$/)?.[1]).filter(Boolean);
   assert(disks.length,"VM has no disk"); return disks[0];
 }
-async function verify(environment, captured) {
+async function verify(environment, captured, backend=source) {
+  const {api,action}=backend;
   const state=await api(`/environments/${environment.id}/state`);
   assert.equal(state.assets.length,4);
   await action(environment,"force-stop");
@@ -88,12 +105,14 @@ try {
   baseline=await api("/nodes");
   const primary=workers.find((worker)=>!worker.host).nodeId;
   await step("双节点四个混合资产部署，写入真实容器、卷和 KVM 数据",async()=>{
-    const container=(await api("/templates?kind=container")).find((template)=>template.state==="ready"&&template.name.includes("container"));
-    assert(container,"missing cached container template");
+    containerTemplate=await uploadTemplate({name:"Backup container "+run,kind:"container",os:"Linux",version:1,source:"image.tar",format:"oci",resources:{cpu:1,memoryMiB:64,diskGiB:1}},await openAsBlob("data/nginx.tar"),"image.tar");
+    await operation(containerTemplate.operationId);
+    const container=containerTemplate;
     await node(primary,"mkdir","-p",root);
     directories.add(primary);
     await node(primary,"qemu-img","create","-f","qcow2",root+"/base.qcow2","1G");
-    vmTemplate=await uploadTemplate({name:"Backup UEFI "+run,kind:"vm",os:"Linux",version:1,source:"backup.qcow2",format:"qcow2",resources:{cpu:1,memoryMiB:128,diskGiB:1},hardware:{machine:"q35",firmware:"uefi",secureBoot:true,tpm:true,diskBus:"virtio",nicModel:"virtio"}},root+"/base.qcow2");
+    const disk=(await execute("wsl.exe",["-d","Ubuntu","-u","root","--exec","cat",root+"/base.qcow2"],{encoding:"buffer",maxBuffer:2**20})).stdout;
+    vmTemplate=await uploadTemplate({name:"Backup UEFI "+run,kind:"vm",os:"Linux",version:1,source:"backup.qcow2",format:"qcow2",resources:{cpu:1,memoryMiB:128,diskGiB:1},hardware:{machine:"q35",firmware:"uefi",secureBoot:true,tpm:true,diskBus:"virtio",nicModel:"virtio"}},new Blob([disk]),"backup.qcow2");
     await operation(vmTemplate.operationId);
     for(const worker of workers) {
       await node(worker.nodeId,"mkdir","-p",root+"/pool");
@@ -137,6 +156,30 @@ try {
     for(const pool of pools) await operation((await api("/storage-pools/"+pool.id,"DELETE",undefined,202)).id);
     assert.equal((await api(`/environments/${env.id}/recovery-points`)).length,0);
   });
+  if(recovery) await step("独立控制面接入"+(report.backend === "s3" ? " S3" : "目录")+"仓库，原模板制品删除后恢复四个混合资产",async()=>{
+    await recovery.api("/sessions/login","POST",JSON.parse(await readFile("data/dev-login.json","utf8")));
+    assert.equal((await recovery.api("/environments")).length,0);
+    assert.equal((await recovery.api("/templates")).length,0);
+    for(const worker of workers) {
+      await recovery.api("/nodes","POST",{endpoint:baseline.find((node)=>node.id===worker.nodeId).endpoint},201);
+      for(const template of [containerTemplate,vmTemplate]) await removeTemplateCache(worker,template);
+    }
+    const credentials=await api("/backup-repositories/"+repository.id+"/credentials");
+    recoveryRepository=await recovery.api("/backup-repositories","POST",{name:"Recovery "+run,nodeId:primary,...repositoryConfig,...credentials,initialize:false},201);
+    await recovery.operation(recoveryRepository.operationId);
+    const imported=await recovery.api(`/backup-repositories/${recoveryRepository.id}/backups`);
+    assert.equal(imported.length,1); assert.equal(imported[0].id,backup.id); assert.equal(imported[0].environmentId,undefined);
+    const clone=await recovery.api("/environments","POST",{name:"Rebuilt controller "+run,backupId:imported[0].id,run:false},201);
+    recovered.push(clone); await recovery.operation(clone.operationId); await verify(clone,captured,recovery);
+    const restoredTemplates=await recovery.api("/templates");
+    assert.equal(restoredTemplates.length,2); assert(restoredTemplates.every((template)=>template.state==="ready"&&template.artifactNodeId===primary));
+    await recovery.action(clone,"start"); await recovery.action(clone,"force-stop");
+    await recovery.action(clone,"destroy");
+    await recovery.api("/backup-repositories/"+recoveryRepository.id,"DELETE",undefined,204); recoveryRepository=undefined;
+    assert.equal((await nativeSnapshots(credentials,"netlab:backup:"+backup.id)).length,7);
+    for(const template of restoredTemplates) await recovery.operation((await recovery.api("/templates/"+template.id,"DELETE",undefined,202)).id);
+    report.freshControllerRecovered=true;
+  });
   await step("由备份克隆独立环境，核对四个资产与可写数据",async()=>{
     const clone=await api("/environments","POST",{name:"Backup clone "+run,backupId:backup.id,run:false},201); clones.push(clone); await operation(clone.operationId); await verify(clone,captured);
   });
@@ -151,7 +194,7 @@ try {
     for(const environment of [env,...clones]) await action(environment,"destroy");
     const credentials = await api("/backup-repositories/" + repository.id + "/credentials");
     const group = "netlab:backup:" + backup.id;
-    assert.equal((await nativeSnapshots(credentials, group)).length, 5);
+    assert.equal((await nativeSnapshots(credentials, group)).length, 7);
     await operation((await api(`/environments/${env.id}/backups/${backup.id}`,"DELETE",undefined,202)).id); backup=undefined;
     assert.equal((await api(`/environments/${env.id}/backups`)).length,0);
     assert.equal((await nativeSnapshots(credentials, group)).length, 0);
@@ -163,11 +206,11 @@ try {
       const containers=await node(worker.nodeId,"ctr","-n","netlab","containers","list","-q");
       const snapshots=await node(worker.nodeId,"ctr","-n","netlab","snapshots","list");
       for(const id of identities) { assert(!domains.includes(id)); assert(!containers.includes(id)); assert(!snapshots.includes(id)); }
-      for(const environment of [env,...clones]) {
+      for(const environment of [env,...clones,...recovered]) {
         assert.equal((await node(worker.nodeId,"ovs-vsctl","--format=csv","--data=bare","--no-headings","--columns=name","find","Port","external_ids:netlab.environment="+environment.id)).trim(),"");
       }
     }
-    for(const environment of [env,...clones]) for(const table of ["Logical_Switch","Logical_Switch_Port","Logical_Router","Logical_Router_Port"]) {
+    for(const environment of [env,...clones,...recovered]) for(const table of ["Logical_Switch","Logical_Switch_Port","Logical_Router","Logical_Router_Port"]) {
       assert.equal((await node(primary,"ovn-nbctl","--db=unix:/run/ovn/ovnnb_db.sock","--format=csv","--data=bare","--no-headings","--columns=name","find",table,"external_ids:netlab.environment="+environment.id)).trim(),"");
     }
     const after=await api("/nodes");
@@ -178,6 +221,11 @@ try {
 } catch(error) { report.passed=false; report.error=error.message; process.exitCode=1; }
 finally {
   const cleanup=async(fn)=>{try{await fn();}catch(error){report.cleanupErrors.push(error.message);}};
+  for(const environment of recovered) await cleanup(async()=>{const state=await recovery.api(`/environments/${environment.id}/state`); if(state.status!=="destroyed") await recovery.action(environment,"destroy");});
+  if(recoveryRepository) await cleanup(()=>recovery.api("/backup-repositories/"+recoveryRepository.id,"DELETE",undefined,204));
+  if(recovery) for(const template of (await recovery.api("/templates")).filter((item)=>[containerTemplate?.id,vmTemplate?.id].includes(item.id))) {
+    await cleanup(async()=>recovery.operation((await recovery.api("/templates/"+template.id,"DELETE",undefined,202)).id));
+  }
   for(const environment of [env,...clones].filter(Boolean)) await cleanup(async()=>{ const state=await api(`/environments/${environment.id}/state`); if(state.status!=="destroyed") await action(environment,"destroy"); });
   if(backup) await cleanup(async()=>operation((await api(`/environments/${env.id}/backups/${backup.id}`,"DELETE",undefined,202)).id));
   if(repository) await cleanup(()=>api("/backup-repositories/"+repository.id,"DELETE",undefined,204));
@@ -185,11 +233,13 @@ finally {
   const remainingPools=await api("/storage-pools");
   for(const pool of pools) if(remainingPools.some((item)=>item.id===pool.id)) await cleanup(async()=>operation((await api("/storage-pools/"+pool.id,"DELETE",undefined,202)).id));
   if(vmTemplate) await cleanup(async()=>operation((await api("/templates/"+vmTemplate.id,"DELETE",undefined,202)).id));
+  if(containerTemplate) await cleanup(async()=>operation((await api("/templates/"+containerTemplate.id,"DELETE",undefined,202)).id));
   if(!report.cleanupErrors.length) for(const id of directories) await cleanup(async()=>{
     const resolved=(await node(id,"realpath",root)).trim(); assert.equal(resolved,root); await node(id,"rm","-r","--",resolved);
   });
   report.finishedAt=new Date().toISOString(); report.durationMs=Date.parse(report.finishedAt)-Date.parse(report.startedAt);
   if(report.cleanupErrors.length){report.passed=false;process.exitCode=1;}
   await writeFile(process.env.NETLAB_BACKUP_REPORT??"data/backups-result.json",JSON.stringify(report,null,2));
+  nodeAgent.destroy();
   console.log(JSON.stringify({passed:report.passed,steps:report.steps.length,cleanupErrors:report.cleanupErrors,durationMs:report.durationMs}));
 }

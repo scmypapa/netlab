@@ -148,6 +148,9 @@ func recoveryLeaseID(a api.AssetExecution) string {
 
 func (c *Containers) prepareRecovery(ctx context.Context, env string, a api.AssetExecution, input, staging string, manifest recoveryManifest) (err error) {
 	ctx = namespaces.WithNamespace(ctx, "netlab")
+	if _, err = c.image(ctx, a.Template, nil); err != nil {
+		return err
+	}
 	if _, err = c.client.LeasesService().Create(ctx, leases.WithID(recoveryLeaseID(a))); err != nil && !errdefs.IsAlreadyExists(err) {
 		return err
 	}

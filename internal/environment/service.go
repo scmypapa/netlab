@@ -279,8 +279,10 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, Invalid("恢复点尚不可用")
 		}
 	}
-	if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
-		return api.Environment{}, err
+	if source.Backup == nil {
+		if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
+			return api.Environment{}, err
+		}
 	}
 	if identity.Principal.Kind == "user" {
 		owner = &identity.Principal.ID

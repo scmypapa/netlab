@@ -83,7 +83,7 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 }
 
 func TestTemplateArtifactRejectsInvalidTransfer(t *testing.T) {
-	for _, kind := range []string{"truncated", "wrong-version", "escape", "symlink", "missing-disk"} {
+	for _, kind := range []string{"truncated", "incomplete-stream", "wrong-version", "escape", "symlink", "missing-disk"} {
 		t.Run(kind, func(t *testing.T) {
 			origin := "source-node"
 			disks := []api.TemplateDisk{{Id: "boot"}}
@@ -113,12 +113,20 @@ func TestTemplateArtifactRejectsInvalidTransfer(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if kind == "incomplete-stream" {
+				if err = archive.WriteHeader(&tar.Header{Name: "disk-0.qcow2", Mode: 0640, Size: 0, Typeflag: tar.TypeReg}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err = archive.Close(); err != nil {
 				t.Fatal(err)
 			}
 			body := buffer.Bytes()
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+				if kind == "incomplete-stream" {
+					w.Header().Set("Content-Length", fmt.Sprint(len(body)+1))
+				}
 				if kind == "truncated" {
 					body = body[:len(body)-1]
 				}

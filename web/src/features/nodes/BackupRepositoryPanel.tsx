@@ -20,6 +20,7 @@ import { useState } from "react";
 import { api, type Node, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
+import { BackupCatalog } from "./BackupCatalog";
 
 export function BackupRepositoryPanel({ node }: { node: Node }) {
   const client = useQueryClient();
@@ -32,6 +33,7 @@ export function BackupRepositoryPanel({ node }: { node: Node }) {
         : false,
   });
   const [adding, setAdding] = useState(false);
+  const [catalogId, setCatalogId] = useState<string>();
   const [removing, setRemoving] = useState<Schema<"BackupRepository">>();
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
@@ -92,6 +94,7 @@ export function BackupRepositoryPanel({ node }: { node: Node }) {
   const items = (repositories.data ?? []).filter(
     (repo) => repo.nodeId === node.id,
   );
+  const catalog = items.find((repo) => repo.id === catalogId);
   return (
     <section className="form-stack">
       <div className="collection-toolbar">
@@ -152,6 +155,13 @@ export function BackupRepositoryPanel({ node }: { node: Node }) {
                         </ActionIcon>
                       </Menu.Target>
                       <Menu.Dropdown>
+                        <Menu.Item
+                          leftSection={<Archive size={15} />}
+                          disabled={repo.state !== "ready"}
+                          onClick={() => setCatalogId(repo.id)}
+                        >
+                          查看备份
+                        </Menu.Item>
                         {repo.state === "failed" && repo.operationId && (
                           <Menu.Item
                             leftSection={<RotateCcw size={15} />}
@@ -262,6 +272,12 @@ export function BackupRepositoryPanel({ node }: { node: Node }) {
           </div>
         </form>
       </Modal>
+      {catalog && (
+        <BackupCatalog
+          repository={catalog}
+          onClose={() => setCatalogId(undefined)}
+        />
+      )}
       <Modal
         opened={Boolean(removing)}
         onClose={() => setRemoving(undefined)}

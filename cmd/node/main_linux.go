@@ -99,6 +99,28 @@ func run() error {
 		id, err := executor.ConnectBackupRepository(r.Context(), repository, r.URL.Query().Get("initialize") == "true")
 		respond(w, map[string]string{"id": id}, err)
 	})
+	mux.HandleFunc("POST /node/v1/backup-repositories/catalog", func(w http.ResponseWriter, r *http.Request) {
+		var repository api.NodeBackupRepository
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&repository); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		result, err := executor.BackupCatalog(r.Context(), repository)
+		respond(w, result, err)
+	})
+	mux.HandleFunc("POST /node/v1/backups/templates/restore", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeRestoreBackupTemplate
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !pathID(input.Template.Id) || input.Template.Version < 1 {
+			http.Error(w, "invalid template identity", http.StatusBadRequest)
+			return
+		}
+		result, err := executor.RestoreBackupTemplate(r.Context(), input)
+		respond(w, result, err)
+	})
 	mux.HandleFunc("POST /node/v1/backups/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := uuid.Parse(r.PathValue("id")); err != nil {
 			http.Error(w, "invalid backup identity", http.StatusBadRequest)

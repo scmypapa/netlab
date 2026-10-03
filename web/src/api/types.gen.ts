@@ -56,6 +56,61 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/backup-repositories/{id}/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["refreshBackupRepository"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/backup-repositories/{repositoryId}/backups": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        repositoryId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["listRepositoryBackups"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/backup-repositories/{repositoryId}/backups/{backupId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        repositoryId: string;
+        backupId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["deleteRepositoryBackup"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/backups": {
     parameters: {
       query?: never;
@@ -1503,7 +1558,7 @@ export interface components {
     };
     BackupSummary: {
       id: string;
-      environmentId: string;
+      environmentId?: string;
       repositoryId: string;
       name: string;
       /** @enum {string} */
@@ -1528,6 +1583,9 @@ export interface components {
     };
     NodeBackupPlan: {
       repository: components["schemas"]["NodeBackupRepository"];
+      name: string;
+      /** Format: date-time */
+      createdAt: string;
       recoveryPointId: string;
       sources: components["schemas"]["NodeRecoverySource"][];
       definition: {
@@ -1539,6 +1597,29 @@ export interface components {
       parts: {
         [key: string]: components["schemas"]["NodeBackupPart"];
       };
+      templates: {
+        [key: string]: components["schemas"]["NodeBackupPart"];
+      };
+    };
+    NodeBackupManifest: {
+      id: string;
+      name: string;
+      /** Format: date-time */
+      createdAt: string;
+      readonly snapshotId?: string;
+      definition: {
+        [key: string]: unknown;
+      };
+      parts: {
+        [key: string]: components["schemas"]["NodeBackupPart"];
+      };
+      templates: {
+        [key: string]: components["schemas"]["NodeBackupPart"];
+      };
+    };
+    NodeRestoreBackupTemplate: {
+      template: components["schemas"]["Template"];
+      source: components["schemas"]["NodeBackupSource"];
     };
     RecoveryPointSummary: {
       id: string;
@@ -1856,6 +1937,60 @@ export interface operations {
           "application/json": components["schemas"]["BackupCredentials"];
         };
       };
+    };
+  };
+  refreshBackupRepository: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  listRepositoryBackups: {
+    parameters: {
+      query?: {
+        cursor?: components["parameters"]["Cursor"];
+        limit?: components["parameters"]["Limit"];
+      };
+      header?: never;
+      path: {
+        repositoryId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Repository catalog; administrator only */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BackupSummary"][];
+        };
+      };
+    };
+  };
+  deleteRepositoryBackup: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        repositoryId: string;
+        backupId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
     };
   };
   listBackups: {

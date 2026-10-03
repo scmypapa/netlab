@@ -38,8 +38,12 @@ func (s Service) CreationSpec(ctx context.Context, identity access.Identity, req
 		if err != nil {
 			return source, err
 		}
-		if _, err = s.Authorized(ctx, identity, backup.EnvironmentID, "manage", ""); err != nil {
-			return source, err
+		if backup.EnvironmentID != nil {
+			if _, err = s.Authorized(ctx, identity, *backup.EnvironmentID, "manage", ""); err != nil {
+				return source, err
+			}
+		} else if !identity.Administrator() {
+			return source, access.ErrForbidden
 		}
 		if backup.State != "ready" {
 			return source, Invalid("备份尚不可用")

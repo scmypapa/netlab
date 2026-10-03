@@ -242,6 +242,17 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			defer unlock()
 			var state string
 			var err error
+			phase := plan.Phase
+			if (phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery) && a.Template.ArtifactNodeId != nil {
+				endpoint := ""
+				if plan.ArtifactEndpoints != nil {
+					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
+				}
+				if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
 			if plan.Phase == api.NodePlanPhasePrepareRecovery || plan.Phase == api.NodePlanPhaseApplyRecovery || plan.Phase == api.NodePlanPhaseRollbackRecovery || plan.Phase == api.NodePlanPhaseCleanupRecovery {
 				switch plan.Phase {
 				case api.NodePlanPhasePrepareRecovery:
@@ -277,17 +288,6 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 					result.Results[i] = r
 				}
 				return
-			}
-			phase := plan.Phase
-			if phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
-				endpoint := ""
-				if plan.ArtifactEndpoints != nil {
-					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
-				}
-				if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint); err != nil {
-					result.Results[i] = executionResult(a, "absent", err)
-					return
-				}
 			}
 			if phase == api.NodePlanPhasePolicies {
 				phase = api.NodePlanPhaseInspect

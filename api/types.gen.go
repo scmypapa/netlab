@@ -390,7 +390,7 @@ type BackupRepositoryState string
 // BackupSummary defines model for BackupSummary.
 type BackupSummary struct {
 	CreatedAt     time.Time          `json:"createdAt"`
-	EnvironmentId string             `json:"environmentId"`
+	EnvironmentId *string            `json:"environmentId,omitempty"`
 	Error         *string            `json:"error,omitempty"`
 	Id            string             `json:"id"`
 	Name          string             `json:"name"`
@@ -786,6 +786,17 @@ type Node struct {
 	VmHardware   *VmHardware `json:"vmHardware,omitempty"`
 }
 
+// NodeBackupManifest defines model for NodeBackupManifest.
+type NodeBackupManifest struct {
+	CreatedAt  time.Time                 `json:"createdAt"`
+	Definition json.RawMessage           `json:"definition"`
+	Id         string                    `json:"id"`
+	Name       string                    `json:"name"`
+	Parts      map[string]NodeBackupPart `json:"parts"`
+	SnapshotId *string                   `json:"snapshotId,omitempty"`
+	Templates  map[string]NodeBackupPart `json:"templates"`
+}
+
 // NodeBackupPart defines model for NodeBackupPart.
 type NodeBackupPart struct {
 	SizeBytes  int64  `json:"sizeBytes"`
@@ -794,7 +805,9 @@ type NodeBackupPart struct {
 
 // NodeBackupPlan defines model for NodeBackupPlan.
 type NodeBackupPlan struct {
+	CreatedAt       time.Time            `json:"createdAt"`
 	Definition      json.RawMessage      `json:"definition"`
+	Name            string               `json:"name"`
 	RecoveryPointId string               `json:"recoveryPointId"`
 	Repository      NodeBackupRepository `json:"repository"`
 	Sources         []NodeRecoverySource `json:"sources"`
@@ -813,6 +826,7 @@ type NodeBackupRepository struct {
 type NodeBackupResult struct {
 	ManifestSnapshotId string                    `json:"manifestSnapshotId"`
 	Parts              map[string]NodeBackupPart `json:"parts"`
+	Templates          map[string]NodeBackupPart `json:"templates"`
 }
 
 // NodeBackupSource defines model for NodeBackupSource.
@@ -878,6 +892,12 @@ type NodeRecoverySource struct {
 type NodeRegistration struct {
 	Endpoint string `json:"endpoint"`
 	Name     string `json:"name"`
+}
+
+// NodeRestoreBackupTemplate defines model for NodeRestoreBackupTemplate.
+type NodeRestoreBackupTemplate struct {
+	Source   NodeBackupSource `json:"source"`
+	Template Template         `json:"template"`
 }
 
 // NodeResult defines model for NodeResult.
@@ -1348,6 +1368,12 @@ type Search = string
 
 // Accepted defines model for Accepted.
 type Accepted = Operation
+
+// ListRepositoryBackupsParams defines parameters for ListRepositoryBackups.
+type ListRepositoryBackupsParams struct {
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // ListBlueprintsParams defines parameters for ListBlueprints.
 type ListBlueprintsParams struct {

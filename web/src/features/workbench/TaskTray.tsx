@@ -31,6 +31,7 @@ const phaseLabels: Record<string, string> = {
   queued: "等待执行",
   running: "执行中",
   "backup-complete": "备份完成",
+  "prepare-backup-templates": "恢复模板",
 };
 
 export function TaskTray({

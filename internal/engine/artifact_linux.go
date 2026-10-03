@@ -88,25 +88,43 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	reader, _, err := e.openTemplateSource(ctx, t, *t.ArtifactNodeId, endpoint)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	return e.installTemplateArtifact(t, reader)
+}
+
+func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, endpoint string) (io.ReadCloser, int64, error) {
+	if node == e.cfg.ID {
+		return e.OpenTemplateArtifact(t.Id, t.Version)
+	}
 	if endpoint == "" || e.cfg.ArtifactHTTP == nil {
-		return errors.New("template artifact node transport is not configured")
+		return nil, 0, errors.New("template artifact node transport is not configured")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/node/v1/templates/%s/versions/%d/artifact", strings.TrimRight(endpoint, "/"), t.Id, t.Version), nil)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	response, err := e.cfg.ArtifactHTTP.Do(request)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
 		message, err := io.ReadAll(io.LimitReader(response.Body, 16384))
 		if err != nil {
-			return err
+			return nil, 0, err
 		}
-		return fmt.Errorf("template artifact download: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
+		return nil, 0, fmt.Errorf("template artifact download: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
 	}
+	return response.Body, response.ContentLength, nil
+}
+
+func (e *Engine) installTemplateArtifact(t api.Template, reader io.Reader) error {
+	directory := templateDirectory(e.cfg.DataDir, t.Id, t.Version)
+	var err error
 	if err = os.MkdirAll(filepath.Dir(directory), 0711); err != nil {
 		return err
 	}
@@ -118,7 +136,7 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 	if err = os.Chmod(staging, 0711); err != nil {
 		return err
 	}
-	if err = receiveDirectoryArtifact(response.Body, staging); err != nil {
+	if err = receiveDirectoryArtifact(reader, staging); err != nil {
 		return err
 	}
 	raw, err := os.ReadFile(filepath.Join(staging, "template.json"))

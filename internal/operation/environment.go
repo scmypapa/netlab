@@ -17,7 +17,17 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 	if op.Phase == "rolled-back" {
 		return errors.New(*p.Failure)
 	}
-	if op.Phase == "queued" {
+	if op.Phase == "queued" || op.Phase == "prepare-backup-templates" {
+		if p.BackupID != nil && restoresData(op.Kind) {
+			if op.Phase == "queued" {
+				if err := w.phase(ctx, op, p, "prepare-backup-templates"); err != nil {
+					return err
+				}
+			}
+			if err := w.prepareBackupTemplates(ctx, p); err != nil {
+				return errors.Join(err, w.status(ctx, op, p, err))
+			}
+		}
 		if err := w.plan(ctx, op, p); err != nil {
 			return errors.Join(err, w.status(ctx, op, p, err))
 		}

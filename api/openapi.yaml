@@ -26,6 +26,27 @@ paths:
       operationId: backupRepositoryCredentials
       responses:
         '200': {description: Repository credentials; administrator only, content: {application/json: {schema: {$ref: '#/components/schemas/BackupCredentials'}}}}
+  /backup-repositories/{id}/refresh:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: refreshBackupRepository
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+  /backup-repositories/{repositoryId}/backups:
+    parameters: [{name: repositoryId, in: path, required: true, schema: {type: string}}]
+    get:
+      operationId: listRepositoryBackups
+      parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        '200': {description: Repository catalog; administrator only, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/BackupSummary'}}}}}
+  /backup-repositories/{repositoryId}/backups/{backupId}:
+    parameters:
+      - {name: repositoryId, in: path, required: true, schema: {type: string}}
+      - {name: backupId, in: path, required: true, schema: {type: string}}
+    delete:
+      operationId: deleteRepositoryBackup
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
   /environments/{id}/backups:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -1096,7 +1117,7 @@ components:
         recoveryPointId: {type: string}
     BackupSummary:
       type: object
-      required: [id, environmentId, repositoryId, name, state, sizeBytes, createdAt]
+      required: [id, repositoryId, name, state, sizeBytes, createdAt]
       properties:
         id: {type: string}
         environmentId: {type: string}
@@ -1122,9 +1143,11 @@ components:
         sizeBytes: {type: integer, format: int64}
     NodeBackupPlan:
       type: object
-      required: [repository, recoveryPointId, sources, definition]
+      required: [repository, name, createdAt, recoveryPointId, sources, definition]
       properties:
         repository: {$ref: '#/components/schemas/NodeBackupRepository'}
+        name: {type: string}
+        createdAt: {type: string, format: date-time}
         recoveryPointId: {type: string}
         sources: {type: array, items: {$ref: '#/components/schemas/NodeRecoverySource'}}
         definition:
@@ -1133,10 +1156,31 @@ components:
           x-go-type: json.RawMessage
     NodeBackupResult:
       type: object
-      required: [manifestSnapshotId, parts]
+      required: [manifestSnapshotId, parts, templates]
       properties:
         manifestSnapshotId: {type: string}
         parts: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeBackupPart'}}
+        templates: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeBackupPart'}}
+    NodeBackupManifest:
+      type: object
+      required: [id, name, createdAt, definition, parts, templates]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        createdAt: {type: string, format: date-time}
+        snapshotId: {type: string, readOnly: true}
+        definition:
+          type: object
+          additionalProperties: true
+          x-go-type: json.RawMessage
+        parts: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeBackupPart'}}
+        templates: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeBackupPart'}}
+    NodeRestoreBackupTemplate:
+      type: object
+      required: [template, source]
+      properties:
+        template: {$ref: '#/components/schemas/Template'}
+        source: {$ref: '#/components/schemas/NodeBackupSource'}
     RecoveryPointSummary:
       type: object
       required: [id, environmentId, name, revision, state, assetCount, sizeBytes, createdAt]

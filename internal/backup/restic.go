@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"netlab.local/core/api"
 )
 
 // Store delegates encryption, compression, deduplication and repository locking to restic.
@@ -22,7 +24,10 @@ type Store struct {
 type Snapshot struct {
 	ID   string    `json:"id"`
 	Time time.Time `json:"time"`
+	Tags []string  `json:"tags"`
 }
+
+func TemplateKey(t api.Template) string { return fmt.Sprintf("%s/%d", t.Id, t.Version) }
 
 func (s Store) command(ctx context.Context, args ...string) *exec.Cmd {
 	options := []string{"--quiet", "--json"}
@@ -82,7 +87,11 @@ func (s Store) ID(ctx context.Context) (string, error) {
 
 func (s Store) Snapshots(ctx context.Context, tag string) ([]Snapshot, error) {
 	var raw bytes.Buffer
-	if err := s.run(ctx, nil, &raw, "snapshots", "--tag", tag); err != nil {
+	args := []string{"snapshots"}
+	if tag != "" {
+		args = append(args, "--tag", tag)
+	}
+	if err := s.run(ctx, nil, &raw, args...); err != nil {
 		return nil, err
 	}
 	var snapshots []Snapshot

@@ -164,7 +164,7 @@ func (s *Server) restoreRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 		if err != nil {
 			return err
 		}
-		if backup.EnvironmentID != id {
+		if backup.EnvironmentID == nil || *backup.EnvironmentID != id {
 			return pgx.ErrNoRows
 		}
 		if backup.State != "ready" {
