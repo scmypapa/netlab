@@ -6,33 +6,76 @@ import (
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
+	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
 )
 
-func (s Service) CreationSpec(ctx context.Context, identity access.Identity, request api.CreateEnvironment) (api.EnvironmentSpec, api.CanvasView, error) {
-	if (request.Spec == nil) == (request.BlueprintVersionId == nil) {
-		return api.EnvironmentSpec{}, api.CanvasView{}, Invalid("请选择环境模板版本或提供环境设计")
+type creationSource struct {
+	Spec     api.EnvironmentSpec
+	View     api.CanvasView
+	Recovery *queries.RecoveryPoint
+}
+
+func (s Service) CreationSpec(ctx context.Context, identity access.Identity, request api.CreateEnvironment) (creationSource, error) {
+	var source creationSource
+	count := 0
+	for _, present := range []bool{request.Spec != nil, request.BlueprintVersionId != nil, request.RecoveryPointId != nil} {
+		if present {
+			count++
+		}
+	}
+	if count != 1 {
+		return source, Invalid("请选择一个环境模板、恢复点或环境设计")
 	}
 	if request.Spec != nil {
-		return *request.Spec, api.CanvasView{}, nil
+		source.Spec = *request.Spec
+		return source, nil
+	}
+	if request.RecoveryPointId != nil {
+		point, err := s.Queries.GetRecoveryPoint(ctx, *request.RecoveryPointId)
+		if err != nil {
+			return source, err
+		}
+		env, err := s.Authorized(ctx, identity, point.EnvironmentID, "manage", "")
+		if err != nil {
+			return source, err
+		}
+		if point.State != "ready" {
+			return source, Invalid("恢复点尚不可用")
+		}
+		var captured struct {
+			Spec api.EnvironmentSpec `json:"spec"`
+		}
+		if err = json.Unmarshal(point.Definition, &captured); err != nil {
+			return source, err
+		}
+		source.Spec, source.Recovery = captured.Spec, &point
+		for i := range source.Spec.Assets {
+			source.Spec.Assets[i].StoragePoolId = nil
+		}
+		if source.Spec.Services != nil {
+			for i := range *source.Spec.Services {
+				(*source.Spec.Services)[i].ListenPort = nil
+			}
+		}
+		err = json.Unmarshal(env.View, &source.View)
+		return source, err
 	}
 	row, err := s.Queries.GetBlueprintVersion(ctx, *request.BlueprintVersionId)
 	if err != nil {
-		return api.EnvironmentSpec{}, api.CanvasView{}, err
+		return source, err
 	}
 	if !identity.Allows("read", row.ProjectID, "", "", row.OwnerID) {
-		return api.EnvironmentSpec{}, api.CanvasView{}, access.ErrForbidden
+		return source, access.ErrForbidden
 	}
-	var spec api.EnvironmentSpec
-	var view api.CanvasView
-	if err = json.Unmarshal(row.Spec, &spec); err != nil {
-		return spec, view, err
+	if err = json.Unmarshal(row.Spec, &source.Spec); err != nil {
+		return source, err
 	}
-	if err = json.Unmarshal(row.View, &view); err != nil {
-		return spec, view, err
+	if err = json.Unmarshal(row.View, &source.View); err != nil {
+		return source, err
 	}
-	instantiate(&spec, &view)
-	return spec, view, nil
+	instantiate(&source.Spec, &source.View)
+	return source, nil
 }
 
 // Each creation has its own logical identities; addresses remain in isolated networks.

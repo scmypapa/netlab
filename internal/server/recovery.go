@@ -228,6 +228,13 @@ func (s *Server) deleteRecoveryPoint(w http.ResponseWriter, r *http.Request, ide
 	if point.State == "capturing" || point.State == "deleting" {
 		return httpError{http.StatusConflict, "请等待恢复点任务完成；失败任务可重试"}
 	}
+	inUse, err := q.RecoveryPointInUse(ctx, point.ID)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return httpError{http.StatusConflict, "恢复点正在使用中"}
+	}
 	var recovery operation.Recovery
 	if err = json.Unmarshal(point.Definition, &recovery); err != nil {
 		return err

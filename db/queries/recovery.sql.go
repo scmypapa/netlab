@@ -68,6 +68,28 @@ func (q *Queries) DeleteRecoveryPoint(ctx context.Context, id string) error {
 	return err
 }
 
+const getRecoveryPoint = `-- name: GetRecoveryPoint :one
+SELECT id, environment_id, name, revision, state, definition, asset_count, size_bytes, operation_id, created_at FROM recovery_points WHERE id=$1
+`
+
+func (q *Queries) GetRecoveryPoint(ctx context.Context, id string) (RecoveryPoint, error) {
+	row := q.db.QueryRow(ctx, getRecoveryPoint, id)
+	var i RecoveryPoint
+	err := row.Scan(
+		&i.ID,
+		&i.EnvironmentID,
+		&i.Name,
+		&i.Revision,
+		&i.State,
+		&i.Definition,
+		&i.AssetCount,
+		&i.SizeBytes,
+		&i.OperationID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listRecoveryPoints = `-- name: ListRecoveryPoints :many
 SELECT p.id,p.environment_id,p.name,p.revision,p.state,p.asset_count,p.size_bytes,p.operation_id,p.created_at,o.error
 FROM recovery_points p JOIN operations o ON o.id=p.operation_id
@@ -174,6 +196,18 @@ type MarkRecoveryDeletingParams struct {
 func (q *Queries) MarkRecoveryDeleting(ctx context.Context, arg MarkRecoveryDeletingParams) error {
 	_, err := q.db.Exec(ctx, markRecoveryDeleting, arg.ID, arg.OperationID)
 	return err
+}
+
+const recoveryPointInUse = `-- name: RecoveryPointInUse :one
+SELECT EXISTS(SELECT 1 FROM operations WHERE payload->'recovery'->>'id'=$1::text
+AND (state IN ('queued','running') OR (phase IN ('rollback','cleanup') AND state IN ('failed','partially_applied'))))
+`
+
+func (q *Queries) RecoveryPointInUse(ctx context.Context, dollar_1 string) (bool, error) {
+	row := q.db.QueryRow(ctx, recoveryPointInUse, dollar_1)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const setRecoveryDeleteOperation = `-- name: SetRecoveryDeleteOperation :exec

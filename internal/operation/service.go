@@ -165,8 +165,8 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	}
 	phase := row.Phase
-	if row.Kind == "restore-recovery" {
-		point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: p.Recovery.ID, EnvironmentID: *row.EnvironmentID})
+	if restoresData(row.Kind) {
+		point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: p.Recovery.ID, EnvironmentID: p.Recovery.EnvironmentID})
 		if err != nil {
 			return api.Operation{}, err
 		}
@@ -186,7 +186,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	}
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery, Run: p.Run}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)

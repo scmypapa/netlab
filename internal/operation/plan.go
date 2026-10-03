@@ -48,7 +48,7 @@ func recoveryReservations(targets, before []Target) []Target {
 }
 
 func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) error {
-	restoring := op.Kind == "restore-recovery"
+	restoring := restoresData(op.Kind)
 	sources := map[string]Target{}
 	if restoring {
 		for _, source := range p.Recovery.Assets {
@@ -219,9 +219,18 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			}
 			if restoring {
 				source := sources[a.Id]
-				execution.InstanceId, execution.DataSetId = source.Execution.InstanceId, op.ID
-				execution.Interfaces = environment.Resolve(p.Spec, a, source.Execution.Interfaces)
+				execution.DataSetId = op.ID
+				if op.Kind == "restore-recovery" {
+					execution.InstanceId = source.Execution.InstanceId
+					execution.Interfaces = environment.Resolve(p.Spec, a, source.Execution.Interfaces)
+				}
 				target := Target{Execution: execution, State: source.State}
+				if op.Kind == "clone-recovery" {
+					target.State = "stopped"
+					if p.Run {
+						target.State = "running"
+					}
+				}
 				if exists && old.Execution.InstanceId == execution.InstanceId {
 					target.NodeID = old.NodeID
 					p.Updates = append(p.Updates, target)

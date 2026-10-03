@@ -45,7 +45,7 @@ import { useVPNAccess } from "./useVPNAccess";
 import { VPNDrawer } from "./VPNDrawer";
 import { RecoveryDrawer } from "./RecoveryDrawer";
 import { consoleKey, type ConsoleTab } from "./consoles";
-import { allows } from "../access/permissions";
+import { allows, allowsProject } from "../access/permissions";
 
 const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 
@@ -928,9 +928,14 @@ export function WorkbenchPage() {
       {recoveryOpened && (
         <RecoveryDrawer
           id={id}
+          projectId={environment.projectId}
           revision={environment.revision}
           busy={busy}
           canManage={canManage}
+          canClone={
+            canManage &&
+            allowsProject(identity.data, "compose", environment.projectId)
+          }
           canCapture={["running", "stopped", "suspended"].includes(status)}
           onClose={() => setRecoveryOpened(false)}
         />

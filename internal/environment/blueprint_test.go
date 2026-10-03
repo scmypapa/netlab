@@ -48,13 +48,13 @@ func TestCreationUsesExactlyOneDesignSource(t *testing.T) {
 	spec := api.EnvironmentSpec{Assets: []api.Asset{}, Networks: []api.Network{}}
 	version := "version"
 	service := Service{}
-	for _, request := range []api.CreateEnvironment{{}, {Spec: &spec, BlueprintVersionId: &version}} {
-		if _, _, err := service.CreationSpec(context.Background(), access.Identity{}, request); err == nil {
+	for _, request := range []api.CreateEnvironment{{}, {Spec: &spec, BlueprintVersionId: &version}, {Spec: &spec, RecoveryPointId: &version}, {BlueprintVersionId: &version, RecoveryPointId: &version}} {
+		if _, err := service.CreationSpec(context.Background(), access.Identity{}, request); err == nil {
 			t.Fatal("ambiguous design source was accepted")
 		}
 	}
-	resolved, _, err := service.CreationSpec(context.Background(), access.Identity{}, api.CreateEnvironment{Spec: &spec})
-	if err != nil || !reflect.DeepEqual(resolved, spec) {
+	resolved, err := service.CreationSpec(context.Background(), access.Identity{}, api.CreateEnvironment{Spec: &spec})
+	if err != nil || !reflect.DeepEqual(resolved.Spec, spec) {
 		t.Fatalf("inline design changed: %v", err)
 	}
 }

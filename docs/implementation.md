@@ -459,7 +459,28 @@ VM 是真实 KVM 空盘；Windows/Linux 来宾恢复尚待验收。耗时含查�
 
 最终门禁：真实 PostgreSQL 下 operation、server、environment、queries 使用 `-count=1` 通过；Linux engine、network、node 定向门禁通过。控制面/节点构建、前端类型检查和构建、恢复点浏览器交互 **1/1** 通过。本轮未完成 Windows 下 Go 全量测试，未重复全部前端交互。
 
-当前双控制实例使用 `netlab-controller.restore.exe`，节点服务使用 `netlab-node-services-gateway` 的恢复构建。旧控制面、两个节点的 26 份旧节点及中间构建、仓库内旧节点副本已清理；运行产物、共享镜像和验收报告保留，旧构建可从源码重新生成。原平台及生产服务器未修改。
+该轮双控制实例使用 `netlab-controller.restore.exe`，节点服务使用 `netlab-node-services-gateway` 的恢复构建。旧控制面、两个节点的 26 份旧节点及中间构建、仓库内旧节点副本已清理；运行产物、共享镜像和验收报告保留，旧构建可从源码重新生成。原平台及生产服务器未修改。
+
+### 恢复点克隆：连续双节点验收
+
+2026-10-03：现有 `POST /api/v1/environments` 新增 `recoveryPointId`，与 `spec`、`blueprintVersionId` 三选一。完整数据副本默认停止，`run:true` 创建后启动；工作台恢复点菜单提供克隆入口。复用原 Operation、自动调度、网络、恢复准备与回滚，无新增队列或数据库迁移。
+
+副本采用新环境和原生实例 UUID、OVN 端口及 VM Generation ID，复制容器可写层、受管卷、VM 全盘、NVRAM、TPM 和硬件配置。隔离网络内保留捕获的 MAC/IP。目的节点和存储自动选择，不继承源环境指定的存储池；服务自动重新分配入口端口。源授权和 VPN 不复制。源恢复点在执行、回滚或清理期间不能删除；重试保持原来源和启动选择。
+
+`tests/recovery-points.mjs` 在常驻双控制实例、双 Worker 连续 **13/13 通过**，覆盖上一节恢复验收及同点并行克隆。步骤合计 **108.398 秒**，整轮 **111.086 秒**；报告 `data/recovery-clone-result.json` 为 `passed:true`，`cleanupErrors` 为空。
+
+| 克隆验证 | 实测 |
+| --- | --- |
+| 同一恢复点并行创建两份混合副本，共 4 个容器、4 个 KVM 实例，至部署完成 | 2.275 秒 |
+| 默认停止与立即启动、请求重放、独立身份、全盘/NVRAM/TPM、容器可写层与卷、源数据不变、销毁及原生 inventory 核对 | 19.738 秒，含上述部署 |
+
+两份副本销毁后实例、卷数据、原生 Lease 和 inventory 清理通过，节点预留容量回到原值。VM 使用真实 UEFI/Secure Boot/TPM KVM 空盘；实际 Windows/Linux 来宾与 AD 恢复仍待验收。上述耗时为单轮功能验收，不是规模负载的 P95。
+
+并行克隆发现 containerd 包内镜像名称不能由导入 translator 覆盖。恢复改用原生 `ImportIndex` 导入内容，直接消费 checkpoint index，删除临时命名镜像链；原生 Lease 保护导入内容及 snapshot。源存储落点改为目的自动调度。测试修正跨节点 NVRAM 比对、实际存储路径和空父目录断言；存储池删除仍拒绝有数据的目录。全部首次失败记录保留于 `data/recovery-clone-*-first.json`。
+
+门禁：真实 PostgreSQL 下 environment、server、operation、queries 定向测试，Linux engine、network、node 测试，控制面及节点构建，前端类型检查和构建，恢复点/克隆浏览器交互 **2/2**，脚本语法及差异检查通过。本轮未重复全量前端交互与 Windows 下 Go 全量测试。
+
+当前双控制实例使用 `bin/netlab-controller.exe`，节点服务使用 `netlab-node-services-gateway`。旧 `netlab-controller.restore.exe` 及两个节点的 `netlab-node.next` 已清理，释放约 **104 MiB**。仓库只保留一个工作区；共享镜像、运行产物和报告保留。原平台及生产服务器未修改。
 
 ### 剩余开发范围
 
@@ -467,7 +488,7 @@ VM 是真实 KVM 空盘；Windows/Linux 来宾恢复尚待验收。耗时含查�
 | --- | --- |
 | 网络接入 | 外部 LAN、原生/VLAN 接入已通过双节点 Linux 数据面验收；物理网卡实机、单网卡双栈与宿主重启验收待完成 |
 | 模板与 Windows | ISO 实际系统安装、Windows/AD 和固件组合，CPU/NUMA、直通等设计范围内的专业能力 |
-| 存储与恢复 | 目录池与离线恢复点捕获/恢复/删除已通过；克隆、备份、在线与内存恢复点、原生快照存储与 Ceph、持久卷管理、迁移及其清理闭环 |
+| 存储与恢复 | 目录池与离线恢复点捕获/恢复/克隆/删除已通过；备份、在线与内存恢复点、原生快照存储与 Ceph、持久卷管理、迁移及其清理闭环 |
 | 远程运维 | 产品内 SSH/RDP 与流式文件管理 |
 | 运行观测 | 资源历史、通信关系与抓包工作区 |
 | 部署与交付 | 安装器、依赖版本固化、宿主重启、规模和长稳验收 |

@@ -1117,6 +1117,7 @@ components:
         projectId: {type: string}
         externalReference: {type: string}
         blueprintVersionId: {type: string}
+        recoveryPointId: {type: string, description: Create an independent copy of this recovery point; run defaults to false}
         clientRequestId: {type: string}
         run: {type: boolean}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}

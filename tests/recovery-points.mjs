@@ -23,7 +23,8 @@ const report = {
     steps: [],
     cleanupErrors: [],
   },
-  pools = [];
+  pools = [],
+  clones = [];
 const source = `/var/lib/netlab-dev/test-tmp/recovery-${run}`;
 let cookie,
   environment,
@@ -242,13 +243,13 @@ async function step(name, fn) {
     console.log(JSON.stringify(result));
   }
 }
-async function nodePlan(endpoint, plan) {
+async function nodeRequest(endpoint, path, body) {
   return new Promise((resolve, reject) => {
     const request = httpsRequest(
-      new URL("/node/v1/plans", endpoint),
+      new URL(path, endpoint),
       {
         ...tlsClient,
-        method: "POST",
+        method: body === undefined ? "GET" : "POST",
         headers: { "Content-Type": "application/json" },
       },
       (response) => {
@@ -268,7 +269,7 @@ async function nodePlan(endpoint, plan) {
       },
     );
     request.on("error", reject);
-    request.end(JSON.stringify(plan));
+    request.end(body === undefined ? undefined : JSON.stringify(body));
   });
 }
 function dir(actual) {
@@ -642,7 +643,11 @@ try {
         };
         const directory = `${pool.storage.path}/environments/${environment.id}/instances/${target.instanceId}.${opId}`;
         try {
-          await nodePlan(nodes.find((n) => n.id === secondary).endpoint, plan);
+          await nodeRequest(
+            nodes.find((n) => n.id === secondary).endpoint,
+            "/node/v1/plans",
+            plan,
+          );
           await node(secondary, "test", "-s", `${directory}/manifest.json`);
           if (target.template.kind === "vm") {
             await node(
@@ -670,10 +675,14 @@ try {
             );
           }
         } finally {
-          await nodePlan(nodes.find((n) => n.id === secondary).endpoint, {
-            ...plan,
-            phase: "rollback-recovery",
-          });
+          await nodeRequest(
+            nodes.find((n) => n.id === secondary).endpoint,
+            "/node/v1/plans",
+            {
+              ...plan,
+              phase: "rollback-recovery",
+            },
+          );
         }
         await node(secondary, "test", "!", "-e", directory);
         assert(
@@ -780,6 +789,307 @@ try {
         );
       }
       report.repeatedRestoreId = op.id;
+    },
+  );
+  await step(
+    "同一恢复点并行克隆两个独立混合环境，数据隔离及默认停止",
+    async () => {
+      const original = await api(`/environments/${environment.id}/state`);
+      const cloneStarted = Date.now();
+      const request = {
+        name: `Clone ${run}`,
+        recoveryPointId: point.id,
+        clientRequestId: run,
+      };
+      const created = await Promise.all([
+        api("/environments", "POST", request, 201),
+        api(
+          "/environments",
+          "POST",
+          {
+            name: `Clone running ${run}`,
+            recoveryPointId: point.id,
+            run: true,
+          },
+          201,
+        ),
+      ]);
+      clones.push(...created);
+      report.clones = clones.map((clone) => ({
+        id: clone.id,
+        operationId: clone.operationId,
+      }));
+      const replay = await api("/environments", "POST", request, 201);
+      assert.equal(replay.id, created[0].id);
+      const completed = await Promise.allSettled(
+        created.map((clone) => operation(clone.operationId)),
+      );
+      for (const result of completed)
+        if (result.status === "rejected") throw result.reason;
+      report.cloneDeploymentMs = Date.now() - cloneStarted;
+      const endpoints = new Map(
+        (await api("/nodes")).map((n) => [n.id, n.endpoint]),
+      );
+      const cloneExecutions = new Map();
+      for (let i = 0; i < created.length; i++) {
+        const clone = created[i],
+          state = await api(`/environments/${clone.id}/state`);
+        assert.notEqual(clone.id, environment.id);
+        assert.equal(state.revision, 1);
+        assert.equal(state.assets.length, before.assets.length);
+        assert.equal(state.status, i === 0 ? "stopped" : "running");
+        const inventories = new Map(
+          await Promise.all(
+            [...workers.keys()].map(async (id) => [
+              id,
+              await nodeRequest(
+                endpoints.get(id),
+                `/node/v1/inventory?environmentId=${clone.id}`,
+              ),
+            ]),
+          ),
+        );
+        for (const actual of state.assets) {
+          const sourceAsset = before.assets.find(
+            (a) => a.assetId === actual.assetId,
+          );
+          assert.notEqual(actual.instanceId, sourceAsset.instanceId);
+          assert.equal(actual.state, i === 0 ? "stopped" : "running");
+          const execution = inventories
+            .get(actual.nodeId)
+            .results.find((a) => a.instanceId === actual.instanceId).execution;
+          assert(execution);
+          cloneExecutions.set(actual.instanceId, execution);
+          const root = execution.storagePath ?? "/var/lib/netlab-dev";
+          const directory = `${root}/environments/${clone.id}/instances/${actual.instanceId}.${clone.operationId}`;
+          const manifest = JSON.parse(
+            await node(
+              sourceAsset.nodeId,
+              "cat",
+              `${dir(sourceAsset)}/manifest.json`,
+            ),
+          );
+          if (manifest.execution.template.kind === "container") {
+            if (i === 0) {
+              const start = await api(
+                `/environments/${clone.id}/assets/${actual.assetId}/actions`,
+                "POST",
+                { action: "start" },
+                202,
+              );
+              await operation(start.id);
+            }
+            const info = JSON.parse(
+              await node(
+                actual.nodeId,
+                "ctr",
+                "-n",
+                "netlab",
+                "containers",
+                "info",
+                actual.instanceId,
+              ),
+            );
+            const recorded = JSON.parse(info.Labels["netlab.execution"]);
+            assert.equal(info.Labels["netlab.environment"], clone.id);
+            assert.equal(recorded.dataSetId, clone.operationId);
+            for (const nic of execution.interfaces) {
+              const originalNic = manifest.execution.interfaces.find(
+                (n) => n.id === nic.id,
+              );
+              assert.notEqual(nic.portName, originalNic.portName);
+              assert.equal(nic.mac, originalNic.mac);
+              assert.equal(nic.address, originalNic.address);
+            }
+            const content = await node(
+              actual.nodeId,
+              "ctr",
+              "-n",
+              "netlab",
+              "tasks",
+              "exec",
+              "--exec-id",
+              randomUUID(),
+              actual.instanceId,
+              "/bin/sh",
+              "-c",
+              'cat /root/recovery-marker /data/marker; test ! -e /usr/share/nginx/html/50x.html; test "$(stat -c %a /data/marker)" = 600; test "$(readlink /data/marker-link)" = marker',
+            );
+            assert.equal(content, "originaloriginal");
+            await node(
+              actual.nodeId,
+              "ctr",
+              "-n",
+              "netlab",
+              "tasks",
+              "exec",
+              "--exec-id",
+              randomUUID(),
+              actual.instanceId,
+              "/bin/sh",
+              "-c",
+              `printf clone-${i} > /root/recovery-marker; printf clone-${i} > /data/marker`,
+            );
+          } else {
+            for (const path of [
+              `${directory}/disk-0.qcow2`,
+              `${root}/environments/${clone.id}/volumes/${actual.assetId}/${clone.operationId}/data.qcow2`,
+            ]) {
+              await node(
+                actual.nodeId,
+                "qemu-io",
+                "-r",
+                "-U",
+                "-f",
+                "qcow2",
+                "-c",
+                "read -P 0x59 0 4096",
+                path,
+              );
+            }
+            const xml = await node(
+              actual.nodeId,
+              "virsh",
+              "dumpxml",
+              actual.instanceId,
+              "--inactive",
+            );
+            assert(xml.includes(`<uuid>${actual.instanceId}</uuid>`));
+            assert.notEqual(
+              xml.match(/<genid>(.*?)<\/genid>/)?.[1],
+              originalGenerations.get(sourceAsset.instanceId),
+            );
+            assert(xml.includes(clone.id));
+            if (i === 0) {
+              const sourceHash = (
+                await node(
+                  sourceAsset.nodeId,
+                  "sha256sum",
+                  `${dir(sourceAsset)}/nvram.fd`,
+                )
+              ).split(/\s/)[0];
+              const targetHash = (
+                await node(actual.nodeId, "sha256sum", `${directory}/nvram.fd`)
+              ).split(/\s/)[0];
+              assert.equal(targetHash, sourceHash);
+            }
+            await node(
+              actual.nodeId,
+              "test",
+              "-d",
+              `/var/lib/libvirt/swtpm/${actual.instanceId}`,
+            );
+          }
+          await node(actual.nodeId, "test", "!", "-e", `${directory}/before`);
+          const leases = await node(
+            actual.nodeId,
+            "ctr",
+            "-n",
+            "netlab",
+            "leases",
+            "ls",
+            "-q",
+          );
+          assert(
+            !leases.includes(
+              `recovery-${actual.instanceId}.${clone.operationId}`,
+            ),
+          );
+        }
+      }
+      const after = await api(`/environments/${environment.id}/state`);
+      assert.equal(after.revision, original.revision);
+      assert.deepEqual(
+        after.assets.map((a) => [a.instanceId, a.state]),
+        original.assets.map((a) => [a.instanceId, a.state]),
+      );
+      for (const actual of before.assets) {
+        const captured = JSON.parse(
+          await node(actual.nodeId, "cat", `${dir(actual)}/manifest.json`),
+        );
+        if (captured.execution.template.kind !== "container") continue;
+        if (actual.state === "suspended")
+          await node(
+            actual.nodeId,
+            "ctr",
+            "-n",
+            "netlab",
+            "tasks",
+            "resume",
+            actual.instanceId,
+          );
+        const content = await node(
+          actual.nodeId,
+          "ctr",
+          "-n",
+          "netlab",
+          "tasks",
+          "exec",
+          "--exec-id",
+          randomUUID(),
+          actual.instanceId,
+          "/bin/sh",
+          "-c",
+          "cat /root/recovery-marker /data/marker",
+        );
+        if (actual.state === "suspended")
+          await node(
+            actual.nodeId,
+            "ctr",
+            "-n",
+            "netlab",
+            "tasks",
+            "pause",
+            actual.instanceId,
+          );
+        assert.equal(content, "originaloriginal");
+      }
+      for (const clone of clones) {
+        const targets = (await api(`/environments/${clone.id}/state`)).assets;
+        const op = await api(
+          `/environments/${clone.id}/actions`,
+          "POST",
+          { action: "destroy" },
+          202,
+        );
+        await operation(op.id);
+        assert.equal(
+          (await api(`/environments/${clone.id}/state`)).assets.length,
+          0,
+        );
+        for (const actual of targets) {
+          const execution = cloneExecutions.get(actual.instanceId);
+          const root = execution.storagePath ?? "/var/lib/netlab-dev";
+          await node(
+            actual.nodeId,
+            "test",
+            "!",
+            "-e",
+            `${root}/environments/${clone.id}/instances/${actual.instanceId}.${clone.operationId}`,
+          );
+          const remaining = await node(
+            actual.nodeId,
+            "sh",
+            "-c",
+            'if [ -d "$1" ]; then find "$1" -mindepth 1 -print -quit; fi',
+            "sh",
+            `${root}/environments/${clone.id}/volumes/${actual.assetId}/${clone.operationId}`,
+          );
+          assert.equal(remaining, "", "destroy left cloned volume data");
+        }
+        for (const worker of workers.keys()) {
+          const inventory = await nodeRequest(
+            endpoints.get(worker),
+            `/node/v1/inventory?environmentId=${clone.id}`,
+          );
+          assert.equal(inventory.results.length, 0);
+        }
+      }
+      report.clones = clones.map((clone) => ({
+        id: clone.id,
+        operationId: clone.operationId,
+      }));
+      clones.length = 0;
     },
   );
   await step(
@@ -948,7 +1258,15 @@ try {
             );
           } else {
             if (actual.state === "suspended")
-              await node(actual.nodeId, "ctr", "-n", "netlab", "tasks", "resume", actual.instanceId);
+              await node(
+                actual.nodeId,
+                "ctr",
+                "-n",
+                "netlab",
+                "tasks",
+                "resume",
+                actual.instanceId,
+              );
             assert.equal(
               await node(
                 actual.nodeId,
@@ -967,7 +1285,15 @@ try {
               "before-failurebefore-failure",
             );
             if (actual.state === "suspended")
-              await node(actual.nodeId, "ctr", "-n", "netlab", "tasks", "pause", actual.instanceId);
+              await node(
+                actual.nodeId,
+                "ctr",
+                "-n",
+                "netlab",
+                "tasks",
+                "pause",
+                actual.instanceId,
+              );
           }
           await node(
             actual.nodeId,
@@ -1074,6 +1400,22 @@ try {
     } catch (e) {
       report.cleanupErrors.push(e.message);
     }
+  for (const clone of clones) {
+    try {
+      const state = await api(`/environments/${clone.id}/state`);
+      if (state.status !== "destroyed") {
+        const op = await api(
+          `/environments/${clone.id}/actions`,
+          "POST",
+          { action: "destroy" },
+          202,
+        );
+        await operation(op.id);
+      }
+    } catch (e) {
+      report.cleanupErrors.push(e.message);
+    }
+  }
   try {
     await deletePoint();
   } catch (e) {
@@ -1124,7 +1466,7 @@ try {
   if (report.cleanupErrors.length) report.passed = false;
   report.finishedAt = new Date().toISOString();
   await writeFile(
-    "data/recovery-restore-result.json",
+    process.env.NETLAB_RECOVERY_REPORT ?? "data/recovery-restore-result.json",
     JSON.stringify(report, null, 2),
   );
   console.log(

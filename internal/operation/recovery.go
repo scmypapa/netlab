@@ -19,6 +19,8 @@ type Recovery struct {
 	Bytes         int64               `json:"bytes"`
 }
 
+func restoresData(kind string) bool { return kind == "restore-recovery" || kind == "clone-recovery" }
+
 func (w Worker) recovery(ctx context.Context, op *queries.Operation, p *Payload) error {
 	if op.Kind == "delete-recovery" {
 		if err := w.phase(ctx, op, p, "delete-recovery"); err != nil {

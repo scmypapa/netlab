@@ -42,7 +42,7 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			affected := slices.Clone(p.Old)
 			for _, t := range p.Updates {
 				old := findInstance(p.Before, t.Execution.InstanceId)
-				if op.Kind == "restore-recovery" || environment.RequiresStop(t.Execution.Template.Kind, old.Execution.Asset, t.Execution.Asset) || !reflect.DeepEqual(old.Execution.Interfaces, t.Execution.Interfaces) {
+				if restoresData(op.Kind) || environment.RequiresStop(t.Execution.Template.Kind, old.Execution.Asset, t.Execution.Asset) || !reflect.DeepEqual(old.Execution.Interfaces, t.Execution.Interfaces) {
 					affected = append(affected, old)
 				}
 			}
@@ -54,7 +54,7 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			}
 			next = "network"
 		case "update":
-			if op.Kind == "restore-recovery" {
+			if restoresData(op.Kind) {
 				_, err = w.batch(ctx, op, p, api.NodePlanPhaseApplyRecovery, desiredTargets(p))
 			} else {
 				_, err = w.batch(ctx, op, p, api.NodePlanPhaseUpdate, p.Updates)
@@ -257,7 +257,7 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 			return err
 		}
 		allocated := desiredTargets(p)
-		if op.Kind == "restore-recovery" {
+		if restoresData(op.Kind) {
 			allocated = append(slices.Clone(p.Targets), recoveryReservations(p.Updates, p.Before)...)
 		}
 		raw, err := resourceRecords(row.ID, allocated)
@@ -326,7 +326,7 @@ func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) 
 	if err != nil {
 		return err
 	}
-	if op.Kind == "restore-recovery" {
+	if restoresData(op.Kind) {
 		originals := []Target{}
 		for _, target := range p.Updates {
 			originals = append(originals, findInstance(p.Before, target.Execution.InstanceId))
@@ -424,7 +424,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		_, serviceErr = w.serviceRules(ctx, op, p, p.Spec, nil)
 	}
 	phase := api.NodePlanPhaseDestroy
-	if op.Kind == "restore-recovery" {
+	if restoresData(op.Kind) {
 		phase = api.NodePlanPhaseRollbackRecovery
 	}
 	results, err := w.batch(ctx, op, p, phase, p.Targets)
@@ -432,7 +432,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	before := slices.Clone(p.Before)
 	var updateError error
 	if len(p.Updates) > 0 {
-		if op.Kind == "restore-recovery" {
+		if restoresData(op.Kind) {
 			originals := []Target{}
 			for _, target := range p.Updates {
 				originals = append(originals, findInstance(before, target.Execution.InstanceId))
@@ -516,7 +516,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		restored = &old
 		_, serviceErr := w.serviceRules(ctx, op, p, old, p.BeforeBindings)
 		err = errors.Join(err, serviceErr)
-		if err == nil && op.Kind != "restore-recovery" {
+		if err == nil && !restoresData(op.Kind) {
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Updates, before))
 		}
 	} else {

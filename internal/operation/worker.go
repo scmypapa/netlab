@@ -30,6 +30,7 @@ type Target struct {
 }
 type Payload struct {
 	Recovery            *Recovery                  `json:"recovery,omitempty"`
+	Run                 bool                       `json:"run,omitempty"`
 	StoragePool         *api.CreateStoragePool     `json:"storagePool,omitempty"`
 	Spec                api.EnvironmentSpec        `json:"spec"`
 	BeforeStatus        string                     `json:"beforeStatus,omitempty"`

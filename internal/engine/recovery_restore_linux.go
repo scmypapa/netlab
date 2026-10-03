@@ -20,6 +20,7 @@ import (
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
+	imagearchive "github.com/containerd/containerd/images/archive"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/google/uuid"
@@ -55,11 +56,11 @@ func (e *Engine) OpenRecoveryArtifact(env, point string, a api.AssetExecution) (
 
 func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.AssetExecution) (err error) {
 	source, ok := (*plan.RecoverySources)[a.Asset.Id]
-	if !ok || source.Execution.InstanceId != a.InstanceId {
+	if !ok || source.Execution.Asset.Id != a.Asset.Id {
 		return errors.New("recovery source does not match target")
 	}
 	directory := assetDirectory(e.cfg.DataDir, plan.EnvironmentId, a)
-	if _, err = readRecoveryManifest(directory, source.EnvironmentId, *plan.RecoveryPointId, a); err == nil {
+	if _, err = readRecoveryManifest(directory, source.EnvironmentId, *plan.RecoveryPointId, source.Execution); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -115,7 +116,7 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 			return err
 		}
 	}
-	manifest, err := readRecoveryManifest(input, source.EnvironmentId, *plan.RecoveryPointId, a)
+	manifest, err := readRecoveryManifest(input, source.EnvironmentId, *plan.RecoveryPointId, source.Execution)
 	if err != nil {
 		return err
 	}
@@ -170,17 +171,22 @@ func (c *Containers) prepareRecovery(ctx context.Context, env string, a api.Asse
 	if err != nil {
 		return err
 	}
-	_, importErr := c.client.Import(ctx, file, containerd.WithSkipMissing())
+	archive, importErr := imagearchive.ImportIndex(ctx, c.client.ContentStore(), file)
 	if err = errors.Join(importErr, file.Close()); err != nil {
 		return err
 	}
-	ref := "netlab/recovery/" + manifest.PointID + "/" + a.Asset.Id
-	defer func() { err = errors.Join(err, c.client.ImageService().Delete(context.WithoutCancel(ctx), ref)) }()
-	checkpoint, err := c.client.GetImage(ctx, ref)
+	raw, err := content.ReadBlob(ctx, c.client.ContentStore(), archive)
 	if err != nil {
 		return err
 	}
-	raw, err := content.ReadBlob(ctx, c.client.ContentStore(), checkpoint.Target())
+	var exported imagespec.Index
+	if err = json.Unmarshal(raw, &exported); err != nil {
+		return err
+	}
+	if len(exported.Manifests) != 1 {
+		return errors.New("recovery archive must contain one checkpoint")
+	}
+	raw, err = content.ReadBlob(ctx, c.client.ContentStore(), exported.Manifests[0])
 	if err != nil {
 		return err
 	}
@@ -191,7 +197,8 @@ func (c *Containers) prepareRecovery(ctx context.Context, env string, a api.Asse
 	info := containers.Container{ID: a.InstanceId}
 	key := a.InstanceId + "." + a.DataSetId
 	for _, option := range []containerd.RestoreOpts{containerd.WithRestoreImage, containerd.WithRestoreRW, containerd.WithRestoreRuntime} {
-		if err = option(ctx, key, c.client, checkpoint, &index)(ctx, c.client, &info); err != nil {
+		// These native restore options consume the index; no temporary named image is needed.
+		if err = option(ctx, key, c.client, nil, &index)(ctx, c.client, &info); err != nil {
 			return err
 		}
 	}
@@ -221,6 +228,7 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	if err = domain.Unmarshal(string(raw)); err != nil {
 		return err
 	}
+	domain.Name, domain.UUID = "netlab-"+a.InstanceId, a.InstanceId
 	directory := assetDirectory(v.data, env, a)
 	disks := map[string]string{}
 	for i, disk := range *a.Template.Disks {

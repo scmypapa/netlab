@@ -1457,6 +1457,8 @@ export interface components {
       projectId?: string;
       externalReference?: string;
       blueprintVersionId?: string;
+      /** @description Create an independent copy of this recovery point; run defaults to false */
+      recoveryPointId?: string;
       clientRequestId?: string;
       run?: boolean;
       spec?: components["schemas"]["EnvironmentSpec"];

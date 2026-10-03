@@ -224,17 +224,20 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, err
 		}
 	}
-	inputSpec, view, err := s.CreationSpec(ctx, identity, request)
+	source, err := s.CreationSpec(ctx, identity, request)
 	if err != nil {
 		return api.Environment{}, err
 	}
-	templates, err := Templates(ctx, s.Queries, inputSpec.Assets)
-	if err != nil {
-		return api.Environment{}, err
-	}
-	spec, err := Normalize(inputSpec, templates)
-	if err != nil {
-		return api.Environment{}, err
+	spec := source.Spec
+	if source.Recovery == nil {
+		templates, err := Templates(ctx, s.Queries, spec.Assets)
+		if err != nil {
+			return api.Environment{}, err
+		}
+		spec, err = Normalize(spec, templates)
+		if err != nil {
+			return api.Environment{}, err
+		}
 	}
 	if err = AuthorizeExternal(identity, api.EnvironmentSpec{}, spec); err != nil {
 		return api.Environment{}, err
@@ -256,6 +259,15 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	if request.BlueprintVersionId != nil {
 		if _, err = q.LockBlueprintVersion(ctx, *request.BlueprintVersionId); err != nil {
 			return api.Environment{}, err
+		}
+	}
+	if source.Recovery != nil {
+		point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: source.Recovery.ID, EnvironmentID: source.Recovery.EnvironmentID})
+		if err != nil {
+			return api.Environment{}, err
+		}
+		if point.State != "ready" {
+			return api.Environment{}, Invalid("恢复点尚不可用")
 		}
 	}
 	if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
@@ -283,7 +295,9 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, err
 		}
 		row.BlueprintVersionID = request.BlueprintVersionId
-		row.View, err = json.Marshal(view)
+	}
+	if request.BlueprintVersionId != nil || source.Recovery != nil {
+		row.View, err = json.Marshal(source.View)
 		if err != nil {
 			return api.Environment{}, err
 		}
@@ -291,8 +305,22 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, err
 		}
 	}
-	if request.Run != nil && *request.Run {
-		op, createErr := submit(ctx, q, row, "start", nil, spec, request.ClientRequestId)
+	if source.Recovery != nil || request.Run != nil && *request.Run {
+		var op queries.Operation
+		var createErr error
+		if source.Recovery != nil {
+			payload, err := json.Marshal(struct {
+				Spec     api.EnvironmentSpec `json:"spec"`
+				Recovery json.RawMessage     `json:"recovery"`
+				Run      bool                `json:"run"`
+			}{spec, source.Recovery.Definition, request.Run != nil && *request.Run})
+			if err != nil {
+				return api.Environment{}, err
+			}
+			op, createErr = submitPayload(ctx, q, row, "clone-recovery", nil, payload, request.ClientRequestId)
+		} else {
+			op, createErr = submit(ctx, q, row, "start", nil, spec, request.ClientRequestId)
+		}
 		if createErr != nil {
 			return api.Environment{}, createErr
 		}
@@ -322,7 +350,7 @@ func submitPayload(ctx context.Context, q *queries.Queries, row queries.Environm
 		return op, err
 	}
 	state := "changing"
-	if kind == "start" && row.AppliedSpec == nil {
+	if (kind == "start" || kind == "clone-recovery") && row.AppliedSpec == nil {
 		state = "deploying"
 	}
 	if kind == "destroy" {

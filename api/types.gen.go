@@ -447,13 +447,16 @@ type ConsoleResize struct {
 
 // CreateEnvironment defines model for CreateEnvironment.
 type CreateEnvironment struct {
-	BlueprintVersionId *string          `json:"blueprintVersionId,omitempty"`
-	ClientRequestId    *string          `json:"clientRequestId,omitempty"`
-	ExternalReference  *string          `json:"externalReference,omitempty"`
-	Name               string           `json:"name"`
-	ProjectId          *string          `json:"projectId,omitempty"`
-	Run                *bool            `json:"run,omitempty"`
-	Spec               *EnvironmentSpec `json:"spec,omitempty"`
+	BlueprintVersionId *string `json:"blueprintVersionId,omitempty"`
+	ClientRequestId    *string `json:"clientRequestId,omitempty"`
+	ExternalReference  *string `json:"externalReference,omitempty"`
+	Name               string  `json:"name"`
+	ProjectId          *string `json:"projectId,omitempty"`
+
+	// RecoveryPointId Create an independent copy of this recovery point; run defaults to false
+	RecoveryPointId *string          `json:"recoveryPointId,omitempty"`
+	Run             *bool            `json:"run,omitempty"`
+	Spec            *EnvironmentSpec `json:"spec,omitempty"`
 }
 
 // CreateService defines model for CreateService.

@@ -479,6 +479,60 @@ test("恢复点：只读查看、捕获、恢复与删除请求、真实错误�
   await expect(page.getByText("暂无恢复点", { exact: true })).toBeVisible();
 });
 
+test("恢复点克隆通过创建接口打开独立环境", async ({ page }) => {
+  await fixture(page, {
+    identity: {
+      id: "administrator",
+      name: "admin",
+      administrator: true,
+      grants: [],
+    },
+  });
+  await page.route("**/api/v1/environments/env/recovery-points**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "point",
+          environmentId: "env",
+          name: "完整环境",
+          revision: 1,
+          state: "ready",
+          assetCount: 2,
+          sizeBytes: 64 * 2 ** 20,
+          createdAt: "2026-10-03T08:00:00Z",
+        },
+      ],
+    }),
+  );
+  let submitted: unknown;
+  await page.route("**/api/v1/environments", (route) => {
+    submitted = route.request().postDataJSON();
+    return route.fulfill({ status: 201, json: { id: "clone" } });
+  });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "环境操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复点", exact: true }).click();
+  await page.getByRole("button", { name: "完整环境操作" }).click();
+  await page.getByRole("menuitem", { name: "克隆为新环境" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "克隆为新环境",
+    exact: true,
+  });
+  await expect(
+    dialog.getByRole("checkbox", { name: "创建后启动" }),
+  ).not.toBeChecked();
+  await dialog.getByRole("textbox", { name: "环境名称" }).fill("环境副本");
+  await dialog.getByRole("checkbox", { name: "创建后启动" }).check();
+  await dialog.getByRole("button", { name: "创建环境", exact: true }).click();
+  await expect(page).toHaveURL(/\/environments\/clone$/);
+  expect(submitted).toEqual({
+    name: "环境副本",
+    projectId: "lab-project",
+    recoveryPointId: "point",
+    run: true,
+  });
+});
+
 test("draft persists across exit; applying removal uses preview revision", async ({
   page,
 }) => {

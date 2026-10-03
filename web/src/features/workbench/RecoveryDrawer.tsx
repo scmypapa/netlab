@@ -4,11 +4,20 @@ import {
   Drawer,
   Menu,
   Modal,
+  Checkbox,
   TextInput,
 } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Archive, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Copy,
+  MoreHorizontal,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime } from "../../foundation/format";
@@ -19,24 +28,32 @@ import styles from "./RecoveryDrawer.module.css";
 
 export function RecoveryDrawer({
   id,
+  projectId,
   revision,
   busy,
   canManage,
+  canClone,
   canCapture,
   onClose,
 }: {
   id: string;
+  projectId: string;
   revision: number;
   busy: boolean;
   canManage: boolean;
+  canClone: boolean;
   canCapture: boolean;
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [removing, setRemoving] = useState<Schema<"RecoveryPointSummary">>();
   const [restoring, setRestoring] = useState<Schema<"RecoveryPointSummary">>();
+  const [cloning, setCloning] = useState<Schema<"RecoveryPointSummary">>();
+  const [cloneName, setCloneName] = useState("");
+  const [runClone, setRunClone] = useState(false);
   const points = useCursorList(["recovery-points", id], (page) =>
     api.recoveryPoints(id, page),
   );
@@ -65,6 +82,20 @@ export function RecoveryDrawer({
     onSuccess: () => {
       setRestoring(undefined);
       refresh();
+    },
+  });
+  const clone = useMutation({
+    mutationFn: () =>
+      api.createEnvironment({
+        name: cloneName,
+        projectId,
+        recoveryPointId: cloning!.id,
+        run: runClone,
+      }),
+    onSuccess: (environment) => {
+      void client.invalidateQueries({ queryKey: ["environments"] });
+      onClose();
+      navigate(`/environments/${environment.id}`);
     },
   });
   return (
@@ -137,6 +168,20 @@ export function RecoveryDrawer({
                       </ActionIcon>
                     </Menu.Target>
                     <Menu.Dropdown>
+                      {canClone && (
+                        <Menu.Item
+                          leftSection={<Copy size={15} />}
+                          disabled={point.state !== "ready"}
+                          onClick={() => {
+                            clone.reset();
+                            setCloneName(`${point.name} 副本`);
+                            setRunClone(false);
+                            setCloning(point);
+                          }}
+                        >
+                          克隆为新环境
+                        </Menu.Item>
+                      )}
                       <Menu.Item
                         leftSection={<RotateCcw size={15} />}
                         disabled={busy || point.state !== "ready"}
@@ -249,6 +294,46 @@ export function RecoveryDrawer({
             恢复
           </Button>
         </div>
+      </Modal>
+      <Modal
+        opened={Boolean(cloning)}
+        onClose={() => setCloning(undefined)}
+        title="克隆为新环境"
+        centered
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            clone.mutate();
+          }}
+        >
+          <ErrorMessage error={clone.error} />
+          <TextInput
+            label="环境名称"
+            value={cloneName}
+            onChange={(event) => setCloneName(event.currentTarget.value)}
+            autoFocus
+            required
+          />
+          <Checkbox
+            mt="md"
+            label="创建后启动"
+            checked={runClone}
+            onChange={(event) => setRunClone(event.currentTarget.checked)}
+          />
+          <div className="dialog-actions">
+            <Button variant="default" onClick={() => setCloning(undefined)}>
+              取消
+            </Button>
+            <Button
+              type="submit"
+              loading={clone.isPending}
+              disabled={!cloneName.trim()}
+            >
+              创建环境
+            </Button>
+          </div>
+        </form>
       </Modal>
     </>
   );

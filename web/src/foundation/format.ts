@@ -50,6 +50,8 @@ export const actionLabels: Record<string, string> = {
   "delete-template": "删除模板",
   "capture-recovery": "创建恢复点",
   "delete-recovery": "删除恢复点",
+  "restore-recovery": "恢复环境",
+  "clone-recovery": "克隆环境",
   create: "创建环境",
   "vpn-create": "创建 VPN",
   "vpn-revoke": "撤销 VPN",

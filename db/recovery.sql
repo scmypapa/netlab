@@ -6,6 +6,11 @@ AND (sqlc.arg(cursor)::text='' OR (p.created_at,p.id)<(SELECT created_at,id FROM
 ORDER BY p.created_at DESC,p.id DESC LIMIT sqlc.arg(page_limit);
 -- name: LockRecoveryPoint :one
 SELECT * FROM recovery_points WHERE id=$1 AND environment_id=$2 FOR UPDATE;
+-- name: GetRecoveryPoint :one
+SELECT * FROM recovery_points WHERE id=$1;
+-- name: RecoveryPointInUse :one
+SELECT EXISTS(SELECT 1 FROM operations WHERE payload->'recovery'->>'id'=$1::text
+AND (state IN ('queued','running') OR (phase IN ('rollback','cleanup') AND state IN ('failed','partially_applied'))));
 -- name: CreateRecoveryPoint :exec
 INSERT INTO recovery_points(id,environment_id,name,revision,definition,asset_count,operation_id) VALUES($1,$2,$3,$4,$5,$6,$7);
 -- name: CompleteRecoveryPoint :exec
