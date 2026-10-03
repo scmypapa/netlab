@@ -4,16 +4,18 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile } from "node:fs/promises";
 import { openAsBlob } from "node:fs";
+import { posix as path } from "node:path";
 import { Agent, request } from "node:https";
 import { delay } from "./guest-ssh.mjs";
 
 const execute = promisify(execFile), run = randomUUID();
+const includeMemory = process.env.NETLAB_RECOVERY_MEMORY === "1";
 const base = "http://127.0.0.1:8090/api/v1";
 const workers = JSON.parse(await readFile("D:/.cache/netlab/artifacts/multi-node-workers.json", "utf8"));
 const root = `/var/lib/netlab-dev/test-tmp/backup-${run}`;
 const repositoryConfig = process.env.NETLAB_BACKUP_REPOSITORY_CONFIG
   ? JSON.parse(await readFile(process.env.NETLAB_BACKUP_REPOSITORY_CONFIG, "utf8")) : { location: root + "/repository" };
-const report = { startedAt: new Date().toISOString(), backend: repositoryConfig.location.startsWith("s3:") ? "s3" : "directory", steps: [], cleanupErrors: [], vmGuestVerified: false };
+const report = { startedAt: new Date().toISOString(), backend: repositoryConfig.location.startsWith("s3:") ? "s3" : "directory", includeMemory, steps: [], cleanupErrors: [], vmGuestVerified: false };
 const pools = [], clones = [], directories = new Set();
 const recovered = [];
 const identities = new Set(), diskFiles = [];
@@ -83,6 +85,18 @@ async function verify(environment, captured, backend=source) {
   const {api,action}=backend;
   const state=await api(`/environments/${environment.id}/state`);
   assert.equal(state.assets.length,4);
+  if(includeMemory) for(const asset of state.assets) {
+    const original=captured.get(asset.assetId);
+    if(original.kind!=="vm") continue;
+    const disk=await vmDisk(asset), memory=path.join(path.dirname(disk),"memory.save");
+    if(environment.id===env.id) {
+      assert.equal(asset.state,original.state);
+      assert.equal((await node(asset.nodeId,"sha256sum",memory)).split(/\s+/)[0],original.memory);
+    } else {
+      assert.equal(asset.state,"stopped");
+      await node(asset.nodeId,"test","!","-e",memory);
+    }
+  }
   await action(environment,"force-stop");
   for (const asset of state.assets) {
     identities.add(asset.instanceId);
@@ -128,20 +142,33 @@ try {
     for(const asset of state.assets) {
       identities.add(asset.instanceId);
       const kind=assets.find((source)=>source.id===asset.assetId).templateId===container.id?"container":"vm";
-      captured.set(asset.assetId,{kind,instanceId:asset.instanceId});
+      captured.set(asset.assetId,{kind,instanceId:asset.instanceId,nodeId:asset.nodeId});
       if(kind==="container") {
         await action(env,"start",asset.assetId);
         await node(asset.nodeId,"ctr","-n","netlab","tasks","exec","--exec-id",randomUUID(),asset.instanceId,"/bin/sh","-c","printf durable-data > /root/backup-marker; printf durable-volume > /data/marker");
       } else {
         const disk=await vmDisk(asset); diskFiles.push({nodeId: asset.nodeId,path: disk});
         await node(asset.nodeId,"qemu-io","-f","qcow2","-c","write -P 0x59 0 4096",disk);
+        if(includeMemory) {
+          await action(env,"start",asset.assetId);
+          if(asset.nodeId!==primary) await action(env,"suspend",asset.assetId);
+          captured.get(asset.assetId).state=asset.nodeId===primary?"running":"suspended";
+        }
       }
     }
     report.environmentId=env.id;
   });
   await step("捕获固定恢复点，备份至加密" + (report.backend === "s3" ? " S3" : "目录") + "仓库",async()=>{
     const state=await api(`/environments/${env.id}/state`);
-    point=await api(`/environments/${env.id}/recovery-points`,"POST",{name:"Backup source",expectedRevision:state.revision},201); await operation(point.operationId);
+    point=await api(`/environments/${env.id}/recovery-points`,"POST",{name:"Backup source",expectedRevision:state.revision,includeMemory},201); await operation(point.operationId);
+    if(includeMemory) {
+      assert.equal((await api(`/environments/${env.id}/recovery-points`)).find(item=>item.id===point.id).memoryAssetCount,2);
+      for(const asset of state.assets.filter(item=>captured.get(item.assetId).kind==="vm")) {
+        const files=(await node(asset.nodeId,"find",root+"/pool","-type","f","-path",`*/recovery-points/${point.id}/${asset.assetId}/memory.save`)).trim().split("\n");
+        assert.equal(files.length,1); assert(files[0]);
+        captured.get(asset.assetId).memory=(await node(asset.nodeId,"sha256sum",files[0])).split(/\s+/)[0];
+      }
+    }
     repository=await api("/backup-repositories","POST",{name:"Backup "+run,nodeId:primary,...repositoryConfig},201); await operation(repository.operationId);
     backup=await api(`/environments/${env.id}/backups`,"POST",{name:"Durable "+run,repositoryId:repository.id,recoveryPointId:point.id},201);
     const beforeBackup=await api(`/environments/${env.id}/state`);
@@ -188,6 +215,7 @@ try {
     const task=await api(`/environments/${env.id}/backups/${backup.id}/restore`,"POST",{expectedRevision:state.revision},202); await operation(task.id);
     const restored=await api(`/environments/${env.id}/state`);
     for(const asset of restored.assets) assert.equal(asset.instanceId,captured.get(asset.assetId).instanceId);
+    report.restoredOnDifferentNode=restored.assets.filter(asset=>asset.nodeId!==captured.get(asset.assetId).nodeId).length;
     await verify(env,captured);
   });
   await step("销毁、删除备份及仓库，检查数据、原生实例和容量释放",async()=>{

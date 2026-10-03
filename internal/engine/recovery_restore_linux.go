@@ -224,6 +224,8 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	if err = domain.Unmarshal(string(raw)); err != nil {
 		return err
 	}
+	// Host security labels belong to the target libvirt, not the captured guest.
+	domain.SecLabel = nil
 	domain.Name, domain.UUID = "netlab-"+a.InstanceId, a.InstanceId
 	directory := assetDirectory(v.data, env, a)
 	disks := map[string]string{}
