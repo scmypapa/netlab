@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,6 +23,7 @@ type Config struct {
 	ID, Name, DataDir, ContainerdSocket, LibvirtURI, OVNEndpoint, OVSEndpoint, Bridge string
 	ProviderCIDR                                                                      string
 	AdvertiseAddress                                                                  string
+	ArtifactHTTP                                                                      *http.Client
 }
 type Engine struct {
 	cfg       Config
@@ -233,6 +235,16 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			var state string
 			var err error
 			phase := plan.Phase
+			if phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
+				endpoint := ""
+				if plan.ArtifactEndpoints != nil {
+					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
+				}
+				if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
 			if phase == api.NodePlanPhasePolicies {
 				phase = api.NodePlanPhaseInspect
 			}
@@ -299,7 +311,8 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 	wg.Wait()
 	return result
 }
-func (e *Engine) PrepareTemplate(ctx context.Context, t api.Template) (api.Template, error) {
+func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePreparation) (api.Template, error) {
+	t := request.Template
 	unlock := e.lock("template:" + t.Id)
 	defer unlock()
 	select {
@@ -309,12 +322,24 @@ func (e *Engine) PrepareTemplate(ctx context.Context, t api.Template) (api.Templ
 	}
 	defer func() { <-e.slots }()
 	var err error
+	if t.ArtifactNodeId != nil {
+		endpoint := ""
+		if request.ArtifactEndpoint != nil {
+			endpoint = *request.ArtifactEndpoint
+		}
+		if err = e.fetchTemplateArtifact(ctx, t, endpoint); err != nil {
+			return t, err
+		}
+	}
+	if t.ArtifactNodeId == nil {
+		t.ArtifactNodeId = &e.cfg.ID
+	}
 	switch t.Kind {
 	case api.Container:
 		if e.container == nil {
 			return t, errors.New("container runtime not configured")
 		}
-		_, err = e.container.image(namespaces.WithNamespace(ctx, "netlab"), t)
+		t, err = e.container.prepareTemplate(namespaces.WithNamespace(ctx, "netlab"), t)
 	case api.Vm:
 		if e.vm == nil {
 			return t, errors.New("virtual machine runtime not configured")

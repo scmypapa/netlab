@@ -67,7 +67,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	vm := api.Asset{Id: "vm", Name: "VM", TemplateId: "bios", Resources: vmResources, Interfaces: interfaces("vm-nic", "192.168.82.20", "02:00:00:82:00:20")}
 	assets := []api.AssetExecution{{Asset: web, Template: api.Template{Id: "nginx", Name: "Nginx", Kind: api.Container, Source: archive, Resources: containerResources}, InstanceId: uuid.NewString(), Interfaces: resolve(web.Interfaces[0])}, {Asset: vm, Template: api.Template{Id: "bios", Name: "BIOS", Kind: api.Vm, Source: base, Os: "linux", Resources: vmResources, Hardware: &api.Hardware{Firmware: api.Bios, Machine: "pc-i440fx-8.2", DiskBus: api.HardwareDiskBusIde, NicModel: api.HardwareNicModelE1000}}, InstanceId: uuid.NewString(), Interfaces: resolve(vm.Interfaces[0])}}
 	assets[1].Template.Hardware.Machine = "pc"
-	prepared, err := e.PrepareTemplate(ctx, assets[1].Template)
+	prepared, err := e.PrepareTemplate(ctx, api.NodeTemplatePreparation{Template: assets[1].Template})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	a.Template.Kind = api.Vm
 	a.Template.Hardware.Machine = "q35"
 	executor := &Engine{vm: vm, slots: make(chan struct{}, 1), locks: make(map[string]*objectLock)}
-	prepared, err := executor.PrepareTemplate(ctx, a.Template)
+	prepared, err := executor.PrepareTemplate(ctx, api.NodeTemplatePreparation{Template: a.Template})
 	if err != nil {
 		t.Fatal(err)
 	}

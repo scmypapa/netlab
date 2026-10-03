@@ -258,7 +258,11 @@ paths:
       operationId: createTemplate
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
       responses:
-        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
+        '201':
+          description: Created
+          headers:
+            Operation-Location: {description: Template import operation URL, schema: {type: string}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}
   /nodes:
     get:
       operationId: listNodes
@@ -444,6 +448,7 @@ components:
         version: {type: integer}
         source: {type: string}
         format: {type: string, enum: [oci, docker, qcow2, raw, vmdk, ova, ovf, iso]}
+        artifactNodeId: {type: string, readOnly: true}
         resources: {$ref: '#/components/schemas/Resources'}
         hardware: {$ref: '#/components/schemas/Hardware'}
         disks: {type: array, items: {$ref: '#/components/schemas/TemplateDisk'}}
@@ -804,6 +809,13 @@ components:
         vpn: {$ref: '#/components/schemas/NodeVPNPlan'}
         attachments: {type: array, items: {$ref: '#/components/schemas/ExternalAttachment'}}
         externalChassis: {type: object, additionalProperties: {type: string}}
+        artifactEndpoints: {type: object, additionalProperties: {type: string}}
+    NodeTemplatePreparation:
+      type: object
+      required: [template]
+      properties:
+        template: {$ref: '#/components/schemas/Template'}
+        artifactEndpoint: {type: string}
     ExecutionResult:
       type: object
       required: [assetId, instanceId, state, observedAt]

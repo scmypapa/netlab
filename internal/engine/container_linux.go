@@ -20,6 +20,7 @@ import (
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/images/archive"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
@@ -223,10 +224,57 @@ func (c *Containers) image(ctx context.Context, t api.Template) (containerd.Imag
 	if err != nil {
 		return nil, err
 	}
-	if _, err = c.client.ImageService().Create(ctx, images.Image{Name: ref, Target: image.Target()}); err != nil {
-		return nil, err
+	if image.Name() != ref {
+		if _, err = c.client.ImageService().Create(ctx, images.Image{Name: ref, Target: image.Target()}); err != nil {
+			return nil, err
+		}
 	}
 	return c.client.GetImage(ctx, ref)
+}
+
+func (c *Containers) prepareTemplate(ctx context.Context, t api.Template) (api.Template, error) {
+	directory := templateDirectory(c.data, t.Id, t.Version)
+	if raw, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
+		origin := t.ArtifactNodeId
+		err = json.Unmarshal(raw, &t)
+		t.ArtifactNodeId = origin
+		return t, err
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return t, err
+	}
+	source := t
+	source.ArtifactNodeId = nil
+	image, err := c.image(ctx, source)
+	if err != nil {
+		return t, err
+	}
+	if err = os.MkdirAll(filepath.Dir(directory), 0711); err != nil {
+		return t, err
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(directory), "import-")
+	if err != nil {
+		return t, err
+	}
+	defer os.RemoveAll(staging)
+	if err = os.Chmod(staging, 0711); err != nil {
+		return t, err
+	}
+	file, err := os.OpenFile(filepath.Join(staging, "image.tar"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
+	if err != nil {
+		return t, err
+	}
+	exportErr := c.client.Export(ctx, file, archive.WithManifest(image.Target(), image.Name()), archive.WithPlatform(platforms.Default()), archive.WithSkipMissing(c.client.ContentStore()))
+	if err = errors.Join(exportErr, file.Close()); err != nil {
+		return t, err
+	}
+	raw, err := json.Marshal(t)
+	if err != nil {
+		return t, err
+	}
+	if err = os.WriteFile(filepath.Join(staging, "template.json"), raw, 0640); err != nil {
+		return t, err
+	}
+	return t, os.Rename(staging, directory)
 }
 
 func imageConfig(ctx context.Context, image containerd.Image) (imagespec.Image, error) {
@@ -277,8 +325,12 @@ func (c *Containers) volumeMounts(env, asset string, volumes []api.Volume) ([]sp
 	return mounts, nil
 }
 func (c *Containers) importImage(ctx context.Context, t api.Template) (containerd.Image, error) {
-	if strings.HasPrefix(t.Source, "/") || strings.HasPrefix(t.Source, "file:") {
-		f, err := os.Open(strings.TrimPrefix(t.Source, "file://"))
+	source := t.Source
+	if t.ArtifactNodeId != nil {
+		source = filepath.Join(templateDirectory(c.data, t.Id, t.Version), "image.tar")
+	}
+	if strings.HasPrefix(source, "/") || strings.HasPrefix(source, "file:") || strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		f, err := openArtifact(ctx, source)
 		if err != nil {
 			return nil, err
 		}

@@ -215,14 +215,17 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 			return err
 		}
 		metadataImport := t.Hardware == nil && t.Format != nil && (*t.Format == "ova" || *t.Format == "ovf")
-		if n.State != "ready" || !slices.Contains(info.Capabilities, string(t.Kind)) || (!metadataImport && !supports(info, t, t.Resources.Cpu)) {
+		if n.State != "ready" || !slices.Contains(info.Capabilities, string(t.Kind)) || (!metadataImport && !supports(info, t, t.Resources.Cpu)) || (t.ArtifactNodeId != nil && *t.ArtifactNodeId != n.ID) {
 			continue
 		}
+		t.ArtifactNodeId = &n.ID
+		p.Template = &t
 		if err = w.phase(ctx, op, p, "prepare"); err != nil {
 			return err
 		}
 		var prepared api.Template
-		err = w.Client.Do(ctx, "POST", n.Endpoint, "/node/v1/templates/prepare", t, &prepared)
+		request := api.NodeTemplatePreparation{Template: t}
+		err = w.Client.Do(ctx, "POST", n.Endpoint, "/node/v1/templates/prepare", request, &prepared)
 		if err != nil {
 			failed := api.TemplateStateFailed
 			t.State = &failed
@@ -231,12 +234,13 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 		} else {
 			t = prepared
 		}
+		p.Template = &t
 		raw, marshalErr := json.Marshal(t)
 		if marshalErr != nil {
 			return marshalErr
 		}
 		if saveErr := w.Queries.UpdateTemplate(ctx, queries.UpdateTemplateParams{ID: t.Id, Definition: raw}); saveErr != nil {
-			return saveErr
+			return fmt.Errorf("%w: %v", errPersistence, saveErr)
 		}
 		return err
 	}
@@ -245,6 +249,28 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, phase api.NodePlanPhase, targets []Target) ([]api.ExecutionResult, error) {
 	if len(targets) == 0 {
 		return []api.ExecutionResult{}, nil
+	}
+	artifacts := map[string]string{}
+	if phase == api.NodePlanPhasePrepare {
+		for _, target := range targets {
+			if origin := target.Execution.Template.ArtifactNodeId; origin != nil {
+				artifacts[*origin] = ""
+			}
+		}
+		ids := make([]string, 0, len(artifacts))
+		for id := range artifacts {
+			ids = append(ids, id)
+		}
+		origins, err := w.Queries.GetNodeEndpoints(ctx, ids)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		if len(origins) != len(ids) {
+			return nil, errors.New("模板制品节点不存在")
+		}
+		for _, origin := range origins {
+			artifacts[origin.ID] = origin.Endpoint
+		}
 	}
 	grouped := map[string][]api.AssetExecution{}
 	endpoints := map[string]string{}
@@ -279,7 +305,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 			if op.Phase == "rollback" && p.BeforeSpec != nil {
 				spec = *p.BeforeSpec
 			}
-			result, err := w.Client.Execute(ctx, endpoints[id], api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec})
+			result, err := w.Client.Execute(ctx, endpoints[id], api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts})
 			if err == nil && result.Error != nil {
 				err = errors.New(*result.Error)
 			}

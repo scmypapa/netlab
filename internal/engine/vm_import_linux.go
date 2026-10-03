@@ -147,10 +147,10 @@ func prepareVMDKExtents(ctx context.Context, path, origin string) error {
 	return nil
 }
 
-func copyArtifact(ctx context.Context, source, destination string) error {
+func openArtifact(ctx context.Context, source string) (io.ReadCloser, error) {
 	u, err := url.Parse(source)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var reader io.ReadCloser
 	switch u.Scheme {
@@ -170,13 +170,18 @@ func copyArtifact(ctx context.Context, source, destination string) error {
 				reader = response.Body
 				if response.StatusCode != http.StatusOK {
 					reader.Close()
-					return fmt.Errorf("artifact download: HTTP %d", response.StatusCode)
+					return nil, fmt.Errorf("artifact download: HTTP %d", response.StatusCode)
 				}
 			}
 		}
 	default:
-		return fmt.Errorf("unsupported artifact source scheme %q", u.Scheme)
+		return nil, fmt.Errorf("unsupported artifact source scheme %q", u.Scheme)
 	}
+	return reader, err
+}
+
+func copyArtifact(ctx context.Context, source, destination string) error {
+	reader, err := openArtifact(ctx, source)
 	if err != nil {
 		return err
 	}
@@ -484,7 +489,9 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template) (
 	defer mutex.Unlock()
 	directory := filepath.Join(v.data, "artifacts", key)
 	if data, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
+		origin := t.ArtifactNodeId
 		err = json.Unmarshal(data, &t)
+		t.ArtifactNodeId = origin
 		return t, err
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return t, err

@@ -29,7 +29,7 @@ for role in controller node; do
       -keyout "$pki/$role.key" -out "$pki/$role.csr"
   fi
   if [[ $role == node ]]; then
-    extensions=$'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1,IP:'"$node_address"
+    extensions=$'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1,IP:'"$node_address"
   else
     extensions=$'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=clientAuth'
   fi

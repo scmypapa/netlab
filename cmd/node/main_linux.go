@@ -10,12 +10,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"netlab.local/core/internal/engine"
 	"netlab.local/core/internal/logfile"
 	"netlab.local/core/internal/stream"
+	"netlab.local/core/internal/transport"
 )
 
 func main() {
@@ -74,6 +77,11 @@ func run() error {
 	if !pool.AppendCertsFromPEM(caPEM) {
 		return errors.New("invalid controller CA")
 	}
+	client, err := transport.NewClient(ca, certificate, key)
+	if err != nil {
+		return err
+	}
+	cfg.ArtifactHTTP = client.HTTP
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	executor, err := engine.New(ctx, cfg)
@@ -163,21 +171,43 @@ func run() error {
 		respond(w, value, err)
 	})
 	mux.HandleFunc("POST /node/v1/templates/prepare", func(w http.ResponseWriter, r *http.Request) {
-		var template api.Template
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&template); err != nil {
+		var request api.NodeTemplatePreparation
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if !pathID(template.Id) {
+		if !pathID(request.Template.Id) || request.Template.Version < 1 {
 			http.Error(w, "invalid template identity", http.StatusBadRequest)
 			return
 		}
-		prepared, err := executor.PrepareTemplate(r.Context(), template)
+		prepared, err := executor.PrepareTemplate(r.Context(), request)
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 		}
 		respond(w, prepared, nil)
+	})
+	mux.HandleFunc("GET /node/v1/templates/{id}/versions/{version}/artifact", func(w http.ResponseWriter, r *http.Request) {
+		version, err := strconv.Atoi(r.PathValue("version"))
+		if err != nil || version < 1 || !pathID(r.PathValue("id")) {
+			http.Error(w, "invalid template identity", http.StatusBadRequest)
+			return
+		}
+		reader, length, err := executor.OpenTemplateArtifact(r.PathValue("id"), version)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, os.ErrNotExist) {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		defer reader.Close()
+		w.Header().Set("Content-Type", "application/x-tar")
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		if _, err = io.Copy(w, reader); err != nil {
+			slog.Warn("template artifact transfer interrupted", "template", r.PathValue("id"), "error", err)
+		}
 	})
 	mux.HandleFunc("POST /node/v1/plans", func(w http.ResponseWriter, r *http.Request) {
 		var plan api.NodePlan

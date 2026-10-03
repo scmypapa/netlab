@@ -781,6 +781,7 @@ export interface components {
       /** @enum {string} */
       format?:
         "oci" | "docker" | "qcow2" | "raw" | "vmdk" | "ova" | "ovf" | "iso";
+      readonly artifactNodeId?: string;
       resources: components["schemas"]["Resources"];
       hardware?: components["schemas"]["Hardware"];
       disks?: components["schemas"]["TemplateDisk"][];
@@ -1127,6 +1128,13 @@ export interface components {
       externalChassis?: {
         [key: string]: string;
       };
+      artifactEndpoints?: {
+        [key: string]: string;
+      };
+    };
+    NodeTemplatePreparation: {
+      template: components["schemas"]["Template"];
+      artifactEndpoint?: string;
     };
     ExecutionResult: {
       environmentId?: string;
@@ -2193,6 +2201,8 @@ export interface operations {
       /** @description Created */
       201: {
         headers: {
+          /** @description Template import operation URL */
+          "Operation-Location"?: string;
           [name: string]: unknown;
         };
         content: {

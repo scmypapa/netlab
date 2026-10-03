@@ -70,6 +70,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	}
 	state := api.TemplateStateImporting
 	input.State, input.Error = &state, nil
+	input.ArtifactNodeId = nil
 	raw, err := json.Marshal(input)
 	if err != nil {
 		return err
@@ -86,15 +87,17 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	}
 	defer tx.Rollback(r.Context())
 	q := s.Queries.WithTx(tx)
+	operationID := uuid.NewString()
 	if err = q.CreateTemplate(r.Context(), queries.CreateTemplateParams{ID: input.Id, Definition: raw}); err != nil {
 		return err
 	}
-	if _, err = q.CreateOperation(r.Context(), queries.CreateOperationParams{ID: uuid.NewString(), ScopeKind: "template", ScopeID: input.Id, Kind: "prepare-template", Payload: payload, ExpectedRevision: int32(input.Version)}); err != nil {
+	if _, err = q.CreateOperation(r.Context(), queries.CreateOperationParams{ID: operationID, ScopeKind: "template", ScopeID: input.Id, Kind: "prepare-template", Payload: payload, ExpectedRevision: int32(input.Version)}); err != nil {
 		return err
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	w.Header().Set("Operation-Location", "/api/v1/operations/"+operationID)
 	return writeJSON(w, http.StatusCreated, input)
 }
 

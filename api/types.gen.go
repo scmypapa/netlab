@@ -653,16 +653,17 @@ type NodeObservation struct {
 
 // NodePlan defines model for NodePlan.
 type NodePlan struct {
-	Assets          []AssetExecution      `json:"assets"`
-	Attachments     *[]ExternalAttachment `json:"attachments,omitempty"`
-	EnvironmentId   string                `json:"environmentId"`
-	ExternalChassis *map[string]string    `json:"externalChassis,omitempty"`
-	Gateway         *ServiceGateway       `json:"gateway,omitempty"`
-	OperationId     string                `json:"operationId"`
-	Phase           NodePlanPhase         `json:"phase"`
-	Services        *[]NodeServiceBinding `json:"services,omitempty"`
-	Spec            EnvironmentSpec       `json:"spec"`
-	Vpn             *NodeVPNPlan          `json:"vpn,omitempty"`
+	ArtifactEndpoints *map[string]string    `json:"artifactEndpoints,omitempty"`
+	Assets            []AssetExecution      `json:"assets"`
+	Attachments       *[]ExternalAttachment `json:"attachments,omitempty"`
+	EnvironmentId     string                `json:"environmentId"`
+	ExternalChassis   *map[string]string    `json:"externalChassis,omitempty"`
+	Gateway           *ServiceGateway       `json:"gateway,omitempty"`
+	OperationId       string                `json:"operationId"`
+	Phase             NodePlanPhase         `json:"phase"`
+	Services          *[]NodeServiceBinding `json:"services,omitempty"`
+	Spec              EnvironmentSpec       `json:"spec"`
+	Vpn               *NodeVPNPlan          `json:"vpn,omitempty"`
 }
 
 // NodePlanPhase defines model for NodePlan.Phase.
@@ -691,6 +692,12 @@ type NodeServiceBinding struct {
 	Protocol      ServiceProtocol `json:"protocol"`
 	TargetAddress string          `json:"targetAddress"`
 	TargetPort    int             `json:"targetPort"`
+}
+
+// NodeTemplatePreparation defines model for NodeTemplatePreparation.
+type NodeTemplatePreparation struct {
+	ArtifactEndpoint *string  `json:"artifactEndpoint,omitempty"`
+	Template         Template `json:"template"`
 }
 
 // NodeVPNPeer defines model for NodeVPNPeer.
@@ -887,6 +894,7 @@ type ServiceProtocol string
 
 // Template defines model for Template.
 type Template struct {
+	ArtifactNodeId *string                 `json:"artifactNodeId,omitempty"`
 	Disks          *[]TemplateDisk         `json:"disks,omitempty"`
 	Error          *string                 `json:"error,omitempty"`
 	Format         *TemplateFormat         `json:"format,omitempty"`
