@@ -703,6 +703,24 @@ RDP 证书由用户确认后固定，密码不通过 GET 返回。SSH 密码、�
 
 门禁：真实 PostgreSQL 下 Windows Go 全量通过；server、queries、guest 又以 `-count=1` 执行通过。Linux guest 测试、节点构建、前端类型检查与构建通过；前端现有 48 项交互测试通过。本轮未执行 Linux 全量原生用例。原平台及生产服务器未修改。
 
+### Windows 来宾验收（2026-10-04）
+
+入口为 `tests/windows-guest.mjs`；安装应答和来宾准备脚本位于 `tests/fixtures/windows-unattend.xml`、`tests/fixtures/windows.ps1`。使用官方 Windows Server 2025 Evaluation、VirtIO 0.1.302-1 和 Cloudbase-init 1.1.8，在真实 KVM 中安装，启用 UEFI、Secure Boot、TPM、VirtIO 和 QGA。
+
+续跑验收 6/6 通过：Sysprep 封装与模板捕获；两个同 CIDR 的独立环境；不同主机名、SID、SSH HostKey；页面 SSH 和 SFTP 上传、下载、覆盖、中文文件名、移动、删除；首次 RDP 设置、证书确认、真实键盘输入及文件核对；390、1366、1920、2560 宽度的远端尺寸同步与页面布局；销毁与容量释放。
+
+修正了两处产品实现：虚拟 RTC 统一 UTC，删除按系统名称切换 localtime 的逻辑；RDP 根据 Guacamole 连接状态显示已连接，连接建立时同步窗口尺寸。正确准备的 Windows 模板通过 RealTimeIsUniversal 使用 UTC，两个新实例与测试端时间偏差为 0–1 秒；外部未经准备的 Windows 镜像仍需单独验证。
+
+测试准备中的 Cloudbase-init CreateUserPlugin 会重设已有用户密码，现已删除该插件及无效配置；成功封装的源盘经离线修改初始化配置后重新捕获。封装失败、安装等待超时、RDP 输入失败均保留在报告的 previousRuns 中；未绕过 Evaluation 激活限制。脚本修正文件删除动作、初始化完成判定及桌面画布采样，避免把光标画布误判为可操作桌面。
+
+最终结果保存在 `data/windows-guest-result.json`，续跑状态保存在 `data/windows-guest-state.json`，截图使用固定文件名。data 目录不提交，续跑状态包含随机测试密码。已完成阶段通过 checkpoint 复用；复用步骤耗时不计为部署性能。本次并非从零一次无人值守冷安装全通过：完整冷安装复跑、Windows/AD、其他 Windows 版本和固件矩阵仍待验收。
+
+实际执行记录：介质导入准备 112.700 秒；一次成功的封装与模板固化 93.412 秒；双环境 SSH/SFTP 阶段 86.056 秒；最后一轮 B 桌面及尺寸检查 20.363 秒；销毁与清理 3.783 秒。首次安装等待 900 秒超时约 935.419 秒，随后安装准备完成；脚本等待改为 1800 秒，尚未重新冷安装。
+
+所有本轮 Windows 实例、旧 Windows 模板和安装模板已通过产品 API 删除，节点预留 CPU、内存、磁盘归零；libvirt 仅保留常驻 worker2。保留已通过验收的 Windows/Linux 基础模板和原始安装介质；已清理辅助 ISO、上传参数、生成应答和中间节点二进制，另通过标准 API 删除 18 个过期捕获或导入测试模板，未删除常驻节点。
+
+Go 引擎测试、Go 构建、Linux 硬件组合定向测试、前端构建、脚本语法检查及前端现有 48 项交互测试通过。本轮未执行 Linux 全量原生用例，未修改原平台和生产服务器。
+
 ### 剩余开发范围
 
 目录和 S3 备份、仓库导入、源数据和模板制品删除后的恢复与独立副本已通过双节点真实验收。仓库执行节点需要 restic，随安装器固化依赖。
@@ -710,9 +728,9 @@ RDP 证书由用户确认后固定，密码不通过 GET 返回。SSH 密码、�
 | 工作组 | 剩余内容 |
 | --- | --- |
 | 网络接入 | 外部 LAN、原生/VLAN 接入已通过双节点 Linux 数据面验收；物理网卡实机、单网卡双栈与宿主重启验收待完成 |
-| 模板与 Windows | ISO 实际系统安装、Windows/AD 和固件组合，CPU/NUMA、直通等设计范围内的专业能力 |
+| 模板与 Windows | Server 2025 真实安装、封装与双环境续跑验收已通过；完整冷安装复跑、Windows/AD、其他版本和固件矩阵、CPU/NUMA、直通待完成 |
 | 存储与恢复 | 目录池、运行中捕获、VM 内存恢复、Linux 文件系统一致性、含 RAM 的目录/S3 跨节点恢复及仓库导入已通过；Windows VSS/应用一致性、宿主重启、原生快照存储与 Ceph、持久卷管理、迁移及其清理闭环 |
-| 远程运维 | Linux SSH/RDP、文件、密码和加密私钥已通过真实验收；Windows RDP/SFTP、首次连接设置、远端尺寸收敛与移动输入待完成 |
+| 远程运维 | Linux SSH/RDP、文件、密码和加密私钥，Windows SSH/RDP/SFTP、首次连接设置及远端尺寸同步已通过真实验收；实际移动设备触摸和软键盘输入待完成 |
 | 运行观测 | 资源历史、通信关系与抓包工作区 |
 | 部署与交付 | 安装器、依赖版本固化、宿主重启、规模和长稳验收 |
 

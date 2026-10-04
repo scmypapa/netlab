@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"libvirt.org/go/libvirtxml"
 	"netlab.local/core/api"
@@ -184,11 +183,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	if h.Tpm != nil && *h.Tpm {
 		d.Devices.TPMs = []libvirtxml.DomainTPM{{Model: "tpm-crb", Backend: &libvirtxml.DomainTPMBackend{Emulator: &libvirtxml.DomainTPMBackendEmulator{Version: "2.0", PersistentState: "yes"}}}}
 	}
-	clock := "utc"
-	if strings.Contains(strings.ToLower(a.Template.Os), "windows") {
-		clock = "localtime"
-	}
-	d.Clock = &libvirtxml.DomainClock{Offset: clock}
+	d.Clock = &libvirtxml.DomainClock{Offset: "utc"}
 	return d.Marshal()
 }
 

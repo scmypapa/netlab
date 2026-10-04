@@ -80,14 +80,21 @@ export function RDPDisplay({
           ),
         );
     };
-    display.onresize = () => {
-      if (!display.getWidth() || !display.getHeight()) return;
-      onStatus("已连接");
-      if (activated.current) screen.focus();
-      display.onresize = fit;
+    const resize = () => {
+      if (!element.clientWidth || !element.clientHeight) return;
+      connection.sendSize(
+        Math.max(320, Math.round(element.clientWidth)),
+        Math.max(200, Math.round(element.clientHeight)),
+      );
       fit();
     };
+    display.onresize = fit;
     connection.onstatechange = (state) => {
+      if (state === 3) {
+        onStatus("已连接");
+        if (activated.current) screen.focus();
+        resize();
+      }
       if (state === 5 && !failed) onStatus("连接已结束");
     };
     connection.onerror = (error) => {
@@ -123,14 +130,7 @@ export function RDPDisplay({
     };
     keyboard.onkeyup = (key) => connection.sendKeyEvent(0, key);
     screen.addEventListener("blur", () => keyboard.reset());
-    const observer = new ResizeObserver(() => {
-      if (!element.clientWidth || !element.clientHeight) return;
-      connection.sendSize(
-        Math.max(320, Math.round(element.clientWidth)),
-        Math.max(200, Math.round(element.clientHeight)),
-      );
-      fit();
-    });
+    const observer = new ResizeObserver(resize);
     observer.observe(element);
     connection.connect(
       new URLSearchParams({
