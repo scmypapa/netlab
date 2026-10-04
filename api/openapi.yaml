@@ -638,9 +638,12 @@ components:
       required: [version, phase, updatedAt]
       properties:
         version: {type: string}
-        phase: {type: string, enum: [queued, downloading, installing, restarting, succeeded, failed]}
+        phase: {type: string, enum: [queued, downloading, installing, waiting_operations, updating_nodes, restarting, succeeded, failed]}
         updatedAt: {type: string, format: date-time}
         error: {type: string}
+        nodeName: {type: string}
+        completedNodes: {type: integer, x-go-type-skip-optional-pointer: true}
+        totalNodes: {type: integer, x-go-type-skip-optional-pointer: true}
     SSHProbe:
       type: object
       required: [port]
@@ -1486,10 +1489,11 @@ components:
         vpn: {$ref: '#/components/schemas/NodeVPNResult'}
     NodeInfo:
       type: object
-      required: [id, name, capacity, capabilities, slots]
+      required: [id, name, version, capacity, capabilities, slots]
       properties:
         id: {type: string}
         name: {type: string}
+        version: {type: string}
         capacity: {$ref: '#/components/schemas/Resources'}
         capabilities: {type: array, items: {type: string}}
         slots: {type: integer}

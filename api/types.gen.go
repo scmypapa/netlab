@@ -322,12 +322,14 @@ const (
 
 // Defines values for UpdateActivityPhase.
 const (
-	Downloading UpdateActivityPhase = "downloading"
-	Failed      UpdateActivityPhase = "failed"
-	Installing  UpdateActivityPhase = "installing"
-	Queued      UpdateActivityPhase = "queued"
-	Restarting  UpdateActivityPhase = "restarting"
-	Succeeded   UpdateActivityPhase = "succeeded"
+	Downloading       UpdateActivityPhase = "downloading"
+	Failed            UpdateActivityPhase = "failed"
+	Installing        UpdateActivityPhase = "installing"
+	Queued            UpdateActivityPhase = "queued"
+	Restarting        UpdateActivityPhase = "restarting"
+	Succeeded         UpdateActivityPhase = "succeeded"
+	UpdatingNodes     UpdateActivityPhase = "updating_nodes"
+	WaitingOperations UpdateActivityPhase = "waiting_operations"
 )
 
 // Defines values for VPNAccessState.
@@ -1042,6 +1044,7 @@ type NodeInfo struct {
 	ServiceNetwork     *ServiceNetwork      `json:"serviceNetwork,omitempty"`
 	Slots              int                  `json:"slots"`
 	Storage            *StorageInfo         `json:"storage,omitempty"`
+	Version            string               `json:"version"`
 	VmHardware         *VmHardware          `json:"vmHardware,omitempty"`
 }
 
@@ -1551,10 +1554,13 @@ type TrafficObservation struct {
 
 // UpdateActivity defines model for UpdateActivity.
 type UpdateActivity struct {
-	Error     *string             `json:"error,omitempty"`
-	Phase     UpdateActivityPhase `json:"phase"`
-	UpdatedAt time.Time           `json:"updatedAt"`
-	Version   string              `json:"version"`
+	CompletedNodes int                 `json:"completedNodes,omitempty"`
+	Error          *string             `json:"error,omitempty"`
+	NodeName       *string             `json:"nodeName,omitempty"`
+	Phase          UpdateActivityPhase `json:"phase"`
+	TotalNodes     int                 `json:"totalNodes,omitempty"`
+	UpdatedAt      time.Time           `json:"updatedAt"`
+	Version        string              `json:"version"`
 }
 
 // UpdateActivityPhase defines model for UpdateActivity.Phase.

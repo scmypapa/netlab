@@ -40,8 +40,12 @@ func (q *Queries) ApplyAssetResults(ctx context.Context, dollar_1 []byte) error 
 }
 
 const claimOperation = `-- name: ClaimOperation :one
-WITH candidate AS (
+WITH maintenance AS MATERIALIZED (
+ SELECT id FROM operations WHERE id='system-update' AND state='succeeded' FOR SHARE
+), candidate AS (
  SELECT o.id FROM operations o WHERE (o.state='queued' OR (o.state='running' AND o.lease_until<now()))
+ AND o.scope_kind<>'system'
+ AND EXISTS(SELECT 1 FROM maintenance)
  AND NOT EXISTS(SELECT 1 FROM operations live WHERE live.scope_kind=o.scope_kind AND live.scope_id=o.scope_id AND live.id<>o.id AND live.state='running')
  ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1
 ), claimed AS (

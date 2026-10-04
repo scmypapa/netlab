@@ -34,7 +34,7 @@ jobs:
           [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           sudo apt-get update
-          sudo apt-get install -y libvirt-dev
+          sudo apt-get install -y libvirt-dev autoconf automake libtool pkg-config libcairo2-dev libjpeg-turbo8-dev libpng-dev libpango1.0-dev libwebp-dev freerdp3-dev libssl-dev
           mkdir -p package/web package/deploy package/scripts
           flags="-s -w -X netlab.local/core/internal/buildinfo.Version=$VERSION -X netlab.local/core/internal/buildinfo.Commit=$GITHUB_SHA"
           go test ./internal/update -count=1
@@ -42,9 +42,11 @@ jobs:
           go build -trimpath -tags libvirt_dlopen -ldflags "$flags" -o package/netlab-node ./cmd/node
           cp -a web/dist/. package/web/
           cp -a deploy/systemd deploy/sudoers package/deploy/
-          cp scripts/install-controller.sh package/scripts/
+          cp scripts/install-{common,controller,node}.sh scripts/issue-node-certificate.sh package/scripts/
+          bash scripts/build-guacd.sh "$RUNNER_TEMP/guacamole-source" "$PWD/package/guacamole"
+          curl -fL https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.126.0/victoria-metrics-linux-amd64-v1.126.0.tar.gz | tar -xz -C package victoria-metrics-prod
           jq -n --arg version "$VERSION" '{version:$version,os:"linux",arch:"amd64"}' > package/release.json
-          tar -C package -czf netlab_linux_amd64.tar.gz .
+          tar --dereference --hard-dereference -C package -czf netlab_linux_amd64.tar.gz .
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

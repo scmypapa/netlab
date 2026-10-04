@@ -1,0 +1,13 @@
+[Unit]
+Description=Netlab resource metrics
+After=network.target
+
+[Service]
+User=netlab
+Group=netlab
+ExecStart=/opt/netlab/current/victoria-metrics-prod -httpListenAddr=127.0.0.1:8428 -storageDataPath=/var/lib/netlab/metrics -retentionPeriod=30d
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

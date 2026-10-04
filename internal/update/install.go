@@ -29,7 +29,7 @@ type Manifest struct {
 }
 
 // Execute runs in its own systemd service, so controller restarts do not interrupt installation.
-func Execute(ctx context.Context, cfg Config, listen string) (failure error) {
+func Execute(ctx context.Context, cfg Config, listen string, client *http.Client, beforeSwitch func(context.Context, string) (func(error) error, error)) (failure error) {
 	directory := filepath.Join(cfg.DataDir, "update")
 	requestPath := filepath.Join(directory, "request.json")
 	data, err := os.ReadFile(requestPath)
@@ -68,6 +68,13 @@ func Execute(ctx context.Context, cfg Config, listen string) (failure error) {
 	if err := validate(destination, request.Version); err != nil {
 		return err
 	}
+	if beforeSwitch != nil {
+		release, err := beforeSwitch(ctx, request.Version)
+		if err != nil {
+			return err
+		}
+		defer func() { failure = errors.Join(failure, release(failure)) }()
+	}
 	current, err := os.Readlink(filepath.Join(cfg.InstallDir, "current"))
 	if err != nil {
 		return err
@@ -89,12 +96,12 @@ func Execute(ctx context.Context, cfg Config, listen string) (failure error) {
 	if err := writeActivity(directory, request.Version, "restarting", nil); err != nil {
 		return err
 	}
-	if err := restart(ctx, listen); err != nil {
+	if err := restart(ctx, cfg.Role, listen, request.Version, client); err != nil {
 		// Restore programs only. Database migrations remain forward-only.
 		if rollbackErr := switchLink(cfg.InstallDir, "current", previous); rollbackErr != nil {
 			return errors.Join(err, rollbackErr)
 		}
-		return errors.Join(err, restart(ctx, listen))
+		return errors.Join(err, restart(ctx, cfg.Role, listen, filepath.Base(previous), client))
 	}
 	return nil
 }
@@ -165,7 +172,7 @@ func validate(directory, version string) error {
 	if manifest.Version != version || manifest.OS != "linux" || manifest.Arch != runtime.GOARCH {
 		return fmt.Errorf("发布包版本或运行架构不匹配")
 	}
-	for _, name := range []string{"netlab-controller", "netlab-node", "web/index.html"} {
+	for _, name := range []string{"netlab-controller", "netlab-node", "web/index.html", "victoria-metrics-prod", "guacamole/sbin/guacd", "guacamole/lib/libguac-client-rdp.so"} {
 		file, err := os.Stat(filepath.Join(directory, name))
 		if err != nil {
 			return err
@@ -196,19 +203,24 @@ func switchLink(directory, name, target string) error {
 	return os.Rename(file.Name(), filepath.Join(directory, name))
 }
 
-func restart(ctx context.Context, listen string) error {
+func restart(ctx context.Context, role, listen, version string, client *http.Client) error {
 	commands := [][]string{{"restart", "netlab-controller.service"}}
-	if _, err := os.Stat("/etc/systemd/system/netlab-node.service"); err == nil {
-		commands = append([][]string{{"try-restart", "netlab-node.service"}}, commands...)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+	if role != "node" {
+		if _, err := os.Stat("/etc/systemd/system/netlab-metrics.service"); err == nil {
+			commands = append([][]string{{"restart", "netlab-metrics.service"}}, commands...)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if role == "node" {
+		commands = [][]string{{"restart", "netlab-guacd.service"}, {"restart", "netlab-node.service"}}
 	}
 	for _, args := range commands {
 		if output, err := exec.CommandContext(ctx, "/usr/bin/systemctl", args...).CombinedOutput(); err != nil {
 			return fmt.Errorf("切换服务：%w：%s", err, output)
 		}
 	}
-	return waitController(ctx, listen)
+	return waitVersion(ctx, role, listen, version, client)
 }
 
 func (g github) download(ctx context.Context, asset artifact, destination string) error {
@@ -301,7 +313,7 @@ func extract(archive, destination string) error {
 	}
 }
 
-func waitController(ctx context.Context, listen string) error {
+func waitVersion(ctx context.Context, role, listen, version string, client *http.Client) error {
 	host, port, err := net.SplitHostPort(listen)
 	if err != nil {
 		return err
@@ -313,22 +325,39 @@ func waitController(ctx context.Context, listen string) error {
 	defer cancel()
 	timer := time.NewTicker(time.Second)
 	defer timer.Stop()
-	client := &http.Client{Timeout: time.Second}
+	if client == nil {
+		client = &http.Client{Timeout: time.Second}
+	}
+	address := "http://" + net.JoinHostPort(host, port) + "/api/v1/identity"
+	if role == "node" {
+		address = "https://" + net.JoinHostPort(host, port) + "/node/v1/info"
+	}
 	for {
-		r, err := http.NewRequestWithContext(ctx, "GET", "http://"+net.JoinHostPort(host, port)+"/api/v1/identity", nil)
+		attempt, cancel := context.WithTimeout(ctx, time.Second)
+		r, err := http.NewRequestWithContext(attempt, "GET", address, nil)
 		if err != nil {
+			cancel()
 			return err
 		}
 		response, err := client.Do(r)
 		if err == nil {
+			actual := response.Header.Get("X-Netlab-Version")
+			if role == "node" && response.StatusCode == http.StatusOK {
+				var info api.NodeInfo
+				if decodeErr := json.NewDecoder(response.Body).Decode(&info); decodeErr == nil {
+					actual = info.Version
+				}
+			}
 			response.Body.Close()
-			if response.StatusCode == http.StatusUnauthorized {
+			if actual == version && (response.StatusCode == http.StatusUnauthorized || role == "node" && response.StatusCode == http.StatusOK) {
+				cancel()
 				return nil
 			}
 		}
+		cancel()
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("新版本控制面未启动：%w", ctx.Err())
+			return fmt.Errorf("%s 版本 %s 未启动：%w", role, version, ctx.Err())
 		case <-timer.C:
 		}
 	}

@@ -125,12 +125,12 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     ).toBe(true);
   }
 });
-import type { Identity, Operation } from "../src/api/client";
+import type { Identity, Operation, Schema } from "../src/api/client";
 
 test("系统更新展示正式发布日志并提交指定版本", async ({ page }) => {
   await fixture(page);
   const now = new Date().toISOString();
-  let state = {
+  let state: Schema<"SystemUpdate"> = {
     currentVersion: "v1.0.0",
     available: true,
     canApply: true,
@@ -142,8 +142,6 @@ test("系统更新展示正式发布日志并提交指定版本", async ({ page 
       publishedAt: now,
       url: "https://github.com/scmypapa/netlab/releases/tag/v1.1.0",
     },
-    activity: undefined as
-      { version: string; phase: string; updatedAt: string } | undefined,
   };
   const submitted: unknown[] = [];
   await page.route("**/api/v1/system/update**", (route) => {
@@ -179,6 +177,33 @@ test("系统更新展示正式发布日志并提交指定版本", async ({ page 
     page.getByRole("dialog", { name: "更新到 v1.1.0", exact: true }),
   ).toHaveCount(0);
   expect(submitted).toEqual([{ version: "v1.1.0" }]);
+  state.activity = {
+    version: "v1.1.0",
+    phase: "updating_nodes",
+    updatedAt: now,
+    nodeName: "Worker A",
+    completedNodes: 1,
+    totalNodes: 2,
+  };
+  await expect(panel.getByText("更新节点", { exact: true })).toBeVisible();
+  await expect(
+    panel.getByText("Worker A · 1/2", { exact: true }),
+  ).toBeVisible();
+  state = {
+    ...state,
+    currentVersion: "v1.1.0",
+    latest: { ...state.latest!, version: "v1.2.0" },
+    activity: {
+      version: "v1.1.0",
+      phase: "failed",
+      updatedAt: now,
+      error: "Worker A 更新失败",
+    },
+  };
+  await panel.getByRole("button", { name: "继续更新 v1.1.0" }).click();
+  await page.getByRole("button", { name: "开始更新", exact: true }).click();
+  await expect(panel.getByText("准备更新", { exact: true })).toBeVisible();
+  expect(submitted).toEqual([{ version: "v1.1.0" }, { version: "v1.1.0" }]);
   for (const width of [390, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({ path: "../data/update-" + width + ".png" });

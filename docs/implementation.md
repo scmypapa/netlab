@@ -786,6 +786,18 @@ GET /api/v1/system/update 查询版本与安装进度；POST /api/v1/system/upda
 
 控制面、Linux 节点及前端构建通过。浏览器使用接口 fixture；原生验证使用临时独立 bridge，不代表真实多 Worker 或 VM 的规模验收。本轮未安装新二进制到常驻服务，原平台与生产环境未修改。
 
+### 原生安装与跨节点更新收尾（2026-10-04）
+
+安装入口统一为 `scripts/install-controller.sh` 和 `scripts/install-node.sh`，目标为 Ubuntu 24.04 x86-64；移除旧的 `deploy/bootstrap-network.sh` 和 `/usr/local/bin` 节点 unit。主站、节点使用独立 release 目录，复用既有 GitHub release、更新状态文件与 systemd 执行器。
+
+更新使用现有 operations 表中的一条系统任务；任务领取用短共享行锁读取维护状态，更新器用会话锁避免两个更新进程并行。现有任务完成后按节点逐一提交固定发布版本，检查节点实际身份与版本，成功后切换主站。失败或数据库连接中断后暂停状态保留，只能继续原版本；已受理的节点任务继续等待，不重复提交。没有新增队列或维护数据表。面板显示当前节点、完成数量与继续更新入口。
+
+节点依赖覆盖 containerd、libvirt、OVN/OVS、固件、TPM、制盘、抓包、restic 与远程桌面。发布包包含固定上游 guacd 及 VictoriaMetrics v1.126.0。guacd 使用固定运行 prefix 和 DESTDIR 打包，实际编译与库路径检查通过；虚拟机数据根使用 0711，证书及更新目录分别限制权限。OVN TLS 复用节点 PKI。
+
+已通过：实际 PostgreSQL 隔离 schema 下的前向迁移、排空、阻止 claim、完成后恢复，以及终止更新数据库连接后仍暂停、拒绝跳版本、原版本继续；节点成功、失败、错误身份、错误版本与已受理任务继续的 fixture；隔离真实 ovsdb-server 的双向 TLS；Windows 定向 Go 测试、Linux release 链接测试、控制面与节点构建；系统更新浏览器交互与前端生产构建。安装脚本语法及节点依赖 apt 模拟解析通过，未在常驻服务执行 apt 安装或版本切换。
+
+未执行：空白宿主完整安装、真实多节点版本切换与宿主/服务进程强杀验收。本轮不发 tag、不建正式 Release、不合并 main、不改原平台或生产节点。安装说明见 `docs/installation.md`。
+
 ### 首次生命周期定向验收耗时
 
 单次 API 脚本，两个环境、共 4 个容器和 2 个 KVM 空盘实例，同一常驻节点，已缓存模板：

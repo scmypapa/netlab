@@ -136,8 +136,12 @@ SELECT * FROM operations WHERE environment_id=$1 ORDER BY created_at DESC LIMIT 
 -- name: CreateOperation :one
 INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,asset_id,payload,expected_revision,client_request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *;
 -- name: ClaimOperation :one
-WITH candidate AS (
+WITH maintenance AS MATERIALIZED (
+ SELECT id FROM operations WHERE id='system-update' AND state='succeeded' FOR SHARE
+), candidate AS (
  SELECT o.id FROM operations o WHERE (o.state='queued' OR (o.state='running' AND o.lease_until<now()))
+ AND o.scope_kind<>'system'
+ AND EXISTS(SELECT 1 FROM maintenance)
  AND NOT EXISTS(SELECT 1 FROM operations live WHERE live.scope_kind=o.scope_kind AND live.scope_id=o.scope_id AND live.id<>o.id AND live.state='running')
  ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1
 ), claimed AS (

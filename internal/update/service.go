@@ -14,12 +14,14 @@ import (
 	"time"
 
 	"netlab.local/core/api"
+	"netlab.local/core/db/queries"
 )
 
 var ErrConflict = errors.New("已有更新正在执行，或所选发布版本已变化")
 var ErrNotInstalled = errors.New("源码开发环境不执行自更新")
 
 type Service struct {
+	Operations *queries.Queries
 	cfg        Config
 	github     github
 	mu         sync.Mutex
@@ -40,7 +42,11 @@ func New(cfg Config) (*Service, error) {
 	s.start = func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		output, err := exec.CommandContext(ctx, "sudo", "-n", "/usr/bin/systemctl", "start", "--no-block", "netlab-update.service").CombinedOutput()
+		command := exec.CommandContext(ctx, "/usr/bin/systemctl", "start", "--no-block", cfg.unit())
+		if cfg.Role != "node" {
+			command = exec.CommandContext(ctx, "sudo", "-n", "/usr/bin/systemctl", "start", "--no-block", cfg.unit())
+		}
+		output, err := command.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("启动更新服务：%w：%s", err, output)
 		}
@@ -83,7 +89,7 @@ func (s *Service) Check(ctx context.Context) error {
 
 func (s *Service) directory() string { return filepath.Join(s.cfg.DataDir, "update") }
 
-func (s *Service) Status() (api.SystemUpdate, error) {
+func (s *Service) Status(ctx context.Context) (api.SystemUpdate, error) {
 	s.mu.Lock()
 	value := api.SystemUpdate{CurrentVersion: s.cfg.Version, Latest: s.latest, CheckedAt: s.checkedAt, CheckError: s.checkError, CanApply: s.cfg.InstallDir != ""}
 	if s.latest != nil {
@@ -91,17 +97,37 @@ func (s *Service) Status() (api.SystemUpdate, error) {
 	}
 	s.mu.Unlock()
 	data, err := os.ReadFile(filepath.Join(s.directory(), "status.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return value, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return value, err
 	}
-	var activity api.UpdateActivity
-	if err := json.Unmarshal(data, &activity); err != nil {
-		return value, err
+	if err == nil {
+		var activity api.UpdateActivity
+		if err := json.Unmarshal(data, &activity); err != nil {
+			return value, err
+		}
+		value.Activity = &activity
 	}
-	value.Activity = &activity
+	if s.Operations != nil {
+		operation, err := s.Operations.GetOperation(ctx, "system-update")
+		if err != nil {
+			return value, err
+		}
+		var target api.ApplySystemUpdate
+		if err := json.Unmarshal(operation.Payload, &target); err != nil {
+			return value, err
+		}
+		if target.Version != "" && (operation.State != "succeeded" || value.Activity != nil && value.Activity.Version == target.Version) {
+			if value.Activity == nil || value.Activity.Version != target.Version {
+				value.Activity = &api.UpdateActivity{Version: target.Version, Phase: "waiting_operations", UpdatedAt: operation.UpdatedAt.Time}
+			}
+			if operation.State == "succeeded" || operation.State == "failed" {
+				value.Activity.Phase = api.UpdateActivityPhase(operation.State)
+				value.Activity.Error = operation.Error
+			} else if value.Activity.Phase == "succeeded" {
+				value.Activity.Phase = "waiting_operations"
+			}
+		}
+	}
 	return value, nil
 }
 
@@ -109,12 +135,53 @@ func (s *Service) Apply(ctx context.Context, version string) error {
 	if s.cfg.InstallDir == "" {
 		return ErrNotInstalled
 	}
+	if s.Operations != nil {
+		operation, err := s.Operations.GetOperation(ctx, "system-update")
+		if err != nil {
+			return err
+		}
+		if operation.State != "succeeded" {
+			var target api.ApplySystemUpdate
+			if err := json.Unmarshal(operation.Payload, &target); err != nil {
+				return err
+			}
+			if target.Version != version {
+				return ErrConflict
+			}
+			return s.apply(ctx, version, true)
+		}
+	}
 	s.mu.Lock()
-	if s.latest == nil || s.latest.Version != version || !newer(version, s.cfg.Version) {
-		s.mu.Unlock()
+	selected := s.latest != nil && s.latest.Version == version && newer(version, s.cfg.Version)
+	s.mu.Unlock()
+	if selected {
+		return s.apply(ctx, version, false)
+	}
+	status, err := s.Status(ctx)
+	if err != nil {
+		return err
+	}
+	if status.Activity != nil && status.Activity.Phase == "failed" && status.Activity.Version == version {
+		return s.ApplyRelease(ctx, version)
+	}
+	return ErrConflict
+}
+
+// Nodes install the exact published version selected by the controller, not a moving latest tag.
+func (s *Service) ApplyRelease(ctx context.Context, version string) error {
+	if s.cfg.InstallDir == "" {
+		return ErrNotInstalled
+	}
+	if !newer(version, s.cfg.Version) {
 		return ErrConflict
 	}
-	s.mu.Unlock()
+	if _, err := s.github.release(ctx, version); err != nil {
+		return err
+	}
+	return s.apply(ctx, version, false)
+}
+
+func (s *Service) apply(ctx context.Context, version string, resume bool) error {
 	directory := s.directory()
 	if err := os.MkdirAll(directory, 0750); err != nil {
 		return err
@@ -122,6 +189,9 @@ func (s *Service) Apply(ctx context.Context, version string) error {
 	requestPath := filepath.Join(directory, "request.json")
 	file, err := os.OpenFile(requestPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if errors.Is(err, os.ErrExist) {
+		if resume {
+			return s.start(ctx)
+		}
 		return ErrConflict
 	}
 	if err != nil {
@@ -148,6 +218,10 @@ func writeActivity(directory, version string, phase api.UpdateActivityPhase, fai
 		detail := failure.Error()
 		value.Error = &detail
 	}
+	return saveActivity(directory, value)
+}
+
+func saveActivity(directory string, value api.UpdateActivity) error {
 	file, err := os.CreateTemp(directory, ".status-")
 	if err != nil {
 		return err

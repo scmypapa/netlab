@@ -1210,12 +1210,17 @@ export interface components {
         | "queued"
         | "downloading"
         | "installing"
+        | "waiting_operations"
+        | "updating_nodes"
         | "restarting"
         | "succeeded"
         | "failed";
       /** Format: date-time */
       updatedAt: string;
       error?: string;
+      nodeName?: string;
+      completedNodes?: number;
+      totalNodes?: number;
     };
     SSHProbe: {
       port: number;
@@ -2033,6 +2038,7 @@ export interface components {
     NodeInfo: {
       id: string;
       name: string;
+      version: string;
       capacity: components["schemas"]["Resources"];
       capabilities: string[];
       slots: number;

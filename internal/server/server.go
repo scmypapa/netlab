@@ -19,6 +19,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
+	"netlab.local/core/internal/buildinfo"
 	"netlab.local/core/internal/environment"
 	"netlab.local/core/internal/metrics"
 	"netlab.local/core/internal/secret"
@@ -162,7 +163,11 @@ func (s *Server) Handler() http.Handler {
 	protection.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, httpError{http.StatusForbidden, "跨站请求被拒绝"})
 	}))
-	return protection.Handler(mux)
+	protected := protection.Handler(mux)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Netlab-Version", buildinfo.Version)
+		protected.ServeHTTP(w, r)
+	})
 }
 
 func credential(r *http.Request) string {

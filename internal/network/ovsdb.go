@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"github.com/go-logr/logr"
 	"log/slog"
@@ -141,7 +142,7 @@ type OVS struct {
 	mu     sync.Mutex
 }
 
-func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
+func NewOVN(ctx context.Context, endpoint string, tlsConfig *tls.Config) (*OVN, error) {
 	tables := map[string]model.Model{
 		"Logical_Switch": &Switch{}, "Logical_Switch_Port": &SwitchPort{}, "DHCP_Options": &DHCP{},
 		"Logical_Router": &Router{}, "Logical_Router_Port": &RouterPort{}, "Logical_Router_Static_Route": &Route{}, "ACL": &ACL{},
@@ -155,7 +156,7 @@ func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
 	db.SetIndexes(map[string][]model.ClientIndex{
 		"Logical_Router": {{Columns: []model.ColumnKey{{Column: "name"}}}},
 	})
-	c, err := connect(ctx, endpoint, db, tables)
+	c, err := connect(ctx, endpoint, db, tables, tlsConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +168,7 @@ func NewOVS(ctx context.Context, endpoint, bridge string) (*OVS, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := connect(ctx, endpoint, db, tables)
+	c, err := connect(ctx, endpoint, db, tables, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -178,16 +179,20 @@ func NewOVS(ctx context.Context, endpoint, bridge string) (*OVS, error) {
 	}
 	return &OVS{client: c, bridge: bridge}, nil
 }
-func connect(ctx context.Context, endpoint string, db model.ClientDBModel, tables map[string]model.Model) (client.Client, error) {
+func connect(ctx context.Context, endpoint string, db model.ClientDBModel, tables map[string]model.Model, tlsConfig *tls.Config) (client.Client, error) {
 	logger := logr.FromSlogHandler(slog.Default().Handler())
-	c, err := client.NewOVSDBClient(db, client.WithEndpoint(endpoint), client.WithLogger(&logger))
+	options := []client.Option{client.WithEndpoint(endpoint), client.WithLogger(&logger)}
+	if tlsConfig != nil {
+		options = append(options, client.WithTLSConfig(tlsConfig))
+	}
+	c, err := client.NewOVSDBClient(db, options...)
 	if err != nil {
 		return nil, err
 	}
 	if err = c.Connect(ctx); err != nil {
 		return nil, err
 	}
-	options := []client.MonitorOption{}
+	monitor := []client.MonitorOption{}
 	for _, m := range tables {
 		fields := []interface{}{}
 		value := reflect.ValueOf(m).Elem()
@@ -196,9 +201,9 @@ func connect(ctx context.Context, endpoint string, db model.ClientDBModel, table
 				fields = append(fields, value.Field(i).Addr().Interface())
 			}
 		}
-		options = append(options, client.WithTable(m, fields...))
+		monitor = append(monitor, client.WithTable(m, fields...))
 	}
-	if _, err = c.Monitor(ctx, c.NewMonitor(options...)); err != nil {
+	if _, err = c.Monitor(ctx, c.NewMonitor(monitor...)); err != nil {
 		c.Close()
 		return nil, err
 	}

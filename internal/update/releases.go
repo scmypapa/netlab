@@ -15,11 +15,19 @@ import (
 )
 
 type Config struct {
+	Role       string
 	Repository string
 	Token      string
 	InstallDir string
 	DataDir    string
 	Version    string
+}
+
+func (c Config) unit() string {
+	if c.Role == "node" {
+		return "netlab-node-update.service"
+	}
+	return "netlab-update.service"
 }
 
 type release struct {

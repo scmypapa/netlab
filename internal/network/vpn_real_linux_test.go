@@ -37,7 +37,7 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ovs.Close()
-	ovn, err := NewOVN(ctx, "unix:/run/ovn/ovnnb_db.sock")
+	ovn, err := NewOVN(ctx, "unix:/run/ovn/ovnnb_db.sock", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

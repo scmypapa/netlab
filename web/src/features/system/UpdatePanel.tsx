@@ -20,6 +20,8 @@ const phases: Record<Phase, string> = {
   queued: "准备更新",
   downloading: "下载发布包",
   installing: "安装更新",
+  waiting_operations: "等待当前任务完成",
+  updating_nodes: "更新节点",
   restarting: "重启服务",
   succeeded: "更新完成",
   failed: "更新失败",
@@ -52,6 +54,9 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
   const data = query.data;
   const busy = active(data?.activity?.phase);
   const latest = data?.latest;
+  const retryVersion =
+    data?.activity?.phase === "failed" ? data.activity.version : undefined;
+  const targetVersion = retryVersion ?? latest?.version;
   return (
     <>
       <Drawer
@@ -107,6 +112,13 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                     <div>
                       <strong>{phases[data.activity.phase]}</strong>
                       <span>{data.activity.version}</span>
+                      {data.activity.phase === "updating_nodes" && (
+                        <span>
+                          {data.activity.nodeName} ·{" "}
+                          {data.activity.completedNodes}/
+                          {data.activity.totalNodes}
+                        </span>
+                      )}
                     </div>
                     {busy && (
                       <Loader
@@ -117,6 +129,17 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                     {data.activity.error && (
                       <ErrorMessage error={new Error(data.activity.error)} />
                     )}
+                    {retryVersion && data.canApply && (
+                      <Button
+                        size="xs"
+                        onClick={() => {
+                          apply.reset();
+                          setConfirming(true);
+                        }}
+                      >
+                        继续更新 {retryVersion}
+                      </Button>
+                    )}
                   </section>
                 )}
                 {latest && (
@@ -126,7 +149,7 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                         <h2>{latest.name || latest.version}</h2>
                         <time>{dateTime(latest.publishedAt)}</time>
                       </div>
-                      {data.available && data.canApply ? (
+                      {data.available && data.canApply && !retryVersion ? (
                         <Button
                           leftSection={<Download size={16} />}
                           disabled={busy}
@@ -137,7 +160,9 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                         >
                           更新到 {latest.version}
                         </Button>
-                      ) : !data.available && data.currentVersion !== "dev" ? (
+                      ) : !data.available &&
+                        !retryVersion &&
+                        data.currentVersion !== "dev" ? (
                         <Badge
                           variant="light"
                           color="teal"
@@ -175,7 +200,7 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
       <Modal
         opened={confirming}
         onClose={() => !apply.isPending && setConfirming(false)}
-        title={"更新到 " + latest?.version}
+        title={"更新到 " + targetVersion}
         centered
       >
         <p>服务将短暂重启。已运行的资产和数据保持不变。</p>
@@ -190,7 +215,7 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
           </Button>
           <Button
             loading={apply.isPending}
-            onClick={() => latest && apply.mutate(latest.version)}
+            onClick={() => targetVersion && apply.mutate(targetVersion)}
           >
             开始更新
           </Button>

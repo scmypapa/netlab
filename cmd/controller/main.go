@@ -59,9 +59,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if len(os.Args) == 2 && os.Args[1] == "update" {
-		return update.Execute(ctx, updateConfig, address)
-	}
 	connection := os.Getenv("NETLAB_DATABASE_URL")
 	if connection == "" {
 		return fmt.Errorf("请设置 NETLAB_DATABASE_URL")
@@ -71,6 +68,16 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	updates.Operations = queries.New(pool)
+	if len(os.Args) == 2 && os.Args[1] == "update" {
+		nodes, err := transport.NewClient(os.Getenv("NETLAB_NODE_CA"), os.Getenv("NETLAB_NODE_CERT"), os.Getenv("NETLAB_NODE_KEY"))
+		if err != nil {
+			return err
+		}
+		return update.Execute(ctx, updateConfig, address, nil, func(ctx context.Context, version string) (func(error) error, error) {
+			return update.Rollout(ctx, pool, nodes, filepath.Join(dataDirectory, "update"), version)
+		})
+	}
 	if err = db.Migrate(ctx, pool); err != nil {
 		return err
 	}

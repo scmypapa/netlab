@@ -51,7 +51,7 @@ func TestCheckAndApply(t *testing.T) {
 	if err := s.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	status, err := s.Status()
+	status, err := s.Status(context.Background())
 	if err != nil || !status.Available || status.Latest.Notes == "" || status.CanApply {
 		t.Fatalf("%+v %v", status, err)
 	}
@@ -70,13 +70,13 @@ func TestCheckAndApply(t *testing.T) {
 	if err := s.Apply(context.Background(), "v1.2.0"); !errors.Is(err, ErrConflict) {
 		t.Fatal(err)
 	}
-	status, err = s.Status()
+	status, err = s.Status(context.Background())
 	if err != nil || status.Activity.Phase != "queued" || status.Activity.Version != "v1.2.0" {
 		t.Fatalf("%+v %v", status, err)
 	}
 	other, _ := New(cfg)
 	other.cfg.InstallDir = s.cfg.InstallDir
-	status, err = other.Status()
+	status, err = other.Status(context.Background())
 	if err != nil || status.Activity.Phase != "queued" {
 		t.Fatalf("durable progress missing: %+v %v", status, err)
 	}
@@ -91,7 +91,7 @@ func TestApplyStartFailure(t *testing.T) {
 	if err := s.Apply(context.Background(), r.Version); err == nil {
 		t.Fatal("accepted failed start")
 	}
-	status, err := s.Status()
+	status, err := s.Status(context.Background())
 	if err != nil || status.Activity.Phase != "failed" || status.Activity.Error == nil {
 		t.Fatalf("%+v %v", status, err)
 	}
@@ -197,7 +197,10 @@ func TestReleaseDirectoryAndSwitch(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(releaseDir, "release.json"), data, 0644); err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"netlab-controller", "netlab-node", "web/index.html"} {
+		for _, name := range []string{"netlab-controller", "netlab-node", "web/index.html", "victoria-metrics-prod", "guacamole/sbin/guacd", "guacamole/lib/libguac-client-rdp.so"} {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(releaseDir, name)), 0755); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(filepath.Join(releaseDir, name), []byte("package fixture"), 0644); err != nil {
 				t.Fatal(err)
 			}

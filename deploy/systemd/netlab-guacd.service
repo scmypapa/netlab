@@ -7,8 +7,8 @@ DynamicUser=yes
 NoNewPrivileges=yes
 RuntimeDirectory=netlab-guacd
 Environment=HOME=/run/netlab-guacd
-Environment=LD_LIBRARY_PATH=/opt/netlab/guacamole-1.6.1/lib
-ExecStart=/opt/netlab/guacamole-1.6.1/sbin/guacd -f -b 127.0.0.1 -l 4822 -L info
+Environment=LD_LIBRARY_PATH=/opt/netlab-node/current/guacamole/lib
+ExecStart=/opt/netlab-node/current/guacamole/sbin/guacd -f -b 127.0.0.1 -l 4822 -L info
 Restart=on-failure
 
 [Install]

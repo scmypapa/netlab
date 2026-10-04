@@ -32,6 +32,7 @@ import (
 	"netlab.local/core/internal/metrics"
 	"netlab.local/core/internal/stream"
 	"netlab.local/core/internal/transport"
+	"netlab.local/core/internal/update"
 )
 
 func main() {
@@ -90,14 +91,47 @@ func run() error {
 		return err
 	}
 	cfg.ArtifactHTTP = client.HTTP
+	cfg.OVNTLS = client.HTTP.Transport.(*http.Transport).TLSClientConfig.Clone()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+	repository := os.Getenv("NETLAB_RELEASE_REPOSITORY")
+	if repository == "" {
+		repository = "scmypapa/netlab"
+	}
+	updateConfig := update.Config{Role: "node", Repository: repository, Token: os.Getenv("NETLAB_GITHUB_TOKEN"), InstallDir: os.Getenv("NETLAB_INSTALL_DIR"), DataDir: cfg.DataDir, Version: buildinfo.Version}
+	updates, err := update.New(updateConfig)
+	if err != nil {
+		return err
+	}
+	if flag.NArg() == 1 && flag.Arg(0) == "update" {
+		return update.Execute(ctx, updateConfig, address, client.HTTP, nil)
+	}
 	executor, err := engine.New(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /node/v1/system/update", func(w http.ResponseWriter, r *http.Request) {
+		status, err := updates.Status(r.Context())
+		respond(w, status, err)
+	})
+	mux.HandleFunc("POST /node/v1/system/update", func(w http.ResponseWriter, r *http.Request) {
+		var input api.ApplySystemUpdate
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := updates.ApplyRelease(r.Context(), input.Version); err != nil {
+			status := http.StatusBadGateway
+			if errors.Is(err, update.ErrConflict) || errors.Is(err, update.ErrNotInstalled) {
+				status = http.StatusConflict
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
 	mux.HandleFunc("POST /node/v1/traffic", executor.Traffic)
 	for _, pattern := range []string{
 		"GET /node/v1/environments/{environmentId}/captures", "POST /node/v1/environments/{environmentId}/captures", "DELETE /node/v1/environments/{environmentId}/captures",

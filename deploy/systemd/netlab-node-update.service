@@ -1,0 +1,11 @@
+[Unit]
+Description=Netlab node release installation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/netlab-node/node.env
+ExecStart=/opt/netlab-node/current/netlab-node $NETLAB_NODE_ARGS update
+TimeoutStartSec=20min
+UMask=0077

@@ -13,7 +13,7 @@ func (s *Server) systemUpdate(w http.ResponseWriter, r *http.Request, identity a
 	if err := requireAdministrator(identity); err != nil {
 		return err
 	}
-	status, err := s.Updates.Status()
+	status, err := s.Updates.Status(r.Context())
 	if err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func (s *Server) applySystemUpdate(w http.ResponseWriter, r *http.Request, ident
 		}
 		return httpError{http.StatusBadGateway, err.Error()}
 	}
-	status, err := s.Updates.Status()
+	status, err := s.Updates.Status(r.Context())
 	if err != nil {
 		return err
 	}

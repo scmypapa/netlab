@@ -4,6 +4,7 @@ package engine
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/buildinfo"
 	"netlab.local/core/internal/capture"
 	"netlab.local/core/internal/network"
 )
@@ -28,6 +30,7 @@ type Config struct {
 	AdvertiseAddress                                                                  string
 	GuacdAddress                                                                      string
 	ArtifactHTTP                                                                      *http.Client
+	OVNTLS                                                                            *tls.Config
 }
 type Engine struct {
 	cfg           Config
@@ -65,7 +68,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	if e.ovs, err = network.NewOVS(ctx, cfg.OVSEndpoint, cfg.Bridge); err != nil {
 		return nil, err
 	}
-	if e.ovn, err = network.NewOVN(ctx, cfg.OVNEndpoint); err != nil {
+	if e.ovn, err = network.NewOVN(ctx, cfg.OVNEndpoint, cfg.OVNTLS); err != nil {
 		e.Close()
 		return nil, err
 	}
@@ -171,7 +174,7 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 	if e.vm != nil {
 		caps = append(caps, "vm")
 	}
-	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
+	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Version: buildinfo.Version, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
 	storage, err := StorageInfo(e.cfg.DataDir)
 	if err != nil {
 		return api.NodeInfo{}, err
