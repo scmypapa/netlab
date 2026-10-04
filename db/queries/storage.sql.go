@@ -12,13 +12,14 @@ import (
 )
 
 const createStoragePool = `-- name: CreateStoragePool :exec
-INSERT INTO storage_pools(id,node_id,name,directory,path) VALUES($1,$2,$3,$4,$5)
+INSERT INTO storage_pools(id,node_ids,name,driver,directory,path) VALUES($1,$2,$3,$4,$5,$6)
 `
 
 type CreateStoragePoolParams struct {
 	ID        string
-	NodeID    string
+	NodeIds   []string
 	Name      string
+	Driver    string
 	Directory string
 	Path      string
 }
@@ -26,8 +27,9 @@ type CreateStoragePoolParams struct {
 func (q *Queries) CreateStoragePool(ctx context.Context, arg CreateStoragePoolParams) error {
 	_, err := q.db.Exec(ctx, createStoragePool,
 		arg.ID,
-		arg.NodeID,
+		arg.NodeIds,
 		arg.Name,
+		arg.Driver,
 		arg.Directory,
 		arg.Path,
 	)
@@ -44,7 +46,7 @@ func (q *Queries) DeleteStoragePool(ctx context.Context, id string) error {
 }
 
 const getStoragePool = `-- name: GetStoragePool :one
-SELECT id, node_id, name, directory, path, state, operation_id, created_at FROM storage_pools WHERE id=$1
+SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver FROM storage_pools WHERE id=$1
 `
 
 func (q *Queries) GetStoragePool(ctx context.Context, id string) (StoragePool, error) {
@@ -52,30 +54,32 @@ func (q *Queries) GetStoragePool(ctx context.Context, id string) (StoragePool, e
 	var i StoragePool
 	err := row.Scan(
 		&i.ID,
-		&i.NodeID,
 		&i.Name,
 		&i.Directory,
 		&i.Path,
 		&i.State,
 		&i.OperationID,
 		&i.CreatedAt,
+		&i.NodeIds,
+		&i.Driver,
 	)
 	return i, err
 }
 
 const listStoragePools = `-- name: ListStoragePools :many
-SELECT s.id, s.node_id, s.name, s.directory, s.path, s.state, s.operation_id, s.created_at,o.error AS operation_error FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.node_id,s.id
+SELECT s.id, s.name, s.directory, s.path, s.state, s.operation_id, s.created_at, s.node_ids, s.driver,o.error AS operation_error FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.id
 `
 
 type ListStoragePoolsRow struct {
 	ID             string
-	NodeID         string
 	Name           string
 	Directory      string
 	Path           string
 	State          string
 	OperationID    *string
 	CreatedAt      pgtype.Timestamptz
+	NodeIds        []string
+	Driver         string
 	OperationError *string
 }
 
@@ -90,13 +94,14 @@ func (q *Queries) ListStoragePools(ctx context.Context) ([]ListStoragePoolsRow, 
 		var i ListStoragePoolsRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.NodeID,
 			&i.Name,
 			&i.Directory,
 			&i.Path,
 			&i.State,
 			&i.OperationID,
 			&i.CreatedAt,
+			&i.NodeIds,
+			&i.Driver,
 			&i.OperationError,
 		); err != nil {
 			return nil, err
@@ -110,7 +115,7 @@ func (q *Queries) ListStoragePools(ctx context.Context) ([]ListStoragePoolsRow, 
 }
 
 const lockStoragePool = `-- name: LockStoragePool :one
-SELECT id, node_id, name, directory, path, state, operation_id, created_at FROM storage_pools WHERE id=$1 FOR UPDATE
+SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver FROM storage_pools WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockStoragePool(ctx context.Context, id string) (StoragePool, error) {
@@ -118,19 +123,20 @@ func (q *Queries) LockStoragePool(ctx context.Context, id string) (StoragePool, 
 	var i StoragePool
 	err := row.Scan(
 		&i.ID,
-		&i.NodeID,
 		&i.Name,
 		&i.Directory,
 		&i.Path,
 		&i.State,
 		&i.OperationID,
 		&i.CreatedAt,
+		&i.NodeIds,
+		&i.Driver,
 	)
 	return i, err
 }
 
 const lockStoragePools = `-- name: LockStoragePools :many
-SELECT id, node_id, name, directory, path, state, operation_id, created_at FROM storage_pools WHERE id=ANY($1::text[]) ORDER BY id FOR KEY SHARE
+SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver FROM storage_pools WHERE id=ANY($1::text[]) ORDER BY id FOR KEY SHARE
 `
 
 func (q *Queries) LockStoragePools(ctx context.Context, dollar_1 []string) ([]StoragePool, error) {
@@ -144,13 +150,14 @@ func (q *Queries) LockStoragePools(ctx context.Context, dollar_1 []string) ([]St
 		var i StoragePool
 		if err := rows.Scan(
 			&i.ID,
-			&i.NodeID,
 			&i.Name,
 			&i.Directory,
 			&i.Path,
 			&i.State,
 			&i.OperationID,
 			&i.CreatedAt,
+			&i.NodeIds,
+			&i.Driver,
 		); err != nil {
 			return nil, err
 		}

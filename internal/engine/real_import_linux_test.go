@@ -190,7 +190,7 @@ func TestRealVMArtifactImports(t *testing.T) {
 			if _, err = vm.Execute(ctx, env, api.NodePlanPhaseUpdate, a); err != nil {
 				t.Fatal(err)
 			}
-			actual, err := vm.observedExecution(domain)
+			actual, err := vm.observedExecution(ctx, domain)
 			if err != nil || actual.Asset.Resources.DiskGiB != a.Asset.Resources.DiskGiB || actual.Asset.Resources.MemoryMiB != a.Asset.Resources.MemoryMiB {
 				t.Fatalf("actual resources after update: %+v %v", actual, err)
 			}
@@ -215,7 +215,7 @@ func TestRealVMArtifactImports(t *testing.T) {
 			if _, err = os.Stat(instanceDir(data, env, instance)); !os.IsNotExist(err) {
 				t.Fatal("destroy left instance disks behind:", err)
 			}
-			if _, err = os.Stat(vm.volumePath(env, a, "scratch")); !os.IsNotExist(err) {
+			if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "scratch").file); !os.IsNotExist(err) {
 				t.Fatal("destroy left its ordinary data volume behind:", err)
 			}
 			t.Logf("%s: %d disks, original controllers/NICs, lossless conversion, lifecycle, expansion and destroy passed", fixture.name, fixture.disks)

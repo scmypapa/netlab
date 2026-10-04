@@ -182,7 +182,7 @@ async function verifyRestore(op) {
     const actual = state.assets.find((a) => a.assetId === original.assetId);
     assert.equal(actual.instanceId, original.instanceId);
     assert.equal(actual.state, original.state);
-    const root = pools.find((p) => p.nodeId === actual.nodeId).storage.path;
+    const root = pools.find((p) => p.nodeIds[0] === actual.nodeId).storage.path;
     const directory = `${root}/environments/${environment.id}/instances/${actual.instanceId}.${op.id}`;
     const manifest = JSON.parse(
       await node(original.nodeId, "cat", `${dir(original)}/manifest.json`),
@@ -320,7 +320,7 @@ async function nodeRequest(endpoint, path, body) {
   });
 }
 function dir(actual) {
-  return `${pools.find((p) => p.nodeId === actual.nodeId).storage.path}/recovery-points/${point.id}/${actual.assetId}`;
+  return `${pools.find((p) => p.nodeIds[0] === actual.nodeId).storage.path}/recovery-points/${point.id}/${actual.assetId}`;
 }
 async function deletePoint() {
   if (!point) return;
@@ -380,7 +380,7 @@ try {
           await api(
             "/storage-pools",
             "POST",
-            { nodeId: id, name: `Recovery ${run}`, directory: source },
+            { nodeIds: [id], driver: "directory", name: `Recovery ${run}`, directory: source },
             201,
           ),
         );
@@ -421,7 +421,7 @@ try {
       const assets = pools.flatMap((pool) =>
         [containerTemplate, vmTemplate].map((t) => ({
           id: randomUUID(),
-          name: `${t.kind}-${pool.nodeId.slice(0, 4)}`,
+          name: `${t.kind}-${pool.nodeIds[0].slice(0, 4)}`,
           templateId: t.id,
           storagePoolId: pool.id,
           resources: t.resources,
@@ -452,7 +452,7 @@ try {
       await action("force-stop");
       before = await api(`/environments/${environment.id}/state`);
       for (const actual of before.assets) {
-        const root = pools.find((p) => p.nodeId === actual.nodeId).storage.path;
+        const root = pools.find((p) => p.nodeIds[0] === actual.nodeId).storage.path;
         if (
           assets.find((a) => a.id === actual.assetId).templateId ===
           vmTemplate.id
@@ -517,10 +517,10 @@ try {
   await step("捕获写入真实失败、恢复原状态、解除故障后原任务重试", async () => {
     const pool = pools[1],
       path = `${pool.storage.path}/recovery-points`;
-    await node(pool.nodeId, "mkdir", "-p", path);
-    await node(pool.nodeId, "mount", "--bind", path, path);
-    readOnlyCapture = { nodeId: pool.nodeId, path };
-    await node(pool.nodeId, "mount", "-o", "remount,bind,ro", path);
+    await node(pool.nodeIds[0], "mkdir", "-p", path);
+    await node(pool.nodeIds[0], "mount", "--bind", path, path);
+    readOnlyCapture = { nodeId: pool.nodeIds[0], path };
+    await node(pool.nodeIds[0], "mount", "-o", "remount,bind,ro", path);
     point = await api(
       `/environments/${environment.id}/recovery-points`,
       "POST",
@@ -550,7 +550,7 @@ try {
       );
     }
     report.captureFailure = { phase: failed.phase, error: failed.error };
-    await node(pool.nodeId, "umount", path);
+    await node(pool.nodeIds[0], "umount", path);
     readOnlyCapture = undefined;
     await api(`/operations/${point.operationId}/retry`, "POST", undefined, 202);
   });
@@ -661,7 +661,7 @@ try {
             actual.instanceId,
             xml.match(/<genid>(.*?)<\/genid>/)?.[1],
           );
-          const root = pools.find((p) => p.nodeId === actual.nodeId).storage
+          const root = pools.find((p) => p.nodeIds[0] === actual.nodeId).storage
             .path;
           await changeVMData(
             actual,
@@ -689,7 +689,7 @@ try {
           ),
           target = structuredClone(manifest.execution),
           opId = randomUUID(),
-          pool = pools.find((p) => p.nodeId === secondary);
+          pool = pools.find((p) => p.nodeIds[0] === secondary);
         target.dataSetId = opId;
         target.storagePath = pool.storage.path;
         target.storagePoolId = pool.id;
@@ -779,9 +779,9 @@ try {
     async () => {
       const pool = pools[1],
         path = `${pool.storage.path}/environments/${environment.id}/instances`;
-      await node(pool.nodeId, "mount", "--bind", path, path);
-      readOnlyCapture = { nodeId: pool.nodeId, path };
-      await node(pool.nodeId, "mount", "-o", "remount,bind,ro", path);
+      await node(pool.nodeIds[0], "mount", "--bind", path, path);
+      readOnlyCapture = { nodeId: pool.nodeIds[0], path };
+      await node(pool.nodeIds[0], "mount", "-o", "remount,bind,ro", path);
       const current = await api(`/environments/${environment.id}/state`);
       const op = await api(
         `/environments/${environment.id}/recovery-points/${point.id}/restore`,
@@ -799,7 +799,7 @@ try {
         assert.equal(actual.instanceId, asset.instanceId);
         assert.equal(actual.state, asset.state);
       }
-      await node(pool.nodeId, "umount", path);
+      await node(pool.nodeIds[0], "umount", path);
       readOnlyCapture = undefined;
       await api(`/operations/${op.id}/retry`, "POST", undefined, 202);
       await operation(op.id);
@@ -867,7 +867,7 @@ try {
       const state = await verifyRestore(op);
       assert.equal(state.revision, current.revision + 1);
       for (const actual of state.assets) {
-        const root = pools.find((p) => p.nodeId === actual.nodeId).storage.path;
+        const root = pools.find((p) => p.nodeIds[0] === actual.nodeId).storage.path;
         await node(
           actual.nodeId,
           "test",
@@ -1189,7 +1189,7 @@ try {
       const generationBefore = new Map();
       for (const actual of current.assets) {
         const a = environment.spec.assets.find((a) => a.id === actual.assetId),
-          root = pools.find((p) => p.nodeId === actual.nodeId).storage.path;
+          root = pools.find((p) => p.nodeIds[0] === actual.nodeId).storage.path;
         if (a.templateId === vmTemplate.id) {
           await changeVMData(
             actual,
@@ -1319,7 +1319,7 @@ try {
           );
           assert.equal(actual.instanceId, original.instanceId);
           assert.equal(actual.state, original.state);
-          const root = pools.find((p) => p.nodeId === actual.nodeId).storage
+          const root = pools.find((p) => p.nodeIds[0] === actual.nodeId).storage
             .path;
           if (generationBefore.has(actual.instanceId)) {
             const xml = await node(
@@ -1537,7 +1537,7 @@ try {
         202,
       );
       await operation(op.id);
-      await node(pool.nodeId, "rm", "-r", "--", source);
+      await node(pool.nodeIds[0], "rm", "-r", "--", source);
     } catch (e) {
       report.cleanupErrors.push(e.message);
     }

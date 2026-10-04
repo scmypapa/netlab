@@ -99,7 +99,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		if err != nil {
 			return state, err
 		}
-		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, true)
+		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, func(id string) error { return os.RemoveAll(c.volumeDir(env, a, id)) }, true)
 	case api.NodePlanPhaseUpdate:
 		return c.update(ctx, container, env, a)
 	case api.NodePlanPhaseStart:
@@ -655,7 +655,7 @@ func (c *Containers) removeFiles(ctx context.Context, env string, a api.AssetExe
 	if err != nil {
 		return err
 	}
-	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, false)
+	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, func(id string) error { return os.RemoveAll(c.volumeDir(env, a, id)) }, false)
 }
 
 func (c *Containers) volumeReferences(ctx context.Context, env, asset string) (map[string]bool, error) {

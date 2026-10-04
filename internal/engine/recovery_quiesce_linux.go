@@ -41,6 +41,32 @@ func guestFreezeState(domain *libvirt.Domain) (string, error) {
 	return result.Return, nil
 }
 
+func guestRecoveryConsistency(domain *libvirt.Domain) (api.RecoveryConsistency, error) {
+	text, err := domain.QemuAgentCommand(`{"execute":"guest-get-osinfo"}`, libvirt.DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, 0)
+	if err != nil {
+		return api.Crash, err
+	}
+	var result struct {
+		Return struct {
+			ID string `json:"id"`
+		} `json:"return"`
+		Error *struct {
+			Desc string `json:"desc"`
+		} `json:"error"`
+	}
+	if err = json.Unmarshal([]byte(text), &result); err != nil {
+		return api.Crash, err
+	}
+	if result.Error != nil {
+		return api.Crash, errors.New(result.Error.Desc)
+	}
+	if result.Return.ID == "mswindows" {
+		// QGA's Windows freeze completes VSS preparation, writer checks and snapshot creation.
+		return api.Application, nil
+	}
+	return api.Filesystem, nil
+}
+
 func (v *VirtualMachines) freezeRecoveryFS(domain *libvirt.Domain, point string, a api.AssetExecution, paused bool) (bool, error) {
 	text, err := domain.GetXMLDesc(0)
 	if err != nil {
@@ -71,6 +97,10 @@ func (v *VirtualMachines) freezeRecoveryFS(domain *libvirt.Domain, point string,
 	if status == "frozen" {
 		return false, errors.New("guest filesystems are already frozen outside this capture")
 	}
+	consistency, err := guestRecoveryConsistency(domain)
+	if err != nil {
+		return false, err
+	}
 	path := recoveryFreezePath(v.data, point, a)
 	if err = os.MkdirAll(filepath.Dir(path), 0711); err != nil {
 		return false, err
@@ -80,7 +110,8 @@ func (v *VirtualMachines) freezeRecoveryFS(domain *libvirt.Domain, point string,
 	if err != nil {
 		return false, err
 	}
-	if err = file.Close(); err != nil {
+	_, writeErr := file.WriteString(string(consistency))
+	if err = errors.Join(writeErr, file.Close()); err != nil {
 		return false, err
 	}
 	if err = domain.FSFreeze(nil, 0); err != nil {

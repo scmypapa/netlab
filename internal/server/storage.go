@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +18,7 @@ import (
 	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/environment"
 	"netlab.local/core/internal/operation"
+	"netlab.local/core/internal/transport"
 )
 
 func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
@@ -34,12 +35,15 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 	for _, node := range nodes {
 		ids = append(ids, node.ID)
 		endpoints[node.ID] = node.Endpoint
-		items = append(items, api.StoragePool{Id: "default:" + node.ID, NodeId: node.ID, Name: node.Name + " · 本地存储", Default: true, Driver: api.Directory, Capabilities: []string{"vm-disks", "volumes"}})
+		items = append(items, api.StoragePool{Id: "default:" + node.ID, NodeIds: []string{node.ID}, Name: node.Name + " · 本地存储", Default: true, Driver: api.StorageDriverDirectory, Capabilities: []string{"vm-disks", "volumes"}})
 	}
 	for _, pool := range pools {
 		state := api.StoragePoolState(pool.State)
-		item := api.StoragePool{Id: pool.ID, NodeId: pool.NodeID, Name: pool.Name, Driver: api.Directory, State: &state, OperationId: pool.OperationID, Error: pool.OperationError, Storage: &api.StorageInfo{Path: pool.Path}, Capabilities: []string{"vm-disks", "volumes"}}
-		if identity.Administrator() {
+		item := api.StoragePool{Id: pool.ID, NodeIds: pool.NodeIds, Name: pool.Name, Driver: api.StorageDriver(pool.Driver), State: &state, OperationId: pool.OperationID, Error: pool.OperationError, Capabilities: []string{"vm-disks", "volumes"}}
+		if pool.Driver == "rbd" {
+			item.Capabilities = []string{"vm-disks", "vm-volumes"}
+		}
+		if identity.Administrator() && pool.Driver == "directory" {
 			item.Directory = &pool.Directory
 		}
 		items = append(items, item)
@@ -50,13 +54,17 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 	}
 	for i := range items {
 		for _, allocated := range reservations {
-			if allocated.NodeID == items[i].NodeId && (allocated.PoolID == items[i].Id || items[i].Default && allocated.PoolID == "") {
-				items[i].AllocatedGiB = allocated.DiskGib
+			if slices.Contains(items[i].NodeIds, allocated.NodeID) && (allocated.PoolID == items[i].Id || items[i].Default && allocated.PoolID == "") {
+				items[i].AllocatedGiB += allocated.DiskGib
 			}
 		}
 	}
 	var wg sync.WaitGroup
 	for i := range items {
+		directory := ""
+		if !items[i].Default {
+			directory = pools[i-len(nodes)].Directory
+		}
 		wg.Go(func() {
 			item := &items[i]
 			var info api.StorageInfo
@@ -65,7 +73,7 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 			defer cancel()
 			if item.Default {
 				var node api.NodeInfo
-				node, err = s.Nodes.Info(ctx, endpoints[item.NodeId])
+				node, err = s.Nodes.Info(ctx, endpoints[item.NodeIds[0]])
 				if err == nil {
 					if node.Storage == nil {
 						err = fmt.Errorf("节点未提供存储信息")
@@ -77,7 +85,17 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 					}
 				}
 			} else {
-				err = s.Nodes.Do(ctx, http.MethodGet, endpoints[item.NodeId], "/node/v1/storage?path="+url.QueryEscape(item.Storage.Path), nil, &info)
+				var failures error
+				for _, node := range item.NodeIds {
+					err = s.Nodes.Do(ctx, http.MethodGet, endpoints[node], transport.StorageRoute(item.Id, directory), nil, &info)
+					if err == nil {
+						break
+					}
+					failures = errors.Join(failures, err)
+				}
+				if err != nil {
+					err = failures
+				}
 			}
 			if err != nil {
 				message := err.Error()
@@ -85,9 +103,12 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 				return
 			}
 			if !identity.Administrator() {
-				info.Path, info.Filesystem = "", ""
+				info.Path, info.Filesystem, info.Rbd = "", "", nil
 			}
 			item.Storage = &info
+			if info.NativeSnapshots {
+				item.Capabilities = append(item.Capabilities, "native-snapshots")
+			}
 		})
 	}
 	wg.Wait()
@@ -103,33 +124,50 @@ func (s *Server) createStoragePool(w http.ResponseWriter, r *http.Request, ident
 		return err
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" {
-		return environment.Invalid("请填写存储池名称")
+	if input.Name == "" || len(input.NodeIds) == 0 {
+		return environment.Invalid("请填写存储池名称并选择节点")
 	}
-	nodes, err := s.Queries.GetNodeEndpoints(r.Context(), []string{input.NodeId})
+	slices.Sort(input.NodeIds)
+	input.NodeIds = slices.Compact(input.NodeIds)
+	nodes, err := s.Queries.GetNodeEndpoints(r.Context(), input.NodeIds)
 	if err != nil {
 		return err
 	}
-	if len(nodes) == 0 {
+	if len(nodes) != len(input.NodeIds) {
 		return httpError{http.StatusNotFound, "节点不存在"}
 	}
 	id := uuid.NewString()
-	path := "/node/v1/storage/" + id
-	var info api.StorageInfo
-	if err = s.Nodes.Do(r.Context(), http.MethodPost, nodes[0].Endpoint, path, input, &info); err != nil {
-		return err
+	directory := ""
+	if input.Directory != nil {
+		directory = *input.Directory
 	}
-	if err = s.Queries.CreateStoragePool(r.Context(), queries.CreateStoragePoolParams{ID: id, NodeID: input.NodeId, Name: input.Name, Directory: input.Directory, Path: info.Path}); err != nil {
+	path := transport.StorageRoute(id, directory)
+	var info api.StorageInfo
+	for _, node := range nodes {
+		if err = s.Nodes.Do(r.Context(), http.MethodPost, node.Endpoint, path, input, &info); err != nil {
+			break
+		}
+	}
+	if err == nil {
+		err = s.Queries.CreateStoragePool(r.Context(), queries.CreateStoragePoolParams{ID: id, NodeIds: input.NodeIds, Name: input.Name, Directory: directory, Path: info.Path, Driver: string(input.Driver)})
+	}
+	if err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if cleanup := s.Nodes.Do(ctx, http.MethodDelete, nodes[0].Endpoint, path+"?directory="+url.QueryEscape(input.Directory), nil, nil); cleanup != nil {
-			slog.Error("storage registration cleanup", "pool", id, "error", cleanup)
-			return errors.Join(err, cleanup)
+		for _, node := range nodes {
+			if cleanup := s.Nodes.Do(ctx, http.MethodDelete, node.Endpoint, path, nil, nil); cleanup != nil {
+				slog.Error("storage registration cleanup", "pool", id, "error", cleanup)
+				err = errors.Join(err, cleanup)
+			}
 		}
 		return err
 	}
 	state := api.StoragePoolStateReady
-	return writeJSON(w, http.StatusCreated, api.StoragePool{Id: id, NodeId: input.NodeId, Name: input.Name, Directory: &input.Directory, Driver: api.Directory, State: &state, Storage: &info, Capabilities: []string{"vm-disks", "volumes"}})
+	capabilities := []string{"vm-disks", "volumes"}
+	if input.Driver == api.StorageDriverRBD {
+		capabilities = []string{"vm-disks", "vm-volumes", "native-snapshots"}
+	}
+	return writeJSON(w, http.StatusCreated, api.StoragePool{Id: id, NodeIds: input.NodeIds, Name: input.Name, Directory: input.Directory, Driver: input.Driver, State: &state, Storage: &info, Capabilities: capabilities})
 }
 
 func (s *Server) deleteStoragePool(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
@@ -161,7 +199,7 @@ func (s *Server) deleteStoragePool(w http.ResponseWriter, r *http.Request, ident
 	if err = q.MarkStorageDeleting(ctx, queries.MarkStorageDeletingParams{ID: id, OperationID: &opID}); err != nil {
 		return err
 	}
-	payload, err := json.Marshal(operation.Payload{StoragePool: &api.CreateStoragePool{NodeId: pool.NodeID, Name: pool.Name, Directory: pool.Directory}})
+	payload, err := json.Marshal(operation.Payload{StoragePool: &api.CreateStoragePool{NodeIds: pool.NodeIds, Name: pool.Name, Directory: &pool.Directory, Driver: api.StorageDriver(pool.Driver)}})
 	if err != nil {
 		return err
 	}

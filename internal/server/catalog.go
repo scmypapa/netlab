@@ -18,6 +18,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
+	"netlab.local/core/internal/guest"
 	"netlab.local/core/internal/operation"
 )
 
@@ -93,6 +94,9 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	}
 	if input.Kind == api.Vm && input.Hardware == nil && (input.Format == nil || (*input.Format != "ova" && *input.Format != "ovf")) {
 		return httpError{http.StatusBadRequest, "虚拟机模板需要虚拟硬件配置"}
+	}
+	if err := guest.ValidateCPU(input.Hardware, input.Resources); err != nil {
+		return httpError{http.StatusBadRequest, err.Error()}
 	}
 	if input.Id == "" {
 		input.Id = uuid.NewString()

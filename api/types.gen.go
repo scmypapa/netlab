@@ -268,9 +268,10 @@ const (
 	Udp ServiceProtocol = "udp"
 )
 
-// Defines values for StoragePoolDriver.
+// Defines values for StorageDriver.
 const (
-	Directory StoragePoolDriver = "directory"
+	StorageDriverDirectory StorageDriver = "directory"
+	StorageDriverRBD       StorageDriver = "rbd"
 )
 
 // Defines values for StoragePoolState.
@@ -404,6 +405,7 @@ type AssetExecution struct {
 	InstanceId         string              `json:"instanceId"`
 	Interfaces         []ResolvedInterface `json:"interfaces"`
 	PreviousInstanceId *string             `json:"previousInstanceId,omitempty"`
+	Rbd                *RbdStorage         `json:"rbd,omitempty"`
 
 	// StorageFilesystem Physical filesystem reservation identity
 	StorageFilesystem *string `json:"storageFilesystem,omitempty"`
@@ -590,6 +592,14 @@ type CaptureTemplate struct {
 	Name             string                  `json:"name"`
 }
 
+// CephConnection defines model for CephConnection.
+type CephConnection struct {
+	Key      *string  `json:"key,omitempty"`
+	Monitors []string `json:"monitors"`
+	Pool     string   `json:"pool"`
+	User     string   `json:"user"`
+}
+
 // ChangeItem defines model for ChangeItem.
 type ChangeItem struct {
 	DataEffect   *string          `json:"dataEffect,omitempty"`
@@ -627,6 +637,12 @@ type ConsoleKind string
 type ConsoleResize struct {
 	Cols int `json:"cols"`
 	Rows int `json:"rows"`
+}
+
+// CpuTopology defines model for CpuTopology.
+type CpuTopology struct {
+	Sockets int `json:"sockets"`
+	Threads int `json:"threads"`
 }
 
 // CreateBackup defines model for CreateBackup.
@@ -695,10 +711,13 @@ type CreateServiceToken struct {
 
 // CreateStoragePool defines model for CreateStoragePool.
 type CreateStoragePool struct {
+	Ceph *CephConnection `json:"ceph,omitempty"`
+
 	// Directory Existing directory or mounted filesystem on this node
-	Directory string `json:"directory"`
-	Name      string `json:"name"`
-	NodeId    string `json:"nodeId"`
+	Directory *string       `json:"directory,omitempty"`
+	Driver    StorageDriver `json:"driver"`
+	Name      string        `json:"name"`
+	NodeIds   []string      `json:"nodeIds"`
 }
 
 // CreateUser defines model for CreateUser.
@@ -858,6 +877,7 @@ type GuestSettings struct {
 // Hardware defines model for Hardware.
 type Hardware struct {
 	CpuModel       *string          `json:"cpuModel,omitempty"`
+	CpuTopology    *CpuTopology     `json:"cpuTopology,omitempty"`
 	DiskBus        HardwareDiskBus  `json:"diskBus"`
 	DiskController *string          `json:"diskController,omitempty"`
 	Firmware       HardwareFirmware `json:"firmware"`
@@ -866,8 +886,11 @@ type Hardware struct {
 	GuestAgent     *bool            `json:"guestAgent,omitempty"`
 	Machine        string           `json:"machine"`
 	NicModel       HardwareNicModel `json:"nicModel"`
-	SecureBoot     *bool            `json:"secureBoot,omitempty"`
-	Tpm            *bool            `json:"tpm,omitempty"`
+
+	// NumaNodes Guest NUMA nodes; vCPUs and memory are divided evenly. Omitted keeps one NUMA node.
+	NumaNodes  *int  `json:"numaNodes,omitempty"`
+	SecureBoot *bool `json:"secureBoot,omitempty"`
+	Tpm        *bool `json:"tpm,omitempty"`
 }
 
 // HardwareDiskBus defines model for Hardware.DiskBus.
@@ -1238,6 +1261,16 @@ type RDPSettings struct {
 	Username    string  `json:"username"`
 }
 
+// RbdStorage defines model for RbdStorage.
+type RbdStorage struct {
+	Fsid        string   `json:"fsid"`
+	ImagePrefix string   `json:"imagePrefix"`
+	Monitors    []string `json:"monitors"`
+	Pool        string   `json:"pool"`
+	SecretId    string   `json:"secretId"`
+	User        string   `json:"user"`
+}
+
 // RecoveryCapture defines model for RecoveryCapture.
 type RecoveryCapture struct {
 	Consistency RecoveryConsistency `json:"consistency"`
@@ -1407,12 +1440,17 @@ type ServiceNetwork struct {
 // ServiceProtocol defines model for ServiceProtocol.
 type ServiceProtocol string
 
+// StorageDriver defines model for StorageDriver.
+type StorageDriver string
+
 // StorageInfo defines model for StorageInfo.
 type StorageInfo struct {
-	AvailableBytes int64  `json:"availableBytes"`
-	CapacityBytes  int64  `json:"capacityBytes"`
-	Filesystem     string `json:"filesystem"`
-	Path           string `json:"path"`
+	AvailableBytes  int64       `json:"availableBytes"`
+	CapacityBytes   int64       `json:"capacityBytes"`
+	Filesystem      string      `json:"filesystem"`
+	NativeSnapshots bool        `json:"nativeSnapshots,omitempty"`
+	Path            string      `json:"path"`
+	Rbd             *RbdStorage `json:"rbd,omitempty"`
 }
 
 // StoragePool defines model for StoragePool.
@@ -1423,18 +1461,15 @@ type StoragePool struct {
 
 	// Directory Original node storage location; visible to administrators
 	Directory   *string           `json:"directory,omitempty"`
-	Driver      StoragePoolDriver `json:"driver"`
+	Driver      StorageDriver     `json:"driver"`
 	Error       *string           `json:"error,omitempty"`
 	Id          string            `json:"id"`
 	Name        string            `json:"name"`
-	NodeId      string            `json:"nodeId"`
+	NodeIds     []string          `json:"nodeIds"`
 	OperationId *string           `json:"operationId,omitempty"`
 	State       *StoragePoolState `json:"state,omitempty"`
 	Storage     *StorageInfo      `json:"storage,omitempty"`
 }
-
-// StoragePoolDriver defines model for StoragePool.Driver.
-type StoragePoolDriver string
 
 // StoragePoolState defines model for StoragePool.State.
 type StoragePoolState string

@@ -4,23 +4,29 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/transport"
 )
 
 type storageCandidate struct {
-	id, node string
-	info     api.StorageInfo
-	ready    bool
-	err      error
+	id, node, directory string
+	info                api.StorageInfo
+	ready               bool
+	err                 error
 }
 
-func (p storageCandidate) filesystem() string { return p.node + "/" + p.info.Filesystem }
-func defaultStorage(node string) string       { return "default:" + node }
+func (p storageCandidate) filesystem() string {
+	if p.info.Rbd != nil {
+		return p.info.Filesystem
+	}
+	return p.node + "/" + p.info.Filesystem
+}
+func defaultStorage(node string) string   { return "default:" + node }
+func storageKey(node, pool string) string { return node + "/" + pool }
 
 func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[string]storageCandidate, error) {
 	rows, err := w.Queries.ListStoragePools(ctx)
@@ -34,7 +40,9 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 		candidates = append(candidates, storageCandidate{id: defaultStorage(node.ID), node: node.ID, ready: node.State == "ready"})
 	}
 	for _, row := range rows {
-		candidates = append(candidates, storageCandidate{id: row.ID, node: row.NodeID, info: api.StorageInfo{Path: row.Path}, ready: row.State == "ready"})
+		for _, node := range row.NodeIds {
+			candidates = append(candidates, storageCandidate{id: row.ID, node: node, directory: row.Directory, ready: row.State == "ready"})
+		}
 	}
 	var wg sync.WaitGroup
 	for i := range candidates {
@@ -53,14 +61,14 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 					}
 				}
 			} else {
-				p.err = w.Client.Do(ctx, http.MethodGet, endpoints[p.node], "/node/v1/storage?path="+url.QueryEscape(p.info.Path), nil, &p.info)
+				p.err = w.Client.Do(ctx, http.MethodGet, endpoints[p.node], transport.StorageRoute(p.id, p.directory), nil, &p.info)
 			}
 		})
 	}
 	wg.Wait()
 	result := map[string]storageCandidate{}
 	for _, p := range candidates {
-		result[p.id] = p
+		result[storageKey(p.node, p.id)] = p
 	}
 	return result, nil
 }
@@ -74,21 +82,31 @@ func actualPool(node string, a api.AssetExecution) string {
 
 func assignStorage(a *api.AssetExecution, p storageCandidate) {
 	a.StoragePath, a.StorageFilesystem = &p.info.Path, &p.info.Filesystem
+	a.Rbd = p.info.Rbd
 	if p.id != defaultStorage(p.node) {
 		a.StoragePoolId = &p.id
 	}
 }
 
 func (w Worker) deleteStoragePool(ctx context.Context, op *queries.Operation, p *Payload) error {
-	nodes, err := w.Queries.GetNodeEndpoints(ctx, []string{p.StoragePool.NodeId})
+	nodes, err := w.Queries.GetNodeEndpoints(ctx, p.StoragePool.NodeIds)
 	if err != nil {
 		return err
 	}
-	if len(nodes) == 0 {
+	if len(nodes) != len(p.StoragePool.NodeIds) {
 		return fmt.Errorf("存储节点不存在")
 	}
 	if err = w.phase(ctx, op, p, "remove-storage-pool"); err != nil {
 		return err
 	}
-	return w.Client.Do(ctx, http.MethodDelete, nodes[0].Endpoint, "/node/v1/storage/"+op.ScopeID+"?directory="+url.QueryEscape(p.StoragePool.Directory), nil, nil)
+	for _, node := range nodes {
+		directory := ""
+		if p.StoragePool.Directory != nil {
+			directory = *p.StoragePool.Directory
+		}
+		if err = w.Client.Do(ctx, http.MethodDelete, node.Endpoint, transport.StorageRoute(op.ScopeID, directory), nil, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }

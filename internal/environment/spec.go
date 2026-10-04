@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/guest"
 )
 
 // Normalize assigns identities and addresses once; saved specifications carry them forward.
@@ -150,6 +151,9 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		}
 		if a.Resources.Cpu < 1 || a.Resources.MemoryMiB < 64 || a.Resources.DiskGiB < 1 {
 			return spec, Invalid("资产 %s 的资源规格无效", a.Name)
+		}
+		if err := guest.ValidateCPU(t.Hardware, a.Resources); err != nil {
+			return spec, Invalid("资产 %s：%v", a.Name, err)
 		}
 		primary := 0
 		for j := range a.Interfaces {

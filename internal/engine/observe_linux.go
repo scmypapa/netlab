@@ -97,7 +97,20 @@ func taskLimits(pid uint32) (int, int64, error) {
 	return int(quota / period), memory / (1 << 20), err
 }
 
-func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetExecution, error) {
+func diskCapacity(ctx context.Context, domain *libvirt.Domain, disk libvirtxml.DomainDisk, execution api.AssetExecution, active bool) (int64, error) {
+	if active {
+		info, err := domain.GetBlockInfo(disk.Target.Dev, 0)
+		return int64(info.Capacity), err
+	}
+	source, err := diskFromDomain(disk, execution)
+	if err != nil {
+		return 0, err
+	}
+	image, err := inspectImage(ctx, source.address())
+	return image.VirtualSize, err
+}
+
+func (v *VirtualMachines) observedExecution(ctx context.Context, domain *libvirt.Domain) (*api.AssetExecution, error) {
 	text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
 	if err != nil {
 		return nil, err
@@ -115,6 +128,13 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 		return nil, err
 	}
 	hardware := *execution.Template.Hardware
+	if config.CPU != nil && config.CPU.Topology != nil {
+		t := config.CPU.Topology
+		hardware.CpuTopology = &api.CpuTopology{Sockets: t.Sockets, Threads: t.Threads}
+	}
+	if config.CPU != nil && config.CPU.Numa != nil {
+		hardware.NumaNodes = ptr(len(config.CPU.Numa.Cell))
+	}
 	hardware.Machine = config.OS.Type.Machine
 	hardware.DiskBus = api.HardwareDiskBus(config.Devices.Disks[0].Target.Bus)
 	hardware.Firmware = api.Bios
@@ -147,17 +167,21 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 		return nil, err
 	}
 	execution.Asset.Resources.MemoryMiB = int64(info.MaxMem) / 1024
+	active, err := domain.IsActive()
+	if err != nil {
+		return nil, err
+	}
 	execution.Asset.Resources.DiskGiB = 0
 	for index, definition := range *execution.Template.Disks {
-		disk, err := domainDisk(config, definition.Id)
+		disk, err := domainDisk(config, "image-"+definition.Id)
 		if err != nil {
 			return nil, err
 		}
-		info, err := domain.GetBlockInfo(disk.Source.File.File, 0)
+		capacity, err := diskCapacity(ctx, domain, disk, execution, active)
 		if err != nil {
 			return nil, err
 		}
-		definition.SizeGiB = (int64(info.Capacity) + (1 << 30) - 1) / (1 << 30)
+		definition.SizeGiB = (capacity + (1 << 30) - 1) / (1 << 30)
 		definition.Bus = api.TemplateDiskBus(disk.Target.Bus)
 		if disk.Address != nil && disk.Address.Drive != nil && disk.Address.Drive.Controller != nil {
 			definition.ControllerIndex = ptr(int(*disk.Address.Drive.Controller))
@@ -180,11 +204,15 @@ func (v *VirtualMachines) observedExecution(domain *libvirt.Domain) (*api.AssetE
 	hardware.DiskController = (*execution.Template.Disks)[0].ControllerModel
 	if execution.Asset.Volumes != nil {
 		for index, volume := range *execution.Asset.Volumes {
-			info, err := domain.GetBlockInfo(v.volumePath(owner.Environment, execution, volume.Id), 0)
+			disk, err := domainDisk(config, "volume-"+volume.Id)
 			if err != nil {
 				return nil, err
 			}
-			(*execution.Asset.Volumes)[index].SizeGiB = (int64(info.Capacity) + (1 << 30) - 1) / (1 << 30)
+			capacity, err := diskCapacity(ctx, domain, disk, execution, active)
+			if err != nil {
+				return nil, err
+			}
+			(*execution.Asset.Volumes)[index].SizeGiB = (capacity + (1 << 30) - 1) / (1 << 30)
 		}
 	}
 	for index, iface := range config.Devices.Interfaces {

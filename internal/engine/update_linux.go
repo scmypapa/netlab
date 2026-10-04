@@ -179,22 +179,27 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 		return "unknown", err
 	}
 	for index, definition := range *a.Template.Disks {
-		disk, err := domainDisk(current, definition.Id)
+		disk, err := domainDisk(current, "image-"+definition.Id)
 		if err != nil {
 			return "unknown", err
 		}
 		desired.Devices.Disks[index].Source = disk.Source
-		info, err := domain.GetBlockInfo(disk.Source.File.File, 0)
+		desired.Devices.Disks[index].Auth = disk.Auth
+		capacity, err := diskCapacity(ctx, domain, disk, installed, active)
 		if err != nil {
 			return "unknown", err
 		}
-		if sizes[index]*(1<<30) < int64(info.Capacity) {
+		if sizes[index]*(1<<30) < capacity {
 			return "unknown", fmt.Errorf("system disk %s cannot be shrunk without discarding guest data", definition.Id)
 		}
 	}
 	// Redefining hardware preserves every installed image disk and firmware/TPM state.
 	for index := range sizes {
-		if err = expandDisk(ctx, desired.Devices.Disks[index].Source.File.File, sizes[index]); err != nil {
+		disk, readErr := diskFromDomain(desired.Devices.Disks[index], a)
+		if readErr != nil {
+			return "unknown", readErr
+		}
+		if err = expandDisk(ctx, disk.address(), sizes[index]); err != nil {
 			return "unknown", err
 		}
 	}

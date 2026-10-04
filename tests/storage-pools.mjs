@@ -5,7 +5,7 @@ import {promisify} from 'node:util'
 import {readFile, writeFile} from 'node:fs/promises'
 import {delay} from './guest-ssh.mjs'
 
-const execute=promisify(execFile),run=randomUUID(),base='http://127.0.0.1:8090',second='http://127.0.0.1:8091'
+const execute=promisify(execFile),run=randomUUID(),base='http://127.0.0.1:8090'
 const workers=new Map(JSON.parse(await readFile('D:/.cache/netlab/artifacts/multi-node-workers.json','utf8')).map(worker=>[worker.nodeId,worker]))
 const source=`/var/lib/netlab-dev/test-tmp/storage-${run}`
 const report={startedAt:new Date().toISOString(),steps:[],environments:[],pools:[],cleanupErrors:[]}
@@ -17,7 +17,7 @@ async function node(id,...args) {
   return (await execute('wsl.exe',['-d','Ubuntu','-u','root','--exec',...command],{timeout:90000,maxBuffer:2**20})).stdout
 }
 async function api(path,method='GET',body,status=200) {
-  const response=await fetch(`${method==='DELETE' ? second : base}/api/v1${path}`,{method,headers:{'Content-Type':'application/json',...(cookie ? {Cookie:cookie} : {})},body:body===undefined ? undefined : JSON.stringify(body)})
+  const response=await fetch(`${base}/api/v1${path}`,{method,headers:{'Content-Type':'application/json',...(cookie ? {Cookie:cookie} : {})},body:body===undefined ? undefined : JSON.stringify(body)})
   if(response.headers.get('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0]
   const text=await response.text()
   assert.equal(response.status,status,`${method} ${path}: ${text}`)
@@ -53,14 +53,14 @@ try {
       await node(id,'mkdir','-p',`${source}/data-a`,`${source}/data-b`)
       await node(id,'touch',`${source}/retained-source`)
       for(const directory of ['data-a','data-b']) {
-        const pool=await api('/storage-pools','POST',{nodeId:id,name:`Storage ${directory} ${run}`,directory:`${source}/${directory}`},201)
+        const pool=await api('/storage-pools','POST',{nodeIds:[id],driver:'directory',name:`Storage ${directory} ${run}`,directory:`${source}/${directory}`},201)
         pools.push(pool);report.pools.push({id:pool.id,nodeId:id,path:pool.storage.path,filesystem:pool.storage.filesystem})
       }
-      const own=pools.filter(p=>p.nodeId===id)
+      const own=pools.filter(p=>p.nodeIds[0]===id)
       assert.equal(own[0].storage.filesystem,own[1].storage.filesystem)
       assert(own[0].storage.availableBytes>0)
     }
-    await api('/storage-pools','POST',{nodeId:primary,name:'Duplicate',directory:`${source}/data-a`},409)
+    await api('/storage-pools','POST',{nodeIds:[primary],driver:'directory',name:'Duplicate',directory:`${source}/data-a`},409)
     inventory=await api('/storage-pools')
   })
   await step('真实容器与 KVM 模板，双节点混合创建；指定和自动存储均按实际落点核对',async()=>{
@@ -75,7 +75,7 @@ try {
     }
     const network={id:randomUUID(),name:'Storage LAN',cidr:'192.168.83.0/24'}
     const asset=(image,pool)=>({id:randomUUID(),name:`${image.kind}-${randomUUID().slice(0,4)}`,templateId:image.id,storagePoolId:pool?.id,resources:image.resources,interfaces:[{id:randomUUID(),networkId:network.id,mac:'',address:'',primary:true}],volumes:[{id:'data',mountPath:'/data',sizeGiB:1}]})
-    const assets=[...workers.keys()].flatMap(id=>images.map(image=>asset(image,pools.find(p=>p.nodeId===id))))
+    const assets=[...workers.keys()].flatMap(id=>images.map(image=>asset(image,pools.find(p=>p.nodeIds[0]===id))))
     assets.push(asset(images[0]))
     environment=await api('/environments','POST',{name:`Storage lifecycle ${run}`,spec:{networks:[network],assets},run:true},201);report.environments.push(environment.id)
     await operation(environment.operationId)
@@ -83,7 +83,7 @@ try {
     assert.equal(state.assets.length,5)
     for(const actual of state.assets) {
       const requested=assets.find(a=>a.id===actual.assetId),pool=poolFor(actual)
-      if(requested.storagePoolId){assert.equal(actual.nodeId,pool.nodeId);assert.equal(actual.storagePoolId,requested.storagePoolId)}
+      if(requested.storagePoolId){assert.equal(actual.nodeId,pool.nodeIds[0]);assert.equal(actual.storagePoolId,requested.storagePoolId)}
       await node(actual.nodeId,'test','-d',`${pool.storage.path}/environments/${environment.id}/instances/${actual.instanceId}`)
       assert.equal(actual.state,'running',actual.error)
     }
@@ -114,7 +114,7 @@ try {
   await step('普通变更保持存储位置；节点重启接管非默认存储内的真实资产',async()=>{
     const full=await api(`/environments/${environment.id}`),forbidden=structuredClone(full.appliedSpec)
     const fixed=forbidden.assets.find(a=>a.storagePoolId),pool=pools.find(p=>p.id===fixed.storagePoolId)
-    fixed.storagePoolId=pools.find(p=>p.nodeId===pool.nodeId && p.id!==pool.id).id
+    fixed.storagePoolId=pools.find(p=>p.nodeIds[0]===pool.nodeIds[0] && p.id!==pool.id).id
     await api(`/environments/${environment.id}/changes`,'POST',{expectedRevision:full.revision,apply:false,spec:forbidden},400)
     const before=await api(`/environments/${environment.id}/state`),after=Date.now()
     for(const id of workers.keys())await node(id,'systemctl','restart','netlab-node-dev.service')
@@ -131,7 +131,7 @@ try {
     await action('destroy')
     await api(`/storage-pools/${pools[0].id}`,'DELETE',undefined,409)
     await api(`/blueprints/${blueprint.id}`,'DELETE',undefined,204);blueprint=undefined
-    const secondary=[...workers].find(([,w])=>w.host)[0],pool=pools.find(p=>p.nodeId===secondary)
+    const secondary=[...workers].find(([,w])=>w.host)[0],pool=pools.find(p=>p.nodeIds[0]===secondary)
     await node(secondary,'systemctl','stop','netlab-node-dev.service');stoppedNode=secondary
     const op=await api(`/storage-pools/${pool.id}`,'DELETE',undefined,202)
     await operation(op.id,'failed')
@@ -144,7 +144,7 @@ try {
   })
   await step('双节点实例、磁盘、OVN/OVS和存储池清理，原目录与外部文件保留',async()=>{
     const nodes=await api('/nodes');for(const previous of baseline)assert.deepEqual(nodes.find(n=>n.id===previous.id).reserved,previous.reserved)
-    for(const pool of pools){await node(pool.nodeId,'test','!','-e',pool.storage.path);await node(pool.nodeId,'test','-d',pool.directory);await node(pool.nodeId,'test','-f',`${source}/retained-source`)}
+    for(const pool of pools){await node(pool.nodeIds[0],'test','!','-e',pool.storage.path);await node(pool.nodeIds[0],'test','-d',pool.directory);await node(pool.nodeIds[0],'test','-f',`${source}/retained-source`)}
     assert(!(await api('/storage-pools')).some(p=>pools.some(old=>p.id===old.id)))
     for(const image of images){const op=await api(`/templates/${image.id}`,'DELETE',undefined,202);await operation(op.id)}
     for(const id of workers.keys()) {

@@ -1,0 +1,6 @@
+<disk type="file" device="disk">
+  <driver name="qemu" type="raw" cache="none" discard="unmap"/>
+  <source file="/mnt/d/.cache/netlab/artifacts/btrfs-test.img"/>
+  <target dev="vdb" bus="virtio"/>
+  <serial>netlab-btrfs-test</serial>
+</disk>

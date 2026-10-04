@@ -567,6 +567,49 @@ function HardwareFields({
             }
           />
         )}
+        <Select
+          label="CPU 模型"
+          searchable
+          data={[...profile.hardware.cpuModes, ...profile.hardware.cpuModels]}
+          value={value.cpuModel ?? "host-model"}
+          allowDeselect={false}
+          onChange={(cpuModel) => change({ cpuModel: cpuModel! })}
+        />
+        <NumberInput
+          label="CPU 插槽"
+          min={1}
+          allowDecimal={false}
+          value={value.cpuTopology?.sockets ?? 1}
+          onChange={(sockets) =>
+            change({
+              cpuTopology: {
+                sockets: Number(sockets),
+                threads: value.cpuTopology?.threads ?? 1,
+              },
+            })
+          }
+        />
+        <NumberInput
+          label="每核线程"
+          min={1}
+          allowDecimal={false}
+          value={value.cpuTopology?.threads ?? 1}
+          onChange={(threads) =>
+            change({
+              cpuTopology: {
+                sockets: value.cpuTopology?.sockets ?? 1,
+                threads: Number(threads),
+              },
+            })
+          }
+        />
+        <NumberInput
+          label="NUMA 节点"
+          min={1}
+          allowDecimal={false}
+          value={value.numaNodes ?? 1}
+          onChange={(numaNodes) => change({ numaNodes: Number(numaNodes) })}
+        />
       </div>
       {(profile.machine.secureBoot || profile.machine.tpm2) && (
         <div className="hardware-options">

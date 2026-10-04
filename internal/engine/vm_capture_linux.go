@@ -54,8 +54,9 @@ func (v *VirtualMachines) captureTemplate(ctx context.Context, t api.Template, s
 		if disk.Device != "disk" {
 			continue
 		}
-		if disk.Source == nil || disk.Source.File == nil {
-			return t, errors.New("模板固化需要受管文件磁盘")
+		location, err := diskFromDomain(disk, installed)
+		if err != nil {
+			return t, err
 		}
 		id := strings.TrimPrefix(strings.TrimPrefix(disk.Serial, "image-"), "volume-")
 		definition := api.TemplateDisk{Id: id, Bus: api.TemplateDiskBus(disk.Target.Bus), BootOrder: len(definitions) + 1}
@@ -83,13 +84,13 @@ func (v *VirtualMachines) captureTemplate(ctx context.Context, t api.Template, s
 				definition.ControllerUnit = &unit
 			}
 		}
-		image, err := inspectImage(ctx, disk.Source.File.File)
+		image, err := inspectImage(ctx, location.address())
 		if err != nil {
 			return t, err
 		}
 		definition.SizeGiB = (image.VirtualSize + (1 << 30) - 1) / (1 << 30)
 		t.Resources.DiskGiB += definition.SizeGiB
-		if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", disk.Source.File.File, systemDiskPath(staging, len(definitions))); err != nil {
+		if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", location.address(), systemDiskPath(staging, len(definitions))); err != nil {
 			return t, fmt.Errorf("disk %s: %w", id, err)
 		}
 		definitions = append(definitions, definition)

@@ -66,12 +66,20 @@ func TestRealRecoveryGuestFreezeOwnership(t *testing.T) {
 	if _, err := os.Stat(recoveryFreezePath(root, point, a)); err != nil {
 		t.Fatal(err)
 	}
+	consistency, err := os.ReadFile(recoveryFreezePath(root, point, a))
+	if err != nil {
+		t.Fatal(err)
+	}
 	restarted := &VirtualMachines{conn: connection, data: root}
 	if err := restarted.finishRecoveryFS(owner.Environment, point, a, false); err != nil {
 		t.Fatal(err)
 	}
 	if state, err := guestFreezeState(domain); err != nil || state != "thawed" {
 		t.Fatalf("guest remains frozen: %s %v", state, err)
+	}
+	actualConsistency, err := guestRecoveryConsistency(domain)
+	if err != nil || string(actualConsistency) != string(consistency) {
+		t.Fatalf("actual guest consistency: %s, captured %s, %v", actualConsistency, consistency, err)
 	}
 	if _, err := os.Stat(recoveryFreezePath(root, point, a)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("capture ownership was not removed: %v", err)

@@ -246,8 +246,12 @@ func run() error {
 			slog.Warn("backup transfer interrupted", "error", err)
 		}
 	})
-	mux.HandleFunc("GET /node/v1/storage", func(w http.ResponseWriter, r *http.Request) {
-		info, err := engine.StorageInfo(r.URL.Query().Get("path"))
+	mux.HandleFunc("GET /node/v1/storage/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !pathID(r.PathValue("id")) {
+			http.Error(w, "invalid storage identity", http.StatusBadRequest)
+			return
+		}
+		info, err := executor.Storage(r.Context(), r.PathValue("id"), r.URL.Query().Get("directory"))
 		respond(w, info, err)
 	})
 	mux.HandleFunc("POST /node/v1/storage/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +264,7 @@ func run() error {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		info, err := executor.RegisterStorage(r.PathValue("id"), input.Directory)
+		info, err := executor.RegisterStorage(r.Context(), r.PathValue("id"), input)
 		respond(w, info, err)
 	})
 	mux.HandleFunc("DELETE /node/v1/storage/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +272,7 @@ func run() error {
 			http.Error(w, "invalid storage identity", http.StatusBadRequest)
 			return
 		}
-		if err := executor.RemoveStorage(r.PathValue("id"), r.URL.Query().Get("directory")); err != nil {
+		if err := executor.RemoveStorage(r.Context(), r.PathValue("id"), r.URL.Query().Get("directory")); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -455,7 +459,7 @@ func run() error {
 			http.Error(w, "invalid recovery asset identity", http.StatusBadRequest)
 			return
 		}
-		reader, length, err := executor.OpenRecoveryArtifact(r.PathValue("environmentId"), r.PathValue("pointId"), execution)
+		reader, length, err := executor.OpenRecoveryArtifact(r.Context(), r.PathValue("environmentId"), r.PathValue("pointId"), execution, r.URL.Query().Get("storagePoolId"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

@@ -1,5 +1,5 @@
 -- name: ListStoragePools :many
-SELECT s.*,o.error AS operation_error FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.node_id,s.id;
+SELECT s.*,o.error AS operation_error FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.id;
 -- name: GetStoragePool :one
 SELECT * FROM storage_pools WHERE id=$1;
 -- name: LockStoragePools :many
@@ -7,7 +7,7 @@ SELECT * FROM storage_pools WHERE id=ANY($1::text[]) ORDER BY id FOR KEY SHARE;
 -- name: LockStoragePool :one
 SELECT * FROM storage_pools WHERE id=$1 FOR UPDATE;
 -- name: CreateStoragePool :exec
-INSERT INTO storage_pools(id,node_id,name,directory,path) VALUES($1,$2,$3,$4,$5);
+INSERT INTO storage_pools(id,node_ids,name,driver,directory,path) VALUES($1,$2,$3,$4,$5,$6);
 -- name: DeleteStoragePool :exec
 DELETE FROM storage_pools WHERE id=$1;
 -- name: MarkStorageDeleting :exec

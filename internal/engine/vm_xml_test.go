@@ -60,3 +60,29 @@ func TestVMHardwareProfiles(t *testing.T) {
 		})
 	}
 }
+
+func TestVMCPUTopologyAndNUMA(t *testing.T) {
+	nodes := 2
+	disks := []api.TemplateDisk{{Id: "boot", SizeGiB: 8, Bus: api.Virtio, BootOrder: 1}}
+	execution := api.AssetExecution{InstanceId: "instance", Asset: api.Asset{Id: "vm", Resources: api.Resources{Cpu: 8, MemoryMiB: 4096, DiskGiB: 8}}, Template: api.Template{Disks: &disks, Hardware: &api.Hardware{Machine: "q35", Firmware: api.Bios, DiskBus: api.HardwareDiskBusVirtio, NicModel: api.HardwareNicModelVirtio, CpuTopology: &api.CpuTopology{Sockets: 2, Threads: 2}, NumaNodes: &nodes}}}
+	text, err := DomainXML("environment", "/var/lib/netlab/instance", "br-int", execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var domain libvirtxml.Domain
+	if err = domain.Unmarshal(text); err != nil {
+		t.Fatal(err)
+	}
+	topology := domain.CPU.Topology
+	if topology.Sockets != 2 || topology.Cores != 2 || topology.Threads != 2 {
+		t.Fatalf("topology: %+v", topology)
+	}
+	cells := domain.CPU.Numa.Cell
+	if len(cells) != 2 || cells[0].CPUs != "0-3" || cells[1].CPUs != "4-7" || cells[0].Memory != 2048 || cells[1].Memory != 2048 {
+		t.Fatalf("NUMA: %+v", cells)
+	}
+	execution.Asset.Resources.Cpu = 6
+	if _, err = DomainXML("environment", "/var/lib/netlab/instance", "br-int", execution); err == nil {
+		t.Fatal("invalid topology accepted")
+	}
+}

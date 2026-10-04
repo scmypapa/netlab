@@ -76,7 +76,7 @@ func TestResticRecoveryTransfer(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		reader, size, err := remote.OpenRecoveryArtifact(env, point, execution)
+		reader, size, err := remote.OpenRecoveryArtifact(ctx, env, point, execution, "")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -157,7 +157,7 @@ func TestResticRecoveryTransfer(t *testing.T) {
 			// Restore through the other node after the original recovery files have gone.
 			node = remote
 		}
-		reader, _, err := node.openRecoverySource(ctx, point, source)
+		reader, _, err := node.openRecoverySource(ctx, point, source, "")
 		if err != nil {
 			t.Fatal(err)
 		}

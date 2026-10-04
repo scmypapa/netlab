@@ -9,6 +9,7 @@ import (
 
 	"libvirt.org/go/libvirtxml"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/guest"
 )
 
 type Ownership struct {
@@ -24,6 +25,9 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		return "", fmt.Errorf("template %s has no virtual hardware", a.Template.Name)
 	}
 	h := a.Template.Hardware
+	if err := guest.ValidateCPU(h, a.Asset.Resources); err != nil {
+		return "", err
+	}
 	if a.Template.Disks == nil || len(*a.Template.Disks) == 0 {
 		return "", fmt.Errorf("template %s has no prepared system disks", a.Template.Name)
 	}
@@ -42,6 +46,18 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		Features:   &libvirtxml.DomainFeatureList{ACPI: &libvirtxml.DomainFeature{}, APIC: &libvirtxml.DomainFeatureAPIC{}},
 		CPU:        &libvirtxml.DomainCPU{Mode: "host-model", Topology: &libvirtxml.DomainCPUTopology{Sockets: 1, Cores: a.Asset.Resources.Cpu, Threads: 1}},
 		OnPoweroff: "destroy", OnReboot: "restart", OnCrash: "destroy", Devices: &libvirtxml.DomainDeviceList{},
+	}
+	if t := h.CpuTopology; t != nil {
+		d.CPU.Topology = &libvirtxml.DomainCPUTopology{Sockets: t.Sockets, Threads: t.Threads, Cores: a.Asset.Resources.Cpu / t.Sockets / t.Threads}
+	}
+	if h.NumaNodes != nil && *h.NumaNodes > 1 {
+		d.CPU.Numa = &libvirtxml.DomainNuma{}
+		nodes := *h.NumaNodes
+		cpus := a.Asset.Resources.Cpu / nodes
+		for i := range nodes {
+			id := uint(i)
+			d.CPU.Numa.Cell = append(d.CPU.Numa.Cell, libvirtxml.DomainCell{ID: &id, CPUs: fmt.Sprintf("%d-%d", i*cpus, (i+1)*cpus-1), Memory: uint(a.Asset.Resources.MemoryMiB / int64(nodes)), Unit: "MiB"})
+		}
 	}
 	if h.CpuModel != nil && *h.CpuModel != "" {
 		if *h.CpuModel == "host-passthrough" || *h.CpuModel == "host-model" {
@@ -71,7 +87,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	controllers := map[string]string{}
 	units := map[string]uint{}
 	targets := map[string]int{}
-	appendDisk := func(path string, definition api.TemplateDisk, boot bool) error {
+	appendDisk := func(location vmDisk, definition api.TemplateDisk, boot bool) error {
 		bus := string(definition.Bus)
 		prefix := "sd"
 		if bus == "virtio" {
@@ -85,7 +101,11 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		if boot {
 			serial = "image-" + definition.Id
 		}
-		disk := libvirtxml.DomainDisk{Device: "disk", Serial: serial, Driver: &libvirtxml.DomainDiskDriver{Name: "qemu", Type: "qcow2", Cache: "none", Discard: "unmap"}, Source: &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: path}}, Target: &libvirtxml.DomainDiskTarget{Dev: device, Bus: bus}}
+		source, auth, err := location.source()
+		if err != nil {
+			return err
+		}
+		disk := libvirtxml.DomainDisk{Device: "disk", Serial: serial, Driver: &libvirtxml.DomainDiskDriver{Name: "qemu", Type: location.format(), Cache: "none", Discard: "unmap"}, Source: source, Auth: auth, Target: &libvirtxml.DomainDiskTarget{Dev: device, Bus: bus}}
 		if boot {
 			disk.Boot = &libvirtxml.DomainDeviceBoot{Order: uint(definition.BootOrder)}
 		}
@@ -125,20 +145,19 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		return nil
 	}
 	for index, disk := range *a.Template.Disks {
-		if err := appendDisk(systemDiskPath(directory, index), disk, true); err != nil {
+		if err := appendDisk(systemDisk(directory, a, index), disk, true); err != nil {
 			return "", err
 		}
 	}
 	if a.Asset.Volumes != nil {
 		for _, v := range *a.Asset.Volumes {
-			path := filepath.Join(filepath.Dir(filepath.Dir(directory)), "volumes", a.Asset.Id, a.DataSetId, v.Id+".qcow2")
-			if err := appendDisk(path, api.TemplateDisk{Id: v.Id, Bus: api.TemplateDiskBus(h.DiskBus), ControllerModel: h.DiskController, ControllerIndex: (*a.Template.Disks)[0].ControllerIndex}, false); err != nil {
+			if err := appendDisk(volumeDisk(directory, environmentID, a, v.Id), api.TemplateDisk{Id: v.Id, Bus: api.TemplateDiskBus(h.DiskBus), ControllerModel: h.DiskController, ControllerIndex: (*a.Template.Disks)[0].ControllerIndex}, false); err != nil {
 				return "", err
 			}
 		}
 	}
 	if initializationMethod(a.Template) != api.None {
-		if err := appendDisk(filepath.Join(directory, "initialization.iso"), api.TemplateDisk{Id: "initialization", Bus: api.Sata}, false); err != nil {
+		if err := appendDisk(vmDisk{file: filepath.Join(directory, "initialization.iso")}, api.TemplateDisk{Id: "initialization", Bus: api.Sata}, false); err != nil {
 			return "", err
 		}
 		media := &d.Devices.Disks[len(d.Devices.Disks)-1]
@@ -155,7 +174,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 				continue
 			}
 			path := templateMediaPath(directory, index)
-			if err := appendDisk(path, api.TemplateDisk{Id: media.Id, Bus: api.Sata}, false); err != nil {
+			if err := appendDisk(vmDisk{file: path}, api.TemplateDisk{Id: media.Id, Bus: api.Sata}, false); err != nil {
 				return "", err
 			}
 			disk := &d.Devices.Disks[len(d.Devices.Disks)-1]
@@ -224,11 +243,11 @@ func diskDevice(prefix string, index int) string {
 	return prefix + name
 }
 
-func domainDisk(config libvirtxml.Domain, id string) (libvirtxml.DomainDisk, error) {
+func domainDisk(config libvirtxml.Domain, serial string) (libvirtxml.DomainDisk, error) {
 	for _, disk := range config.Devices.Disks {
-		if disk.Serial == "image-"+id {
+		if disk.Serial == serial {
 			return disk, nil
 		}
 	}
-	return libvirtxml.DomainDisk{}, fmt.Errorf("installed system disk %s is missing", id)
+	return libvirtxml.DomainDisk{}, fmt.Errorf("installed disk %s is missing", serial)
 }

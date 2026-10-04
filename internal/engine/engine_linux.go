@@ -310,7 +310,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 					return
 				}
 				if plan.Phase == api.NodePlanPhaseDeleteRecovery {
-					result.Results[i] = executionResult(a, "deleted", e.deleteRecovery(plan.EnvironmentId, *plan.RecoveryPointId, a))
+					result.Results[i] = executionResult(a, "deleted", e.deleteRecovery(ctx, plan.EnvironmentId, *plan.RecoveryPointId, a))
 				} else {
 					quiesce := plan.CaptureStates != nil && (*plan.CaptureStates)[a.Asset.Id] == "running" && !plan.IncludeMemory
 					capture, captureErr := e.captureRecovery(ctx, plan.EnvironmentId, *plan.RecoveryPointId, a, plan.IncludeMemory, quiesce)
@@ -374,7 +374,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 					if loadErr != nil {
 						observeErr = loadErr
 					} else {
-						observed, observeErr = e.vm.observedExecution(domain)
+						observed, observeErr = e.vm.observedExecution(ctx, domain)
 						if observed != nil && r.State == "unknown" {
 							var stateErr error
 							r.State, stateErr = vmState(domain)
@@ -464,7 +464,7 @@ func (e *Engine) Inventory(ctx context.Context, environmentID string) (api.NodeR
 		result.Results = append(result.Results, items...)
 	}
 	if e.vm != nil {
-		items, err := e.vm.Inventory(environmentID)
+		items, err := e.vm.Inventory(ctx, environmentID)
 		if err != nil {
 			return result, err
 		}

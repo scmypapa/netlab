@@ -809,11 +809,19 @@ components:
         diskController: {type: string}
         nicModel: {type: string, enum: [virtio, e1000, e1000e, rtl8139, vmxnet3]}
         cpuModel: {type: string}
+        cpuTopology: {$ref: '#/components/schemas/CpuTopology'}
+        numaNodes: {type: integer, minimum: 1, description: Guest NUMA nodes; vCPUs and memory are divided evenly. Omitted keeps one NUMA node.}
         secureBoot: {type: boolean}
         tpm: {type: boolean}
         guestAgent: {type: boolean}
         firmwareCode: {type: string}
         firmwareVars: {type: string}
+    CpuTopology:
+      type: object
+      required: [sockets, threads]
+      properties:
+        sockets: {type: integer, minimum: 1}
+        threads: {type: integer, minimum: 1}
     Volume:
       type: object
       required: [id, mountPath, sizeGiB]
@@ -1257,6 +1265,7 @@ components:
         storagePath: {type: string, description: Node-local managed storage selected by the scheduler}
         storagePoolId: {type: string, description: Actual selected pool; omitted for node default storage}
         storageFilesystem: {type: string, description: Physical filesystem reservation identity}
+        rbd: {$ref: '#/components/schemas/RbdStorage'}
         interfaces: {type: array, items: {$ref: '#/components/schemas/ResolvedInterface'}}
     NodePlan:
       type: object
@@ -1503,6 +1512,10 @@ components:
         networkChassis: {type: string}
         externalInterfaces: {type: array, items: {$ref: '#/components/schemas/ExternalInterface'}}
         storage: {$ref: '#/components/schemas/StorageInfo'}
+    StorageDriver:
+      type: string
+      enum: [directory, rbd]
+      x-enum-varnames: [StorageDriverDirectory, StorageDriverRBD]
     StorageInfo:
       type: object
       required: [path, filesystem, capacityBytes, availableBytes]
@@ -1511,23 +1524,45 @@ components:
         filesystem: {type: string}
         capacityBytes: {type: integer, format: int64}
         availableBytes: {type: integer, format: int64}
+        nativeSnapshots: {type: boolean, x-go-type-skip-optional-pointer: true}
+        rbd: {$ref: '#/components/schemas/RbdStorage'}
+    RbdStorage:
+      type: object
+      required: [pool, imagePrefix, monitors, user, fsid, secretId]
+      properties:
+        pool: {type: string}
+        imagePrefix: {type: string}
+        monitors: {type: array, items: {type: string}}
+        user: {type: string}
+        fsid: {type: string}
+        secretId: {type: string}
+    CephConnection:
+      type: object
+      required: [monitors, pool, user, key]
+      properties:
+        monitors: {type: array, minItems: 1, items: {type: string}}
+        pool: {type: string}
+        user: {type: string}
+        key: {type: string, format: password, writeOnly: true}
     CreateStoragePool:
       type: object
-      required: [nodeId, name, directory]
+      required: [nodeIds, name, driver]
       properties:
-        nodeId: {type: string}
+        nodeIds: {type: array, minItems: 1, uniqueItems: true, items: {type: string}}
         name: {type: string}
+        driver: {$ref: '#/components/schemas/StorageDriver'}
         directory: {type: string, description: Existing directory or mounted filesystem on this node}
+        ceph: {$ref: '#/components/schemas/CephConnection'}
     StoragePool:
       type: object
-      required: [id, nodeId, name, default, driver, allocatedGiB, capabilities]
+      required: [id, nodeIds, name, default, driver, allocatedGiB, capabilities]
       properties:
         id: {type: string}
-        nodeId: {type: string}
+        nodeIds: {type: array, items: {type: string}}
         name: {type: string}
         directory: {type: string, description: Original node storage location; visible to administrators}
         default: {type: boolean}
-        driver: {type: string, enum: [directory]}
+        driver: {$ref: '#/components/schemas/StorageDriver'}
         state: {type: string, enum: [ready, deleting], x-enum-varnames: [StoragePoolStateReady, StoragePoolStateDeleting]}
         operationId: {type: string}
         storage: {$ref: '#/components/schemas/StorageInfo'}

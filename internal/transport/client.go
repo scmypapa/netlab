@@ -9,12 +9,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"netlab.local/core/api"
 	"os"
 	"time"
 )
 
 type Client struct{ HTTP *http.Client }
+
+func StorageRoute(id, directory string) string {
+	path := "/node/v1/storage/" + id
+	if directory != "" {
+		path += "?directory=" + url.QueryEscape(directory)
+	}
+	return path
+}
 
 func NewClient(caFile, certFile, keyFile string) (*Client, error) {
 	ca, err := os.ReadFile(caFile)

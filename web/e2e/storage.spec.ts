@@ -125,8 +125,9 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
     if (path === "/storage-pools") {
       if (request.method() === "POST") {
         expect(request.postDataJSON()).toEqual({
-          nodeId: "node",
+          nodeIds: ["node"],
           name: "数据盘",
+          driver: "directory",
           directory: "/mnt/data",
         });
         added = true;
@@ -136,7 +137,7 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
         response = [
           {
             id: "default:node",
-            nodeId: "node",
+            nodeIds: ["node"],
             name: "本地存储",
             default: true,
             driver: "directory",
@@ -148,7 +149,7 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
             ? [
                 {
                   id: "pool",
-                  nodeId: "node",
+                  nodeIds: ["node"],
                   name: "数据盘",
                   default: false,
                   driver: "directory",

@@ -50,7 +50,7 @@ func (e *Engine) BackupRecovery(ctx context.Context, id string, plan api.NodeBac
 	group := "netlab:backup:" + id
 	result := api.NodeBackupResult{Parts: map[string]api.NodeBackupPart{}, Templates: map[string]api.NodeBackupPart{}}
 	for _, source := range plan.Sources {
-		reader, size, err := e.openRecoverySource(ctx, plan.RecoveryPointId, source)
+		reader, size, err := e.openRecoverySource(ctx, plan.RecoveryPointId, source, "")
 		if err != nil {
 			return result, fmt.Errorf("asset %s: %w", source.Execution.Asset.Name, err)
 		}
@@ -181,15 +181,16 @@ func (r *backupReader) Close() error {
 	return r.PipeReader.Close()
 }
 
-func (e *Engine) openRecoverySource(ctx context.Context, point string, source api.NodeRecoverySource) (io.ReadCloser, int64, error) {
+func (e *Engine) openRecoverySource(ctx context.Context, point string, source api.NodeRecoverySource, destinationPool string) (io.ReadCloser, int64, error) {
 	if source.NodeId == e.cfg.ID {
 		if source.Backup != nil {
 			reader, size := e.OpenBackupArtifact(ctx, source.Execution.Asset.Id, *source.Backup)
 			return reader, size, nil
 		}
-		return e.OpenRecoveryArtifact(source.EnvironmentId, point, source.Execution)
+		return e.OpenRecoveryArtifact(ctx, source.EnvironmentId, point, source.Execution, destinationPool)
 	}
 	path := fmt.Sprintf("/node/v1/environments/%s/recovery-points/%s/assets/%s/artifact", source.EnvironmentId, point, url.PathEscape(source.Execution.Asset.Id))
+	path += "?storagePoolId=" + url.QueryEscape(destinationPool)
 	var body any = source.Execution
 	if source.Backup != nil {
 		path, body = "/node/v1/backups/assets/"+url.PathEscape(source.Execution.Asset.Id)+"/artifact", source.Backup

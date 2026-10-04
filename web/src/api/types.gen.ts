@@ -1372,11 +1372,18 @@ export interface components {
       /** @enum {string} */
       nicModel: "virtio" | "e1000" | "e1000e" | "rtl8139" | "vmxnet3";
       cpuModel?: string;
+      cpuTopology?: components["schemas"]["CpuTopology"];
+      /** @description Guest NUMA nodes; vCPUs and memory are divided evenly. Omitted keeps one NUMA node. */
+      numaNodes?: number;
       secureBoot?: boolean;
       tpm?: boolean;
       guestAgent?: boolean;
       firmwareCode?: string;
       firmwareVars?: string;
+    };
+    CpuTopology: {
+      sockets: number;
+      threads: number;
     };
     Volume: {
       id: string;
@@ -1794,6 +1801,7 @@ export interface components {
       storagePoolId?: string;
       /** @description Physical filesystem reservation identity */
       storageFilesystem?: string;
+      rbd?: components["schemas"]["RbdStorage"];
       interfaces: components["schemas"]["ResolvedInterface"][];
     };
     NodePlan: {
@@ -2049,6 +2057,8 @@ export interface components {
       externalInterfaces?: components["schemas"]["ExternalInterface"][];
       storage?: components["schemas"]["StorageInfo"];
     };
+    /** @enum {string} */
+    StorageDriver: "directory" | "rbd";
     StorageInfo: {
       path: string;
       filesystem: string;
@@ -2056,22 +2066,40 @@ export interface components {
       capacityBytes: number;
       /** Format: int64 */
       availableBytes: number;
+      nativeSnapshots?: boolean;
+      rbd?: components["schemas"]["RbdStorage"];
+    };
+    RbdStorage: {
+      pool: string;
+      imagePrefix: string;
+      monitors: string[];
+      user: string;
+      fsid: string;
+      secretId: string;
+    };
+    CephConnection: {
+      monitors: string[];
+      pool: string;
+      user: string;
+      /** Format: password */
+      key: string;
     };
     CreateStoragePool: {
-      nodeId: string;
+      nodeIds: string[];
       name: string;
+      driver: components["schemas"]["StorageDriver"];
       /** @description Existing directory or mounted filesystem on this node */
-      directory: string;
+      directory?: string;
+      ceph?: components["schemas"]["CephConnection"];
     };
     StoragePool: {
       id: string;
-      nodeId: string;
+      nodeIds: string[];
       name: string;
       /** @description Original node storage location; visible to administrators */
       directory?: string;
       default: boolean;
-      /** @enum {string} */
-      driver: "directory";
+      driver: components["schemas"]["StorageDriver"];
       /** @enum {string} */
       state?: "ready" | "deleting";
       operationId?: string;

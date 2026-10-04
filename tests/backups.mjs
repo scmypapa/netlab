@@ -131,10 +131,10 @@ try {
     for(const worker of workers) {
       await node(worker.nodeId,"mkdir","-p",root+"/pool");
       directories.add(worker.nodeId);
-      pools.push(await api("/storage-pools","POST",{nodeId:worker.nodeId,name:"Backup "+run,directory:root+"/pool"},201));
+      pools.push(await api("/storage-pools","POST",{nodeIds:[worker.nodeId],driver:'directory',name:"Backup "+run,directory:root+"/pool"},201));
     }
     const network={id:randomUUID(),name:"Backup LAN",cidr:"192.168.93.0/24"};
-    const assets=pools.flatMap((pool)=>[container,vmTemplate].map((template)=>({id:randomUUID(),name:template.kind+" "+pool.nodeId.slice(0,4),templateId:template.id,storagePoolId:pool.id,resources:template.resources,interfaces:[{id:randomUUID(),networkId:network.id,primary:true,mac:"",address:""}],volumes:[{id:"data",mountPath:"/data",sizeGiB:1}]})));
+    const assets=pools.flatMap((pool)=>[container,vmTemplate].map((template)=>({id:randomUUID(),name:template.kind+" "+pool.nodeIds[0].slice(0,4),templateId:template.id,storagePoolId:pool.id,resources:template.resources,interfaces:[{id:randomUUID(),networkId:network.id,primary:true,mac:"",address:""}],volumes:[{id:"data",mountPath:"/data",sizeGiB:1}]})));
     env=await api("/environments","POST",{name:"Backup "+run,spec:{networks:[network],assets},run:true},201);
     await operation(env.operationId); await action(env,"force-stop");
     const state=await api(`/environments/${env.id}/state`);

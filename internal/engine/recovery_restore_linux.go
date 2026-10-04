@@ -8,7 +8,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -43,14 +42,6 @@ func readRecoveryManifest(directory, env, point string, a api.AssetExecution) (r
 	return manifest, nil
 }
 
-func (e *Engine) OpenRecoveryArtifact(env, point string, a api.AssetExecution) (io.ReadCloser, int64, error) {
-	directory := recoveryDirectory(e.cfg.DataDir, point, a)
-	if _, err := readRecoveryManifest(directory, env, point, a); err != nil {
-		return nil, 0, err
-	}
-	return openDirectoryArtifact(directory)
-}
-
 func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.AssetExecution) (err error) {
 	source, ok := (*plan.RecoverySources)[a.Asset.Id]
 	if !ok || source.Execution.Asset.Id != a.Asset.Id {
@@ -80,19 +71,16 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 		}
 	}()
 	input := filepath.Join(staging, "input")
+	destinationPool := ""
+	if a.Rbd != nil {
+		destinationPool = *a.StoragePoolId
+	}
 	if source.NodeId == e.cfg.ID && source.Backup == nil {
-		sourceDir := recoveryDirectory(e.cfg.DataDir, *plan.RecoveryPointId, source.Execution)
-		entries, readErr := os.ReadDir(sourceDir)
-		if readErr != nil {
-			return readErr
-		}
-		for _, entry := range entries {
-			if err = copyArtifact(ctx, filepath.Join(sourceDir, entry.Name()), filepath.Join(input, entry.Name())); err != nil {
-				return err
-			}
+		if err = e.copyRecovery(ctx, source.EnvironmentId, *plan.RecoveryPointId, source.Execution, input, destinationPool); err != nil {
+			return err
 		}
 	} else {
-		reader, _, sourceErr := e.openRecoverySource(ctx, *plan.RecoveryPointId, source)
+		reader, _, sourceErr := e.openRecoverySource(ctx, *plan.RecoveryPointId, source, destinationPool)
 		if sourceErr != nil {
 			return sourceErr
 		}
@@ -228,34 +216,48 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	domain.SecLabel = nil
 	domain.Name, domain.UUID = "netlab-"+a.InstanceId, a.InstanceId
 	directory := assetDirectory(v.data, env, a)
-	disks := map[string]string{}
+	disks := map[string]vmDisk{}
 	for i, disk := range *a.Template.Disks {
-		disks["image-"+disk.Id] = systemDiskPath(directory, i)
+		disks["image-"+disk.Id] = systemDisk(directory, a, i)
 	}
 	if a.Asset.Volumes != nil {
 		for _, volume := range *a.Asset.Volumes {
-			disks["volume-"+volume.Id] = v.volumePath(env, a, volume.Id)
+			disks["volume-"+volume.Id] = volumeDisk(directory, env, a, volume.Id)
 		}
 	}
 	for _, disk := range manifest.Disks {
-		target := disks[disk.Serial]
-		if target == "" {
+		if disk.BackingTemplateDisk != nil {
+			source := systemDiskPath(templateDirectory(v.data, a.Template.Id, a.Template.Version), *disk.BackingTemplateDisk)
+			if err = command(ctx, "qemu-img", "rebase", "-u", "-f", "qcow2", "-F", "qcow2", "-b", source, filepath.Join(input, disk.File)); err != nil {
+				return err
+			}
+		}
+		target, exists := disks[disk.Serial]
+		if !exists {
 			return fmt.Errorf("captured disk %s is not present in the recovery execution", disk.Serial)
 		}
-		if filepath.Dir(target) == directory {
-			target = filepath.Join(staging, filepath.Base(target))
+		if target.rbd == nil && filepath.Dir(target.file) == directory {
+			target.file = filepath.Join(staging, filepath.Base(target.file))
 		}
-		if err = os.MkdirAll(filepath.Dir(target), 0711); err != nil {
-			return err
+		if disk.RBDImage != "" {
+			source := vmDisk{rbd: manifest.Execution.Rbd, root: target.root, image: disk.RBDImage, snapshot: disk.RBDSnapshot}
+			err = target.restoreSnapshot(ctx, source)
+		} else {
+			err = target.restoreFile(ctx, filepath.Join(input, disk.File))
 		}
-		if err = os.Rename(filepath.Join(input, disk.File), target); err != nil {
+		if err != nil {
 			return err
 		}
 	}
 	for i := range domain.Devices.Disks {
 		disk := &domain.Devices.Disks[i]
 		if disk.Device == "disk" {
-			disk.Source = &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: disks[disk.Serial]}}
+			location := disks[disk.Serial]
+			disk.Source, disk.Auth, err = location.source()
+			if err != nil {
+				return err
+			}
+			disk.Driver.Type = location.format()
 		} else if disk.Source != nil && disk.Source.File != nil {
 			disk.Source.File.File = filepath.Join(directory, filepath.Base(disk.Source.File.File))
 		}
@@ -405,7 +407,7 @@ func (v *VirtualMachines) applyRecovery(ctx context.Context, env string, a api.A
 		if _, err = v.owned(domain, env, a.Asset.Id); err != nil {
 			return "unknown", err
 		}
-		observed, err := v.observedExecution(domain)
+		observed, err := v.observedExecution(ctx, domain)
 		if err != nil {
 			return "unknown", err
 		}
@@ -511,6 +513,18 @@ func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.Asset
 			return err
 		}
 	}
+	if a.Rbd != nil {
+		for _, disk := range executionDisks(e.cfg.DataDir, env, a) {
+			if err := disk.remove(ctx); err != nil {
+				return err
+			}
+			pending := disk
+			pending.image += ".pending"
+			if err := pending.remove(ctx); err != nil {
+				return err
+			}
+		}
+	}
 	volumes := filepath.Join(storageRoot(e.cfg.DataDir, a), "environments", env, "volumes", a.Asset.Id, a.DataSetId)
 	directory := assetDirectory(e.cfg.DataDir, env, a)
 	for _, path := range []string{directory, directory + ".pending", volumes} {
@@ -579,7 +593,7 @@ func (e *Engine) rollbackRecovery(ctx context.Context, env, operation string, or
 				domain.Free()
 				return "unknown", err
 			}
-			actual, readErr := e.vm.observedExecution(domain)
+			actual, readErr := e.vm.observedExecution(ctx, domain)
 			if readErr != nil {
 				domain.Free()
 				return "unknown", readErr
@@ -651,6 +665,13 @@ func (e *Engine) cleanupRecovery(ctx context.Context, env, operation string, ori
 				return err
 			}
 		} else {
+			if original.Rbd != nil {
+				for i := range *original.Template.Disks {
+					if err := systemDisk(assetDirectory(e.cfg.DataDir, env, original), original, i).remove(ctx); err != nil {
+						return err
+					}
+				}
+			}
 			if err := os.RemoveAll(assetDirectory(e.cfg.DataDir, env, original)); err != nil {
 				return err
 			}
@@ -658,7 +679,7 @@ func (e *Engine) cleanupRecovery(ctx context.Context, env, operation string, ori
 			if err != nil {
 				return err
 			}
-			if err = removeVolumeFiles(original.Asset.Volumes, references, func(id string) string { return e.vm.volumePath(env, original, id) }, false); err != nil {
+			if err = e.vm.removeVolumes(ctx, env, original, references, false); err != nil {
 				return err
 			}
 		}

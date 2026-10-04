@@ -215,13 +215,14 @@ type ServicePort struct {
 
 type StoragePool struct {
 	ID          string
-	NodeID      string
 	Name        string
 	Directory   string
 	Path        string
 	State       string
 	OperationID *string
 	CreatedAt   pgtype.Timestamptz
+	NodeIds     []string
+	Driver      string
 }
 
 type Template struct {

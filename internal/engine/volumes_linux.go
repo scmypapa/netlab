@@ -4,12 +4,11 @@ package engine
 
 import (
 	"fmt"
-	"os"
 
 	"netlab.local/core/api"
 )
 
-func removeVolumeFiles(volumes *[]api.Volume, references map[string]bool, pathFor func(string) string, requireUnused bool) error {
+func removeVolumeFiles(volumes *[]api.Volume, references map[string]bool, pathFor func(string) string, remove func(string) error, requireUnused bool) error {
 	if volumes == nil {
 		return nil
 	}
@@ -24,7 +23,7 @@ func removeVolumeFiles(volumes *[]api.Volume, references map[string]bool, pathFo
 			}
 			continue
 		}
-		if err := os.RemoveAll(path); err != nil {
+		if err := remove(volume.Id); err != nil {
 			return err
 		}
 	}

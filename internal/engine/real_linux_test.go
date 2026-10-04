@@ -130,7 +130,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actualVM, observeErr := e.vm.observedExecution(domain)
+	actualVM, observeErr := e.vm.observedExecution(ctx, domain)
 	domain.Free()
 	if observeErr != nil || actualVM.Template.Hardware.Machine != prepared.Hardware.Machine || actualVM.Template.Hardware.Firmware != api.Bios || actualVM.Template.Hardware.DiskBus != api.HardwareDiskBusIde || actualVM.Template.Hardware.NicModel != api.HardwareNicModelE1000 || actualVM.Template.Hardware.CpuModel == nil || *actualVM.Template.Hardware.CpuModel == "host-model" {
 		t.Fatalf("BIOS hardware was not read from the active domain: %+v %v", actualVM, observeErr)
@@ -416,7 +416,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 		return config
 	}
 	before := readConfig()
-	actualHardware, err := vm.observedExecution(domain)
+	actualHardware, err := vm.observedExecution(ctx, domain)
 	if err != nil || actualHardware.Template.Hardware.Machine != before.OS.Type.Machine || actualHardware.Template.Hardware.Firmware != api.Uefi || !*actualHardware.Template.Hardware.SecureBoot || !*actualHardware.Template.Hardware.Tpm || actualHardware.Template.Hardware.FirmwareCode == nil || *actualHardware.Template.Hardware.FirmwareCode != before.OS.Loader.Path {
 		t.Fatalf("UEFI hardware was not observed from the native domain: %+v %v", actualHardware, err)
 	}
@@ -439,7 +439,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseForceStop, a); err != nil {
 		t.Fatal(err)
 	}
-	if image, err := inspectImage(ctx, vm.volumePath(env, a, "data")); err != nil || image.VirtualSize != 2<<30 {
+	if image, err := inspectImage(ctx, volumeDisk(assetDirectory(vm.data, env, a), env, a, "data").file); err != nil || image.VirtualSize != 2<<30 {
 		t.Fatalf("data disk expansion: %+v %v", image, err)
 	}
 	updatedVolumes = updatedVolumes[:1]
@@ -449,13 +449,13 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	cleanup := a
 	removed := []api.Volume{{Id: "temporary", SizeGiB: 1}}
 	cleanup.Asset.Volumes = &removed
-	if _, err = os.Stat(vm.volumePath(env, a, "temporary")); err != nil {
+	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "temporary").file); err != nil {
 		t.Fatal("VM update deleted a data disk before commit", err)
 	}
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseCleanupVolumes, cleanup); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(vm.volumePath(env, a, "temporary")); !os.IsNotExist(err) {
+	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "temporary").file); !os.IsNotExist(err) {
 		t.Fatal("VM post-commit cleanup left an unused data disk", err)
 	}
 	failed := a
@@ -485,7 +485,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, a); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(vm.volumePath(env, a, "data")); err != nil {
+	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "data").file); err != nil {
 		t.Fatal("destroying the old VM removed the replacement data disk", err)
 	}
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, replacement); err != nil {
@@ -496,7 +496,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, stale); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(vm.volumePath(env, a, "data")); !os.IsNotExist(err) {
+	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "data").file); !os.IsNotExist(err) {
 		t.Fatal("VM destroy left its installed data disk behind", err)
 	}
 }

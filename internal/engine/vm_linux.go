@@ -53,7 +53,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 	d, err := v.conn.LookupDomainByUUIDString(a.InstanceId)
 	if noDomain(err) {
 		if phase == api.NodePlanPhaseDestroy {
-			return "destroyed", v.removeFiles(env, a)
+			return "destroyed", v.removeFiles(ctx, env, a)
 		}
 		return "absent", err
 	}
@@ -75,7 +75,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if err != nil {
 			return state, err
 		}
-		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a, id) }, true)
+		return state, v.removeVolumes(ctx, env, a, references, true)
 	case api.NodePlanPhaseUpdate:
 		return v.update(ctx, d, env, a)
 	case api.NodePlanPhaseStart:
@@ -120,7 +120,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if err = d.UndefineFlags(flags); err != nil {
 			return "stopped", err
 		}
-		return "destroyed", v.removeFiles(env, a)
+		return "destroyed", v.removeFiles(ctx, env, a)
 	case api.NodePlanPhaseInspect:
 	default:
 		return state, fmt.Errorf("invalid virtual machine phase %s", phase)
@@ -166,16 +166,8 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 		return "absent", err
 	}
 	for index, size := range sizes {
-		disk := systemDiskPath(dir, index)
 		source := systemDiskPath(filepath.Join(v.data, "artifacts", a.Template.Id, fmt.Sprint(a.Template.Version)), index)
-		if _, err = os.Stat(disk); errors.Is(err, os.ErrNotExist) {
-			if err = command(ctx, "qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", source, disk); err != nil {
-				return "absent", err
-			}
-		} else if err != nil {
-			return "absent", err
-		}
-		if err = expandDisk(ctx, disk, size); err != nil {
+		if err = systemDisk(dir, a, index).prepare(ctx, source, size); err != nil {
 			return "absent", err
 		}
 	}
@@ -207,11 +199,19 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	}
 	return vmState(d)
 }
-func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
+func (v *VirtualMachines) removeFiles(ctx context.Context, env string, a api.AssetExecution) error {
 	if err := os.RemoveAll(tpmDirectory(a.InstanceId)); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(assetDirectory(v.data, env, a)); err != nil {
+	directory := assetDirectory(v.data, env, a)
+	if a.Rbd != nil && a.Template.Disks != nil {
+		for index := range *a.Template.Disks {
+			if err := systemDisk(directory, a, index).remove(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	if err := os.RemoveAll(directory); err != nil {
 		return err
 	}
 	if a.Asset.Volumes == nil || len(*a.Asset.Volumes) == 0 {
@@ -221,39 +221,18 @@ func (v *VirtualMachines) removeFiles(env string, a api.AssetExecution) error {
 	if err != nil {
 		return err
 	}
-	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return v.volumePath(env, a, id) }, false)
+	return v.removeVolumes(ctx, env, a, references, false)
 }
 
-func (v *VirtualMachines) volumePath(env string, a api.AssetExecution, volume string) string {
-	return filepath.Join(storageRoot(v.data, a), "environments", env, "volumes", a.Asset.Id, a.DataSetId, volume+".qcow2")
+func (v *VirtualMachines) removeVolumes(ctx context.Context, env string, a api.AssetExecution, references map[string]bool, requireUnused bool) error {
+	directory := assetDirectory(v.data, env, a)
+	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return volumeDisk(directory, env, a, id).key() }, func(id string) error { return volumeDisk(directory, env, a, id).remove(ctx) }, requireUnused)
 }
 
 func (v *VirtualMachines) prepareVolumes(ctx context.Context, env string, a api.AssetExecution) error {
 	for _, volume := range *a.Asset.Volumes {
-		path := v.volumePath(env, a, volume.Id)
-		if err := os.MkdirAll(filepath.Dir(path), 0711); err != nil {
+		if err := volumeDisk(assetDirectory(v.data, env, a), env, a, volume.Id).prepare(ctx, "", volume.SizeGiB); err != nil {
 			return err
-		}
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			if err = command(ctx, "qemu-img", "create", "-f", "qcow2", path, fmt.Sprintf("%dG", volume.SizeGiB)); err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
-		} else {
-			image, err := inspectImage(ctx, path)
-			if err != nil {
-				return err
-			}
-			size := volume.SizeGiB * (1 << 30)
-			if size < image.VirtualSize {
-				return fmt.Errorf("volume %s cannot be shrunk", volume.Id)
-			}
-			if size > image.VirtualSize {
-				if err = command(ctx, "qemu-img", "resize", path, fmt.Sprint(size)); err != nil {
-					return err
-				}
-			}
 		}
 	}
 	return nil
@@ -290,10 +269,19 @@ func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, 
 			continue
 		}
 		if owner.Environment == env && owner.Asset == asset {
+			var a api.AssetExecution
+			if err = json.Unmarshal([]byte(owner.Execution), &a); err != nil {
+				return nil, err
+			}
 			for _, disk := range config.Devices.Disks {
-				if disk.Source != nil && disk.Source.File != nil {
-					references[disk.Source.File.File] = true
+				if disk.Device != "disk" {
+					continue
 				}
+				location, err := diskFromDomain(disk, a)
+				if err != nil {
+					return nil, err
+				}
+				references[location.key()] = true
 			}
 		}
 	}
@@ -320,7 +308,7 @@ func (v *VirtualMachines) owned(d *libvirt.Domain, env, asset string) (Ownership
 	}
 	return owner, nil
 }
-func (v *VirtualMachines) Inventory(env string) ([]api.ExecutionResult, error) {
+func (v *VirtualMachines) Inventory(ctx context.Context, env string) ([]api.ExecutionResult, error) {
 	domains, err := v.conn.ListAllDomains(0)
 	if err != nil {
 		return nil, err
@@ -353,7 +341,7 @@ func (v *VirtualMachines) Inventory(env string) ([]api.ExecutionResult, error) {
 			state, err := vmState(&d)
 			r := api.ExecutionResult{EnvironmentId: ptr(owner.Environment), AssetId: owner.Asset, InstanceId: owner.Instance, State: state, ObservedAt: time.Now().UTC()}
 			var observeErr error
-			r.Execution, observeErr = v.observedExecution(&d)
+			r.Execution, observeErr = v.observedExecution(ctx, &d)
 			err = errors.Join(err, observeErr)
 			if err != nil {
 				r.Error = ptr(err.Error())
@@ -404,11 +392,20 @@ func waitVM(ctx context.Context, d *libvirt.Domain, target string) (string, erro
 	}
 }
 func command(ctx context.Context, name string, args ...string) error {
-	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	_, err := commandOutput(ctx, name, args...)
+	return err
+}
+
+func commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	output, err := exec.CommandContext(ctx, name, args...).Output()
 	if err != nil {
-		return fmt.Errorf("%s: %w: %s", name, err, output)
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return nil, fmt.Errorf("%s: %w: %s", name, err, exit.Stderr)
+		}
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	return nil
+	return output, nil
 }
 
 type diskImage struct {
@@ -419,9 +416,9 @@ type diskImage struct {
 
 func inspectImage(ctx context.Context, path string) (diskImage, error) {
 	var image diskImage
-	output, err := exec.CommandContext(ctx, "qemu-img", "info", "--output=json", path).CombinedOutput()
+	output, err := commandOutput(ctx, "qemu-img", "info", "--output=json", path)
 	if err != nil {
-		return image, fmt.Errorf("qemu image inspection: %w: %s", err, output)
+		return image, err
 	}
 	if err = json.Unmarshal(output, &image); err != nil {
 		return image, err

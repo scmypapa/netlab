@@ -25,8 +25,11 @@ import (
 )
 
 type recoveryDisk struct {
-	Serial string `json:"serial"`
-	File   string `json:"file"`
+	Serial              string `json:"serial"`
+	File                string `json:"file"`
+	BackingTemplateDisk *int   `json:"backingTemplateDisk,omitempty"`
+	RBDImage            string `json:"rbdImage,omitempty"`
+	RBDSnapshot         string `json:"rbdSnapshot,omitempty"`
 }
 
 type recoveryManifest struct {
@@ -95,6 +98,16 @@ func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.A
 	}
 	if err != nil {
 		return api.RecoveryCapture{}, err
+	}
+	for _, disk := range manifest.Disks {
+		if disk.RBDImage != "" {
+			source := vmDisk{rbd: a.Rbd, root: *a.StoragePath, image: disk.RBDImage, snapshot: disk.RBDSnapshot}
+			bytes, err := source.usedBytes(ctx)
+			if err != nil {
+				return api.RecoveryCapture{}, err
+			}
+			manifest.Bytes += bytes
+		}
 	}
 	if err = filepath.WalkDir(staging, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
@@ -171,28 +184,58 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 		manifest.Memory = true
 	}
 	backupDisks := []libvirtxml.DomainBackupPushDisk{}
+	storage, err := StorageInfo(directory)
+	if err != nil {
+		return err
+	}
 	for _, disk := range config.Devices.Disks {
 		if disk.Device != "disk" {
 			continue
 		}
-		if disk.Source == nil || disk.Source.File == nil {
-			return errors.New("recovery requires managed file disks")
+		location, err := diskFromDomain(disk, a)
+		if err != nil {
+			return err
 		}
 		file := fmt.Sprintf("disk-%d.qcow2", len(manifest.Disks))
-		if state == "suspended" {
+		captured := recoveryDisk{Serial: disk.Serial, File: file}
+		if location.rbd != nil {
+			if err = location.capture(ctx, manifest.PointID); err != nil {
+				return err
+			}
+			captured.RBDImage, captured.RBDSnapshot = location.image, manifest.PointID
+		} else if storage.NativeSnapshots && (state == "stopped" || frozen) {
+			if err = cloneFile(location.file, filepath.Join(directory, file)); err != nil {
+				return err
+			}
+			image, err := inspectImage(ctx, filepath.Join(directory, file))
+			if err != nil {
+				return err
+			}
+			if image.BackingFilename != "" {
+				for i, definition := range *a.Template.Disks {
+					if disk.Serial == "image-"+definition.Id {
+						captured.BackingTemplateDisk = ptr(i)
+						break
+					}
+				}
+				if captured.BackingTemplateDisk == nil {
+					return fmt.Errorf("disk %s has an unmanaged backing image", disk.Serial)
+				}
+			}
+		} else if state == "suspended" {
 			backupDisks = append(backupDisks, libvirtxml.DomainBackupPushDisk{Name: disk.Target.Dev, Backup: "yes",
 				Driver: &libvirtxml.DomainBackupDiskDriver{Type: "qcow2"},
 				Target: &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: filepath.Join(directory, file)}}})
 		} else {
-			image, err := inspectImage(ctx, disk.Source.File.File)
+			image, err := inspectImage(ctx, location.file)
 			if err != nil {
 				return err
 			}
-			if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", disk.Source.File.File, filepath.Join(directory, file)); err != nil {
+			if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", location.file, filepath.Join(directory, file)); err != nil {
 				return fmt.Errorf("disk %s: %w", disk.Serial, err)
 			}
 		}
-		manifest.Disks = append(manifest.Disks, recoveryDisk{Serial: disk.Serial, File: file})
+		manifest.Disks = append(manifest.Disks, captured)
 	}
 	if config.OS.NVRam != nil {
 		if err = copyArtifact(ctx, config.OS.NVRam.NVRam, filepath.Join(directory, "nvram.fd")); err != nil {
@@ -212,22 +255,27 @@ func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if len(backupDisks) > 0 {
-		return backupRecoveryDisks(ctx, domain, backupDisks, func() error {
-			if frozen {
-				consistent, err := v.thawRecoveryFS(domain, manifest.PointID, a, !running)
-				if err == nil && consistent {
-					manifest.Consistency = api.Filesystem
-				}
+	resume := func() error {
+		if frozen {
+			raw, err := os.ReadFile(recoveryFreezePath(v.data, manifest.PointID, a))
+			if err != nil {
 				return err
 			}
-			if running {
-				return domain.Resume()
+			consistent, err := v.thawRecoveryFS(domain, manifest.PointID, a, !running)
+			if err == nil && consistent {
+				manifest.Consistency = api.RecoveryConsistency(raw)
 			}
-			return nil
-		})
+			return err
+		}
+		if running {
+			return domain.Resume()
+		}
+		return nil
 	}
-	return nil
+	if len(backupDisks) > 0 {
+		return backupRecoveryDisks(ctx, domain, backupDisks, resume)
+	}
+	return resume()
 }
 
 func (c *Containers) captureRecovery(ctx context.Context, env, point string, a api.AssetExecution, directory string, manifest *recoveryManifest) (err error) {
@@ -379,9 +427,14 @@ func backupRecoveryDisks(ctx context.Context, domain *libvirt.Domain, disks []li
 	}
 }
 
-func (e *Engine) deleteRecovery(env, point string, a api.AssetExecution) error {
+func (e *Engine) deleteRecovery(ctx context.Context, env, point string, a api.AssetExecution) error {
 	if a.Template.Kind == api.Vm && e.vm != nil {
 		if err := e.vm.finishRecoveryFS(env, point, a, false); err != nil {
+			return err
+		}
+	}
+	if a.Rbd != nil {
+		if err := e.vm.deleteDiskSnapshots(ctx, env, point, a); err != nil {
 			return err
 		}
 	}

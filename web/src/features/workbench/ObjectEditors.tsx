@@ -241,7 +241,11 @@ export function AssetEditor({
               data={(storage.data ?? [])
                 .filter(
                   (pool) =>
-                    !pool.default && pool.state === "ready" && !pool.error,
+                    !pool.default &&
+                    pool.state === "ready" &&
+                    !pool.error &&
+                    (template?.kind === "vm" ||
+                      pool.capabilities.includes("volumes")),
                 )
                 .map((pool) => ({ value: pool.id, label: pool.name }))}
             />

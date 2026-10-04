@@ -215,6 +215,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			execution := api.AssetExecution{Asset: a, Template: t, InstanceId: uuid.NewString(), Interfaces: environment.Resolve(p.Spec, a, nics)}
 			if exists {
 				execution.StoragePoolId, execution.StoragePath, execution.StorageFilesystem = old.Execution.StoragePoolId, old.Execution.StoragePath, old.Execution.StorageFilesystem
+				execution.Rbd = old.Execution.Rbd
 				execution.DataSetId = old.Execution.DataSetId
 			}
 			if restoring {
@@ -299,9 +300,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	diskUsed, diskCapacity := map[string]int64{}, map[string]int64{}
 	if len(storage) > 0 {
 		poolIDs := []string{}
-		for id, pool := range storage {
-			if id != defaultStorage(pool.node) {
-				poolIDs = append(poolIDs, id)
+		for _, pool := range storage {
+			if pool.id != defaultStorage(pool.node) && !slices.Contains(poolIDs, pool.id) {
+				poolIDs = append(poolIDs, pool.id)
 			}
 		}
 		pools, err := q.LockStoragePools(ctx, poolIDs)
@@ -313,8 +314,8 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			poolReady[pool.ID] = pool.State == "ready"
 		}
 		for id, pool := range storage {
-			if id != defaultStorage(pool.node) {
-				pool.ready = poolReady[id]
+			if pool.id != defaultStorage(pool.node) {
+				pool.ready = poolReady[pool.id]
 				storage[id] = pool
 			}
 		}
@@ -327,7 +328,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			if id == "" {
 				id = defaultStorage(r.NodeID)
 			}
-			if pool, ok := storage[id]; ok && pool.err == nil {
+			if pool, ok := storage[storageKey(r.NodeID, id)]; ok && pool.err == nil {
 				diskUsed[pool.filesystem()] += r.DiskGib
 			}
 		}
@@ -384,7 +385,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if restoring && !supports(infos[t.NodeID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
 			return fmt.Errorf("资产 %s 的节点不支持恢复点中的硬件", t.Execution.Asset.Name)
 		}
-		pool := storage[actualPool(t.NodeID, t.Execution)]
+		pool := storage[storageKey(t.NodeID, actualPool(t.NodeID, t.Execution))]
 		if pool.err != nil {
 			return fmt.Errorf("资产 %s 的存储不可用：%w", t.Execution.Asset.Name, pool.err)
 		}
@@ -439,6 +440,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			for _, pool := range storage {
 				key := pool.filesystem()
 				if pool.node != n.ID || !pool.ready || pool.err != nil || preferred != "" && preferred != pool.id || diskUsed[key]+diskRequirement > diskCapacity[key] {
+					continue
+				}
+				if pool.info.Rbd != nil && t.Execution.Template.Kind != api.Vm {
 					continue
 				}
 				s := max(float64(u.Cpu)/float64(c.Cpu), float64(u.MemoryMiB)/float64(c.MemoryMiB), float64(diskUsed[key]+diskRequirement)/float64(diskCapacity[key]), 1-float64(pool.info.AvailableBytes)/float64(pool.info.CapacityBytes))

@@ -20,7 +20,7 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin str
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			info := api.StorageInfo{Path: r.URL.Query().Get("path"), Filesystem: "root", CapacityBytes: 8 << 30, AvailableBytes: 4 << 30}
+			info := api.StorageInfo{Path: r.URL.Query().Get("directory"), Filesystem: "root", CapacityBytes: 8 << 30, AvailableBytes: 4 << 30}
 			if r.URL.Path == "/node/v1/info" {
 				info.Path = "/var/lib/netlab"
 				writeJSON(w, 200, api.NodeInfo{Id: id, Name: "Storage node", Storage: &info})
@@ -40,10 +40,11 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin str
 		t.Fatal(err)
 	}
 	var pool api.StoragePool
-	if err := json.Unmarshal(call("POST", "/storage-pools", admin, api.CreateStoragePool{NodeId: id, Name: "Data", Directory: "/mnt/pool"}, 201), &pool); err != nil {
+	directory := "/mnt/pool"
+	if err := json.Unmarshal(call("POST", "/storage-pools", admin, api.CreateStoragePool{NodeIds: []string{id}, Driver: api.StorageDriverDirectory, Name: "Data", Directory: &directory}, 201), &pool); err != nil {
 		t.Fatal(err)
 	}
-	call("POST", "/storage-pools", admin, api.CreateStoragePool{NodeId: id, Name: "Duplicate", Directory: "/mnt/pool"}, 409)
+	call("POST", "/storage-pools", admin, api.CreateStoragePool{NodeIds: []string{id}, Driver: api.StorageDriverDirectory, Name: "Duplicate", Directory: &directory}, 409)
 	if cleaned != 1 {
 		t.Fatal("failed registration did not release its directory")
 	}
