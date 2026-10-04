@@ -28,7 +28,7 @@ func (s *Server) assetSSHSettings(w http.ResponseWriter, r *http.Request, identi
 		return err
 	}
 	key := identity.Principal.ID + "/" + env + "/" + asset
-	lookup := queries.GetGuestConnectionParams{PrincipalID: identity.Principal.ID, EnvironmentID: env, AssetID: asset}
+	lookup := queries.GetGuestConnectionParams{PrincipalID: identity.Principal.ID, EnvironmentID: env, AssetID: asset, Protocol: "ssh"}
 	if r.Method == http.MethodDelete {
 		if err = s.Queries.DeleteGuestConnection(r.Context(), queries.DeleteGuestConnectionParams(lookup)); err != nil {
 			return err
@@ -74,7 +74,7 @@ func (s *Server) assetSSHSettings(w http.ResponseWriter, r *http.Request, identi
 	if err != nil {
 		return err
 	}
-	if err = s.Queries.PutGuestConnection(r.Context(), queries.PutGuestConnectionParams{PrincipalID: identity.Principal.ID, EnvironmentID: env, AssetID: asset, Encrypted: s.Secrets.Encrypt(raw, key)}); err != nil {
+	if err = s.Queries.PutGuestConnection(r.Context(), queries.PutGuestConnectionParams{PrincipalID: identity.Principal.ID, EnvironmentID: env, AssetID: asset, Protocol: "ssh", Encrypted: s.Secrets.Encrypt(raw, key)}); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -100,7 +100,7 @@ func (s *Server) sshTarget(ctx context.Context, identity access.Identity, env, a
 	if probe != nil {
 		settings.Port, settings.InterfaceId = probe.Port, probe.InterfaceId
 	} else {
-		settings, err = s.readGuestSettings(ctx, queries.GetGuestConnectionParams{PrincipalID: identity.Principal.ID, EnvironmentID: env, AssetID: asset}, identity.Principal.ID+"/"+env+"/"+asset)
+		settings, err = s.readGuestSettings(ctx, queries.GetGuestConnectionParams{PrincipalID: identity.Principal.ID, EnvironmentID: env, AssetID: asset, Protocol: "ssh"}, identity.Principal.ID+"/"+env+"/"+asset)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil, httpError{http.StatusConflict, "请设置 SSH 连接"}
 		}
@@ -108,25 +108,7 @@ func (s *Server) sshTarget(ctx context.Context, identity access.Identity, env, a
 			return "", nil, err
 		}
 	}
-	current, err := s.Queries.GetCurrentAsset(ctx, queries.GetCurrentAssetParams{EnvironmentID: env, AssetID: asset})
-	if err != nil {
-		return "", nil, err
-	}
-	var execution api.AssetExecution
-	if err = json.Unmarshal(current.Execution, &execution); err != nil {
-		return "", nil, err
-	}
-	var address string
-	for _, item := range execution.Asset.Interfaces {
-		if settings.InterfaceId != nil && item.Id == *settings.InterfaceId || settings.InterfaceId == nil && item.Primary {
-			address = item.Address
-			break
-		}
-	}
-	if address == "" {
-		return "", nil, httpError{http.StatusConflict, "资产没有可用于 SSH 的网络地址"}
-	}
-	endpoint, err := s.Queries.GetEnvironmentNetworkEndpoint(ctx, env)
+	endpoint, address, err := s.guestAddress(ctx, env, asset, settings.InterfaceId)
 	if err != nil {
 		return "", nil, err
 	}
@@ -135,6 +117,29 @@ func (s *Server) sshTarget(ctx context.Context, identity access.Identity, env, a
 		return "", nil, err
 	}
 	return endpoint, http.Header{"X-Netlab-Ssh": []string{base64.StdEncoding.EncodeToString(raw)}}, nil
+}
+
+func (s *Server) guestAddress(ctx context.Context, env, asset string, selected *string) (string, string, error) {
+	current, err := s.Queries.GetCurrentAsset(ctx, queries.GetCurrentAssetParams{EnvironmentID: env, AssetID: asset})
+	if err != nil {
+		return "", "", err
+	}
+	var execution api.AssetExecution
+	if err = json.Unmarshal(current.Execution, &execution); err != nil {
+		return "", "", err
+	}
+	var address string
+	for _, item := range execution.Asset.Interfaces {
+		if selected != nil && item.Id == *selected || selected == nil && item.Primary {
+			address = item.Address
+			break
+		}
+	}
+	if address == "" {
+		return "", "", httpError{http.StatusConflict, "资产没有可用于连接的网络地址"}
+	}
+	endpoint, err := s.Queries.GetEnvironmentNetworkEndpoint(ctx, env)
+	return endpoint, address, err
 }
 
 func (s *Server) assetSSHHostKey(w http.ResponseWriter, r *http.Request, identity access.Identity) error {

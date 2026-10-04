@@ -193,6 +193,20 @@ function list<T>(
 }
 
 export const api = {
+  rdpSettings: (id: string, assetId: string) =>
+    request<Schema<"RDPSettings">>(`/environments/${id}/assets/${assetId}/rdp`),
+  saveRDPSettings: (
+    id: string,
+    assetId: string,
+    settings: Schema<"RDPSettings">,
+  ) =>
+    request<void>(`/environments/${id}/assets/${assetId}/rdp`, "PUT", settings),
+  rdpCertificate: (id: string, assetId: string, probe: Schema<"SSHProbe">) =>
+    request<{ fingerprint: string }>(
+      `/environments/${id}/assets/${assetId}/rdp/certificate`,
+      "POST",
+      probe,
+    ),
   sshSettings: (id: string, assetId: string) =>
     request<Schema<"SSHSettings">>(`/environments/${id}/assets/${assetId}/ssh`),
   saveSSHSettings: (

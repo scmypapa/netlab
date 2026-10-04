@@ -235,6 +235,15 @@ export function ObjectInspector({
                       )}
                       {canConnect && template?.kind === "vm" && (
                         <Menu.Item
+                          leftSection={<Monitor size={15} />}
+                          disabled={assetState?.state !== "running"}
+                          onClick={() => onConnect("rdp")}
+                        >
+                          远程桌面
+                        </Menu.Item>
+                      )}
+                      {canConnect && template?.kind === "vm" && (
+                        <Menu.Item
                           leftSection={<SquareTerminal size={15} />}
                           disabled={assetState?.state === "stopped"}
                           onClick={() => onConnect("serial")}

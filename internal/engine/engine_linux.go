@@ -24,6 +24,7 @@ type Config struct {
 	ID, Name, DataDir, ContainerdSocket, LibvirtURI, OVNEndpoint, OVSEndpoint, Bridge string
 	ProviderCIDR                                                                      string
 	AdvertiseAddress                                                                  string
+	GuacdAddress                                                                      string
 	ArtifactHTTP                                                                      *http.Client
 }
 type Engine struct {

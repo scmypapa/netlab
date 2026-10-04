@@ -10,17 +10,23 @@ import (
 )
 
 const deleteGuestConnection = `-- name: DeleteGuestConnection :exec
-DELETE FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3
+DELETE FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3 AND protocol=$4
 `
 
 type DeleteGuestConnectionParams struct {
 	PrincipalID   string
 	EnvironmentID string
 	AssetID       string
+	Protocol      string
 }
 
 func (q *Queries) DeleteGuestConnection(ctx context.Context, arg DeleteGuestConnectionParams) error {
-	_, err := q.db.Exec(ctx, deleteGuestConnection, arg.PrincipalID, arg.EnvironmentID, arg.AssetID)
+	_, err := q.db.Exec(ctx, deleteGuestConnection,
+		arg.PrincipalID,
+		arg.EnvironmentID,
+		arg.AssetID,
+		arg.Protocol,
+	)
 	return err
 }
 
@@ -48,31 +54,38 @@ func (q *Queries) GetEnvironmentNetworkEndpoint(ctx context.Context, id string) 
 }
 
 const getGuestConnection = `-- name: GetGuestConnection :one
-SELECT encrypted FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3
+SELECT encrypted FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3 AND protocol=$4
 `
 
 type GetGuestConnectionParams struct {
 	PrincipalID   string
 	EnvironmentID string
 	AssetID       string
+	Protocol      string
 }
 
 func (q *Queries) GetGuestConnection(ctx context.Context, arg GetGuestConnectionParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, getGuestConnection, arg.PrincipalID, arg.EnvironmentID, arg.AssetID)
+	row := q.db.QueryRow(ctx, getGuestConnection,
+		arg.PrincipalID,
+		arg.EnvironmentID,
+		arg.AssetID,
+		arg.Protocol,
+	)
 	var encrypted []byte
 	err := row.Scan(&encrypted)
 	return encrypted, err
 }
 
 const putGuestConnection = `-- name: PutGuestConnection :exec
-INSERT INTO guest_connections (principal_id,environment_id,asset_id,encrypted) VALUES ($1,$2,$3,$4)
-ON CONFLICT (principal_id,environment_id,asset_id) DO UPDATE SET encrypted=EXCLUDED.encrypted
+INSERT INTO guest_connections (principal_id,environment_id,asset_id,protocol,encrypted) VALUES ($1,$2,$3,$4,$5)
+ON CONFLICT (principal_id,environment_id,asset_id,protocol) DO UPDATE SET encrypted=EXCLUDED.encrypted
 `
 
 type PutGuestConnectionParams struct {
 	PrincipalID   string
 	EnvironmentID string
 	AssetID       string
+	Protocol      string
 	Encrypted     []byte
 }
 
@@ -81,6 +94,7 @@ func (q *Queries) PutGuestConnection(ctx context.Context, arg PutGuestConnection
 		arg.PrincipalID,
 		arg.EnvironmentID,
 		arg.AssetID,
+		arg.Protocol,
 		arg.Encrypted,
 	)
 	return err

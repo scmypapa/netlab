@@ -1,5 +1,12 @@
-import { ActionIcon, Button } from "@mantine/core";
-import { Maximize2, Monitor, SquareTerminal, X } from "lucide-react";
+import { ActionIcon, Button, Modal, Textarea } from "@mantine/core";
+import {
+  Clipboard,
+  Maximize2,
+  Monitor,
+  Settings2,
+  SquareTerminal,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -7,6 +14,7 @@ import RFB from "@novnc/novnc";
 import "@xterm/xterm/css/xterm.css";
 import { consoleKey, type ConsoleTab } from "./consoles";
 import styles from "./ConsoleWorkspace.module.css";
+import { RDPDisplay, type RDPControls } from "./RDPDisplay";
 
 export default function ConsoleWorkspace({
   environmentId,
@@ -14,14 +22,17 @@ export default function ConsoleWorkspace({
   selected,
   onSelect,
   onClose,
+  onSettings,
 }: {
   environmentId: string;
   tabs: ConsoleTab[];
   selected: string;
   onSelect: (key: string) => void;
   onClose: (key: string) => void;
+  onSettings: (tab: ConsoleTab) => void;
 }) {
   const workspace = useRef<HTMLElement>(null);
+  const current = tabs.find((tab) => consoleKey(tab) === selected);
   return (
     <section ref={workspace} className={styles.workspace} aria-label="资产连接">
       <div className={styles.toolbar}>
@@ -39,7 +50,7 @@ export default function ConsoleWorkspace({
                   aria-controls={`console-${key}`}
                   onClick={() => onSelect(key)}
                 >
-                  {tab.kind === "vnc" ? (
+                  {tab.kind === "vnc" || tab.kind === "rdp" ? (
                     <Monitor size={14} />
                   ) : (
                     <SquareTerminal size={14} />
@@ -47,6 +58,7 @@ export default function ConsoleWorkspace({
                   {tab.name}
                   {tab.kind === "serial" && " · 串口"}
                   {tab.kind === "ssh" && " · SSH"}
+                  {tab.kind === "rdp" && " · RDP"}
                 </button>
                 <ActionIcon
                   variant="subtle"
@@ -60,14 +72,26 @@ export default function ConsoleWorkspace({
             );
           })}
         </div>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          aria-label="全屏连接"
-          onClick={() => void workspace.current?.requestFullscreen()}
-        >
-          <Maximize2 size={16} />
-        </ActionIcon>
+        <div className={styles.actions}>
+          {(current?.kind === "ssh" || current?.kind === "rdp") && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              aria-label="连接设置"
+              onClick={() => onSettings(current)}
+            >
+              <Settings2 size={16} />
+            </ActionIcon>
+          )}
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            aria-label="全屏连接"
+            onClick={() => void workspace.current?.requestFullscreen()}
+          >
+            <Maximize2 size={16} />
+          </ActionIcon>
+        </div>
       </div>
       {tabs.map((tab) => (
         <ConsoleConnection
@@ -95,10 +119,14 @@ function ConsoleConnection({
   const [attempt, setAttempt] = useState(0);
   const vnc = useRef<RFB | null>(null);
   const fit = useRef<FitAddon | null>(null);
+  const rdp = useRef<RDPControls>(null);
+  const [clipboardOpened, setClipboardOpened] = useState(false);
+  const [clipboardText, setClipboardText] = useState("");
   useEffect(() => {
     if (active) fit.current?.fit();
   }, [active]);
   useEffect(() => {
+    if (tab.kind === "rdp") return;
     const element = host.current!;
     const url = new URL(
       `/api/v1/environments/${encodeURIComponent(environmentId)}/assets/${encodeURIComponent(tab.id)}/console?kind=${tab.kind}`,
@@ -182,7 +210,7 @@ function ConsoleConnection({
       terminal.dispose();
       fit.current = null;
     };
-  }, [environmentId, tab.id, tab.kind, attempt]);
+  }, [environmentId, tab.id, tab.kind, tab.revision, attempt]);
   return (
     <div
       id={`console-${consoleKey(tab)}`}
@@ -198,29 +226,89 @@ function ConsoleConnection({
           <i />
           {status}
         </span>
-        {tab.kind === "vnc" && status === "已连接" && (
-          <Button
-            variant="subtle"
-            size="compact-xs"
-            onClick={() => vnc.current?.sendCtrlAltDel()}
-          >
-            Ctrl · Alt · Del
-          </Button>
-        )}
-        {status !== "已连接" && status !== "连接中" && (
-          <Button
-            variant="subtle"
-            size="compact-xs"
-            onClick={() => setAttempt((value) => value + 1)}
-          >
-            重新连接
-          </Button>
-        )}
+        <div className={styles.actions}>
+          {tab.kind === "rdp" && status === "已连接" && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              aria-label="远程剪贴板"
+              onClick={() => {
+                setClipboardText(rdp.current?.clipboard() ?? "");
+                setClipboardOpened(true);
+              }}
+            >
+              <Clipboard size={14} />
+            </ActionIcon>
+          )}
+          {(tab.kind === "vnc" || tab.kind === "rdp") &&
+            status === "已连接" && (
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                onClick={() =>
+                  tab.kind === "rdp"
+                    ? rdp.current?.attention()
+                    : vnc.current?.sendCtrlAltDel()
+                }
+              >
+                Ctrl · Alt · Del
+              </Button>
+            )}
+          {status !== "已连接" && status !== "连接中" && (
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              onClick={() => setAttempt((value) => value + 1)}
+            >
+              重新连接
+            </Button>
+          )}
+        </div>
       </div>
-      <div
-        ref={host}
-        className={`${styles.surface} ${tab.kind === "vnc" ? styles.vnc : styles.terminal}`}
-      />
+      {tab.kind === "rdp" ? (
+        <RDPDisplay
+          environmentId={environmentId}
+          assetId={tab.id}
+          attempt={attempt + (tab.revision ?? 0)}
+          active={active}
+          onStatus={setStatus}
+          controls={rdp}
+        />
+      ) : (
+        <div
+          ref={host}
+          className={`${styles.surface} ${tab.kind === "vnc" ? styles.vnc : styles.terminal}`}
+        />
+      )}
+      <Modal
+        opened={clipboardOpened}
+        title="远程剪贴板"
+        onClose={() => setClipboardOpened(false)}
+        centered
+      >
+        <Textarea
+          aria-label="剪贴板内容"
+          value={clipboardText}
+          onChange={(event) => setClipboardText(event.currentTarget.value)}
+          minRows={5}
+          maxRows={12}
+          autosize
+          autoFocus
+        />
+        <div className={styles.clipboardActions}>
+          <Button variant="default" onClick={() => setClipboardOpened(false)}>
+            关闭
+          </Button>
+          <Button
+            onClick={() => {
+              rdp.current?.paste(clipboardText);
+              setClipboardOpened(false);
+            }}
+          >
+            发送
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -58,6 +58,7 @@ const (
 
 // Defines values for ConsoleKind.
 const (
+	Rdp      ConsoleKind = "rdp"
 	Serial   ConsoleKind = "serial"
 	Ssh      ConsoleKind = "ssh"
 	Terminal ConsoleKind = "terminal"
@@ -925,6 +926,12 @@ type NodePlan struct {
 // NodePlanPhase defines model for NodePlan.Phase.
 type NodePlanPhase string
 
+// NodeRDP defines model for NodeRDP.
+type NodeRDP struct {
+	Address  string      `json:"address"`
+	Settings RDPSettings `json:"settings"`
+}
+
 // NodeRecoverySource defines model for NodeRecoverySource.
 type NodeRecoverySource struct {
 	Backup        *NodeBackupSource `json:"backup,omitempty"`
@@ -1066,6 +1073,17 @@ type Problem struct {
 	Detail string `json:"detail"`
 	Status int    `json:"status"`
 	Title  string `json:"title"`
+}
+
+// RDPSettings defines model for RDPSettings.
+type RDPSettings struct {
+	// Certificate Confirmed sha256 certificate fingerprint in FreeRDP format
+	Certificate string  `json:"certificate"`
+	Domain      *string `json:"domain,omitempty"`
+	InterfaceId *string `json:"interfaceId,omitempty"`
+	Password    *string `json:"password,omitempty"`
+	Port        int     `json:"port"`
+	Username    string  `json:"username"`
 }
 
 // RecoveryCapture defines model for RecoveryCapture.
@@ -1603,6 +1621,12 @@ type AssetActionJSONRequestBody = ActionRequest
 
 // ChangeAssetFilesJSONRequestBody defines body for ChangeAssetFiles for application/json ContentType.
 type ChangeAssetFilesJSONRequestBody = FileCommand
+
+// SaveAssetRDPSettingsJSONRequestBody defines body for SaveAssetRDPSettings for application/json ContentType.
+type SaveAssetRDPSettingsJSONRequestBody = RDPSettings
+
+// AssetRDPCertificateJSONRequestBody defines body for AssetRDPCertificate for application/json ContentType.
+type AssetRDPCertificateJSONRequestBody = SSHProbe
 
 // ExposeAssetServiceJSONRequestBody defines body for ExposeAssetService for application/json ContentType.
 type ExposeAssetServiceJSONRequestBody = CreateService

@@ -1,10 +1,10 @@
 -- name: GetGuestConnection :one
-SELECT encrypted FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3;
+SELECT encrypted FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3 AND protocol=$4;
 -- name: PutGuestConnection :exec
-INSERT INTO guest_connections (principal_id,environment_id,asset_id,encrypted) VALUES ($1,$2,$3,$4)
-ON CONFLICT (principal_id,environment_id,asset_id) DO UPDATE SET encrypted=EXCLUDED.encrypted;
+INSERT INTO guest_connections (principal_id,environment_id,asset_id,protocol,encrypted) VALUES ($1,$2,$3,$4,$5)
+ON CONFLICT (principal_id,environment_id,asset_id,protocol) DO UPDATE SET encrypted=EXCLUDED.encrypted;
 -- name: DeleteGuestConnection :exec
-DELETE FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3;
+DELETE FROM guest_connections WHERE principal_id=$1 AND environment_id=$2 AND asset_id=$3 AND protocol=$4;
 -- name: GetEnvironmentNetworkEndpoint :one
 SELECT n.endpoint FROM environments e JOIN nodes n ON n.id=e.network_node_id WHERE e.id=$1;
 -- name: DeleteUnusedGuestConnections :exec

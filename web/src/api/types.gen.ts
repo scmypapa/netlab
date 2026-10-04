@@ -781,6 +781,44 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/assets/{assetId}/rdp": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["assetRDPSettings"];
+    put: operations["saveAssetRDPSettings"];
+    post?: never;
+    delete: operations["deleteAssetRDPSettings"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/assets/{assetId}/rdp/certificate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["assetRDPCertificate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/assets/{assetId}/files": {
     parameters: {
       query: {
@@ -833,7 +871,7 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** @description WebSocket. Binary messages carry terminal or RFB bytes; terminal text messages contain ConsoleResize. */
+    /** @description WebSocket. The binary subprotocol carries terminal or RFB bytes; terminal text messages contain ConsoleResize. RDP uses the guacamole subprotocol and text instructions. */
     get: operations["assetConsole"];
     put?: never;
     post?: never;
@@ -1037,6 +1075,19 @@ export interface components {
       address: string;
       settings: components["schemas"]["SSHSettings"];
     };
+    RDPSettings: {
+      username: string;
+      domain?: string;
+      port: number;
+      interfaceId?: string;
+      /** @description Confirmed sha256 certificate fingerprint in FreeRDP format */
+      certificate: string;
+      password?: string;
+    };
+    NodeRDP: {
+      address: string;
+      settings: components["schemas"]["RDPSettings"];
+    };
     FileEntry: {
       name: string;
       /** @enum {string} */
@@ -1053,7 +1104,7 @@ export interface components {
       destination?: string;
     };
     /** @enum {string} */
-    ConsoleKind: "terminal" | "serial" | "vnc" | "ssh";
+    ConsoleKind: "terminal" | "serial" | "vnc" | "ssh" | "rdp";
     ConsoleResize: {
       cols: number;
       rows: number;
@@ -3235,6 +3286,111 @@ export interface operations {
     };
     responses: {
       /** @description Presented SSH host key */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            fingerprint: string;
+          };
+        };
+      };
+    };
+  };
+  assetRDPSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Personal RDP settings without password */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RDPSettings"];
+        };
+      };
+      /** @description No saved connection */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  saveAssetRDPSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RDPSettings"];
+      };
+    };
+    responses: {
+      /** @description Connection saved */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  deleteAssetRDPSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Personal connection removed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  assetRDPCertificate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SSHProbe"];
+      };
+    };
+    responses: {
+      /** @description Presented RDP certificate */
       200: {
         headers: {
           [name: string]: unknown;

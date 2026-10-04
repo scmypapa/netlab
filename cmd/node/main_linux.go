@@ -50,6 +50,7 @@ func run() error {
 	flag.StringVar(&cfg.Bridge, "bridge", "br-int", "OVN integration bridge")
 	flag.StringVar(&cfg.ProviderCIDR, "service-network", "100.127.0.0/16", "reserved IPv4 service provider network")
 	flag.StringVar(&cfg.AdvertiseAddress, "advertise-address", "", "client access address; defaults to the default-route source")
+	flag.StringVar(&cfg.GuacdAddress, "guacd", "127.0.0.1:4822", "local Guacamole daemon")
 	flag.StringVar(&address, "listen", ":9443", "mTLS listen address")
 	flag.StringVar(&certificate, "cert", "/etc/netlab/node.crt", "node certificate")
 	flag.StringVar(&key, "key", "/etc/netlab/node.key", "node private key")
@@ -90,6 +91,8 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /node/v1/environments/{environmentId}/rdp/certificate", executor.RDPAccess)
+	mux.HandleFunc("GET /node/v1/environments/{environmentId}/rdp/console", executor.RDPAccess)
 	for _, pattern := range []string{
 		"POST /node/v1/environments/{environmentId}/ssh/{kind}",
 		"GET /node/v1/environments/{environmentId}/ssh/{kind}",

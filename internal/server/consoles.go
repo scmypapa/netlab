@@ -18,8 +18,8 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	kind := r.URL.Query().Get("kind")
-	if kind != "terminal" && kind != "serial" && kind != "vnc" && kind != "ssh" {
-		return httpError{http.StatusBadRequest, "请选择终端、串口、VNC 或 SSH"}
+	if kind != "terminal" && kind != "serial" && kind != "vnc" && kind != "ssh" && kind != "rdp" {
+		return httpError{http.StatusBadRequest, "请选择终端、串口、VNC、SSH 或远程桌面"}
 	}
 	var endpoint string
 	var headers http.Header
@@ -27,6 +27,15 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 	if kind == "ssh" {
 		endpoint, headers, err = s.sshTarget(r.Context(), identity, id, asset, nil)
 		endpoint += "/node/v1/environments/" + url.PathEscape(id) + "/ssh/console"
+	} else if kind == "rdp" {
+		endpoint, headers, err = s.rdpTarget(r.Context(), identity, id, asset, nil)
+		query := url.Values{}
+		for _, name := range []string{"width", "height", "dpi"} {
+			if value := r.URL.Query().Get(name); value != "" {
+				query.Set(name, value)
+			}
+		}
+		endpoint += "/node/v1/environments/" + url.PathEscape(id) + "/rdp/console?" + query.Encode()
 	} else {
 		var current queries.GetCurrentAssetRow
 		current, err = s.Queries.GetCurrentAsset(r.Context(), queries.GetCurrentAssetParams{EnvironmentID: id, AssetID: asset})
@@ -36,7 +45,11 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	endpoint = "wss" + strings.TrimPrefix(endpoint, "https")
-	backend, response, err := websocket.Dial(r.Context(), endpoint, &websocket.DialOptions{HTTPClient: s.Nodes.HTTP, HTTPHeader: headers, Subprotocols: []string{"binary"}})
+	protocol := "binary"
+	if kind == "rdp" {
+		protocol = "guacamole"
+	}
+	backend, response, err := websocket.Dial(r.Context(), endpoint, &websocket.DialOptions{HTTPClient: s.Nodes.HTTP, HTTPHeader: headers, Subprotocols: []string{protocol}})
 	if err != nil {
 		if response != nil && response.StatusCode == http.StatusConflict {
 			return httpError{http.StatusConflict, "资产当前无法打开控制台"}
@@ -52,7 +65,7 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	defer release()
-	frontend, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"binary"}})
+	frontend, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{protocol}})
 	if err != nil {
 		return nil
 	}

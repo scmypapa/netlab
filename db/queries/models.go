@@ -117,6 +117,7 @@ type GuestConnection struct {
 	EnvironmentID string
 	AssetID       string
 	Encrypted     []byte
+	Protocol      string
 }
 
 type Node struct {

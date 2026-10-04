@@ -367,6 +367,28 @@ paths:
       operationId: assetSSHHostKey
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SSHProbe'}}}}
       responses: {'200': {description: Presented SSH host key, content: {application/json: {schema: {type: object, required: [fingerprint], properties: {fingerprint: {type: string}}}}}}}
+  /environments/{id}/assets/{assetId}/rdp:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: assetRDPSettings
+      responses: {'200': {description: Personal RDP settings without password, content: {application/json: {schema: {$ref: '#/components/schemas/RDPSettings'}}}}, '404': {description: No saved connection}}
+    put:
+      operationId: saveAssetRDPSettings
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RDPSettings'}}}}
+      responses: {'204': {description: Connection saved}}
+    delete:
+      operationId: deleteAssetRDPSettings
+      responses: {'204': {description: Personal connection removed}}
+  /environments/{id}/assets/{assetId}/rdp/certificate:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: assetRDPCertificate
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SSHProbe'}}}}
+      responses: {'200': {description: Presented RDP certificate, content: {application/json: {schema: {type: object, required: [fingerprint], properties: {fingerprint: {type: string}}}}}}}
   /environments/{id}/assets/{assetId}/files:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -398,7 +420,7 @@ paths:
       - {name: assetId, in: path, required: true, schema: {type: string}}
     get:
       operationId: assetConsole
-      description: WebSocket. Binary messages carry terminal or RFB bytes; terminal text messages contain ConsoleResize.
+      description: WebSocket. The binary subprotocol carries terminal or RFB bytes; terminal text messages contain ConsoleResize. RDP uses the guacamole subprotocol and text instructions.
       parameters: [{name: kind, in: query, required: true, schema: {$ref: '#/components/schemas/ConsoleKind'}}]
       responses: {'101': {description: Connected}, '409': {description: Asset has no running instance}}
   /environments/{id}/assets/{assetId}/logs:
@@ -536,6 +558,22 @@ components:
       properties:
         address: {type: string}
         settings: {$ref: '#/components/schemas/SSHSettings'}
+    RDPSettings:
+      type: object
+      required: [username, port, certificate]
+      properties:
+        username: {type: string, minLength: 1}
+        domain: {type: string}
+        port: {type: integer, minimum: 1, maximum: 65535}
+        interfaceId: {type: string}
+        certificate: {type: string, description: Confirmed sha256 certificate fingerprint in FreeRDP format}
+        password: {type: string, writeOnly: true}
+    NodeRDP:
+      type: object
+      required: [address, settings]
+      properties:
+        address: {type: string}
+        settings: {$ref: '#/components/schemas/RDPSettings'}
     FileEntry:
       type: object
       required: [name, kind, size, modifiedAt, mode]
@@ -553,7 +591,7 @@ components:
         destination: {type: string}
     ConsoleKind:
       type: string
-      enum: [terminal, serial, vnc, ssh]
+      enum: [terminal, serial, vnc, ssh, rdp]
     ConsoleResize:
       type: object
       required: [cols, rows]

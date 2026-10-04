@@ -37,7 +37,7 @@ import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ObjectInspector } from "./ObjectInspector";
 import { FileWorkspace } from "./FileWorkspace";
-import { SSHDialog } from "./SSHDialog";
+import { ConnectionDialog } from "./ConnectionDialog";
 import { LogDrawer } from "./LogDrawer";
 import { ServiceDrawer } from "./ServiceDrawer";
 import { TaskTray } from "./TaskTray";
@@ -75,7 +75,11 @@ export function WorkbenchPage() {
   const [serving, setServing] = useState<string>();
   const [vpnOpened, setVPNOpened] = useState(false);
   const [filesOpened, setFilesOpened] = useState(false);
-  const [ssh, setSSH] = useState<{ asset: Asset; connect: boolean }>();
+  const [connectionSettings, setConnectionSettings] = useState<{
+    asset: Asset;
+    kind: "ssh" | "rdp";
+    connect: boolean;
+  }>();
   const [connectionError, setConnectionError] = useState<Error | null>(null);
   const [context, setContext] = useState<{
     x: number;
@@ -137,12 +141,22 @@ export function WorkbenchPage() {
       ? asset
       : undefined;
   const servedAsset = spec.assets.find((item) => item.id === serving);
-  const openConnection = (target: Asset, kind: Schema<"ConsoleKind">) => {
+  const openConnection = (
+    target: Asset,
+    kind: Schema<"ConsoleKind">,
+    reconnect = false,
+  ) => {
     const connection = { id: target.id, name: target.name, kind };
     const key = consoleKey(connection);
     setConnections((items) =>
       items.some((item) => consoleKey(item) === key)
-        ? items
+        ? reconnect
+          ? items.map((item) =>
+              consoleKey(item) === key
+                ? { ...item, revision: (item.revision ?? 0) + 1 }
+                : item,
+            )
+          : items
         : [...items, connection],
     );
     setSelectedConnection(key);
@@ -150,12 +164,15 @@ export function WorkbenchPage() {
   const connect = async (kind: Schema<"ConsoleKind">) => {
     if (!asset) return;
     setConnectionError(null);
-    if (kind === "ssh") {
+    if (kind === "ssh" || kind === "rdp") {
       try {
-        await api.sshSettings(id, asset.id);
+        await (kind === "ssh" ? api.sshSettings : api.rdpSettings)(
+          id,
+          asset.id,
+        );
       } catch (error) {
         if (error instanceof ApiError && error.status === 404)
-          setSSH({ asset, connect: true });
+          setConnectionSettings({ asset, kind, connect: true });
         else setConnectionError(error as Error);
         return;
       }
@@ -604,7 +621,12 @@ export function WorkbenchPage() {
               onClose={() => setFilesOpened(false)}
               onSettings={
                 templatesById.get(fileAsset.templateId)?.kind === "vm"
-                  ? () => setSSH({ asset: fileAsset, connect: false })
+                  ? () =>
+                      setConnectionSettings({
+                        asset: fileAsset,
+                        kind: "ssh",
+                        connect: false,
+                      })
                   : undefined
               }
             />
@@ -743,20 +765,30 @@ export function WorkbenchPage() {
         )}
       </div>
       <ErrorMessage error={connectionError} />
-      {ssh && (
-        <SSHDialog
+      {connectionSettings && (
+        <ConnectionDialog
           environmentId={id}
-          asset={ssh.asset}
-          onClose={() => setSSH(undefined)}
+          asset={connectionSettings.asset}
+          kind={connectionSettings.kind}
+          onClose={() => setConnectionSettings(undefined)}
           onSaved={() => {
-            if (ssh.connect) openConnection(ssh.asset, "ssh");
+            if (connectionSettings.connect)
+              openConnection(
+                connectionSettings.asset,
+                connectionSettings.kind,
+                true,
+              );
             void queryClient.invalidateQueries({
-              queryKey: ["ssh", id, ssh.asset.id],
+              queryKey: [
+                connectionSettings.kind,
+                id,
+                connectionSettings.asset.id,
+              ],
             });
             void queryClient.invalidateQueries({
-              queryKey: ["files", id, ssh.asset.id],
+              queryKey: ["files", id, connectionSettings.asset.id],
             });
-            setSSH(undefined);
+            setConnectionSettings(undefined);
           }}
         />
       )}
@@ -767,6 +799,15 @@ export function WorkbenchPage() {
             tabs={connections}
             selected={selectedConnection}
             onSelect={setSelectedConnection}
+            onSettings={(tab) => {
+              const target = spec.assets.find((item) => item.id === tab.id);
+              if (target && (tab.kind === "ssh" || tab.kind === "rdp"))
+                setConnectionSettings({
+                  asset: target,
+                  kind: tab.kind,
+                  connect: true,
+                });
+            }}
             onClose={closeConnection}
           />
         </Suspense>
