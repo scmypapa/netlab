@@ -58,6 +58,13 @@ type BlueprintVersion struct {
 	CreatedAt           pgtype.Timestamptz
 }
 
+type CaptureSegment struct {
+	CaptureID     string
+	EnvironmentID string
+	NodeID        string
+	CreatedAt     pgtype.Timestamptz
+}
+
 type Credential struct {
 	Hash        []byte
 	PrincipalID string

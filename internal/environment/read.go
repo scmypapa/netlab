@@ -82,7 +82,15 @@ func VisibleRecord(row queries.Environment, visible map[string]bool) (api.Enviro
 			}
 		}
 	}
-	result.View = api.CanvasView{Positions: &positions}
+	roles := map[string]string{}
+	if result.View.Roles != nil {
+		for _, asset := range spec.Assets {
+			if role, exists := (*result.View.Roles)[asset.Id]; exists {
+				roles[asset.Id] = role
+			}
+		}
+	}
+	result.View = api.CanvasView{Positions: &positions, Roles: &roles}
 	result.Draft, result.OperationId, result.Error, result.BlueprintVersionId, result.ExternalReference = nil, nil, nil, nil, nil
 	return result, nil
 }

@@ -479,6 +479,11 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	return results, executionErr
 }
 func (w Worker) network(ctx context.Context, op *queries.Operation, p *Payload, remove bool) error {
+	if remove {
+		if err := w.removeCaptures(ctx, *op.EnvironmentID); err != nil {
+			return err
+		}
+	}
 	if !remove {
 		specs := []api.EnvironmentSpec{p.Spec}
 		if p.BeforeSpec != nil && op.Phase != "rollback" {

@@ -18,6 +18,7 @@ import {
   Trash2,
   UsersRound,
   KeyRound,
+  Activity,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -52,6 +53,7 @@ import { allows, allowsProject } from "../access/permissions";
 
 const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 const ObservationWorkspace = lazy(() => import("./ObservationWorkspace"));
+const TrafficWorkspace = lazy(() => import("./TrafficWorkspace"));
 
 export function WorkbenchPage() {
   const { id = "" } = useParams();
@@ -62,6 +64,7 @@ export function WorkbenchPage() {
   const [selection, setSelection] = useState<string>();
   const [tree, setTree] = useState(false);
   const [list, setList] = useState(false);
+  const [traffic, setTraffic] = useState(false);
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<"asset" | "network">();
   const [editingObject, setEditingObject] = useState(false);
@@ -491,7 +494,7 @@ export function WorkbenchPage() {
         </div>
       )}
       <div className="workspace-body">
-        {tree && (
+        {tree && !traffic && (
           <aside className="object-tree">
             <TextInput
               aria-label="查找对象"
@@ -563,23 +566,40 @@ export function WorkbenchPage() {
                 </ActionIcon>
                 <div className="view-switch">
                   <button
-                    className={!list ? "selected" : ""}
+                    className={!list && !traffic ? "selected" : ""}
                     aria-label="拓扑视图"
-                    aria-pressed={!list}
-                    onClick={() => setList(false)}
+                    aria-pressed={!list && !traffic}
+                    onClick={() => {
+                      setList(false);
+                      setTraffic(false);
+                    }}
                   >
                     <LayoutGrid size={15} />
                     <span>拓扑</span>
                   </button>
                   <button
-                    className={list ? "selected" : ""}
+                    className={list && !traffic ? "selected" : ""}
                     aria-label="资产视图"
-                    aria-pressed={list}
-                    onClick={() => setList(true)}
+                    aria-pressed={list && !traffic}
+                    onClick={() => {
+                      setList(true);
+                      setTraffic(false);
+                    }}
                   >
                     <List size={15} />
                     <span>资产</span>
                   </button>
+                  {!workbench.editing && allows(environment, "observe") && (
+                    <button
+                      aria-label="流量视图"
+                      className={traffic ? "selected" : ""}
+                      aria-pressed={traffic}
+                      onClick={() => setTraffic(true)}
+                    >
+                      <Activity size={15} />
+                      <span>流量</span>
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="canvas-add-controls">
@@ -624,6 +644,18 @@ export function WorkbenchPage() {
               action="添加网段"
               onAction={() => adding("network")}
             />
+          ) : traffic ? (
+            <Suspense fallback={<Loading />}>
+              <TrafficWorkspace
+                environment={environment}
+                onClose={() => setTraffic(false)}
+                onView={
+                  canCompose
+                    ? (view) => workbench.saveView.mutateAsync(view)
+                    : undefined
+                }
+              />
+            </Suspense>
           ) : observedAsset ? (
             <Suspense fallback={<Loading />}>
               <ObservationWorkspace
@@ -746,7 +778,7 @@ export function WorkbenchPage() {
             />
           )}
         </section>
-        {(asset || network) && !fileAsset && (
+        {(asset || network) && !fileAsset && !traffic && (
           <ObjectInspector
             asset={asset}
             network={network}

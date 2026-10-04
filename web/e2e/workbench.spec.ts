@@ -1,4 +1,112 @@
 import { expect, test, type Page } from "@playwright/test";
+
+test("通信图与抓包贯通，角色仅更新画布，分段失败可见", async ({ page }) => {
+  const calls = await fixture(page);
+  const capture = "cd3aa501-fda4-4b61-9d68-7337f896ad80";
+  const now = new Date().toISOString();
+  let active = false;
+  let status: "running" | "stopped" = "running";
+  const segment = () => ({
+    id: capture,
+    nodeId: "one",
+    nodeName: "节点一",
+    environmentId: "env",
+    assetIds: ["web"],
+    status,
+    startedAt: now,
+    bytes: 1048576,
+    packets: 1000,
+    omittedFlows: 0,
+  });
+  const failed = {
+    ...segment(),
+    nodeId: "two",
+    nodeName: "节点二",
+    assetIds: ["windows"],
+    status: "failed",
+    bytes: 0,
+    packets: 0,
+    error: "抓包进程未能启动",
+  };
+  const flows = [
+    {
+      source: "10.10.0.10",
+      destination: "10.10.0.11",
+      sourceAssetId: "web",
+      destinationAssetId: "windows",
+      protocol: "UDP",
+      sourcePort: 50000,
+      destinationPort: 9000,
+      bytes: 1048576,
+      bytesPerSecond: 16384,
+      packets: 1000,
+      firstSeen: now,
+      lastSeen: now,
+    },
+  ];
+  await page.route("**/api/v1/environments/env/captures**", (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith("/captures")) {
+      if (request.method() === "POST") {
+        active = true;
+        expect(request.postDataJSON().assetIds).toEqual(["web", "windows"]);
+      }
+      return route.fulfill({
+        json: { segments: active ? [segment(), failed] : [], errors: {} },
+      });
+    }
+    if (request.method() === "POST") {
+      status = "stopped";
+      return route.fulfill({ json: segment() });
+    }
+    return route.fulfill({ json: { segment: segment(), flows } });
+  });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "流量视图" }).click();
+  await page
+    .getByRole("button", { name: "开始抓包", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("dialog", { name: "开始抓包" })
+    .getByRole("button", { name: "开始", exact: true })
+    .click();
+  await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
+  await expect(page.getByText("抓包进程未能启动")).toBeVisible();
+  await expect(page.getByText("1.0 MiB · 16.0 KiB/s")).toBeVisible();
+  await page.getByRole("button", { name: /web-01.*windows-01/ }).click();
+  await page.getByRole("button", { name: "查看 web-01", exact: true }).click();
+  await page.getByRole("textbox", { name: "角色", exact: true }).fill("客户端");
+  await page.getByRole("textbox", { name: "角色", exact: true }).press("Tab");
+  await expect
+    .poll(() =>
+      calls.some(
+        (call) =>
+          call.path.endsWith("/view") &&
+          (call.body as { roles?: Record<string, string> })?.roles?.web ===
+            "客户端",
+      ),
+    )
+    .toBe(true);
+  expect(calls.some((call) => call.path.endsWith("/changes"))).toBe(false);
+  await page.getByRole("button", { name: "停止此分段" }).click();
+  await expect(
+    page.getByRole("link", { name: "下载抓包文件" }).first(),
+  ).toHaveAttribute(
+    "href",
+    "/api/v1/environments/env/captures/one/" + capture + "/file",
+  );
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({ path: "../data/traffic-" + width + ".png" });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+});
 import type { Identity, Operation } from "../src/api/client";
 
 test("系统更新展示正式发布日志并提交指定版本", async ({ page }) => {

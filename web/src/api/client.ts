@@ -193,6 +193,49 @@ function list<T>(
 }
 
 export const api = {
+  captures: (id: string, signal?: AbortSignal) =>
+    request<Schema<"CaptureList">>(
+      "/environments/" + id + "/captures",
+      "GET",
+      undefined,
+      signal,
+    ),
+  startCapture: (id: string, body: Schema<"CreateCapture">) =>
+    request<Schema<"CaptureList">>(
+      "/environments/" + id + "/captures",
+      "POST",
+      body,
+    ),
+  captureDetail: (
+    id: string,
+    node: string,
+    capture: string,
+    signal?: AbortSignal,
+  ) =>
+    request<Schema<"CaptureDetail">>(
+      "/environments/" + id + "/captures/" + node + "/" + capture,
+      "GET",
+      undefined,
+      signal,
+    ),
+  stopCapture: (id: string, node: string, capture: string) =>
+    request<Schema<"CaptureSegment">>(
+      "/environments/" + id + "/captures/" + node + "/" + capture,
+      "POST",
+    ),
+  deleteCapture: (id: string, node: string, capture: string) =>
+    request<void>(
+      "/environments/" + id + "/captures/" + node + "/" + capture,
+      "DELETE",
+    ),
+  captureDownload: (id: string, node: string, capture: string) =>
+    "/api/v1/environments/" +
+    id +
+    "/captures/" +
+    node +
+    "/" +
+    capture +
+    "/file",
   updateStatus: () => request<Schema<"SystemUpdate">>("/system/update"),
   checkUpdate: () =>
     request<Schema<"SystemUpdate">>("/system/update/check", "POST"),

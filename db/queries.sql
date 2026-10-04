@@ -227,3 +227,17 @@ SELECT id,endpoint FROM nodes WHERE id=ANY($1::text[]);
 -- name: GetCurrentAsset :one
 SELECT a.*,n.endpoint FROM runtime_assets a JOIN nodes n ON n.id=a.node_id
 WHERE a.environment_id=$1 AND a.asset_id=$2 AND a.current;
+
+-- name: RegisterCaptureSegments :exec
+INSERT INTO capture_segments(capture_id,environment_id,node_id)
+SELECT $1,$2,id FROM nodes WHERE id=ANY($3::text[]);
+-- name: ListCaptureSegments :many
+SELECT c.*,n.name,n.endpoint FROM capture_segments c JOIN nodes n ON n.id=c.node_id
+WHERE environment_id=$1 ORDER BY c.created_at DESC;
+-- name: DeleteCaptureSegment :exec
+DELETE FROM capture_segments WHERE environment_id=$1 AND node_id=$2 AND capture_id=$3;
+-- name: DeleteEnvironmentCaptures :exec
+DELETE FROM capture_segments WHERE environment_id=$1;
+-- name: GetCaptureEndpoint :one
+SELECT n.endpoint FROM capture_segments c JOIN nodes n ON n.id=c.node_id
+WHERE c.environment_id=$1 AND c.node_id=$2 AND c.capture_id=$3;

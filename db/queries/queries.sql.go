@@ -300,12 +300,36 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 	return err
 }
 
+const deleteCaptureSegment = `-- name: DeleteCaptureSegment :exec
+DELETE FROM capture_segments WHERE environment_id=$1 AND node_id=$2 AND capture_id=$3
+`
+
+type DeleteCaptureSegmentParams struct {
+	EnvironmentID string
+	NodeID        string
+	CaptureID     string
+}
+
+func (q *Queries) DeleteCaptureSegment(ctx context.Context, arg DeleteCaptureSegmentParams) error {
+	_, err := q.db.Exec(ctx, deleteCaptureSegment, arg.EnvironmentID, arg.NodeID, arg.CaptureID)
+	return err
+}
+
 const deleteCredential = `-- name: DeleteCredential :exec
 DELETE FROM credentials WHERE hash=$1
 `
 
 func (q *Queries) DeleteCredential(ctx context.Context, hash []byte) error {
 	_, err := q.db.Exec(ctx, deleteCredential, hash)
+	return err
+}
+
+const deleteEnvironmentCaptures = `-- name: DeleteEnvironmentCaptures :exec
+DELETE FROM capture_segments WHERE environment_id=$1
+`
+
+func (q *Queries) DeleteEnvironmentCaptures(ctx context.Context, environmentID string) error {
+	_, err := q.db.Exec(ctx, deleteEnvironmentCaptures, environmentID)
 	return err
 }
 
@@ -365,6 +389,24 @@ func (q *Queries) FinishOperation(ctx context.Context, arg FinishOperationParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getCaptureEndpoint = `-- name: GetCaptureEndpoint :one
+SELECT n.endpoint FROM capture_segments c JOIN nodes n ON n.id=c.node_id
+WHERE c.environment_id=$1 AND c.node_id=$2 AND c.capture_id=$3
+`
+
+type GetCaptureEndpointParams struct {
+	EnvironmentID string
+	NodeID        string
+	CaptureID     string
+}
+
+func (q *Queries) GetCaptureEndpoint(ctx context.Context, arg GetCaptureEndpointParams) (string, error) {
+	row := q.db.QueryRow(ctx, getCaptureEndpoint, arg.EnvironmentID, arg.NodeID, arg.CaptureID)
+	var endpoint string
+	err := row.Scan(&endpoint)
+	return endpoint, err
 }
 
 const getCredential = `-- name: GetCredential :one
@@ -717,6 +759,47 @@ func (q *Queries) GetTemplates(ctx context.Context, dollar_1 []string) ([]Templa
 	for rows.Next() {
 		var i Template
 		if err := rows.Scan(&i.ID, &i.Definition, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCaptureSegments = `-- name: ListCaptureSegments :many
+SELECT c.capture_id, c.environment_id, c.node_id, c.created_at,n.name,n.endpoint FROM capture_segments c JOIN nodes n ON n.id=c.node_id
+WHERE environment_id=$1 ORDER BY c.created_at DESC
+`
+
+type ListCaptureSegmentsRow struct {
+	CaptureID     string
+	EnvironmentID string
+	NodeID        string
+	CreatedAt     pgtype.Timestamptz
+	Name          string
+	Endpoint      string
+}
+
+func (q *Queries) ListCaptureSegments(ctx context.Context, environmentID string) ([]ListCaptureSegmentsRow, error) {
+	rows, err := q.db.Query(ctx, listCaptureSegments, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCaptureSegmentsRow{}
+	for rows.Next() {
+		var i ListCaptureSegmentsRow
+		if err := rows.Scan(
+			&i.CaptureID,
+			&i.EnvironmentID,
+			&i.NodeID,
+			&i.CreatedAt,
+			&i.Name,
+			&i.Endpoint,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1380,6 +1463,22 @@ func (q *Queries) ReadEvents(ctx context.Context, arg ReadEventsParams) ([]Event
 		return nil, err
 	}
 	return items, nil
+}
+
+const registerCaptureSegments = `-- name: RegisterCaptureSegments :exec
+INSERT INTO capture_segments(capture_id,environment_id,node_id)
+SELECT $1,$2,id FROM nodes WHERE id=ANY($3::text[])
+`
+
+type RegisterCaptureSegmentsParams struct {
+	CaptureID     string
+	EnvironmentID string
+	Column3       []string
+}
+
+func (q *Queries) RegisterCaptureSegments(ctx context.Context, arg RegisterCaptureSegmentsParams) error {
+	_, err := q.db.Exec(ctx, registerCaptureSegments, arg.CaptureID, arg.EnvironmentID, arg.Column3)
+	return err
 }
 
 const releaseAsset = `-- name: ReleaseAsset :exec

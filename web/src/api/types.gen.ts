@@ -4,6 +4,64 @@
  */
 
 export interface paths {
+  "/environments/{id}/captures": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["listCaptures"];
+    put?: never;
+    post: operations["startCapture"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/captures/{nodeId}/{captureId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["captureFlows"];
+    put?: never;
+    post: operations["stopCapture"];
+    delete: operations["deleteCapture"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/captures/{nodeId}/{captureId}/file": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["downloadCapture"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/system/update": {
     parameters: {
       query?: never;
@@ -1540,6 +1598,10 @@ export interface components {
       y: number;
     };
     CanvasView: {
+      /** @description Asset presentation groups; do not affect execution or permissions. */
+      roles?: {
+        [key: string]: string;
+      };
       positions?: {
         [key: string]: components["schemas"]["Point"];
       };
@@ -2121,6 +2183,85 @@ export interface components {
       title: string;
       detail: string;
     };
+    CreateCapture: {
+      assetIds: string[];
+      durationSeconds: number;
+      fileSizeMiB: number;
+      /** @description BPF capture filter */
+      filter?: string;
+    };
+    CaptureInterface: {
+      assetId: string;
+      assetName: string;
+      interfaceId: string;
+      portName: string;
+      nodeId: string;
+      mac: string;
+      address: string;
+    };
+    NodeCaptureRequest: {
+      id: string;
+      environmentId: string;
+      settings: components["schemas"]["CreateCapture"];
+      interfaces: components["schemas"]["CaptureInterface"][];
+    };
+    CaptureSegment: {
+      id: string;
+      nodeId: string;
+      nodeName?: string;
+      environmentId: string;
+      assetIds: string[];
+      /** @enum {string} */
+      status: "starting" | "running" | "stopped" | "failed";
+      /** Format: date-time */
+      startedAt: string;
+      /** Format: date-time */
+      finishedAt?: string;
+      error?: string;
+      /** Format: int64 */
+      bytes: number;
+      /** Format: int64 */
+      packets: number;
+      /**
+       * Format: int64
+       * @description Packets excluded from online aggregation due to distinct conversation limit; raw capture is unaffected.
+       */
+      omittedFlows: number;
+    };
+    CaptureList: {
+      segments: components["schemas"]["CaptureSegment"][];
+      errors: {
+        [key: string]: string;
+      };
+    };
+    CaptureDetail: {
+      segment: components["schemas"]["CaptureSegment"];
+      flows: components["schemas"]["CaptureFlow"][];
+    };
+    CaptureFlow: {
+      source: string;
+      destination: string;
+      sourceAssetId?: string;
+      destinationAssetId?: string;
+      sourceAssetName?: string;
+      destinationAssetName?: string;
+      protocol: string;
+      sourcePort: number;
+      destinationPort: number;
+      /**
+       * Format: double
+       * @description Mean bytes per second over the most recent up-to-ten seconds of this capture.
+       */
+      bytesPerSecond: number;
+      /** Format: int64 */
+      bytes: number;
+      /** Format: int64 */
+      packets: number;
+      /** Format: date-time */
+      firstSeen: string;
+      /** Format: date-time */
+      lastSeen: string;
+    };
   };
   responses: {
     /** @description Accepted */
@@ -2145,6 +2286,148 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listCaptures: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Node capture segments and unavailable nodes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CaptureList"];
+        };
+      };
+    };
+  };
+  startCapture: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateCapture"];
+      };
+    };
+    responses: {
+      /** @description Actual per-node start results */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CaptureList"];
+        };
+      };
+    };
+  };
+  captureFlows: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Observed conversations and counters */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CaptureDetail"];
+        };
+      };
+    };
+  };
+  stopCapture: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Stopped segment */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CaptureSegment"];
+        };
+      };
+    };
+  };
+  deleteCapture: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Capture and its file removed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  downloadCapture: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Completed PCAPNG stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+    };
+  };
   systemUpdate: {
     parameters: {
       query?: never;

@@ -404,4 +404,5 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	testStoragePoolsAPI(t, ctx, s, admin, call)
 	testRecoveryAPI(t, ctx, s, admin, call)
 	testBackupsAPI(t, ctx, s, admin, call)
+	testCaptureAPI(t, ctx, s, admin, call)
 }

@@ -41,6 +41,14 @@ const (
 	BackupSummaryStateReady    BackupSummaryState = "ready"
 )
 
+// Defines values for CaptureSegmentStatus.
+const (
+	CaptureSegmentStatusFailed   CaptureSegmentStatus = "failed"
+	CaptureSegmentStatusRunning  CaptureSegmentStatus = "running"
+	CaptureSegmentStatusStarting CaptureSegmentStatus = "starting"
+	CaptureSegmentStatusStopped  CaptureSegmentStatus = "stopped"
+)
+
 // Defines values for ChangeItemEffect.
 const (
 	Add     ChangeItemEffect = "add"
@@ -497,6 +505,52 @@ type BlueprintVersionSummary struct {
 type CanvasView struct {
 	Collapsed *[]string         `json:"collapsed,omitempty"`
 	Positions *map[string]Point `json:"positions,omitempty"`
+
+	// Roles Asset presentation groups; do not affect execution or permissions.
+	Roles *map[string]string `json:"roles,omitempty"`
+}
+
+// CaptureDetail defines model for CaptureDetail.
+type CaptureDetail struct {
+	Flows   []CaptureFlow  `json:"flows"`
+	Segment CaptureSegment `json:"segment"`
+}
+
+// CaptureFlow defines model for CaptureFlow.
+type CaptureFlow struct {
+	Bytes int64 `json:"bytes"`
+
+	// BytesPerSecond Mean bytes per second over the most recent up-to-ten seconds of this capture.
+	BytesPerSecond       float64   `json:"bytesPerSecond"`
+	Destination          string    `json:"destination"`
+	DestinationAssetId   *string   `json:"destinationAssetId,omitempty"`
+	DestinationAssetName *string   `json:"destinationAssetName,omitempty"`
+	DestinationPort      int       `json:"destinationPort"`
+	FirstSeen            time.Time `json:"firstSeen"`
+	LastSeen             time.Time `json:"lastSeen"`
+	Packets              int64     `json:"packets"`
+	Protocol             string    `json:"protocol"`
+	Source               string    `json:"source"`
+	SourceAssetId        *string   `json:"sourceAssetId,omitempty"`
+	SourceAssetName      *string   `json:"sourceAssetName,omitempty"`
+	SourcePort           int       `json:"sourcePort"`
+}
+
+// CaptureInterface defines model for CaptureInterface.
+type CaptureInterface struct {
+	Address     string `json:"address"`
+	AssetId     string `json:"assetId"`
+	AssetName   string `json:"assetName"`
+	InterfaceId string `json:"interfaceId"`
+	Mac         string `json:"mac"`
+	NodeId      string `json:"nodeId"`
+	PortName    string `json:"portName"`
+}
+
+// CaptureList defines model for CaptureList.
+type CaptureList struct {
+	Errors   map[string]string `json:"errors"`
+	Segments []CaptureSegment  `json:"segments"`
 }
 
 // CaptureRecoveryPoint defines model for CaptureRecoveryPoint.
@@ -505,6 +559,27 @@ type CaptureRecoveryPoint struct {
 	IncludeMemory    bool   `json:"includeMemory,omitempty"`
 	Name             string `json:"name"`
 }
+
+// CaptureSegment defines model for CaptureSegment.
+type CaptureSegment struct {
+	AssetIds      []string   `json:"assetIds"`
+	Bytes         int64      `json:"bytes"`
+	EnvironmentId string     `json:"environmentId"`
+	Error         *string    `json:"error,omitempty"`
+	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
+	Id            string     `json:"id"`
+	NodeId        string     `json:"nodeId"`
+	NodeName      *string    `json:"nodeName,omitempty"`
+
+	// OmittedFlows Packets excluded from online aggregation due to distinct conversation limit; raw capture is unaffected.
+	OmittedFlows int64                `json:"omittedFlows"`
+	Packets      int64                `json:"packets"`
+	StartedAt    time.Time            `json:"startedAt"`
+	Status       CaptureSegmentStatus `json:"status"`
+}
+
+// CaptureSegmentStatus defines model for CaptureSegment.Status.
+type CaptureSegmentStatus string
 
 // CaptureTemplate defines model for CaptureTemplate.
 type CaptureTemplate struct {
@@ -571,6 +646,16 @@ type CreateBackupRepository struct {
 	Password  *string `json:"password,omitempty"`
 	Region    *string `json:"region,omitempty"`
 	SecretKey *string `json:"secretKey,omitempty"`
+}
+
+// CreateCapture defines model for CreateCapture.
+type CreateCapture struct {
+	AssetIds        []string `json:"assetIds"`
+	DurationSeconds int      `json:"durationSeconds"`
+	FileSizeMiB     int      `json:"fileSizeMiB"`
+
+	// Filter BPF capture filter
+	Filter *string `json:"filter,omitempty"`
 }
 
 // CreateEnvironment defines model for CreateEnvironment.
@@ -935,6 +1020,14 @@ type NodeBackupSource struct {
 	Repository NodeBackupRepository `json:"repository"`
 	SizeBytes  int64                `json:"sizeBytes"`
 	SnapshotId string               `json:"snapshotId"`
+}
+
+// NodeCaptureRequest defines model for NodeCaptureRequest.
+type NodeCaptureRequest struct {
+	EnvironmentId string             `json:"environmentId"`
+	Id            string             `json:"id"`
+	Interfaces    []CaptureInterface `json:"interfaces"`
+	Settings      CreateCapture      `json:"settings"`
 }
 
 // NodeInfo defines model for NodeInfo.
@@ -1748,6 +1841,9 @@ type RestoreBackupJSONRequestBody = RestoreRecoveryPoint
 
 // SaveEnvironmentBlueprintJSONRequestBody defines body for SaveEnvironmentBlueprint for application/json ContentType.
 type SaveEnvironmentBlueprintJSONRequestBody = SaveBlueprint
+
+// StartCaptureJSONRequestBody defines body for StartCapture for application/json ContentType.
+type StartCaptureJSONRequestBody = CreateCapture
 
 // ChangeEnvironmentJSONRequestBody defines body for ChangeEnvironment for application/json ContentType.
 type ChangeEnvironmentJSONRequestBody = ChangeRequest

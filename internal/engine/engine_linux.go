@@ -17,6 +17,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/capture"
 	"netlab.local/core/internal/network"
 )
 
@@ -28,18 +29,20 @@ type Config struct {
 	ArtifactHTTP                                                                      *http.Client
 }
 type Engine struct {
-	cfg       Config
-	container *Containers
-	vm        *VirtualMachines
-	ovn       *network.OVN
-	ovs       *network.OVS
-	gateway   *network.Gateway
-	access    *network.Access
-	external  *network.External
-	slots     chan struct{}
-	ioSlots   chan struct{}
-	mu        sync.Mutex
-	locks     map[string]*objectLock
+	cfg          Config
+	container    *Containers
+	vm           *VirtualMachines
+	ovn          *network.OVN
+	ovs          *network.OVS
+	gateway      *network.Gateway
+	access       *network.Access
+	external     *network.External
+	slots        chan struct{}
+	ioSlots      chan struct{}
+	mu           sync.Mutex
+	locks        map[string]*objectLock
+	captures     *capture.Manager
+	captureError error
 }
 type objectLock struct {
 	mu   sync.Mutex
@@ -97,9 +100,13 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 			return nil, err
 		}
 	}
+	e.captures, e.captureError = capture.New(ctx, e.ovs, cfg.DataDir, cfg.ID)
 	return e, nil
 }
 func (e *Engine) Close() {
+	if e.captures != nil {
+		e.captures.Close()
+	}
 	if e.gateway != nil {
 		e.gateway.Close()
 	}
@@ -179,6 +186,12 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 	unlocked := e.lock(plan.EnvironmentId)
 	defer unlocked()
 	result := api.NodeResult{Results: []api.ExecutionResult{}}
+	if plan.Phase == api.NodePlanPhaseDestroy && e.captures != nil {
+		if err := e.captures.StopAssets(ctx, plan.EnvironmentId, plan.Assets); err != nil {
+			result.Error = ptr(err.Error())
+			return result
+		}
+	}
 	if plan.Gateway != nil && (plan.Phase == api.NodePlanPhaseNetwork || plan.Phase == api.NodePlanPhaseServices) && plan.Gateway.NodeId != e.cfg.ID {
 		result.Error = ptr("service gateway plan was sent to another node")
 		return result

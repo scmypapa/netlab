@@ -3,6 +3,43 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /environments/{id}/captures:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: listCaptures
+      responses:
+        '200': {description: Node capture segments and unavailable nodes, content: {application/json: {schema: {$ref: '#/components/schemas/CaptureList'}}}}
+    post:
+      operationId: startCapture
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateCapture'}}}}
+      responses:
+        '201': {description: Actual per-node start results, content: {application/json: {schema: {$ref: '#/components/schemas/CaptureList'}}}}
+  /environments/{id}/captures/{nodeId}/{captureId}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: nodeId, in: path, required: true, schema: {type: string}}
+      - {name: captureId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: captureFlows
+      responses:
+        '200': {description: Observed conversations and counters, content: {application/json: {schema: {$ref: '#/components/schemas/CaptureDetail'}}}}
+    post:
+      operationId: stopCapture
+      responses:
+        '200': {description: Stopped segment, content: {application/json: {schema: {$ref: '#/components/schemas/CaptureSegment'}}}}
+    delete:
+      operationId: deleteCapture
+      responses:
+        '204': {description: Capture and its file removed}
+  /environments/{id}/captures/{nodeId}/{captureId}/file:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: nodeId, in: path, required: true, schema: {type: string}}
+      - {name: captureId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: downloadCapture
+      responses:
+        '200': {description: Completed PCAPNG stream, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
   /system/update:
     get:
       operationId: systemUpdate
@@ -1059,6 +1096,7 @@ components:
     CanvasView:
       type: object
       properties:
+        roles: {type: object, additionalProperties: {type: string}, description: Asset presentation groups; do not affect execution or permissions.}
         positions: {type: object, additionalProperties: {$ref: '#/components/schemas/Point'}}
         collapsed: {type: array, items: {type: string}}
     Draft:
@@ -1480,7 +1518,7 @@ components:
         directory: {type: string, description: Original node storage location; visible to administrators}
         default: {type: boolean}
         driver: {type: string, enum: [directory]}
-        state: {type: string, enum: [ready, deleting]}
+        state: {type: string, enum: [ready, deleting], x-enum-varnames: [StoragePoolStateReady, StoragePoolStateDeleting]}
         operationId: {type: string}
         storage: {$ref: '#/components/schemas/StorageInfo'}
         allocatedGiB: {type: integer, format: int64}
@@ -1629,3 +1667,76 @@ components:
         status: {type: integer}
         title: {type: string}
         detail: {type: string}
+    CreateCapture:
+      type: object
+      required: [assetIds, durationSeconds, fileSizeMiB]
+      properties:
+        assetIds: {type: array, minItems: 1, items: {type: string}}
+        durationSeconds: {type: integer, minimum: 10, maximum: 1800}
+        fileSizeMiB: {type: integer, minimum: 1, maximum: 1024}
+        filter: {type: string, description: BPF capture filter}
+    CaptureInterface:
+      type: object
+      required: [assetId, assetName, interfaceId, portName, nodeId, mac, address]
+      properties:
+        assetId: {type: string}
+        assetName: {type: string}
+        interfaceId: {type: string}
+        portName: {type: string}
+        nodeId: {type: string}
+        mac: {type: string}
+        address: {type: string}
+    NodeCaptureRequest:
+      type: object
+      required: [id, environmentId, settings, interfaces]
+      properties:
+        id: {type: string}
+        environmentId: {type: string}
+        settings: {$ref: '#/components/schemas/CreateCapture'}
+        interfaces: {type: array, items: {$ref: '#/components/schemas/CaptureInterface'}}
+    CaptureSegment:
+      type: object
+      required: [id, nodeId, environmentId, assetIds, status, startedAt, bytes, packets, omittedFlows]
+      properties:
+        id: {type: string}
+        nodeId: {type: string}
+        nodeName: {type: string}
+        environmentId: {type: string}
+        assetIds: {type: array, items: {type: string}}
+        status: {type: string, enum: [starting, running, stopped, failed]}
+        startedAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time}
+        error: {type: string}
+        bytes: {type: integer, format: int64}
+        packets: {type: integer, format: int64}
+        omittedFlows: {type: integer, format: int64, description: Packets excluded from online aggregation due to distinct conversation limit; raw capture is unaffected.}
+    CaptureList:
+      type: object
+      required: [segments, errors]
+      properties:
+        segments: {type: array, items: {$ref: '#/components/schemas/CaptureSegment'}}
+        errors: {type: object, additionalProperties: {type: string}}
+    CaptureDetail:
+      type: object
+      required: [segment, flows]
+      properties:
+        segment: {$ref: '#/components/schemas/CaptureSegment'}
+        flows: {type: array, items: {$ref: '#/components/schemas/CaptureFlow'}}
+    CaptureFlow:
+      type: object
+      required: [source, destination, protocol, sourcePort, destinationPort, bytes, packets, bytesPerSecond, firstSeen, lastSeen]
+      properties:
+        source: {type: string}
+        destination: {type: string}
+        sourceAssetId: {type: string}
+        destinationAssetId: {type: string}
+        sourceAssetName: {type: string}
+        destinationAssetName: {type: string}
+        protocol: {type: string}
+        sourcePort: {type: integer}
+        destinationPort: {type: integer}
+        bytesPerSecond: {type: number, format: double, description: Mean bytes per second over the most recent up-to-ten seconds of this capture.}
+        bytes: {type: integer, format: int64}
+        packets: {type: integer, format: int64}
+        firstSeen: {type: string, format: date-time}
+        lastSeen: {type: string, format: date-time}

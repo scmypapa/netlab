@@ -91,7 +91,16 @@ type Bridge struct {
 	UUID        string            `ovsdb:"_uuid"`
 	Name        string            `ovsdb:"name"`
 	Ports       []string          `ovsdb:"ports"`
+	Mirrors     []string          `ovsdb:"mirrors"`
 	ExternalIDs map[string]string `ovsdb:"external_ids"`
+}
+type Mirror struct {
+	UUID             string            `ovsdb:"_uuid"`
+	Name             string            `ovsdb:"name"`
+	SourcePorts      []string          `ovsdb:"select_src_port"`
+	DestinationPorts []string          `ovsdb:"select_dst_port"`
+	OutputPort       *string           `ovsdb:"output_port"`
+	ExternalIDs      map[string]string `ovsdb:"external_ids"`
 }
 type OpenVSwitch struct {
 	UUID        string            `ovsdb:"_uuid"`
@@ -151,7 +160,7 @@ func NewOVN(ctx context.Context, endpoint string) (*OVN, error) {
 	return &OVN{client: c}, nil
 }
 func NewOVS(ctx context.Context, endpoint, bridge string) (*OVS, error) {
-	tables := map[string]model.Model{"Open_vSwitch": &OpenVSwitch{}, "Bridge": &Bridge{}, "Port": &Port{}, "Interface": &Interface{}}
+	tables := map[string]model.Model{"Open_vSwitch": &OpenVSwitch{}, "Bridge": &Bridge{}, "Port": &Port{}, "Interface": &Interface{}, "Mirror": &Mirror{}}
 	db, err := model.NewClientDBModel("Open_vSwitch", tables)
 	if err != nil {
 		return nil, err
