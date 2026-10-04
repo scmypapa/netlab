@@ -98,6 +98,7 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /node/v1/traffic", executor.Traffic)
 	for _, pattern := range []string{
 		"GET /node/v1/environments/{environmentId}/captures", "POST /node/v1/environments/{environmentId}/captures", "DELETE /node/v1/environments/{environmentId}/captures",
 		"GET /node/v1/environments/{environmentId}/captures/{captureId}", "POST /node/v1/environments/{environmentId}/captures/{captureId}", "DELETE /node/v1/environments/{environmentId}/captures/{captureId}",

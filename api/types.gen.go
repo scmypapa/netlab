@@ -1533,6 +1533,22 @@ type TemplateMedia struct {
 // TemplateState defines model for TemplateState.
 type TemplateState string
 
+// TrafficObservation defines model for TrafficObservation.
+type TrafficObservation struct {
+	Errors     map[string]string `json:"errors"`
+	Flows      []CaptureFlow     `json:"flows"`
+	ObservedAt time.Time         `json:"observedAt"`
+
+	// OmittedSamples Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.
+	OmittedSamples int64 `json:"omittedSamples"`
+
+	// SamplingRate Sampling denominator; flow bytes and packets are statistical estimates.
+	SamplingRate int `json:"samplingRate"`
+
+	// WindowSeconds Rolling retention window for observed samples.
+	WindowSeconds int `json:"windowSeconds"`
+}
+
 // UpdateActivity defines model for UpdateActivity.
 type UpdateActivity struct {
 	Error     *string             `json:"error,omitempty"`

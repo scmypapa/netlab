@@ -193,6 +193,13 @@ function list<T>(
 }
 
 export const api = {
+  traffic: (id: string, signal?: AbortSignal) =>
+    request<Schema<"TrafficObservation">>(
+      `/environments/${id}/traffic`,
+      "GET",
+      undefined,
+      signal,
+    ),
   captures: (id: string, signal?: AbortSignal) =>
     request<Schema<"CaptureList">>(
       "/environments/" + id + "/captures",

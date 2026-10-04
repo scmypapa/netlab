@@ -3,6 +3,12 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /environments/{id}/traffic:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: observeTraffic
+      responses:
+        '200': {description: Rolling sampled conversations; counters are statistical estimates, content: {application/json: {schema: {$ref: '#/components/schemas/TrafficObservation'}}}}
   /environments/{id}/captures:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -1667,6 +1673,16 @@ components:
         status: {type: integer}
         title: {type: string}
         detail: {type: string}
+    TrafficObservation:
+      type: object
+      required: [flows, errors, observedAt, samplingRate, windowSeconds, omittedSamples]
+      properties:
+        flows: {type: array, items: {$ref: '#/components/schemas/CaptureFlow'}}
+        errors: {type: object, additionalProperties: {type: string}}
+        observedAt: {type: string, format: date-time}
+        samplingRate: {type: integer, description: Sampling denominator; flow bytes and packets are statistical estimates.}
+        windowSeconds: {type: integer, description: Rolling retention window for observed samples.}
+        omittedSamples: {type: integer, format: int64, description: Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.}
     CreateCapture:
       type: object
       required: [assetIds, durationSeconds, fileSizeMiB]

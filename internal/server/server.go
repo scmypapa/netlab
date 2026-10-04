@@ -91,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 		"GET /api/v1/environments/{id}":                                        s.getEnvironment,
 		"GET /api/v1/environments/{id}/state":                                  s.environmentState,
 		"GET /api/v1/environments/{id}/metrics":                                s.environmentMetrics,
+		"GET /api/v1/environments/{id}/traffic":                                s.environmentTraffic,
 		"GET /api/v1/environments/{id}/captures":                               s.listCaptures,
 		"POST /api/v1/environments/{id}/captures":                              s.startCapture,
 		"GET /api/v1/environments/{id}/captures/{nodeId}/{captureId}":          s.captureSegment,

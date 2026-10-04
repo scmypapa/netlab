@@ -582,11 +582,12 @@ func (q *Queries) GetGrants(ctx context.Context, principalID string) ([]Grant, e
 }
 
 const getNodeEndpoints = `-- name: GetNodeEndpoints :many
-SELECT id,endpoint FROM nodes WHERE id=ANY($1::text[])
+SELECT id,name,endpoint FROM nodes WHERE id=ANY($1::text[])
 `
 
 type GetNodeEndpointsRow struct {
 	ID       string
+	Name     string
 	Endpoint string
 }
 
@@ -599,7 +600,7 @@ func (q *Queries) GetNodeEndpoints(ctx context.Context, dollar_1 []string) ([]Ge
 	items := []GetNodeEndpointsRow{}
 	for rows.Next() {
 		var i GetNodeEndpointsRow
-		if err := rows.Scan(&i.ID, &i.Endpoint); err != nil {
+		if err := rows.Scan(&i.ID, &i.Name, &i.Endpoint); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

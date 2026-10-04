@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+  "/environments/{id}/traffic": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["observeTraffic"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/captures": {
     parameters: {
       query?: never;
@@ -2183,6 +2201,23 @@ export interface components {
       title: string;
       detail: string;
     };
+    TrafficObservation: {
+      flows: components["schemas"]["CaptureFlow"][];
+      errors: {
+        [key: string]: string;
+      };
+      /** Format: date-time */
+      observedAt: string;
+      /** @description Sampling denominator; flow bytes and packets are statistical estimates. */
+      samplingRate: number;
+      /** @description Rolling retention window for observed samples. */
+      windowSeconds: number;
+      /**
+       * Format: int64
+       * @description Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.
+       */
+      omittedSamples: number;
+    };
     CreateCapture: {
       assetIds: string[];
       durationSeconds: number;
@@ -2286,6 +2321,28 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  observeTraffic: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Rolling sampled conversations; counters are statistical estimates */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TrafficObservation"];
+        };
+      };
+    };
+  };
   listCaptures: {
     parameters: {
       query?: never;

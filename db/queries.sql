@@ -223,7 +223,7 @@ SELECT * FROM operations WHERE id=$1 FOR UPDATE;
 -- name: RetryOperation :one
 UPDATE operations SET state='queued',phase=$2,payload=$3,expected_revision=$4,error=NULL,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 RETURNING *;
 -- name: GetNodeEndpoints :many
-SELECT id,endpoint FROM nodes WHERE id=ANY($1::text[]);
+SELECT id,name,endpoint FROM nodes WHERE id=ANY($1::text[]);
 -- name: GetCurrentAsset :one
 SELECT a.*,n.endpoint FROM runtime_assets a JOIN nodes n ON n.id=a.node_id
 WHERE a.environment_id=$1 AND a.asset_id=$2 AND a.current;

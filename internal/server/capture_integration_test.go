@@ -30,9 +30,25 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 	var mutex sync.Mutex
 	var request api.NodeCaptureRequest
 	status := api.CaptureSegmentStatusRunning
+	trafficFailure := false
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mutex.Lock()
 		defer mutex.Unlock()
+		if r.URL.Path == "/node/v1/traffic" {
+			var interfaces []api.CaptureInterface
+			if err := json.NewDecoder(r.Body).Decode(&interfaces); err != nil {
+				t.Error(err)
+			}
+			if len(interfaces) != 1 || interfaces[0].AssetId != "one" {
+				t.Error("traffic query did not use current environment interfaces", interfaces)
+			}
+			if trafficFailure {
+				http.Error(w, "sFlow unavailable", 503)
+				return
+			}
+			writeJSON(w, 200, api.TrafficObservation{Flows: []api.CaptureFlow{{Source: "10.0.0.1", Destination: "10.0.0.2", Protocol: "UDP", Bytes: 51200, Packets: 512}}, Errors: map[string]string{}, SamplingRate: 512, WindowSeconds: 60, ObservedAt: time.Now()})
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/node/v1/environments/"+env.Id+"/captures" {
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 				t.Error(err)
@@ -72,6 +88,21 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 		t.Fatal(err)
 	}
 	path := "/environments/" + env.Id + "/captures"
+	trafficPath := "/environments/" + env.Id + "/traffic"
+	call("GET", trafficPath, token.Token, nil, 403)
+	var observed api.TrafficObservation
+	if err := json.Unmarshal(call("GET", trafficPath, admin, nil, 200), &observed); err != nil || len(observed.Flows) != 1 || len(observed.Errors) != 0 || observed.SamplingRate != 512 {
+		t.Fatalf("traffic %+v %v", observed, err)
+	}
+	mutex.Lock()
+	trafficFailure = true
+	mutex.Unlock()
+	if err := json.Unmarshal(call("GET", trafficPath, admin, nil, 200), &observed); err != nil || len(observed.Flows) != 0 || len(observed.Errors) != 1 {
+		t.Fatalf("node failure hidden %+v %v", observed, err)
+	}
+	mutex.Lock()
+	trafficFailure = false
+	mutex.Unlock()
 	settings := api.CreateCapture{AssetIds: []string{"one"}, DurationSeconds: 10, FileSizeMiB: 1}
 	call("GET", path, token.Token, nil, 403)
 	call("POST", path, token.Token, settings, 403)

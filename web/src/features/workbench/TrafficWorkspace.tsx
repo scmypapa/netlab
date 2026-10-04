@@ -173,7 +173,10 @@ function CommunicationGraph({
       });
     chart.current.setOption({
       animation: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-      aria: { enabled: true },
+      aria: {
+        enabled: true,
+        label: { description: "资产通信图，连接明细可在右侧列表选择" },
+      },
       tooltip: {
         trigger: "item",
         renderMode: "richText",
@@ -242,7 +245,7 @@ export default function TrafficWorkspace({
 }) {
   const client = useQueryClient();
   const id = environment.id;
-  const [captureId, setCaptureId] = useState<string>();
+  const [captureId, setCaptureId] = useState("live");
   const [selection, setSelection] = useState<Selection>();
   const [protocol, setProtocol] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -259,7 +262,14 @@ export default function TrafficWorkspace({
     queryFn: ({ signal }) => api.captures(id, signal),
     refetchInterval: 3000,
   });
-  const activeId = captureId ?? captures.data?.segments[0]?.id;
+  const activeId = captureId;
+  const live = activeId === "live";
+  const traffic = useQuery({
+    queryKey: ["traffic", id],
+    queryFn: ({ signal }) => api.traffic(id, signal),
+    enabled: live,
+    refetchInterval: live ? 2000 : false,
+  });
   const segments =
     captures.data?.segments.filter((segment) => segment.id === activeId) ?? [];
   const details = useQueries({
@@ -267,7 +277,7 @@ export default function TrafficWorkspace({
       queryKey: ["capture", id, segment.nodeId, segment.id],
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         api.captureDetail(id, segment.nodeId, segment.id, signal),
-      enabled: segment.status !== "failed" || segment.bytes > 0,
+      enabled: !live && (segment.status !== "failed" || segment.bytes > 0),
       refetchInterval: activeCapture(segment) ? 2000 : false,
     })),
   });
@@ -347,9 +357,11 @@ export default function TrafficWorkspace({
       ),
     [groups],
   );
-  const allFlows = details
-    .flatMap((query) => query.data?.flows ?? [])
-    .sort((a, b) => b.bytes - a.bytes);
+  const allFlows = (
+    live
+      ? [...(traffic.data?.flows ?? [])]
+      : details.flatMap((query) => query.data?.flows ?? [])
+  ).sort((a, b) => b.bytes - a.bytes);
   const flows = allFlows.filter(
     (flow) =>
       (!protocol || flow.protocol === protocol) &&
@@ -387,6 +399,7 @@ export default function TrafficWorkspace({
   );
   const protocols = [...new Set(allFlows.map((flow) => flow.protocol))].sort();
   const sessions = [
+    { value: "live", label: "实时流量" },
     ...new Map(
       (captures.data?.segments ?? []).map((segment) => [
         segment.id,
@@ -398,6 +411,7 @@ export default function TrafficWorkspace({
     ).values(),
   ];
   const errors = [
+    live ? traffic.error : undefined,
     captures.error,
     action.error,
     saveRole.error,
@@ -418,24 +432,26 @@ export default function TrafficWorkspace({
           <strong>网络流量</strong>
           <span
             className={
-              segments.some((segment) => activeCapture(segment))
+              live || segments.some((segment) => activeCapture(segment))
                 ? styles.live
                 : styles.muted
             }
           >
-            {segments.some((segment) => activeCapture(segment))
-              ? "实时"
-              : "记录"}
+            {live
+              ? "采样估算 1/512"
+              : segments.some((segment) => activeCapture(segment))
+                ? "抓包实测"
+                : "抓包记录"}
           </span>
         </div>
         <div className={styles.controls}>
           <Select
-            aria-label="抓包记录"
+            aria-label="流量来源"
             placeholder="抓包记录"
             data={sessions}
             value={activeId ?? null}
             onChange={(value) => {
-              setCaptureId(value ?? undefined);
+              setCaptureId(value ?? "live");
               setSelection(undefined);
             }}
             w={130}
@@ -479,6 +495,17 @@ export default function TrafficWorkspace({
           {node} · {error}
         </div>
       ))}
+      {live &&
+        Object.entries(traffic.data?.errors ?? {}).map(([node, error]) => (
+          <div key={node} className={styles.error} role="alert">
+            {node} · {error}
+          </div>
+        ))}
+      {live && !!traffic.data?.omittedSamples && (
+        <div className={styles.error} role="status">
+          采样汇总已裁剪 {traffic.data.omittedSamples.toLocaleString()} 条记录
+        </div>
+      )}
       {Object.entries(start.data?.errors ?? {}).map(([node, error]) => (
         <div key={node} className={styles.error} role="alert">
           抓包启动失败 · {error}
@@ -511,27 +538,13 @@ export default function TrafficWorkspace({
               {volume(total)} · {volume(totalRate)}/s
             </span>
           </div>
-          {activeId ? (
-            <CommunicationGraph
-              environment={environment}
-              flows={flows}
-              groups={groups}
-              colors={colors}
-              onSelect={setSelection}
-            />
-          ) : (
-            <div className={styles.empty}>
-              <Radio size={32} />
-              <strong>选择资产，查看真实通信</strong>
-              <Button
-                variant="light"
-                size="sm"
-                onClick={() => setCreating(true)}
-              >
-                开始抓包
-              </Button>
-            </div>
-          )}
+          <CommunicationGraph
+            environment={environment}
+            flows={flows}
+            groups={groups}
+            colors={colors}
+            onSelect={setSelection}
+          />
           <div className={styles.legend}>
             {[...colors].map(([name, color]) => (
               <button

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -91,27 +90,17 @@ func (s *Server) startCapture(w http.ResponseWriter, r *http.Request, identity a
 	if len(settings.AssetIds) == 0 || settings.DurationSeconds < 10 || settings.DurationSeconds > 1800 || settings.FileSizeMiB < 1 || settings.FileSizeMiB > 1024 {
 		return httpError{http.StatusBadRequest, "请选择资产；时长为 10–1800 秒，文件额度为 1–1024 MiB"}
 	}
-	assets, err := s.Queries.ListRuntimeAssets(r.Context(), id)
+	interfaces, err := s.runtimeInterfaces(r.Context(), id)
 	if err != nil {
 		return err
 	}
-	interfaces, nodeIDs := []api.CaptureInterface{}, []string{}
+	nodeIDs := []string{}
 	found := map[string]bool{}
-	for _, asset := range assets {
-		if !asset.Current {
-			continue
-		}
-		var execution api.AssetExecution
-		if err = json.Unmarshal(asset.Execution, &execution); err != nil {
-			return err
-		}
-		for _, iface := range execution.Interfaces {
-			interfaces = append(interfaces, api.CaptureInterface{AssetId: asset.AssetID, AssetName: execution.Asset.Name, InterfaceId: iface.Id, PortName: iface.PortName, NodeId: asset.NodeID, Mac: iface.Mac, Address: iface.Address})
-			if slices.Contains(settings.AssetIds, asset.AssetID) {
-				found[asset.AssetID] = true
-				if !slices.Contains(nodeIDs, asset.NodeID) {
-					nodeIDs = append(nodeIDs, asset.NodeID)
-				}
+	for _, iface := range interfaces {
+		if slices.Contains(settings.AssetIds, iface.AssetId) {
+			found[iface.AssetId] = true
+			if !slices.Contains(nodeIDs, iface.NodeId) {
+				nodeIDs = append(nodeIDs, iface.NodeId)
 			}
 		}
 	}

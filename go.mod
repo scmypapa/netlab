@@ -14,6 +14,7 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/google/nftables v0.3.0
 	github.com/google/uuid v1.6.0
+	github.com/gopacket/gopacket v1.5.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/moby/sys/signal v0.7.0
 	github.com/oapi-codegen/runtime v1.7.0

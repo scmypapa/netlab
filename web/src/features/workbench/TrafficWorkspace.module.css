@@ -236,21 +236,6 @@
   color: var(--muted);
   padding: 10px 0;
 }
-.empty {
-  flex: 1;
-  min-height: 320px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 18px;
-  color: var(--muted);
-}
-.empty strong {
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 500;
-}
 .form {
   display: flex;
   flex-direction: column;

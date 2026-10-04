@@ -13,8 +13,10 @@ import (
 )
 
 const flowLimit = 4000
+const SamplingRate = 512
+const ObservationWindow = 60
 
-// The packet decoder is tshark. This layer only correlates identities and aggregates its field stream.
+// Capture and sFlow decoders share identity correlation and conversation aggregation.
 type aggregate struct {
 	started                 time.Time
 	window                  map[string][10]secondBucket
@@ -28,6 +30,29 @@ type aggregate struct {
 type secondBucket struct {
 	second int64
 	bytes  int64
+}
+
+// Sample is either one captured frame or a statistically weighted sFlow sample.
+type Sample struct {
+	At                                                       time.Time
+	Source, Destination, SourceMAC, DestinationMAC, Protocol string
+	SourcePort, DestinationPort                              int
+	Bytes, Packets                                           int64
+}
+
+func Summarize(node string, interfaces []api.CaptureInterface, samples []Sample, now time.Time) ([]api.CaptureFlow, int64) {
+	request := api.NodeCaptureRequest{Interfaces: interfaces}
+	for _, iface := range interfaces {
+		request.Settings.AssetIds = append(request.Settings.AssetIds, iface.AssetId)
+	}
+	a := newAggregate(node, request)
+	for _, sample := range samples {
+		if sample.At.Before(a.started) {
+			a.started = sample.At
+		}
+		a.addSample(sample)
+	}
+	return a.snapshotAt(now), a.omitted
 }
 
 func newAggregate(node string, request api.NodeCaptureRequest) *aggregate {
@@ -65,11 +90,18 @@ func (a *aggregate) add(line string) error {
 	if err != nil || size < 0 {
 		return fmt.Errorf("无效帧大小 %q", f[1])
 	}
-	a.packets++
-	a.bytes += size
-	source, destination := first(f[4], f[6], f[2]), first(f[5], f[7], f[3])
-	src, srcKnown := a.endpoint(source, f[2])
-	dst, dstKnown := a.endpoint(destination, f[3])
+	a.addSample(Sample{At: time.Unix(0, int64(epoch*1e9)).UTC(), Bytes: size, Packets: 1,
+		Source: first(f[4], f[6], f[2]), Destination: first(f[5], f[7], f[3]), SourceMAC: f[2], DestinationMAC: f[3],
+		SourcePort: port(first(f[8], f[10])), DestinationPort: port(first(f[9], f[11])), Protocol: f[12]})
+	return nil
+}
+
+func (a *aggregate) addSample(sample Sample) {
+	a.packets += sample.Packets
+	a.bytes += sample.Bytes
+	source, destination := sample.Source, sample.Destination
+	src, srcKnown := a.endpoint(source, sample.SourceMAC)
+	dst, dstKnown := a.endpoint(destination, sample.DestinationMAC)
 	// A cross-node packet contributes once: selected sender first, otherwise selected receiver.
 	owner := ""
 	if srcKnown && a.selected[src.AssetId] {
@@ -78,18 +110,18 @@ func (a *aggregate) add(line string) error {
 		owner = dst.NodeId
 	}
 	if owner != a.node {
-		return nil
+		return
 	}
-	sp, dp := port(first(f[8], f[10])), port(first(f[9], f[11]))
-	key := strings.Join([]string{source, destination, f[12], strconv.Itoa(sp), strconv.Itoa(dp)}, "\x00")
+	sp, dp := sample.SourcePort, sample.DestinationPort
+	key := strings.Join([]string{source, destination, sample.SourceMAC, sample.DestinationMAC, sample.Protocol, strconv.Itoa(sp), strconv.Itoa(dp)}, "\x00")
 	flow, exists := a.flows[key]
 	if !exists && len(a.flows) >= flowLimit {
 		a.omitted++
-		return nil
+		return
 	}
-	at := time.Unix(0, int64(epoch*1e9)).UTC()
+	at := sample.At
 	if !exists {
-		flow = api.CaptureFlow{Source: source, Destination: destination, Protocol: f[12], SourcePort: sp, DestinationPort: dp, FirstSeen: at}
+		flow = api.CaptureFlow{Source: source, Destination: destination, Protocol: sample.Protocol, SourcePort: sp, DestinationPort: dp, FirstSeen: at}
 		if srcKnown {
 			flow.SourceAssetId = &src.AssetId
 			if src.AssetName != "" {
@@ -103,19 +135,25 @@ func (a *aggregate) add(line string) error {
 			}
 		}
 	}
-	flow.Bytes += size
-	flow.Packets++
-	flow.LastSeen = at
+	flow.Bytes += sample.Bytes
+	flow.Packets += sample.Packets
+	if at.Before(flow.FirstSeen) {
+		flow.FirstSeen = at
+	}
+	if at.After(flow.LastSeen) {
+		flow.LastSeen = at
+	}
 	a.flows[key] = flow
 	buckets := a.window[key]
 	second := at.Unix()
 	index := (second%10 + 10) % 10
-	if buckets[index].second != second {
+	if buckets[index].second < second {
 		buckets[index] = secondBucket{second: second}
 	}
-	buckets[index].bytes += size
+	if buckets[index].second == second {
+		buckets[index].bytes += sample.Bytes
+	}
 	a.window[key] = buckets
-	return nil
 }
 
 func (a *aggregate) snapshot() []api.CaptureFlow {
@@ -139,10 +177,20 @@ func (a *aggregate) snapshotAt(now time.Time) []api.CaptureFlow {
 		}
 		items = append(items, flow)
 	}
-	slices.SortFunc(items, func(a, b api.CaptureFlow) int {
-		return cmp.Or(cmp.Compare(b.Bytes, a.Bytes), strings.Compare(a.Source, b.Source), strings.Compare(a.Destination, b.Destination), strings.Compare(a.Protocol, b.Protocol), cmp.Compare(a.SourcePort, b.SourcePort), cmp.Compare(a.DestinationPort, b.DestinationPort))
-	})
+	SortFlows(items)
 	return items
+}
+
+func SortFlows(items []api.CaptureFlow) {
+	asset := func(id *string) string {
+		if id == nil {
+			return ""
+		}
+		return *id
+	}
+	slices.SortFunc(items, func(a, b api.CaptureFlow) int {
+		return cmp.Or(cmp.Compare(b.Bytes, a.Bytes), strings.Compare(a.Source, b.Source), strings.Compare(a.Destination, b.Destination), strings.Compare(a.Protocol, b.Protocol), cmp.Compare(a.SourcePort, b.SourcePort), cmp.Compare(a.DestinationPort, b.DestinationPort), strings.Compare(asset(a.SourceAssetId), asset(b.SourceAssetId)), strings.Compare(asset(a.DestinationAssetId), asset(b.DestinationAssetId)))
+	})
 }
 func (a *aggregate) endpoint(address, mac string) (api.CaptureInterface, bool) {
 	if iface, exists := a.macs[strings.ToLower(mac)]; exists {

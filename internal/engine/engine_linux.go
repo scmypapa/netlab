@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,20 +30,22 @@ type Config struct {
 	ArtifactHTTP                                                                      *http.Client
 }
 type Engine struct {
-	cfg          Config
-	container    *Containers
-	vm           *VirtualMachines
-	ovn          *network.OVN
-	ovs          *network.OVS
-	gateway      *network.Gateway
-	access       *network.Access
-	external     *network.External
-	slots        chan struct{}
-	ioSlots      chan struct{}
-	mu           sync.Mutex
-	locks        map[string]*objectLock
-	captures     *capture.Manager
-	captureError error
+	cfg           Config
+	container     *Containers
+	vm            *VirtualMachines
+	ovn           *network.OVN
+	ovs           *network.OVS
+	gateway       *network.Gateway
+	access        *network.Access
+	external      *network.External
+	slots         chan struct{}
+	ioSlots       chan struct{}
+	mu            sync.Mutex
+	locks         map[string]*objectLock
+	captures      *capture.Manager
+	captureError  error
+	sampler       *capture.Sampler
+	samplingError error
 }
 type objectLock struct {
 	mu   sync.Mutex
@@ -101,9 +104,18 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		}
 	}
 	e.captures, e.captureError = capture.New(ctx, e.ovs, cfg.DataDir, cfg.ID)
+	e.sampler, e.samplingError = capture.NewSampler(ctx, e.ovs, cfg.ID)
+	if e.samplingError != nil {
+		slog.Error("traffic sampling unavailable", "error", e.samplingError)
+	}
 	return e, nil
 }
 func (e *Engine) Close() {
+	if e.sampler != nil {
+		if err := e.sampler.Close(); err != nil {
+			slog.Error("traffic sampling cleanup", "error", err)
+		}
+	}
 	if e.captures != nil {
 		e.captures.Close()
 	}

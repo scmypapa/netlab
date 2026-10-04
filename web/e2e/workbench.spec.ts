@@ -62,8 +62,25 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     }
     return route.fulfill({ json: { segment: segment(), flows } });
   });
+  let sampled = false;
+  await page.route("**/api/v1/environments/env/traffic", (route) => {
+    sampled = true;
+    return route.fulfill({
+      json: {
+        flows,
+        errors: {},
+        samplingRate: 512,
+        windowSeconds: 60,
+        omittedSamples: 0,
+        observedAt: now,
+      },
+    });
+  });
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "流量视图" }).click();
+  await expect.poll(() => sampled).toBe(true);
+  await expect(page.getByText("采样估算 1/512", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
   await page
     .getByRole("button", { name: "开始抓包", exact: true })
     .first()
@@ -74,6 +91,7 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     .click();
   await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
   await expect(page.getByText("抓包进程未能启动")).toBeVisible();
+  await expect(page.getByText("抓包实测", { exact: true })).toBeVisible();
   await expect(page.getByText("1.0 MiB · 16.0 KiB/s")).toBeVisible();
   await page.getByRole("button", { name: /web-01.*windows-01/ }).click();
   await page.getByRole("button", { name: "查看 web-01", exact: true }).click();
