@@ -1,6 +1,144 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { Identity, Operation } from "../src/api/client";
 
+test("系统更新展示正式发布日志并提交指定版本", async ({ page }) => {
+  await fixture(page);
+  const now = new Date().toISOString();
+  let state = {
+    currentVersion: "v1.0.0",
+    available: true,
+    canApply: true,
+    checkedAt: now,
+    latest: {
+      version: "v1.1.0",
+      name: "Netlab v1.1.0",
+      notes: "## 网络\n\n- 改进跨节点连接\n\n## 运维\n\n- 完善资源曲线",
+      publishedAt: now,
+      url: "https://github.com/scmypapa/netlab/releases/tag/v1.1.0",
+    },
+    activity: undefined as
+      { version: string; phase: string; updatedAt: string } | undefined,
+  };
+  const submitted: unknown[] = [];
+  await page.route("**/api/v1/system/update**", (route) => {
+    if (
+      route.request().method() === "POST" &&
+      !route.request().url().endsWith("/check")
+    ) {
+      submitted.push(route.request().postDataJSON());
+      state = {
+        ...state,
+        activity: { version: "v1.1.0", phase: "queued", updatedAt: now },
+      };
+      return route.fulfill({ status: 202, json: state });
+    }
+    return route.fulfill({ json: state });
+  });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: /operator/ }).click();
+  await page.getByRole("menuitem", { name: "系统更新" }).click();
+  const panel = page.getByRole("dialog", { name: "系统更新", exact: true });
+  await expect(panel.getByText("v1.0.0", { exact: true })).toBeVisible();
+  await expect(
+    panel.getByRole("heading", { name: "网络", exact: true }),
+  ).toBeVisible();
+  await expect(
+    panel.getByText("改进跨节点连接", { exact: true }),
+  ).toBeVisible();
+  await panel.getByRole("button", { name: "检查更新" }).click();
+  await panel.getByRole("button", { name: "更新到 v1.1.0" }).click();
+  await page.getByRole("button", { name: "开始更新", exact: true }).click();
+  await expect(panel.getByText("准备更新", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "更新到 v1.1.0", exact: true }),
+  ).toHaveCount(0);
+  expect(submitted).toEqual([{ version: "v1.1.0" }]);
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({ path: "../data/update-" + width + ".png" });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+});
+
+test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", async ({ page }) => {
+  await fixture(page);
+  const requests: URL[] = [];
+  await page.route("**/api/v1/environments/env/metrics**", (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    const end = new Date();
+    const start = new Date(
+      end.getTime() - Number(url.searchParams.get("range")) * 1000,
+    );
+    return route.fulfill({
+      json: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        stepSeconds: 10,
+        series: [
+          "cpu",
+          "memory",
+          "receive",
+          "transmit",
+          "disk_read",
+          "disk_write",
+          "receive_packets",
+          "transmit_packets",
+          "receive_drops",
+          "transmit_drops",
+        ].map((metric) => ({
+          metric,
+          assetId: "windows",
+          instanceId: "instance",
+          nodeId: "node",
+          ...(metric.startsWith("receive") || metric.startsWith("transmit")
+            ? { interfaceId: "eth-win" }
+            : {}),
+          points: [30, 20, 10].map((offset) => ({
+            time: new Date(end.getTime() - offset * 1000).toISOString(),
+            value: metric.endsWith("drops") ? 0 : 128,
+          })),
+        })),
+      },
+    });
+  });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "资产视图", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "资源曲线", exact: true }).click();
+  await expect(page.getByRole("img", { name: /历史曲线/ })).toHaveCount(4);
+  await expect(
+    page
+      .getByRole("table")
+      .filter({ has: page.getByText("接口速率", { exact: true }) }),
+  ).toContainText("应用网段 · 网卡1");
+  expect(requests[0].searchParams.get("assetId")).toBe("windows");
+  await page.getByText("1 小时", { exact: true }).click();
+  await expect
+    .poll(() => requests.at(-1)?.searchParams.get("range"))
+    .toBe("3600");
+  for (const width of [390, 1366, 1920, 2560]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await page.getByRole("button", { name: "切换夜间主题" }).click();
+  await expect(page.getByRole("img", { name: /历史曲线/ })).toHaveCount(4);
+  await page.getByRole("button", { name: "返回拓扑", exact: true }).click();
+  await expect(page.getByLabel("资源观察")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "资产视图", exact: true }),
+  ).toBeVisible();
+});
+
 // API fixtures verify browser interaction. Runtime acceptance uses the real node separately.
 async function fixture(
   page: Page,

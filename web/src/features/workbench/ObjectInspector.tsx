@@ -1,6 +1,7 @@
 import { ActionIcon, Button, Menu } from "@mantine/core";
 import {
   Box,
+  Activity,
   Copy,
   FolderOpen,
   Cpu,
@@ -53,6 +54,7 @@ export function ObjectInspector({
   onAction,
   onConnect,
   onLogs,
+  onObserve,
   services,
   canAccess,
   onServices,
@@ -80,6 +82,7 @@ export function ObjectInspector({
   canFile: boolean;
   onFiles: () => void;
   onLogs: () => void;
+  onObserve: () => void;
   services: Schema<"ServiceEndpoint">[];
   canAccess: boolean;
   onServices: () => void;
@@ -171,7 +174,7 @@ export function ObjectInspector({
               (canOperate ||
                 canFile ||
                 canManage ||
-                (canObserve && template?.kind === "container") ||
+                canObserve ||
                 (canConnect && template?.kind === "vm")))) && (
             <Menu position="bottom-end">
               <Menu.Target>
@@ -223,6 +226,14 @@ export function ObjectInspector({
                           onClick={() => onConnect("ssh")}
                         >
                           SSH
+                        </Menu.Item>
+                      )}
+                      {canObserve && (
+                        <Menu.Item
+                          leftSection={<Activity size={15} />}
+                          onClick={onObserve}
+                        >
+                          资源曲线
                         </Menu.Item>
                       )}
                       {canObserve && template?.kind === "container" && (

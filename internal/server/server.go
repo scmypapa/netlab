@@ -20,8 +20,10 @@ import (
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/environment"
+	"netlab.local/core/internal/metrics"
 	"netlab.local/core/internal/secret"
 	"netlab.local/core/internal/transport"
+	"netlab.local/core/internal/update"
 )
 
 type Server struct {
@@ -31,6 +33,8 @@ type Server struct {
 	Environments environment.Service
 	Nodes        *transport.Client
 	Secrets      *secret.Cipher
+	Metrics      *metrics.Store
+	Updates      *update.Service
 	Web          http.Handler
 	connectionMu sync.Mutex
 	connections  map[*accessConnection]struct{}
@@ -52,6 +56,9 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/system/update":                                            s.systemUpdate,
+		"POST /api/v1/system/update":                                           s.applySystemUpdate,
+		"POST /api/v1/system/update/check":                                     s.checkSystemUpdate,
 		"GET /api/v1/backup-repositories":                                      s.listBackupRepositories,
 		"POST /api/v1/backup-repositories":                                     s.createBackupRepository,
 		"POST /api/v1/backup-repositories/{id}/refresh":                        s.refreshBackupRepository,
@@ -83,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 		"POST /api/v1/environments":                                            s.createEnvironment,
 		"GET /api/v1/environments/{id}":                                        s.getEnvironment,
 		"GET /api/v1/environments/{id}/state":                                  s.environmentState,
+		"GET /api/v1/environments/{id}/metrics":                                s.environmentMetrics,
 		"POST /api/v1/environments/{id}/actions":                               s.environmentAction,
 		"POST /api/v1/environments/{id}/assets/{assetId}/actions":              s.environmentAction,
 		"GET /api/v1/environments/{id}/assets/{assetId}/ssh":                   s.assetSSHSettings,

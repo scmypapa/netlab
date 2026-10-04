@@ -1,0 +1,17 @@
+[Unit]
+Description=Netlab release installation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/lib/netlab
+EnvironmentFile=/etc/netlab/controller.env
+ExecStart=/opt/netlab/current/netlab-controller update
+TimeoutStartSec=20min
+Restart=on-failure
+RestartSec=10
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

@@ -51,6 +51,7 @@ import { consoleKey, type ConsoleTab } from "./consoles";
 import { allows, allowsProject } from "../access/permissions";
 
 const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
+const ObservationWorkspace = lazy(() => import("./ObservationWorkspace"));
 
 export function WorkbenchPage() {
   const { id = "" } = useParams();
@@ -72,6 +73,7 @@ export function WorkbenchPage() {
   const [selectedConnection, setSelectedConnection] = useState("");
   const [sharing, setSharing] = useState(false);
   const [logging, setLogging] = useState<Asset>();
+  const [observationOpened, setObservationOpened] = useState(false);
   const [serving, setServing] = useState<string>();
   const [vpnOpened, setVPNOpened] = useState(false);
   const [filesOpened, setFilesOpened] = useState(false);
@@ -141,6 +143,13 @@ export function WorkbenchPage() {
       ? asset
       : undefined;
   const servedAsset = spec.assets.find((item) => item.id === serving);
+  const observedAsset =
+    !workbench.editing &&
+    observationOpened &&
+    asset &&
+    allows(environment, "observe", asset.id)
+      ? asset
+      : undefined;
   const openConnection = (
     target: Asset,
     kind: Schema<"ConsoleKind">,
@@ -540,72 +549,74 @@ export function WorkbenchPage() {
           </aside>
         )}
         <section className="canvas-area" aria-label="环境拓扑">
-          <div className="canvas-toolbar">
-            <div className="canvas-view-controls">
-              <ActionIcon
-                variant={tree ? "light" : "subtle"}
-                color={tree ? "teal" : "gray"}
-                aria-label="对象列表"
-                aria-pressed={tree}
-                onClick={() => setTree(!tree)}
-              >
-                <Columns3 size={17} />
-              </ActionIcon>
-              <div className="view-switch">
-                <button
-                  className={!list ? "selected" : ""}
-                  aria-label="拓扑视图"
-                  aria-pressed={!list}
-                  onClick={() => setList(false)}
+          {!observedAsset && (
+            <div className="canvas-toolbar">
+              <div className="canvas-view-controls">
+                <ActionIcon
+                  variant={tree ? "light" : "subtle"}
+                  color={tree ? "teal" : "gray"}
+                  aria-label="对象列表"
+                  aria-pressed={tree}
+                  onClick={() => setTree(!tree)}
                 >
-                  <LayoutGrid size={15} />
-                  <span>拓扑</span>
-                </button>
-                <button
-                  className={list ? "selected" : ""}
-                  aria-label="资产视图"
-                  aria-pressed={list}
-                  onClick={() => setList(true)}
-                >
-                  <List size={15} />
-                  <span>资产</span>
-                </button>
+                  <Columns3 size={17} />
+                </ActionIcon>
+                <div className="view-switch">
+                  <button
+                    className={!list ? "selected" : ""}
+                    aria-label="拓扑视图"
+                    aria-pressed={!list}
+                    onClick={() => setList(false)}
+                  >
+                    <LayoutGrid size={15} />
+                    <span>拓扑</span>
+                  </button>
+                  <button
+                    className={list ? "selected" : ""}
+                    aria-label="资产视图"
+                    aria-pressed={list}
+                    onClick={() => setList(true)}
+                  >
+                    <List size={15} />
+                    <span>资产</span>
+                  </button>
+                </div>
+              </div>
+              <div className="canvas-add-controls">
+                {workbench.editing && (
+                  <Menu position="bottom-end">
+                    <Menu.Target>
+                      <Button
+                        variant="default"
+                        size="xs"
+                        leftSection={<Plus size={14} />}
+                        rightSection={<ChevronDown size={13} />}
+                      >
+                        添加
+                      </Button>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item
+                        leftSection={<Box size={16} />}
+                        onClick={() => adding("asset")}
+                      >
+                        资产
+                      </Menu.Item>
+                      <Menu.Item
+                        leftSection={<Network size={16} />}
+                        onClick={() => adding("network")}
+                      >
+                        网段
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                )}
+                <span className="canvas-count">
+                  {spec.assets.length} 资产 · {spec.networks.length} 网段
+                </span>
               </div>
             </div>
-            <div className="canvas-add-controls">
-              {workbench.editing && (
-                <Menu position="bottom-end">
-                  <Menu.Target>
-                    <Button
-                      variant="default"
-                      size="xs"
-                      leftSection={<Plus size={14} />}
-                      rightSection={<ChevronDown size={13} />}
-                    >
-                      添加
-                    </Button>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item
-                      leftSection={<Box size={16} />}
-                      onClick={() => adding("asset")}
-                    >
-                      资产
-                    </Menu.Item>
-                    <Menu.Item
-                      leftSection={<Network size={16} />}
-                      onClick={() => adding("network")}
-                    >
-                      网段
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              )}
-              <span className="canvas-count">
-                {spec.assets.length} 资产 · {spec.networks.length} 网段
-              </span>
-            </div>
-          </div>
+          )}
           {!spec.assets.length && !spec.networks.length ? (
             <Empty
               icon={<Network size={36} />}
@@ -613,6 +624,16 @@ export function WorkbenchPage() {
               action="添加网段"
               onAction={() => adding("network")}
             />
+          ) : observedAsset ? (
+            <Suspense fallback={<Loading />}>
+              <ObservationWorkspace
+                key={observedAsset.id}
+                environmentId={id}
+                asset={observedAsset}
+                networks={spec.networks}
+                onClose={() => setObservationOpened(false)}
+              />
+            </Suspense>
           ) : fileAsset ? (
             <FileWorkspace
               key={fileAsset.id}
@@ -740,7 +761,10 @@ export function WorkbenchPage() {
             onCapture={() => setCapturing(asset)}
             canConnect={allows(environment, "session", asset?.id)}
             canFile={allows(environment, "file", asset?.id)}
-            onFiles={() => setFilesOpened(true)}
+            onFiles={() => {
+              setObservationOpened(false);
+              setFilesOpened(true);
+            }}
             canObserve={allows(environment, "observe", asset?.id)}
             canAccess={allows(environment, "access", asset?.id)}
             services={workbench.services.data ?? []}
@@ -755,6 +779,10 @@ export function WorkbenchPage() {
             }
             onConnect={connect}
             onLogs={() => setLogging(asset)}
+            onObserve={() => {
+              setFilesOpened(false);
+              setObservationOpened(true);
+            }}
             onServices={() => {
               workbench.exposeService.reset();
               workbench.revokeService.reset();

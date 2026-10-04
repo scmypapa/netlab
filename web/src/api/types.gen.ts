@@ -4,6 +4,38 @@
  */
 
 export interface paths {
+  "/system/update": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["systemUpdate"];
+    put?: never;
+    post: operations["applySystemUpdate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/system/update/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["checkSystemUpdate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/backup-repositories": {
     parameters: {
       query?: never;
@@ -406,6 +438,24 @@ export interface paths {
       cookie?: never;
     };
     get: operations["getEnvironment"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/metrics": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["getEnvironmentMetrics"];
     put?: never;
     post?: never;
     delete?: never;
@@ -1055,6 +1105,42 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    SystemUpdate: {
+      currentVersion: string;
+      available: boolean;
+      canApply: boolean;
+      /** Format: date-time */
+      checkedAt?: string;
+      checkError?: string;
+      latest?: components["schemas"]["UpdateRelease"];
+      activity?: components["schemas"]["UpdateActivity"];
+    };
+    UpdateRelease: {
+      version: string;
+      name: string;
+      notes: string;
+      /** Format: date-time */
+      publishedAt: string;
+      /** Format: uri */
+      url: string;
+    };
+    ApplySystemUpdate: {
+      version: string;
+    };
+    UpdateActivity: {
+      version: string;
+      /** @enum {string} */
+      phase:
+        | "queued"
+        | "downloading"
+        | "installing"
+        | "restarting"
+        | "succeeded"
+        | "failed";
+      /** Format: date-time */
+      updatedAt: string;
+      error?: string;
+    };
     SSHProbe: {
       port: number;
       interfaceId?: string;
@@ -1523,6 +1609,39 @@ export interface components {
       error?: string;
       /** Format: date-time */
       observedAt: string;
+    };
+    MetricPoint: {
+      /** Format: date-time */
+      time: string;
+      /** Format: double */
+      value: number;
+    };
+    MetricSeries: {
+      /** @enum {string} */
+      metric:
+        | "cpu"
+        | "memory"
+        | "disk_read"
+        | "disk_write"
+        | "receive"
+        | "transmit"
+        | "receive_packets"
+        | "transmit_packets"
+        | "receive_drops"
+        | "transmit_drops";
+      assetId: string;
+      instanceId: string;
+      nodeId: string;
+      interfaceId?: string;
+      points: components["schemas"]["MetricPoint"][];
+    };
+    MetricHistory: {
+      /** Format: date-time */
+      start: string;
+      /** Format: date-time */
+      end: string;
+      stepSeconds: number;
+      series: components["schemas"]["MetricSeries"][];
     };
     EnvironmentState: {
       id: string;
@@ -2026,6 +2145,77 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  systemUpdate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Installed version and update progress; administrator only */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SystemUpdate"];
+        };
+      };
+    };
+  };
+  applySystemUpdate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ApplySystemUpdate"];
+      };
+    };
+    responses: {
+      /** @description Update accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SystemUpdate"];
+        };
+      };
+      /** @description Update already running or version changed */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  checkSystemUpdate: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Latest stable GitHub release */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SystemUpdate"];
+        };
+      };
+    };
+  };
   listBackupRepositories: {
     parameters: {
       query?: never;
@@ -2700,6 +2890,57 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["Environment"];
         };
+      };
+    };
+  };
+  getEnvironmentMetrics: {
+    parameters: {
+      query?: {
+        assetId?: string;
+        /** @description Relative time window in seconds; start overrides this window */
+        range?: number;
+        start?: string;
+        end?: string;
+        /** @description Seconds between points; defaults to at most 600 points */
+        step?: number;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Measured resource history */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MetricHistory"];
+        };
+      };
+      /** @description Invalid range or step */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Observe permission required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Metrics service unavailable */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

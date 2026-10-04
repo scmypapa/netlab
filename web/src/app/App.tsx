@@ -19,6 +19,7 @@ import {
   Server,
   Sun,
   UsersRound,
+  Download,
 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
@@ -45,8 +46,14 @@ const AccountsPage = lazy(() =>
     default: module.AccountsPage,
   })),
 );
+const UpdatePanel = lazy(() =>
+  import("../features/system/UpdatePanel").then((module) => ({
+    default: module.UpdatePanel,
+  })),
+);
 
 export function App() {
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
   const scheme = useComputedColorScheme("light");
   const { setColorScheme } = useMantineColorScheme();
@@ -119,6 +126,14 @@ export function App() {
             <Menu.Dropdown>
               {identity.data?.administrator && (
                 <Menu.Item
+                  leftSection={<Download size={15} />}
+                  onClick={() => setUpdatesOpen(true)}
+                >
+                  系统更新
+                </Menu.Item>
+              )}
+              {identity.data?.administrator && (
+                <Menu.Item
                   component={NavLink}
                   to="/accounts"
                   leftSection={<UsersRound size={15} />}
@@ -136,6 +151,9 @@ export function App() {
           </Menu>
         </div>
       </header>
+      <Suspense fallback={null}>
+        {updatesOpen && <UpdatePanel onClose={() => setUpdatesOpen(false)} />}
+      </Suspense>
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/environments/:id" element={<WorkbenchPage />} />

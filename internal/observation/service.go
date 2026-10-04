@@ -14,12 +14,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/metrics"
 	"netlab.local/core/internal/transport"
 )
 
 type Service struct {
-	Pool   *pgxpool.Pool
-	Client *transport.Client
+	Pool    *pgxpool.Pool
+	Client  *transport.Client
+	Metrics *metrics.Store
 }
 
 // One controller owns the observation connections. PostgreSQL closes this
@@ -63,6 +65,8 @@ func (s Service) lead(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	var waiting sync.WaitGroup
 	defer func() { cancel(); waiting.Wait() }()
+	waiting.Add(1)
+	go func() { defer waiting.Done(); s.collectMetrics(ctx) }()
 	type subscription struct {
 		endpoint string
 		cancel   context.CancelFunc

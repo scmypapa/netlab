@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -25,13 +26,19 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/buildinfo"
 	"netlab.local/core/internal/engine"
 	"netlab.local/core/internal/logfile"
+	"netlab.local/core/internal/metrics"
 	"netlab.local/core/internal/stream"
 	"netlab.local/core/internal/transport"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Printf("Netlab node %s (%s)\n", buildinfo.Version, buildinfo.Commit)
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("node stopped", "error", err)
 		os.Exit(1)
@@ -261,6 +268,22 @@ func run() error {
 			fmt.Fprintf(w, "event: stream-error\ndata: %s\n\n", raw)
 			control.Flush()
 		}
+	})
+	mux.HandleFunc("GET /node/v1/metrics", func(w http.ResponseWriter, r *http.Request) {
+		observed := time.Now().UTC()
+		samples, err := executor.Metrics(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		var data bytes.Buffer
+		if err = metrics.Write(&data, samples, observed); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(data.Bytes())
 	})
 	mux.HandleFunc("GET /node/v1/observations", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-ndjson")

@@ -1,0 +1,1 @@
+netlab ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block netlab-update.service

@@ -193,6 +193,21 @@ function list<T>(
 }
 
 export const api = {
+  updateStatus: () => request<Schema<"SystemUpdate">>("/system/update"),
+  checkUpdate: () =>
+    request<Schema<"SystemUpdate">>("/system/update/check", "POST"),
+  applyUpdate: (version: string) =>
+    request<Schema<"SystemUpdate">>("/system/update", "POST", { version }),
+  metrics: (id: string, assetId: string, range: number, signal?: AbortSignal) =>
+    request<Schema<"MetricHistory">>(
+      "/environments/" +
+        id +
+        "/metrics?" +
+        new URLSearchParams({ assetId, range: String(range) }),
+      "GET",
+      undefined,
+      signal,
+    ),
   rdpSettings: (id: string, assetId: string) =>
     request<Schema<"RDPSettings">>(`/environments/${id}/assets/${assetId}/rdp`),
   saveRDPSettings: (

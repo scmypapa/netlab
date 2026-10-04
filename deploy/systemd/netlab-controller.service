@@ -1,0 +1,18 @@
+[Unit]
+Description=Netlab controller
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=netlab
+Group=netlab
+WorkingDirectory=/var/lib/netlab
+EnvironmentFile=/etc/netlab/controller.env
+ExecStart=/opt/netlab/current/netlab-controller
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

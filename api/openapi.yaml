@@ -3,6 +3,22 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /system/update:
+    get:
+      operationId: systemUpdate
+      responses:
+        '200': {description: Installed version and update progress; administrator only, content: {application/json: {schema: {$ref: '#/components/schemas/SystemUpdate'}}}}
+    post:
+      operationId: applySystemUpdate
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApplySystemUpdate'}}}}
+      responses:
+        '202': {description: Update accepted, content: {application/json: {schema: {$ref: '#/components/schemas/SystemUpdate'}}}}
+        '409': {description: Update already running or version changed}
+  /system/update/check:
+    post:
+      operationId: checkSystemUpdate
+      responses:
+        '200': {description: Latest stable GitHub release, content: {application/json: {schema: {$ref: '#/components/schemas/SystemUpdate'}}}}
   /backup-repositories:
     get:
       operationId: listBackupRepositories
@@ -201,6 +217,21 @@ paths:
       operationId: getEnvironment
       responses:
         '200': {description: Environment, content: {application/json: {schema: {$ref: '#/components/schemas/Environment'}}}}
+  /environments/{id}/metrics:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getEnvironmentMetrics
+      parameters:
+        - {name: assetId, in: query, schema: {type: string}}
+        - {name: range, in: query, schema: {type: integer, minimum: 10, maximum: 2592000, default: 900}, description: Relative time window in seconds; start overrides this window}
+        - {name: start, in: query, schema: {type: string, format: date-time}}
+        - {name: end, in: query, schema: {type: string, format: date-time}}
+        - {name: step, in: query, schema: {type: integer, minimum: 10}, description: Seconds between points; defaults to at most 600 points}
+      responses:
+        '200': {description: Measured resource history, content: {application/json: {schema: {$ref: '#/components/schemas/MetricHistory'}}}}
+        '400': {description: Invalid range or step}
+        '403': {description: Observe permission required}
+        '502': {description: Metrics service unavailable}
   /environments/{id}/state:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -534,6 +565,39 @@ components:
   securitySchemes:
     bearer: {type: http, scheme: bearer}
   schemas:
+    SystemUpdate:
+      type: object
+      required: [currentVersion, available, canApply]
+      properties:
+        currentVersion: {type: string}
+        available: {type: boolean}
+        canApply: {type: boolean}
+        checkedAt: {type: string, format: date-time}
+        checkError: {type: string}
+        latest: {$ref: '#/components/schemas/UpdateRelease'}
+        activity: {$ref: '#/components/schemas/UpdateActivity'}
+    UpdateRelease:
+      type: object
+      required: [version, name, notes, publishedAt, url]
+      properties:
+        version: {type: string}
+        name: {type: string}
+        notes: {type: string}
+        publishedAt: {type: string, format: date-time}
+        url: {type: string, format: uri}
+    ApplySystemUpdate:
+      type: object
+      required: [version]
+      properties:
+        version: {type: string}
+    UpdateActivity:
+      type: object
+      required: [version, phase, updatedAt]
+      properties:
+        version: {type: string}
+        phase: {type: string, enum: [queued, downloading, installing, restarting, succeeded, failed]}
+        updatedAt: {type: string, format: date-time}
+        error: {type: string}
     SSHProbe:
       type: object
       required: [port]
@@ -1055,6 +1119,30 @@ components:
         state: {type: string}
         error: {type: string}
         observedAt: {type: string, format: date-time}
+    MetricPoint:
+      type: object
+      required: [time, value]
+      properties:
+        time: {type: string, format: date-time}
+        value: {type: number, format: double}
+    MetricSeries:
+      type: object
+      required: [metric, assetId, instanceId, nodeId, points]
+      properties:
+        metric: {type: string, enum: [cpu, memory, disk_read, disk_write, receive, transmit, receive_packets, transmit_packets, receive_drops, transmit_drops]}
+        assetId: {type: string}
+        instanceId: {type: string}
+        nodeId: {type: string}
+        interfaceId: {type: string}
+        points: {type: array, items: {$ref: '#/components/schemas/MetricPoint'}}
+    MetricHistory:
+      type: object
+      required: [start, end, stepSeconds, series]
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
+        stepSeconds: {type: integer}
+        series: {type: array, items: {$ref: '#/components/schemas/MetricSeries'}}
     EnvironmentState:
       type: object
       required: [id, status, revision, assets, updatedAt]

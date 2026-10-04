@@ -130,6 +130,20 @@ const (
 	LogChunkStreamStdout LogChunkStream = "stdout"
 )
 
+// Defines values for MetricSeriesMetric.
+const (
+	Cpu             MetricSeriesMetric = "cpu"
+	DiskRead        MetricSeriesMetric = "disk_read"
+	DiskWrite       MetricSeriesMetric = "disk_write"
+	Memory          MetricSeriesMetric = "memory"
+	Receive         MetricSeriesMetric = "receive"
+	ReceiveDrops    MetricSeriesMetric = "receive_drops"
+	ReceivePackets  MetricSeriesMetric = "receive_packets"
+	Transmit        MetricSeriesMetric = "transmit"
+	TransmitDrops   MetricSeriesMetric = "transmit_drops"
+	TransmitPackets MetricSeriesMetric = "transmit_packets"
+)
+
 // Defines values for NodePlanPhase.
 const (
 	NodePlanPhaseApplyRecovery       NodePlanPhase = "apply-recovery"
@@ -298,6 +312,16 @@ const (
 	TemplateStateReady     TemplateState = "ready"
 )
 
+// Defines values for UpdateActivityPhase.
+const (
+	Downloading UpdateActivityPhase = "downloading"
+	Failed      UpdateActivityPhase = "failed"
+	Installing  UpdateActivityPhase = "installing"
+	Queued      UpdateActivityPhase = "queued"
+	Restarting  UpdateActivityPhase = "restarting"
+	Succeeded   UpdateActivityPhase = "succeeded"
+)
+
 // Defines values for VPNAccessState.
 const (
 	VPNAccessStateActive   VPNAccessState = "active"
@@ -334,6 +358,11 @@ type ActionRequest struct {
 
 // ActionRequestAction defines model for ActionRequest.Action.
 type ActionRequestAction string
+
+// ApplySystemUpdate defines model for ApplySystemUpdate.
+type ApplySystemUpdate struct {
+	Version string `json:"version"`
+}
 
 // Asset defines model for Asset.
 type Asset struct {
@@ -801,6 +830,33 @@ type Login struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
 }
+
+// MetricHistory defines model for MetricHistory.
+type MetricHistory struct {
+	End         time.Time      `json:"end"`
+	Series      []MetricSeries `json:"series"`
+	Start       time.Time      `json:"start"`
+	StepSeconds int            `json:"stepSeconds"`
+}
+
+// MetricPoint defines model for MetricPoint.
+type MetricPoint struct {
+	Time  time.Time `json:"time"`
+	Value float64   `json:"value"`
+}
+
+// MetricSeries defines model for MetricSeries.
+type MetricSeries struct {
+	AssetId     string             `json:"assetId"`
+	InstanceId  string             `json:"instanceId"`
+	InterfaceId *string            `json:"interfaceId,omitempty"`
+	Metric      MetricSeriesMetric `json:"metric"`
+	NodeId      string             `json:"nodeId"`
+	Points      []MetricPoint      `json:"points"`
+}
+
+// MetricSeriesMetric defines model for MetricSeries.Metric.
+type MetricSeriesMetric string
 
 // Network defines model for Network.
 type Network struct {
@@ -1287,6 +1343,17 @@ type StoragePoolDriver string
 // StoragePoolState defines model for StoragePool.State.
 type StoragePoolState string
 
+// SystemUpdate defines model for SystemUpdate.
+type SystemUpdate struct {
+	Activity       *UpdateActivity `json:"activity,omitempty"`
+	Available      bool            `json:"available"`
+	CanApply       bool            `json:"canApply"`
+	CheckError     *string         `json:"checkError,omitempty"`
+	CheckedAt      *time.Time      `json:"checkedAt,omitempty"`
+	CurrentVersion string          `json:"currentVersion"`
+	Latest         *UpdateRelease  `json:"latest,omitempty"`
+}
+
 // Template defines model for Template.
 type Template struct {
 	ArtifactNodeId *string                 `json:"artifactNodeId,omitempty"`
@@ -1372,6 +1439,26 @@ type TemplateMedia struct {
 
 // TemplateState defines model for TemplateState.
 type TemplateState string
+
+// UpdateActivity defines model for UpdateActivity.
+type UpdateActivity struct {
+	Error     *string             `json:"error,omitempty"`
+	Phase     UpdateActivityPhase `json:"phase"`
+	UpdatedAt time.Time           `json:"updatedAt"`
+	Version   string              `json:"version"`
+}
+
+// UpdateActivityPhase defines model for UpdateActivity.Phase.
+type UpdateActivityPhase string
+
+// UpdateRelease defines model for UpdateRelease.
+type UpdateRelease struct {
+	Name        string    `json:"name"`
+	Notes       string    `json:"notes"`
+	PublishedAt time.Time `json:"publishedAt"`
+	Url         string    `json:"url"`
+	Version     string    `json:"version"`
+}
 
 // UpdateUser defines model for UpdateUser.
 type UpdateUser struct {
@@ -1546,6 +1633,19 @@ type EnvironmentEventsParams struct {
 // ReplaceEnvironmentGrantsJSONBody defines parameters for ReplaceEnvironmentGrants.
 type ReplaceEnvironmentGrantsJSONBody = []EnvironmentGrant
 
+// GetEnvironmentMetricsParams defines parameters for GetEnvironmentMetrics.
+type GetEnvironmentMetricsParams struct {
+	AssetId *string `form:"assetId,omitempty" json:"assetId,omitempty"`
+
+	// Range Relative time window in seconds; start overrides this window
+	Range *int       `form:"range,omitempty" json:"range,omitempty"`
+	Start *time.Time `form:"start,omitempty" json:"start,omitempty"`
+	End   *time.Time `form:"end,omitempty" json:"end,omitempty"`
+
+	// Step Seconds between points; defaults to at most 600 points
+	Step *int `form:"step,omitempty" json:"step,omitempty"`
+}
+
 // ListRecoveryPointsParams defines parameters for ListRecoveryPoints.
 type ListRecoveryPointsParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -1687,6 +1787,9 @@ type LoginJSONRequestBody = Login
 
 // CreateStoragePoolJSONRequestBody defines body for CreateStoragePool for application/json ContentType.
 type CreateStoragePoolJSONRequestBody = CreateStoragePool
+
+// ApplySystemUpdateJSONRequestBody defines body for ApplySystemUpdate for application/json ContentType.
+type ApplySystemUpdateJSONRequestBody = ApplySystemUpdate
 
 // CreateTemplateJSONRequestBody defines body for CreateTemplate for application/json ContentType.
 type CreateTemplateJSONRequestBody = TemplateImport
