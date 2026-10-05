@@ -1860,11 +1860,12 @@ components:
         filter: {type: string, description: BPF capture filter}
     CaptureInterface:
       type: object
-      required: [assetId, assetName, interfaceId, portName, nodeId, mac, address]
+      required: [assetId, assetName, interfaceId, networkId, portName, nodeId, mac, address]
       properties:
         assetId: {type: string}
         assetName: {type: string}
         interfaceId: {type: string}
+        networkId: {type: string}
         portName: {type: string}
         nodeId: {type: string}
         mac: {type: string}

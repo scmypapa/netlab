@@ -5,6 +5,7 @@ package capture
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 	"netlab.local/core/internal/network"
 )
 
-func TestRealMirrorCaptureLifecycle(t *testing.T) {
+func TestRealInterfaceCaptureLifecycle(t *testing.T) {
 	if os.Getenv("NETLAB_REAL_CAPTURE") != "1" {
 		t.Skip("set NETLAB_REAL_CAPTURE=1 for native OVS/tshark test")
 	}
@@ -27,7 +28,7 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 	defer cancel()
 	id := uuid.NewString()
 	suffix := strings.ReplaceAll(id, "-", "")[:10]
-	bridge, device, peer := "ct"+suffix, "cs"+suffix, "cp"+suffix
+	bridge := "ct" + suffix
 	command := func(args ...string) {
 		t.Helper()
 		if output, err := exec.CommandContext(ctx, "ovs-vsctl", args...).CombinedOutput(); err != nil {
@@ -36,29 +37,39 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 	}
 	command("add-br", bridge, "--", "set", "Bridge", bridge, "fail_mode=standalone")
 	t.Cleanup(func() { exec.Command("ovs-vsctl", "--if-exists", "del-br", bridge).Run() })
-	link := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: device}, PeerName: peer}
-	if err := netlink.LinkAdd(link); err != nil {
-		t.Fatal(err)
+	request := api.NodeCaptureRequest{Id: id, EnvironmentId: "environment", Settings: api.CreateCapture{DurationSeconds: 10, FileSizeMiB: 1}}
+	peers := []netlink.Link{}
+	for index, scope := range []string{"red", "blue"} {
+		device, peer := "cs"+suffix+scope[:1], "cp"+suffix+scope[:1]
+		link := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: device}, PeerName: peer}
+		if err := netlink.LinkAdd(link); err != nil {
+			t.Fatal(err)
+		}
+		if err := netlink.LinkSetMTU(link, 9000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { netlink.LinkDel(link) })
+		if err := netlink.LinkSetUp(link); err != nil {
+			t.Fatal(err)
+		}
+		other, err := netlink.LinkByName(peer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := netlink.LinkSetMTU(other, 9000); err != nil {
+			t.Fatal(err)
+		}
+		if err := netlink.LinkSetUp(other); err != nil {
+			t.Fatal(err)
+		}
+		logicalPort := uuid.NewString()
+		command("add-port", bridge, device, "--", "set", "Interface", device, "external_ids:iface-id="+logicalPort, "--", "set", "Port", device, "tag="+fmt.Sprint(100+index))
+		peers = append(peers, other)
+		request.Settings.AssetIds = append(request.Settings.AssetIds, scope+"-client")
+		request.Interfaces = append(request.Interfaces,
+			api.CaptureInterface{AssetId: scope + "-client", InterfaceId: scope + "-client", NetworkId: scope, NodeId: "one", PortName: logicalPort, Mac: "02:00:00:00:00:01", Address: "192.0.2.1"},
+			api.CaptureInterface{AssetId: scope + "-server", InterfaceId: scope + "-server", NetworkId: scope, NodeId: "two", Mac: "02:00:00:00:00:02", Address: "192.0.2.2"})
 	}
-	if err := netlink.LinkSetMTU(link, 9000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { netlink.LinkDel(link) })
-	if err := netlink.LinkSetUp(link); err != nil {
-		t.Fatal(err)
-	}
-	other, err := netlink.LinkByName(peer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := netlink.LinkSetMTU(other, 9000); err != nil {
-		t.Fatal(err)
-	}
-	if err := netlink.LinkSetUp(other); err != nil {
-		t.Fatal(err)
-	}
-	logicalPort := uuid.NewString()
-	command("add-port", bridge, device, "--", "set", "Interface", device, "external_ids:iface-id="+logicalPort)
 	ovs, err := network.NewOVS(ctx, "unix:/run/openvswitch/db.sock", bridge)
 	if err != nil {
 		t.Fatal(err)
@@ -70,10 +81,6 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Close()
-	request := api.NodeCaptureRequest{Id: id, EnvironmentId: "environment", Settings: api.CreateCapture{AssetIds: []string{"client"}, DurationSeconds: 10, FileSizeMiB: 1}, Interfaces: []api.CaptureInterface{
-		{AssetId: "client", NodeId: "one", PortName: logicalPort, Mac: "02:00:00:00:00:01", Address: "192.0.2.1"},
-		{AssetId: "server", NodeId: "two", Mac: "02:00:00:00:00:02", Address: "192.0.2.2"},
-	}}
 	if _, err := m.Start(ctx, request); err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +92,10 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 	frame := testFrame(8192)
 	var detail api.CaptureDetail
 	for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); {
-		if err := unix.Sendto(fd, frame, 0, &unix.SockaddrLinklayer{Ifindex: other.Attrs().Index, Protocol: htons(unix.ETH_P_IP)}); err != nil {
-			t.Fatal(err)
+		for _, other := range peers {
+			if err := unix.Sendto(fd, frame, 0, &unix.SockaddrLinklayer{Ifindex: other.Attrs().Index, Protocol: htons(unix.ETH_P_IP)}); err != nil {
+				t.Fatal(err)
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 		detail, err = m.Get(id, request.EnvironmentId)
@@ -96,12 +105,17 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 		if detail.Segment.Status == api.CaptureSegmentStatusFailed {
 			t.Fatalf("native capture failed: %s", *detail.Segment.Error)
 		}
-		if len(detail.Flows) > 0 {
+		if len(detail.Flows) == 2 {
 			break
 		}
 	}
-	if len(detail.Flows) != 1 || detail.Flows[0].Protocol != "UDP" || *detail.Flows[0].SourceAssetId != "client" || *detail.Flows[0].DestinationAssetId != "server" {
+	if len(detail.Flows) != 2 {
 		t.Fatalf("native packet missing: %+v", detail)
+	}
+	for _, flow := range detail.Flows {
+		if flow.Protocol != "UDP" || flow.SourceAssetId == nil || flow.DestinationAssetId == nil || *flow.DestinationAssetId != strings.TrimSuffix(*flow.SourceAssetId, "client")+"server" {
+			t.Fatalf("isolated packet misattributed: %+v", flow)
+		}
 	}
 	segment, err := m.Stop(ctx, id, request.EnvironmentId)
 	if err != nil || segment.Status != api.CaptureSegmentStatusStopped {
@@ -132,7 +146,7 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 	}
 	defer reloaded.Close()
 	detail, err = reloaded.Get(id, request.EnvironmentId)
-	if err != nil || len(detail.Flows) != 1 || detail.Segment.Status != api.CaptureSegmentStatusStopped {
+	if err != nil || len(detail.Flows) != 2 || detail.Segment.Status != api.CaptureSegmentStatusStopped {
 		t.Fatalf("restart: %+v %v", detail, err)
 	}
 	if err := reloaded.RemoveEnvironment(ctx, request.EnvironmentId); err != nil {
@@ -140,10 +154,6 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(filepath.Join(directory, "captures")); err != nil || len(entries) != 0 {
 		t.Fatalf("capture residue: %v %v", entries, err)
-	}
-	mirrorDevice, _ := deviceNames(id)
-	if _, err := netlink.LinkByName(mirrorDevice); err == nil {
-		t.Fatal("mirror interface remains")
 	}
 	output, err := exec.Command("ovs-vsctl", "--columns=name", "--format=csv", "--data=bare", "--no-headings", "find", "Mirror", "external_ids:netlab.capture="+id).Output()
 	if err != nil || len(strings.TrimSpace(string(output))) != 0 {

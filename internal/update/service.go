@@ -148,14 +148,14 @@ func (s *Service) Apply(ctx context.Context, version string) error {
 			if target.Version != version {
 				return ErrConflict
 			}
-			return s.apply(ctx, version, true)
+			return s.apply(ctx, version)
 		}
 	}
 	s.mu.Lock()
 	selected := s.latest != nil && s.latest.Version == version && newer(version, s.cfg.Version)
 	s.mu.Unlock()
 	if selected {
-		return s.apply(ctx, version, false)
+		return s.apply(ctx, version)
 	}
 	status, err := s.Status(ctx)
 	if err != nil {
@@ -178,10 +178,12 @@ func (s *Service) ApplyRelease(ctx context.Context, version string) error {
 	if _, err := s.github.release(ctx, version); err != nil {
 		return err
 	}
-	return s.apply(ctx, version, false)
+	return s.apply(ctx, version)
 }
 
-func (s *Service) apply(ctx context.Context, version string, resume bool) error {
+func (s *Service) apply(ctx context.Context, version string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	directory := s.directory()
 	if err := os.MkdirAll(directory, 0750); err != nil {
 		return err
@@ -189,10 +191,18 @@ func (s *Service) apply(ctx context.Context, version string, resume bool) error 
 	requestPath := filepath.Join(directory, "request.json")
 	file, err := os.OpenFile(requestPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if errors.Is(err, os.ErrExist) {
-		if resume {
-			return s.start(ctx)
+		data, err := os.ReadFile(requestPath)
+		if err != nil {
+			return err
 		}
-		return ErrConflict
+		var pending api.ApplySystemUpdate
+		if err := json.Unmarshal(data, &pending); err != nil {
+			return err
+		}
+		if pending.Version != version {
+			return ErrConflict
+		}
+		return s.start(ctx)
 	}
 	if err != nil {
 		return err

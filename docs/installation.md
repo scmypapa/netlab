@@ -32,7 +32,7 @@ sudo bash /opt/netlab/current/scripts/issue-node-certificate.sh 10.0.0.11 /root/
 sudo bash netlab-release/scripts/install-node.sh 10.0.0.10 /root/netlab-node-certs
 ```
 
-节点目录为 `/opt/netlab-node`，资产及缓存保存在 `/var/lib/netlab-node`。安装器配置 containerd、libvirt、OVN/OVS、虚拟机固件、TPM、抓包、备份和远程桌面依赖。节点使用主站 CA 接入 OVN NB/SB，不开放明文管理数据库。
+节点目录为 `/opt/netlab-node`，资产及缓存保存在 `/var/lib/netlab-node`。安装器配置 containerd、libvirt、OVN/OVS、虚拟机固件、TPM、抓包和远程桌面依赖；发布包包含 Restic 0.18.1，节点服务优先使用包内版本。节点使用主站 CA 接入 OVN NB/SB，不开放明文管理数据库。
 
 在面板「资源 → 节点」登记 `https://10.0.0.11:9443`。节点上报实际能力和容量；模板与运行环境沿既有 API 创建。
 
@@ -63,7 +63,7 @@ GitHub Actions 在 `main` 的正式 `v主版本.次版本.修订号` 标签触�
 sudo systemctl start netlab-update.service
 ```
 
-维护状态保存在现有任务表中，数据库连接中断不会解除业务任务的暂停。继续时先等已受理的节点更新结束，再处理后续节点。
+维护状态保存在现有任务表中，数据库连接中断不会解除业务任务的暂停。继续时向节点重新提交原版本：仍在执行的更新继续运行，被终止的更新服务重新启动；节点完成后再处理后续节点。
 
 更新日志：
 

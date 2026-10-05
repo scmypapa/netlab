@@ -58,6 +58,10 @@ const TrafficWorkspace = lazy(() => import("./TrafficWorkspace"));
 
 export function WorkbenchPage() {
   const { id = "" } = useParams();
+  return <Workbench key={id} id={id} />;
+}
+
+function Workbench({ id }: { id: string }) {
   const workbench = useWorkbench(id);
   const queryClient = useQueryClient();
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });

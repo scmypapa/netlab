@@ -67,7 +67,7 @@ func TestCheckAndApply(t *testing.T) {
 	if err := s.Apply(context.Background(), "v1.2.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Apply(context.Background(), "v1.2.0"); !errors.Is(err, ErrConflict) {
+	if err := s.Apply(context.Background(), "v1.2.0"); err != nil {
 		t.Fatal(err)
 	}
 	status, err = s.Status(context.Background())
@@ -97,6 +97,36 @@ func TestApplyStartFailure(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.directory(), "request.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("failed request retained")
+	}
+}
+
+func TestNodeResumesOnlyThePendingRelease(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(release{Tag: filepath.Base(r.URL.Path)})
+	}))
+	defer upstream.Close()
+	s, err := New(Config{Repository: "example/netlab", Version: "v1.0.0", DataDir: t.TempDir(), Role: "node"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.cfg.InstallDir = t.TempDir()
+	s.github.baseURL = upstream.URL
+	starts := 0
+	s.start = func(context.Context) error { starts++; return nil }
+	for range 2 {
+		if err := s.ApplyRelease(context.Background(), "v1.1.0"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.ApplyRelease(context.Background(), "v1.2.0"); !errors.Is(err, ErrConflict) {
+		t.Fatal("replaced interrupted release", err)
+	}
+	if starts != 2 {
+		t.Fatalf("installer not resumed: %d", starts)
+	}
+	data, err := os.ReadFile(filepath.Join(s.directory(), "request.json"))
+	if err != nil || !bytes.Contains(data, []byte("v1.1.0")) {
+		t.Fatalf("pending request changed: %s %v", data, err)
 	}
 }
 
@@ -197,7 +227,7 @@ func TestReleaseDirectoryAndSwitch(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(releaseDir, "release.json"), data, 0644); err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"netlab-controller", "netlab-node", "web/index.html", "victoria-metrics-prod", "guacamole/sbin/guacd", "guacamole/lib/libguac-client-rdp.so"} {
+		for _, name := range []string{"netlab-controller", "netlab-node", "restic", "web/index.html", "victoria-metrics-prod", "guacamole/sbin/guacd", "guacamole/lib/libguac-client-rdp.so"} {
 			if err := os.MkdirAll(filepath.Dir(filepath.Join(releaseDir, name)), 0755); err != nil {
 				t.Fatal(err)
 			}

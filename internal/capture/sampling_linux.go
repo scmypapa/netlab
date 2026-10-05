@@ -17,10 +17,6 @@ import (
 
 const sampleBudget = 65536
 
-type observedSample struct {
-	port   string
-	sample Sample
-}
 type sampleDrop struct{ second, count int64 }
 type Sampler struct {
 	ovs        *network.OVS
@@ -30,7 +26,7 @@ type Sampler struct {
 	workers    sync.WaitGroup
 	mu         sync.Mutex
 	interfaces map[uint32]string
-	samples    []observedSample
+	samples    []Sample
 	next       int
 	omitted    map[string][ObservationWindow]sampleDrop
 	err        error
@@ -144,22 +140,22 @@ func (s *Sampler) ingest(data []byte, now time.Time) error {
 			if sample.Source == "" || sample.Destination == "" {
 				continue
 			}
-			observed := observedSample{port: port, sample: sample}
+			sample.PortName = port
 			if len(s.samples) < sampleBudget {
-				s.samples = append(s.samples, observed)
+				s.samples = append(s.samples, sample)
 			} else {
 				previous := s.samples[s.next]
-				if now.Sub(previous.sample.At) < ObservationWindow*time.Second {
-					buckets := s.omitted[previous.port]
-					second := previous.sample.At.Unix()
+				if now.Sub(previous.At) < ObservationWindow*time.Second {
+					buckets := s.omitted[previous.PortName]
+					second := previous.At.Unix()
 					index := second % ObservationWindow
 					if buckets[index].second != second {
 						buckets[index] = sampleDrop{second: second}
 					}
 					buckets[index].count++
-					s.omitted[previous.port] = buckets
+					s.omitted[previous.PortName] = buckets
 				}
-				s.samples[s.next] = observed
+				s.samples[s.next] = sample
 				s.next = (s.next + 1) % sampleBudget
 			}
 			break
@@ -217,8 +213,8 @@ func (s *Sampler) Snapshot(interfaces []api.CaptureInterface, now time.Time) (ap
 		}
 	}
 	for _, observed := range s.samples {
-		if ports[observed.port] && now.Sub(observed.sample.At) <= ObservationWindow*time.Second {
-			samples = append(samples, observed.sample)
+		if ports[observed.PortName] && now.Sub(observed.At) <= ObservationWindow*time.Second {
+			samples = append(samples, observed)
 		}
 	}
 	s.mu.Unlock()

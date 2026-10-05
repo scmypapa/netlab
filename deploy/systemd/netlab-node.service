@@ -4,6 +4,7 @@ After=network-online.target containerd.service libvirtd.service ovn-host.service
 Wants=network-online.target
 
 [Service]
+Environment="PATH=/opt/netlab-node/current:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=/etc/netlab-node/node.env
 ExecStart=/opt/netlab-node/current/netlab-node $NETLAB_NODE_ARGS
 Restart=on-failure

@@ -212,3 +212,7 @@ P95 包含完整传输 2 MiB 响应。抓包达到文件额度后停止，其余
 第三轮于 2026-10-05 16:09（北京时间）完成，Windows/AD 测试环境已清理。保持每端 64 并发、2 MiB 响应、60 秒负载及每端 256 MiB 抓包；完成创建与放置 45.796 秒，历史入库与 API 核对 6.145 秒。六个资产的 CPU、内存和接口指标可经历史 API 读取，两节点捕获内核丢包均为 0，测试环境及存储池清理错误为 0。第二 Worker 为第一 Worker 宿主上的嵌套 VM；三轮背景负载不同，结果用于记录实际容量，不能单独归因于代码优化。当前完整结果在 ignored `data/observation-live-result.json`，前两轮保存在 `data/observation-live-b64-result.json` 和 `data/observation-live-b64-noanalysis-result.json`。
 
 并行启动 Windows、持久卷与观测流程时，WSL 宿主一度只剩 486 MiB 可用内存且使用 2.7 GiB swap。相关 SSH 等待超时和第二节点执行额度不足保留为失败记录；后续按执行额度串行复测，持久卷五项与观测三项最终通过，清理错误为 0。
+
+### 发布修复后的观测验证
+
+抓包改为直接采集资产实际接口，并将接口身份贯通 PCAP 解码与 sFlow 聚合；两个隔离 VLAN 使用相同 MAC/IP 的原生抓包测试通过。双节点混合资产维持每节点 64 并发、2 MiB 响应和 60 秒负载，完成 12677 次请求，失败 0；内核抓包丢包为 162 / 18083。额外每节点 128 并发出现 42 次 VM 测试服务超时，按失败保存。详细规格与结果见 [发布记录](release-v1.0.0.md)。`data/observation-live-result.json` 保存本次通过结果，`data/observation-stable-256-result.json` 保存高负载失败结果，均不进入 Git。

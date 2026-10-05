@@ -13,13 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vishvananda/netlink"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/network"
 )
@@ -58,18 +56,12 @@ func New(ctx context.Context, ovs *network.OVS, directory, node string) (*Manage
 		}
 		detail, err := m.read(entry.Name())
 		if errors.Is(err, os.ErrNotExist) {
-			if err := m.cleanup(ctx, entry.Name()); err != nil {
-				return nil, err
-			}
 			if err := os.RemoveAll(filepath.Join(m.directory, entry.Name())); err != nil {
 				return nil, err
 			}
 			continue
 		}
 		if err != nil {
-			return nil, err
-		}
-		if err := m.cleanup(ctx, entry.Name()); err != nil {
 			return nil, err
 		}
 		if detail.Segment.Status == api.CaptureSegmentStatusRunning || detail.Segment.Status == api.CaptureSegmentStatusStarting {
@@ -120,57 +112,30 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (se
 	if err := m.save(s.detail); err != nil {
 		return api.CaptureSegment{}, errors.Join(err, os.RemoveAll(directory))
 	}
-	created := false
 	defer func() {
 		if startErr == nil {
 			return
-		}
-		if created {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			startErr = errors.Join(startErr, m.cleanup(cleanupCtx, request.Id))
-			cancel()
 		}
 		now, message := time.Now().UTC(), startErr.Error()
 		s.detail.Segment.Status, s.detail.Segment.Error, s.detail.Segment.FinishedAt = api.CaptureSegmentStatusFailed, &message, &now
 		startErr = errors.Join(startErr, m.save(s.detail))
 	}()
-	device, peer := deviceNames(request.Id)
-	link := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: device, Alias: "netlab.capture:" + request.Id}, PeerName: peer}
-	err := netlink.LinkAdd(link)
+	devices, err := m.ovs.CaptureDevices(ctx, ports)
 	if err != nil {
 		return api.CaptureSegment{}, err
 	}
-	if err = netlink.LinkSetAlias(link, "netlab.capture:"+request.Id); err != nil {
-		return api.CaptureSegment{}, errors.Join(err, netlink.LinkDel(link))
+	s.stats.capturePorts = ports
+	args := []string{"-l", "-n", "-B", "64"}
+	for _, device := range devices {
+		args = append(args, "-i", device)
 	}
-	created = true
-	err = netlink.LinkSetMTU(link, 65535)
-	if err == nil {
-		err = netlink.LinkSetUp(link)
-	}
-	if err == nil {
-		var other netlink.Link
-		other, err = netlink.LinkByName(peer)
-		if err == nil {
-			err = netlink.LinkSetMTU(other, 65535)
-		}
-		if err == nil {
-			err = netlink.LinkSetUp(other)
-		}
-	}
-	if err == nil {
-		err = m.ovs.Mirror(ctx, request.Id, request.EnvironmentId, device, ports)
-	}
-	if err != nil {
-		return api.CaptureSegment{}, err
-	}
-	args := []string{"-l", "-n", "-B", "64", "-i", peer, "-w", filepath.Join(directory, "capture.pcapng"), "-P", "-T", "fields", "-E", "occurrence=f", "-a", fmt.Sprint("duration:", request.Settings.DurationSeconds), "-a", fmt.Sprint("filesize:", request.Settings.FileSizeMiB*1024)}
+	args = append(args, "-w", filepath.Join(directory, "capture.pcapng"), "-P", "-T", "fields", "-E", "occurrence=f", "-a", fmt.Sprint("duration:", request.Settings.DurationSeconds), "-a", fmt.Sprint("filesize:", request.Settings.FileSizeMiB*1024))
 	// Online flow fields need packet headers, not reconstructed TCP streams; PCAP retains the full packets.
 	args = append(args, "-o", "tcp.desegment_tcp_streams:FALSE", "-o", "tcp.analyze_sequence_numbers:FALSE")
 	if request.Settings.Filter != nil && *request.Settings.Filter != "" {
 		args = append(args, "-f", *request.Settings.Filter)
 	}
-	for _, field := range []string{"frame.time_epoch", "frame.len", "eth.src", "eth.dst", "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport", "_ws.col.Protocol"} {
+	for _, field := range []string{"frame.time_epoch", "frame.len", "eth.src", "eth.dst", "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport", "_ws.col.Protocol", "frame.interface_id"} {
 		args = append(args, "-e", field)
 	}
 	cmd := exec.Command("tshark", args...)
@@ -218,9 +183,6 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (se
 		finalErr := errors.Join(decodeErr, scanner.Err(), waitErr, stderr.Close())
 		drops, statsErr := captureDrops(filepath.Join(directory, "capture.pcapng"))
 		finalErr = errors.Join(finalErr, statsErr)
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		finalErr = errors.Join(finalErr, m.cleanup(cleanupCtx, request.Id))
-		cancel()
 		s.mu.Lock()
 		s.detail = s.snapshot()
 		s.detail.Segment.KernelDroppedPackets = drops
@@ -331,9 +293,6 @@ func (m *Manager) Remove(ctx context.Context, id, environment string) error {
 	} else if err != nil {
 		return err
 	}
-	if err := m.cleanup(ctx, id); err != nil {
-		return err
-	}
 	if err := os.RemoveAll(filepath.Join(m.directory, id)); err != nil {
 		return err
 	}
@@ -419,27 +378,6 @@ func (m *Manager) save(detail api.CaptureDetail) error {
 		return err
 	}
 	return os.Rename(filepath.Join(directory, "capture.tmp"), filepath.Join(directory, "capture.json"))
-}
-func deviceNames(id string) (string, string) {
-	suffix := strings.ReplaceAll(id, "-", "")[:12]
-	return "nm" + suffix, "np" + suffix
-}
-func (m *Manager) cleanup(ctx context.Context, id string) error {
-	if err := m.ovs.RemoveMirror(ctx, id); err != nil {
-		return err
-	}
-	device, _ := deviceNames(id)
-	link, err := netlink.LinkByName(device)
-	if errors.As(err, new(netlink.LinkNotFoundError)) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if link.Attrs().Alias != "netlab.capture:"+id {
-		return errors.New("抓包端口属于其他对象")
-	}
-	return netlink.LinkDel(link)
 }
 func isInterrupt(err error) bool {
 	var exit *exec.ExitError

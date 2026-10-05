@@ -21,7 +21,7 @@ import {
   UsersRound,
   Download,
 } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { ErrorMessage, Loading } from "../foundation/Feedback";
@@ -171,9 +171,23 @@ function Login() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const client = useQueryClient();
+  useEffect(() => {
+    const business = {
+      predicate: (query: { queryKey: readonly unknown[] }) =>
+        query.queryKey[0] !== "identity",
+    };
+    void client.cancelQueries(business);
+    client.removeQueries(business);
+  }, [client]);
   const login = useMutation({
     mutationFn: () => api.login(name, password),
-    onSuccess: (identity) => client.setQueryData(["identity"], identity),
+    onSuccess: async (identity) => {
+      await client.cancelQueries();
+      client.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "identity",
+      });
+      client.setQueryData(["identity"], identity);
+    },
   });
   return (
     <main className="login-shell">

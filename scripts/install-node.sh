@@ -6,7 +6,7 @@ controller=${1:?用法：install-node.sh 主站IP 节点证书目录}
 certificates=${2:?提供节点证书目录}
 address=$(ip -4 route get "$controller" | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
 apt-get update
-apt-get install -y ca-certificates jq containerd runc qemu-system-x86 qemu-utils qemu-block-extra ceph-common libvirt-daemon-system libvirt-clients ovmf swtpm swtpm-tools numad openvswitch-switch ovn-host genisoimage nftables iproute2 tshark restic e2fsprogs util-linux libfreerdp3-3 libwinpr3-3 libcairo2 libjpeg-turbo8 libpng16-16t64 libpango-1.0-0 libpangoft2-1.0-0 libwebp7 libssl3t64 libuuid1
+apt-get install -y ca-certificates jq containerd runc qemu-system-x86 qemu-utils qemu-block-extra ceph-common libvirt-daemon-system libvirt-clients ovmf swtpm swtpm-tools numad openvswitch-switch ovn-host genisoimage nftables iproute2 tshark e2fsprogs util-linux libfreerdp3-3 libwinpr3-3 libcairo2 libjpeg-turbo8 libpng16-16t64 libpango-1.0-0 libpangoft2-1.0-0 libwebp7 libssl3t64 libuuid1
 install -d -m 0711 /var/lib/netlab-node
 install -d -m 0700 /etc/netlab-node /var/lib/netlab-node/update
 for file in ca.crt node.crt node.key; do install -m 0600 -- "$certificates/$file" "/etc/netlab-node/$file"; done

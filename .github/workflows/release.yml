@@ -45,6 +45,8 @@ jobs:
           cp scripts/install-{common,controller,node}.sh scripts/issue-node-certificate.sh package/scripts/
           bash scripts/build-guacd.sh "$RUNNER_TEMP/guacamole-source" "$PWD/package/guacamole"
           curl -fL https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.126.0/victoria-metrics-linux-amd64-v1.126.0.tar.gz | tar -xz -C package victoria-metrics-prod
+          curl -fL https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2 | bunzip2 > package/restic
+          chmod 0755 package/restic
           jq -n --arg version "$VERSION" '{version:$version,os:"linux",arch:"amd64"}' > package/release.json
           tar --dereference --hard-dereference -C package -czf netlab_linux_amd64.tar.gz .
       - name: Publish

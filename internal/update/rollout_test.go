@@ -219,14 +219,15 @@ func TestRolloutInterruptedResume(t *testing.T) {
 
 func TestUpdateNodeResumesAcceptedRelease(t *testing.T) {
 	var calls atomic.Int32
+	var restarted atomic.Bool
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			t.Error("submitted accepted node update twice")
-			w.WriteHeader(http.StatusConflict)
+			restarted.Store(true)
+			w.WriteHeader(http.StatusAccepted)
 			return
 		}
 		status := api.SystemUpdate{CurrentVersion: "v1.0.0", CanApply: true, Activity: &api.UpdateActivity{Version: "v1.1.0", Phase: "installing"}}
-		if calls.Add(1) > 1 {
+		if calls.Add(1) > 1 && restarted.Load() {
 			status.CurrentVersion = "v1.1.0"
 			status.Activity.Phase = "succeeded"
 		}
@@ -235,6 +236,9 @@ func TestUpdateNodeResumesAcceptedRelease(t *testing.T) {
 	defer endpoint.Close()
 	if err := updateNode(context.Background(), &transport.Client{HTTP: endpoint.Client()}, endpoint.URL, "v1.1.0", func(context.Context) error { return nil }); err != nil {
 		t.Fatal(err)
+	}
+	if !restarted.Load() {
+		t.Fatal("interrupted installer was not restarted")
 	}
 }
 

@@ -28,7 +28,7 @@ func (s *Server) runtimeInterfaces(ctx context.Context, id string) ([]api.Captur
 			return nil, err
 		}
 		for _, iface := range execution.Interfaces {
-			interfaces = append(interfaces, api.CaptureInterface{AssetId: asset.AssetID, AssetName: execution.Asset.Name, InterfaceId: iface.Id, PortName: iface.PortName, NodeId: asset.NodeID, Mac: iface.Mac, Address: iface.Address})
+			interfaces = append(interfaces, api.CaptureInterface{AssetId: asset.AssetID, AssetName: execution.Asset.Name, InterfaceId: iface.Id, NetworkId: iface.NetworkId, PortName: iface.PortName, NodeId: asset.NodeID, Mac: iface.Mac, Address: iface.Address})
 		}
 	}
 	return interfaces, nil

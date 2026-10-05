@@ -131,13 +131,11 @@ func updateNode(ctx context.Context, client *transport.Client, endpoint, version
 	if !status.CanApply {
 		return fmt.Errorf("节点尚未以正式发布包安装")
 	}
-	if status.Activity == nil || status.Activity.Version != version || status.Activity.Phase == "failed" || status.Activity.Phase == "succeeded" {
-		call, cancel = context.WithTimeout(ctx, 35*time.Second)
-		err = client.Do(call, http.MethodPost, endpoint, "/node/v1/system/update", api.ApplySystemUpdate{Version: version}, nil)
-		cancel()
-		if err != nil {
-			return err
-		}
+	call, cancel = context.WithTimeout(ctx, 35*time.Second)
+	err = client.Do(call, http.MethodPost, endpoint, "/node/v1/system/update", api.ApplySystemUpdate{Version: version}, nil)
+	cancel()
+	if err != nil {
+		return err
 	}
 	ctx, cancel = context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()

@@ -187,6 +187,14 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 	if result.ListenPort == 0 || len(result.Peers[0].Addresses) != 2 {
 		t.Fatalf("incomplete VPN result: %#v", result)
 	}
+	ovn.ConfigureGateway(netip.MustParsePrefix("100.127.0.0/16"), ovn.chassis)
+	plan.Gateway = &api.ServiceGateway{NodeId: "node", Address: "100.127.0.2"}
+	bindings := []api.NodeServiceBinding{{Id: "web", AssetId: "v4", Protocol: api.Tcp, TargetAddress: "192.168.218.10", TargetPort: 8087, ListenPort: 24443}}
+	plan.Services = &bindings
+	if err = ovn.Apply(ctx, plan); err != nil {
+		t.Fatal("full network apply with service and VPN", err)
+	}
+	checkAccess()
 	clientID := uuid.NewString()
 	client, err := accessNamespace(clientID)
 	if err != nil {

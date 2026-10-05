@@ -109,7 +109,7 @@ func gatewayModels(plan api.NodePlan, router *Router, prefix netip.Prefix, chass
 	routerPort := &RouterPort{UUID: "access_router_port", Name: objectName("access_rp", plan.EnvironmentId, "gateway"), MAC: routerMAC(address), Networks: []string{netip.PrefixFrom(address, prefix.Bits()).String()}, ExternalIDs: owner()}
 	routerSwitchPort := &SwitchPort{UUID: "access_router_switch_port", Name: objectName("access_sp", plan.EnvironmentId, "gateway"), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": routerPort.Name}, ExternalIDs: owner()}
 	localPort := &SwitchPort{UUID: "access_localnet", Name: objectName("access_localnet", plan.EnvironmentId, "provider"), Type: "localnet", Addresses: []string{"unknown"}, Options: map[string]string{"network_name": providerNetwork(plan.Gateway.NodeId)}, ExternalIDs: owner()}
-	switchModel := &Switch{UUID: "access_switch", Name: switchName, Ports: []string{routerSwitchPort.UUID, localPort.UUID}, ExternalIDs: owner()}
+	switchModel := &Switch{UUID: "service_switch", Name: switchName, Ports: []string{routerSwitchPort.UUID, localPort.UUID}, ExternalIDs: owner()}
 	router.Ports = append(router.Ports, routerPort.UUID)
 	if router.Options == nil {
 		router.Options = map[string]string{}

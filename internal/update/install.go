@@ -172,7 +172,7 @@ func validate(directory, version string) error {
 	if manifest.Version != version || manifest.OS != "linux" || manifest.Arch != runtime.GOARCH {
 		return fmt.Errorf("发布包版本或运行架构不匹配")
 	}
-	for _, name := range []string{"netlab-controller", "netlab-node", "web/index.html", "victoria-metrics-prod", "guacamole/sbin/guacd", "guacamole/lib/libguac-client-rdp.so"} {
+	for _, name := range []string{"netlab-controller", "netlab-node", "restic", "web/index.html", "victoria-metrics-prod", "guacamole/sbin/guacd", "guacamole/lib/libguac-client-rdp.so"} {
 		file, err := os.Stat(filepath.Join(directory, name))
 		if err != nil {
 			return err

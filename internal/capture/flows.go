@@ -22,8 +22,10 @@ type aggregate struct {
 	window                  map[string][10]secondBucket
 	node                    string
 	selected                map[string]bool
-	addresses               map[string]api.CaptureInterface
-	macs                    map[string]api.CaptureInterface
+	ports                   map[string]api.CaptureInterface
+	capturePorts            []string
+	addresses               map[endpointKey]api.CaptureInterface
+	macs                    map[endpointKey]api.CaptureInterface
 	flows                   map[string]api.CaptureFlow
 	packets, bytes, omitted int64
 }
@@ -31,12 +33,14 @@ type secondBucket struct {
 	second int64
 	bytes  int64
 }
+type endpointKey struct{ network, value string }
 
 // Sample is either one captured frame or a statistically weighted sFlow sample.
 type Sample struct {
 	At                                                       time.Time
 	Source, Destination, SourceMAC, DestinationMAC, Protocol string
 	SourcePort, DestinationPort                              int
+	PortName                                                 string
 	Bytes, Packets                                           int64
 }
 
@@ -56,21 +60,30 @@ func Summarize(node string, interfaces []api.CaptureInterface, samples []Sample,
 }
 
 func newAggregate(node string, request api.NodeCaptureRequest) *aggregate {
-	a := &aggregate{started: time.Now(), window: map[string][10]secondBucket{}, node: node, selected: map[string]bool{}, addresses: map[string]api.CaptureInterface{}, macs: map[string]api.CaptureInterface{}, flows: map[string]api.CaptureFlow{}}
+	a := &aggregate{started: time.Now(), window: map[string][10]secondBucket{}, node: node, selected: map[string]bool{}, ports: map[string]api.CaptureInterface{}, addresses: map[endpointKey]api.CaptureInterface{}, macs: map[endpointKey]api.CaptureInterface{}, flows: map[string]api.CaptureFlow{}}
 	for _, id := range request.Settings.AssetIds {
 		a.selected[id] = true
 	}
 	for _, iface := range request.Interfaces {
-		a.macs[strings.ToLower(iface.Mac)] = iface
+		a.ports[iface.PortName] = iface
 		address := iface.Address
 		if prefix, err := netip.ParsePrefix(address); err == nil {
 			address = prefix.Addr().String()
 		}
-		if address != "" {
-			if previous, exists := a.addresses[address]; exists && previous.AssetId != iface.AssetId {
-				a.addresses[address] = api.CaptureInterface{}
-			} else {
-				a.addresses[address] = iface
+		for _, entry := range []struct {
+			index map[endpointKey]api.CaptureInterface
+			value string
+		}{{a.macs, strings.ToLower(iface.Mac)}, {a.addresses, address}} {
+			if entry.value == "" {
+				continue
+			}
+			for _, scope := range []string{iface.NetworkId, ""} {
+				key := endpointKey{scope, entry.value}
+				if previous, exists := entry.index[key]; exists && (previous.InterfaceId != iface.InterfaceId || previous.AssetId != iface.AssetId) {
+					entry.index[key] = api.CaptureInterface{}
+				} else {
+					entry.index[key] = iface
+				}
 			}
 		}
 	}
@@ -79,8 +92,8 @@ func newAggregate(node string, request api.NodeCaptureRequest) *aggregate {
 
 func (a *aggregate) add(line string) error {
 	f := strings.Split(line, "\t")
-	if len(f) != 13 {
-		return fmt.Errorf("抓包字段数量为 %d，预期 13", len(f))
+	if len(f) != 14 {
+		return fmt.Errorf("抓包字段数量为 %d，预期 14", len(f))
 	}
 	epoch, err := strconv.ParseFloat(f[0], 64)
 	if err != nil {
@@ -90,30 +103,35 @@ func (a *aggregate) add(line string) error {
 	if err != nil || size < 0 {
 		return fmt.Errorf("无效帧大小 %q", f[1])
 	}
-	a.addSample(Sample{At: time.Unix(0, int64(epoch*1e9)).UTC(), Bytes: size, Packets: 1,
+	index, err := strconv.Atoi(f[13])
+	if err != nil || index < 0 || index >= len(a.capturePorts) {
+		return fmt.Errorf("无效抓包接口序号 %q", f[13])
+	}
+	a.addSample(Sample{At: time.Unix(0, int64(epoch*1e9)).UTC(), Bytes: size, Packets: 1, PortName: a.capturePorts[index],
 		Source: first(f[4], f[6], f[2]), Destination: first(f[5], f[7], f[3]), SourceMAC: f[2], DestinationMAC: f[3],
 		SourcePort: port(first(f[8], f[10])), DestinationPort: port(first(f[9], f[11])), Protocol: f[12]})
 	return nil
 }
 
 func (a *aggregate) addSample(sample Sample) {
-	a.packets += sample.Packets
-	a.bytes += sample.Bytes
 	source, destination := sample.Source, sample.Destination
-	src, srcKnown := a.endpoint(source, sample.SourceMAC)
-	dst, dstKnown := a.endpoint(destination, sample.DestinationMAC)
+	network := a.ports[sample.PortName].NetworkId
+	src, srcKnown := a.endpoint(source, sample.SourceMAC, network)
+	dst, dstKnown := a.endpoint(destination, sample.DestinationMAC, network)
 	// A cross-node packet contributes once: selected sender first, otherwise selected receiver.
-	owner := ""
+	owner := api.CaptureInterface{}
 	if srcKnown && a.selected[src.AssetId] {
-		owner = src.NodeId
+		owner = src
 	} else if dstKnown && a.selected[dst.AssetId] {
-		owner = dst.NodeId
+		owner = dst
 	}
-	if owner != a.node {
+	if owner.NodeId != a.node || sample.PortName != "" && owner.PortName != sample.PortName {
 		return
 	}
+	a.packets += sample.Packets
+	a.bytes += sample.Bytes
 	sp, dp := sample.SourcePort, sample.DestinationPort
-	key := strings.Join([]string{source, destination, sample.SourceMAC, sample.DestinationMAC, sample.Protocol, strconv.Itoa(sp), strconv.Itoa(dp)}, "\x00")
+	key := strings.Join([]string{src.NetworkId, dst.NetworkId, src.AssetId, dst.AssetId, source, destination, sample.SourceMAC, sample.DestinationMAC, sample.Protocol, strconv.Itoa(sp), strconv.Itoa(dp)}, "\x00")
 	flow, exists := a.flows[key]
 	if !exists && len(a.flows) >= flowLimit {
 		a.omitted++
@@ -192,12 +210,18 @@ func SortFlows(items []api.CaptureFlow) {
 		return cmp.Or(cmp.Compare(b.Bytes, a.Bytes), strings.Compare(a.Source, b.Source), strings.Compare(a.Destination, b.Destination), strings.Compare(a.Protocol, b.Protocol), cmp.Compare(a.SourcePort, b.SourcePort), cmp.Compare(a.DestinationPort, b.DestinationPort), strings.Compare(asset(a.SourceAssetId), asset(b.SourceAssetId)), strings.Compare(asset(a.DestinationAssetId), asset(b.DestinationAssetId)))
 	})
 }
-func (a *aggregate) endpoint(address, mac string) (api.CaptureInterface, bool) {
-	if iface, exists := a.macs[strings.ToLower(mac)]; exists {
-		return iface, true
+func (a *aggregate) endpoint(address, mac, network string) (api.CaptureInterface, bool) {
+	for _, scope := range []string{network, ""} {
+		for _, entry := range []struct {
+			index map[endpointKey]api.CaptureInterface
+			value string
+		}{{a.macs, strings.ToLower(mac)}, {a.addresses, address}} {
+			if iface := entry.index[endpointKey{scope, entry.value}]; iface.AssetId != "" {
+				return iface, true
+			}
+		}
 	}
-	iface, exists := a.addresses[address]
-	return iface, exists && iface.AssetId != ""
+	return api.CaptureInterface{}, false
 }
 func first(values ...string) string {
 	for _, value := range values {

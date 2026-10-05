@@ -2403,6 +2403,7 @@ export interface components {
       assetId: string;
       assetName: string;
       interfaceId: string;
+      networkId: string;
       portName: string;
       nodeId: string;
       mac: string;

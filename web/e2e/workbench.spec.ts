@@ -1,5 +1,134 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("会话过期后切换账号清除前账号的环境缓存", async ({ page }) => {
+  await fixture(page);
+  let expired = false;
+  let switched = false;
+  await page.route("**/api/v1/identity", (route) =>
+    route.fulfill({
+      status: expired ? 401 : 200,
+      json: expired
+        ? { detail: "会话已过期" }
+        : {
+            id: switched ? "second" : "first",
+            name: switched ? "second" : "first",
+            administrator: !switched,
+          },
+    }),
+  );
+  await page.route("**/api/v1/sessions/login", (route) => {
+    expired = false;
+    switched = true;
+    return route.fulfill({
+      json: { id: "second", name: "second", administrator: false },
+    });
+  });
+  await page.route("**/api/v1/environments/env", async (route) => {
+    if (switched)
+      await route.fulfill({ status: 403, json: { detail: "无权访问" } });
+    else await route.fallback();
+  });
+  await page.clock.install();
+  await page.goto("/environments/env");
+  await expect(
+    page.getByRole("heading", { name: "混合环境", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "模板", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "模板", exact: true }),
+  ).toBeVisible();
+  expired = true;
+  await page.clock.fastForward(11000);
+  await page.evaluate(() => {
+    history.pushState({}, "", "/environments/env");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.getByRole("heading", { name: "欢迎回来" })).toBeVisible();
+  await page.getByRole("textbox", { name: "账号" }).fill("second");
+  await page
+    .locator('input[autocomplete="current-password"]')
+    .fill("fixture-password");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page.getByText("无权访问", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "混合环境", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "windows-01", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("克隆后切换环境关闭源终端且不自动连接副本", async ({ page }) => {
+  await fixture(page);
+  const connections: string[] = [];
+  await page.routeWebSocket(
+    /\/api\/v1\/environments\/[^/]+\/assets\/web\/console\?kind=terminal$/,
+    (socket) => {
+      connections.push(socket.url());
+      socket.close({ code: 1000 });
+    },
+  );
+  await page.route("**/api/v1/environments/env/recovery-points**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "point",
+          environmentId: "env",
+          name: "源恢复点",
+          revision: 1,
+          state: "ready",
+          assetCount: 2,
+          sizeBytes: 1024,
+          createdAt: "2026-10-05T08:00:00Z",
+        },
+      ],
+    }),
+  );
+  await page.route("**/api/v1/environments", (route) =>
+    route.fulfill({ status: 201, json: { id: "clone" } }),
+  );
+  const response = page.waitForResponse((response) =>
+    response.url().endsWith("/api/v1/environments/env"),
+  );
+  await page.goto("/environments/env");
+  const original = await (await response).json();
+  await page.route("**/api/v1/environments/clone", (route) =>
+    route.fulfill({ json: { ...original, id: "clone", name: "环境副本" } }),
+  );
+  await page.route("**/api/v1/environments/clone/state", (route) =>
+    route.fulfill({
+      json: {
+        id: "clone",
+        revision: 1,
+        status: "running",
+        assets: [],
+        updatedAt: original.updatedAt,
+      },
+    }),
+  );
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "终端", exact: true }).click();
+  await expect.poll(() => connections.length).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "环境操作" }).click();
+  await page.getByRole("menuitem", { name: "恢复点", exact: true }).click();
+  await page.getByRole("button", { name: "源恢复点操作" }).click();
+  await page.getByRole("menuitem", { name: "克隆为新环境" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "克隆为新环境",
+    exact: true,
+  });
+  await dialog.getByRole("textbox", { name: "环境名称" }).fill("环境副本");
+  await dialog.getByRole("button", { name: "创建环境", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "环境副本", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("region", { name: "资产连接" })).toHaveCount(0);
+  expect(connections.every((url) => url.includes("/environments/env/"))).toBe(
+    true,
+  );
+});
+
 test("虚拟机按完整 PCI 设备组绑定节点并保存到原草稿", async ({ page }) => {
   const calls = await fixture(page);
   await page.route("**/api/v1/nodes**", (route) =>

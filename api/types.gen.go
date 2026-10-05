@@ -566,6 +566,7 @@ type CaptureInterface struct {
 	AssetName   string `json:"assetName"`
 	InterfaceId string `json:"interfaceId"`
 	Mac         string `json:"mac"`
+	NetworkId   string `json:"networkId"`
 	NodeId      string `json:"nodeId"`
 	PortName    string `json:"portName"`
 }
