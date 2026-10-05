@@ -1891,7 +1891,11 @@ export interface components {
         | "prepare-recovery"
         | "apply-recovery"
         | "rollback-recovery"
-        | "cleanup-recovery";
+        | "cleanup-recovery"
+        | "migrate";
+      migrations?: {
+        [key: string]: components["schemas"]["NodeVMMigration"];
+      };
       recoveryPointId?: string;
       includeMemory?: boolean;
       captureStates?: {
@@ -1915,6 +1919,15 @@ export interface components {
       artifactEndpoints?: {
         [key: string]: string;
       };
+    };
+    NodeVMMigration: {
+      /**
+       * Format: uri
+       * @description Destination node mTLS endpoint
+       */
+      endpoint: string;
+      /** @description Native migratable domain XML with destination host paths and unchanged instance identity */
+      domainXml: string;
     };
     NodeTemplatePreparation: {
       template: components["schemas"]["Template"];

@@ -112,6 +112,7 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /node/v1/libvirt", executor.LibvirtTunnel)
 	mux.HandleFunc("GET /node/v1/system/update", func(w http.ResponseWriter, r *http.Request) {
 		status, err := updates.Status(r.Context())
 		respond(w, status, err)

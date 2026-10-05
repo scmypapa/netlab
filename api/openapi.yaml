@@ -1330,7 +1330,8 @@ components:
       properties:
         operationId: {type: string}
         environmentId: {type: string}
-        phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect, capture-recovery, delete-recovery, prepare-recovery, apply-recovery, rollback-recovery, cleanup-recovery]}
+        phase: {type: string, enum: [network, external-attachments, services, vpn, policies, prepare, update, start, stop, force-stop, suspend, resume, destroy, cleanup-volumes, remove-network, inspect, capture-recovery, delete-recovery, prepare-recovery, apply-recovery, rollback-recovery, cleanup-recovery, migrate]}
+        migrations: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeVMMigration'}, x-go-type-skip-optional-pointer: true}
         recoveryPointId: {type: string}
         includeMemory: {type: boolean, x-go-type-skip-optional-pointer: true}
         captureStates: {type: object, additionalProperties: {type: string}}
@@ -1344,6 +1345,12 @@ components:
         attachments: {type: array, items: {$ref: '#/components/schemas/ExternalAttachment'}}
         externalChassis: {type: object, additionalProperties: {type: string}}
         artifactEndpoints: {type: object, additionalProperties: {type: string}}
+    NodeVMMigration:
+      type: object
+      required: [endpoint, domainXml]
+      properties:
+        endpoint: {type: string, format: uri, description: Destination node mTLS endpoint}
+        domainXml: {type: string, description: Native migratable domain XML with destination host paths and unchanged instance identity}
     NodeTemplatePreparation:
       type: object
       required: [template]

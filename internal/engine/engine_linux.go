@@ -278,6 +278,19 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			var state string
 			var err error
 			phase := plan.Phase
+			if phase == api.NodePlanPhaseMigrate {
+				destination, ok := plan.Migrations[a.Asset.Id]
+				if !ok || a.Template.Kind != api.Vm {
+					result.Results[i] = executionResult(a, "unknown", errors.New("missing native VM migration destination"))
+					return
+				}
+				observed, migrateErr := e.migrateVM(ctx, plan.EnvironmentId, a, destination)
+				if migrateErr != nil {
+					observed.Error = ptr(migrateErr.Error())
+				}
+				result.Results[i] = observed
+				return
+			}
 			if (phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery) && a.Template.ArtifactNodeId != nil {
 				endpoint := ""
 				if plan.ArtifactEndpoints != nil {

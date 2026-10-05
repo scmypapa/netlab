@@ -163,6 +163,7 @@ const (
 	NodePlanPhaseExternalAttachments NodePlanPhase = "external-attachments"
 	NodePlanPhaseForceStop           NodePlanPhase = "force-stop"
 	NodePlanPhaseInspect             NodePlanPhase = "inspect"
+	NodePlanPhaseMigrate             NodePlanPhase = "migrate"
 	NodePlanPhaseNetwork             NodePlanPhase = "network"
 	NodePlanPhasePolicies            NodePlanPhase = "policies"
 	NodePlanPhasePrepare             NodePlanPhase = "prepare"
@@ -1107,6 +1108,7 @@ type NodePlan struct {
 	ExternalChassis   *map[string]string             `json:"externalChassis,omitempty"`
 	Gateway           *ServiceGateway                `json:"gateway,omitempty"`
 	IncludeMemory     bool                           `json:"includeMemory,omitempty"`
+	Migrations        map[string]NodeVMMigration     `json:"migrations,omitempty"`
 	OperationId       string                         `json:"operationId"`
 	Phase             NodePlanPhase                  `json:"phase"`
 	RecoveryPointId   *string                        `json:"recoveryPointId,omitempty"`
@@ -1178,6 +1180,15 @@ type NodeTemplatePreparation struct {
 	Capture          *TemplateCaptureSource `json:"capture,omitempty"`
 	Registry         *RegistryCredentials   `json:"registry,omitempty"`
 	Template         Template               `json:"template"`
+}
+
+// NodeVMMigration defines model for NodeVMMigration.
+type NodeVMMigration struct {
+	// DomainXml Native migratable domain XML with destination host paths and unchanged instance identity
+	DomainXml string `json:"domainXml"`
+
+	// Endpoint Destination node mTLS endpoint
+	Endpoint string `json:"endpoint"`
 }
 
 // NodeVPNPeer defines model for NodeVPNPeer.
