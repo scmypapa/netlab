@@ -328,6 +328,9 @@ func (v *VirtualMachines) deleteDiskSnapshots(ctx context.Context, env, point st
 		return err
 	}
 	for _, disk := range executionDisks(v.data, env, a) {
+		if disk.rbd == nil {
+			continue
+		}
 		exists, err := disk.exists(ctx)
 		if err != nil {
 			return err
@@ -366,6 +369,22 @@ func executionDisks(data, env string, a api.AssetExecution) []vmDisk {
 	if a.Asset.Volumes != nil {
 		for _, volume := range *a.Asset.Volumes {
 			disks = append(disks, volumeDisk(directory, env, a, volume.Id))
+		}
+	}
+	return disks
+}
+
+func executionDiskMap(data, env string, a api.AssetExecution) map[string]vmDisk {
+	directory := assetDirectory(data, env, a)
+	disks := map[string]vmDisk{}
+	if a.Template.Disks != nil {
+		for i, disk := range *a.Template.Disks {
+			disks["image-"+disk.Id] = systemDisk(directory, a, i)
+		}
+	}
+	if a.Asset.Volumes != nil {
+		for _, volume := range *a.Asset.Volumes {
+			disks["volume-"+volume.Id] = volumeDisk(directory, env, a, volume.Id)
 		}
 	}
 	return disks

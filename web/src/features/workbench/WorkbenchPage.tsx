@@ -37,6 +37,7 @@ import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
 import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ObjectInspector } from "./ObjectInspector";
+import { MigrationDialog } from "./MigrationDialog";
 import { FileWorkspace } from "./FileWorkspace";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { LogDrawer } from "./LogDrawer";
@@ -71,6 +72,7 @@ export function WorkbenchPage() {
   const [destroying, setDestroying] = useState(false);
   const [recoveryOpened, setRecoveryOpened] = useState(false);
   const [rebuilding, setRebuilding] = useState<Asset>();
+  const [migrating, setMigrating] = useState<Asset>();
   const [savingBlueprint, setSavingBlueprint] = useState(false);
   const [connections, setConnections] = useState<ConsoleTab[]>([]);
   const [selectedConnection, setSelectedConnection] = useState("");
@@ -791,6 +793,7 @@ export function WorkbenchPage() {
             canManage={allows(environment, "manage", asset?.id)}
             canCapture={Boolean(identity.data?.administrator)}
             onCapture={() => setCapturing(asset)}
+            onMigrate={() => setMigrating(asset)}
             canConnect={allows(environment, "session", asset?.id)}
             canFile={allows(environment, "file", asset?.id)}
             onFiles={() => {
@@ -825,6 +828,15 @@ export function WorkbenchPage() {
         )}
       </div>
       <ErrorMessage error={connectionError} />
+      {migrating && (
+        <MigrationDialog
+          id={id}
+          asset={migrating}
+          revision={environment.revision}
+          onClose={() => setMigrating(undefined)}
+          onSubmitted={workbench.refresh}
+        />
+      )}
       {connectionSettings && (
         <ConnectionDialog
           environmentId={id}
@@ -1098,13 +1110,16 @@ export function WorkbenchPage() {
             allowsProject(identity.data, "compose", environment.projectId)
           }
           canCapture={["running", "stopped", "suspended"].includes(status)}
-          canCaptureMemory={environment.spec.assets.some(
-            (asset) =>
-              templatesById.get(asset.templateId)?.kind === "vm" &&
-              ["running", "suspended"].includes(
-                assetStates.get(asset.id) ?? "",
-              ),
-          )}
+          canCaptureMemory={
+            !environment.spec.assets.some((asset) => asset.pciBinding) &&
+            environment.spec.assets.some(
+              (asset) =>
+                templatesById.get(asset.templateId)?.kind === "vm" &&
+                ["running", "suspended"].includes(
+                  assetStates.get(asset.id) ?? "",
+                ),
+            )
+          }
           onClose={() => setRecoveryOpened(false)}
         />
       )}

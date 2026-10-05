@@ -58,7 +58,7 @@ func ChangedServiceAssets(before, after api.EnvironmentSpec) map[string]bool {
 }
 
 func AuthorizeChange(identity access.Identity, row queries.Environment, before, after api.EnvironmentSpec) error {
-	if err := AuthorizeExternal(identity, before, after); err != nil {
+	if err := AuthorizeHostBindings(identity, before, after); err != nil {
 		return err
 	}
 	changed := ChangedServices(before, after)

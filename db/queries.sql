@@ -103,7 +103,7 @@ WHERE o.state IN ('queued','running') AND (
 INSERT INTO templates(id,definition) VALUES($1,$2);
 -- name: ListNodes :many
 SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
-FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
+FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 GROUP BY n.id,v.disk_gib ORDER BY n.id;
 -- name: PutNode :exec
@@ -116,7 +116,7 @@ UPDATE nodes SET capacity_override=$2 WHERE id=$1;
 SELECT * FROM nodes WHERE id=$1 FOR UPDATE;
 -- name: GetReservedResources :one
 SELECT COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,
-(COALESCE(sum(disk_gib),0)+(SELECT COALESCE(sum(v.size_gib),0) FROM persistent_volumes v WHERE v.node_id=$1))::bigint AS disk_gib FROM runtime_assets WHERE node_id=$1;
+(COALESCE(sum(disk_gib),0)+(SELECT COALESCE(sum(v.size_gib),0) FROM persistent_volumes v WHERE v.node_id=$1))::bigint AS disk_gib FROM node_asset_reservations WHERE node_id=$1;
 -- name: ListRuntimeAssets :many
 SELECT * FROM runtime_assets WHERE environment_id=$1 ORDER BY asset_id,instance_id;
 -- name: SetCurrentAsset :exec
@@ -175,8 +175,8 @@ SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu
 FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu integer,"memoryMiB" bigint,"diskGiB" bigint);
 -- name: ApplyAssetResults :exec
 UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
-FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,state text,error text,"observedAt" timestamptz)
-WHERE a.instance_id=r."instanceId" AND a.asset_id=r."assetId" AND a.observed_at<=r."observedAt";
+FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,"nodeId" text,state text,error text,"observedAt" timestamptz)
+WHERE a.instance_id=r."instanceId" AND a.asset_id=r."assetId" AND a.node_id=r."nodeId" AND a.observed_at<=r."observedAt";
 -- name: ReleaseAssets :exec
 DELETE FROM runtime_assets WHERE instance_id=ANY($1::text[]);
 -- name: ClearCurrentAssets :exec
@@ -196,7 +196,7 @@ AND (cardinality(sqlc.arg(ids)::text[])=0 OR t.id=ANY(sqlc.arg(ids)::text[]))
 ORDER BY t.created_at DESC,t.id DESC LIMIT sqlc.arg(page_limit);
 -- name: ListNodePage :many
 SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
-FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
+FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor))
 AND (sqlc.arg(search)::text='' OR n.name ILIKE '%'||sqlc.arg(search)||'%')
@@ -226,7 +226,11 @@ UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memo
 FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu integer,"memoryMiB" bigint,"diskGiB" bigint)
 WHERE a.instance_id=r."instanceId";
 -- name: GetNodeReservations :many
-SELECT node_id,COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM runtime_assets WHERE node_id=ANY($1::text[]) GROUP BY node_id;
+SELECT node_id,COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM node_asset_reservations WHERE node_id=ANY($1::text[]) GROUP BY node_id;
+-- name: DeviceReservations :many
+SELECT DISTINCT node_id,environment_id,asset_id,group_id::text FROM runtime_assets
+CROSS JOIN LATERAL jsonb_array_elements_text(execution->'asset'->'pciBinding'->'groupIds') group_id
+WHERE node_id=ANY($1::text[]);
 -- name: LockOperation :one
 SELECT * FROM operations WHERE id=$1 FOR UPDATE;
 -- name: RetryOperation :one

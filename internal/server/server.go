@@ -57,6 +57,8 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/environments/{id}/assets/{assetId}/migrations":  s.assetMigration,
+		"POST /api/v1/environments/{id}/assets/{assetId}/migrations": s.assetMigration,
 		"GET /api/v1/volumes":                                                  s.listVolumes,
 		"GET /api/v1/volumes/{id}":                                             s.listVolumes,
 		"POST /api/v1/volumes":                                                 s.volumeAction,

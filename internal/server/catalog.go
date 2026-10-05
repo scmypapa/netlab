@@ -254,10 +254,28 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request, identity acce
 		return err
 	}
 	result := make([]api.Node, 0, len(rows))
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	devices, err := s.Queries.DeviceReservations(r.Context(), ids)
+	if err != nil {
+		return err
+	}
+	occupied := map[string]bool{}
+	for _, device := range devices {
+		occupied[device.NodeID+"/"+device.GroupID] = true
+	}
 	for _, row := range rows {
 		item, err := nodeRecord(row)
 		if err != nil {
 			return err
+		}
+		if item.VmHardware != nil {
+			for i := range item.VmHardware.PciGroups {
+				group := &item.VmHardware.PciGroups[i]
+				group.Available = group.Available && !occupied[item.Id+"/"+group.Id]
+			}
 		}
 		result = append(result, item)
 	}

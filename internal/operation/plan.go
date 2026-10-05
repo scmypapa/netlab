@@ -364,6 +364,14 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	for _, r := range reservations {
 		used[r.NodeID] = api.Resources{Cpu: int(r.Cpu), MemoryMiB: r.MemoryMib, DiskGiB: r.DiskGib}
 	}
+	deviceRows, err := q.DeviceReservations(ctx, ids)
+	if err != nil {
+		return err
+	}
+	occupiedDevices := map[string]string{}
+	for _, device := range deviceRows {
+		occupiedDevices[device.NodeID+"/"+device.GroupID] = device.EnvironmentID + "/" + device.AssetID
+	}
 	for _, n := range locked {
 		if n.State != "ready" {
 			continue
@@ -387,6 +395,11 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	for i := range p.Updates {
 		t := &p.Updates[i]
 		old := findInstance(p.Before, t.Execution.InstanceId)
+		var available bool
+		t.Execution.PciDevices, available = deviceBindings(t.NodeID, infos[t.NodeID].VmHardware, t.Execution.Asset.PciBinding, row.ID, t.Execution.Asset.Id, occupiedDevices)
+		if !available {
+			return fmt.Errorf("资产 %s 的直通设备不可用", t.Execution.Asset.Name)
+		}
 		delta := resources(t.Execution.Asset)
 		before := resources(old.Execution.Asset)
 		delta.Cpu = max(0, delta.Cpu-before.Cpu)
@@ -461,6 +474,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				continue
 			}
 			c, ok := capacity[n.ID]
+			if _, ready := deviceBindings(n.ID, infos[n.ID].VmHardware, t.Execution.Asset.PciBinding, row.ID, t.Execution.Asset.Id, occupiedDevices); !ready {
+				continue
+			}
 			if !ok || !supports(infos[n.ID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
 				continue
 			}
@@ -497,6 +513,12 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			return fmt.Errorf("没有节点可承载资产 %s（%d 核，%d MiB，%d GiB）%s", t.Execution.Asset.Name, requirement.Cpu, requirement.MemoryMiB, requirement.DiskGiB, strings.Join(failures, "；"))
 		}
 		t.NodeID = best
+		t.Execution.PciDevices, _ = deviceBindings(best, infos[best].VmHardware, t.Execution.Asset.PciBinding, row.ID, t.Execution.Asset.Id, occupiedDevices)
+		if binding := t.Execution.Asset.PciBinding; binding != nil {
+			for _, id := range binding.GroupIds {
+				occupiedDevices[best+"/"+id] = row.ID + "/" + t.Execution.Asset.Id
+			}
+		}
 		assignStorage(&t.Execution, bestPool)
 		if !restoring {
 			t.Execution.VolumeSources, _ = volumeBindings(t.Execution.Asset, volumes, storage, best)

@@ -262,7 +262,11 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 	}
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery, Run: p.Run, BackupID: p.BackupID, BackupInitialize: p.BackupInitialize}
+		if p.Migration != nil {
+			p.Migration = &Migration{RequestedNode: p.Migration.RequestedNode}
+			p.Recovery = nil
+		}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery, Run: p.Run, BackupID: p.BackupID, BackupInitialize: p.BackupInitialize, Migration: p.Migration}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)

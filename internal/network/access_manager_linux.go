@@ -388,17 +388,7 @@ func (v *Access) configureWireguard(environment string, handle ns.NetNS, record 
 
 func (v *Access) removeKernel(ctx context.Context, environment string) error {
 	if _, err := os.Stat(filepath.Join("/run/netns", accessName(environment))); err == nil {
-		handle, err := ns.GetNS(filepath.Join("/run/netns", accessName(environment)))
-		if err != nil {
-			return err
-		}
-		err = handle.Do(func(_ ns.NetNS) error {
-			return errors.Join(clearVPNConnections(netlink.FAMILY_V4), clearVPNConnections(netlink.FAMILY_V6))
-		})
-		handle.Close()
-		if err != nil {
-			return err
-		}
+		// Removing the dedicated namespace releases its conntrack table with it.
 		if err := netns.DeleteNamed(accessName(environment)); err != nil {
 			return err
 		}
@@ -430,14 +420,6 @@ func (v *Access) Remove(ctx context.Context, environment string) error {
 	delete(v.records, environment)
 	v.mu.Unlock()
 	return nil
-}
-
-type allVPNConnections struct{}
-
-func (allVPNConnections) MatchConntrackFlow(*netlink.ConntrackFlow) bool { return true }
-func clearVPNConnections(family netlink.InetFamily) error {
-	_, err := netlink.ConntrackDeleteFilters(netlink.ConntrackTable, family, allVPNConnections{})
-	return err
 }
 
 type vpnConnections map[netip.Addr]bool

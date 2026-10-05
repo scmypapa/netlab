@@ -9,7 +9,7 @@ const execute=promisify(execFile),run=randomUUID(),base=process.env.NETLAB_TEST_
 const workers=new Map(JSON.parse(await readFile('D:/.cache/netlab/artifacts/multi-node-workers.json','utf8')).map(worker=>[worker.nodeId,worker]))
 const report={startedAt:new Date().toISOString(),steps:[],cleanupErrors:[]}
 const environments=[],templates=[],points=[],volumeIds=new Set(),placement=[],volumeFiles=[]
-let cookie,ceph,baseline
+let cookie,ceph,baseline,nodeBaseline
 const quote=value=>`'${String(value).replaceAll("'","'\"'\"'")}'`
 async function node(id,...args) {
   const worker=workers.get(id)
@@ -82,6 +82,7 @@ try {
   }
   assert.equal(nodes.length,workers.size,'test workers did not return after service restart')
   baseline=await api('/storage-pools')
+  nodeBaseline=new Map(nodes.map(node=>[node.id,node.reserved.diskGiB]))
   const primary=[...workers].find(([,worker])=>!worker.host)[0]
   for(const [id,worker] of workers) {
     await node(id,'qemu-img','create','-f','qcow2',`/var/lib/netlab-dev/test-tmp/volume-${run}.qcow2`,'1G')
@@ -109,7 +110,7 @@ try {
     const nodes=await api('/nodes')
     for(const id of [primary,vmNode]) {
       assert.equal(pools.find(item=>item.id===`default:${id}`).allocatedGiB,baseline.find(item=>item.id===`default:${id}`).allocatedGiB+2)
-      assert.equal(nodes.find(item=>item.id===id).reserved.diskGiB,2)
+      assert.equal(nodes.find(item=>item.id===id).reserved.diskGiB,nodeBaseline.get(id)+2)
     }
     await api(`/volumes/${vmVolume.id}`,'DELETE',undefined,409)
     await api(`/volumes/${vmVolume.id}`,'PUT',{sizeGiB:2},409)
@@ -170,6 +171,35 @@ try {
     const next=await createEnvironment(newAssets);await action(next,'force-stop');await pattern(next,newAssets[1],false,0x6b)
     await action(next,'destroy')
   })
+  await step('容器与 VM 携独立卷跨节点停机迁移，保持身份、文件与磁盘数据',async()=>{
+    const migratingAssets=[asset(templates[0],containerVolume),asset(templates[1],vmVolume)]
+    const migrating=await createEnvironment(migratingAssets)
+    await operation((await api(`/environments/${migrating.id}/assets/${migratingAssets[1].id}/actions`,'POST',{action:'force-stop'},202)).id)
+    for(const item of migratingAssets) {
+      const current=await api(`/environments/${migrating.id}`)
+      const before=(await api(`/environments/${migrating.id}/state`)).assets.find(a=>a.assetId===item.id)
+      const destination=[...workers.keys()].find(id=>id!==before.nodeId)
+      const candidates=await api(`/environments/${migrating.id}/assets/${item.id}/migrations`)
+      assert(candidates.some(candidate=>candidate.id===destination&&!candidate.live))
+      await operation((await api(`/environments/${migrating.id}/assets/${item.id}/migrations`,'POST',{expectedRevision:current.revision,targetNodeId:destination,clientRequestId:randomUUID()},202)).id)
+      const after=(await api(`/environments/${migrating.id}/state`)).assets.find(a=>a.assetId===item.id)
+      assert.equal(after.nodeId,destination)
+      assert.equal(after.instanceId,before.instanceId)
+      assert.equal(after.state,before.state)
+      assert.equal((await api(`/environments/${migrating.id}`)).revision,current.revision+1)
+      const volume=await api(`/volumes/${item.volumes[0].persistentVolumeId}`)
+      assert.equal(volume.nodeId,destination)
+      assert.equal(volume.storagePoolId,`default:${destination}`)
+      const storage=baseline.find(pool=>pool.id===volume.storagePoolId).storage
+      volumeFiles.push({nodeId:destination,path:`${storage.path}/volumes/${volume.id}${volume.kind==='vm'?'.qcow2':''}`})
+      if(item.templateId===templates[0].id)assert.equal((await node(destination,'ctr','-n','netlab','tasks','exec','--exec-id',randomUUID(),after.instanceId,'/bin/cat','/data/marker')).trim(),'durable')
+      else await pattern(migrating,item,false,0x6b)
+      const oldInventory=(await node(before.nodeId,'virsh','list','--all','--uuid'))+(await node(before.nodeId,'ctr','-n','netlab','containers','list','-q'))
+      assert(!oldInventory.includes(before.instanceId),'migration left a source instance')
+      placement.push(after)
+    }
+    await action(migrating,'destroy')
+  })
   await step('共享 Ceph 卷创建、附加、RBD 写读、销毁保留和删除清理',async()=>{
     const key=(await execute('wsl.exe',['-d','Ubuntu','-u','root','--exec','ceph-authtool','/var/lib/netlab-dev/ceph-test/client.keyring','-n','client.netlab','--print-key'])).stdout.trim()
     ceph=await api('/storage-pools','POST',{name:`Persistent Ceph ${run}`,driver:'rbd',nodeIds:nodes.map(item=>item.id),ceph:{monitors:['192.168.122.1:16789'],pool:'netlab',user:'netlab',key}},201)
@@ -188,6 +218,19 @@ try {
     points.length=0
     const original='json:'+JSON.stringify({driver:'raw',file:{driver:'rbd',pool:'netlab',image:ceph.storage.rbd.imagePrefix+'volume-'+volume.id,user:'netlab',conf:`${ceph.storage.path}/ceph.conf`}})
     await node(volume.nodeId,'qemu-io','-f','raw','-c','read -P 107 0 4096',original)
+    const before=(await api(`/environments/${env.id}/state`)).assets[0]
+    const revision=(await api(`/environments/${env.id}`)).revision
+    const destination=nodes.find(item=>item.id!==before.nodeId).id
+    const cold=(await api(`/environments/${env.id}/assets/${data.id}/migrations`)).find(item=>item.id===destination)
+    assert(cold&&!cold.live,'stopped RBD VM must use the cold migration lifecycle')
+    await operation((await api(`/environments/${env.id}/assets/${data.id}/migrations`,'POST',{expectedRevision:revision,targetNodeId:destination,clientRequestId:randomUUID()},202)).id)
+    const migrated=(await api(`/environments/${env.id}/state`)).assets[0]
+    assert.equal(migrated.nodeId,destination);assert.equal(migrated.instanceId,before.instanceId);assert.equal(migrated.state,'stopped')
+    assert.equal((await api(`/environments/${env.id}`)).revision,revision)
+    assert.equal((await api('/volumes')).find(item=>item.id===copy).nodeId,destination)
+    await pattern(env,data,false)
+    await node(volume.nodeId,'qemu-io','-f','raw','-c','read -P 107 0 4096',original)
+    report.sharedVolumeMigration={sourceNodeId:before.nodeId,targetNodeId:destination,instanceId:migrated.instanceId}
     await action(env,'destroy')
     assert((await api('/volumes')).some(item=>item.id===volume.id))
     for(const id of [volume.id,copy]){await operation((await api(`/volumes/${id}`,'DELETE',undefined,202)).id);volumeIds.delete(id)}
@@ -198,12 +241,12 @@ try {
 } catch(error) {report.failure=error.message;process.exitCode=1}
 finally {
   for(const {env,id} of points)try{await operation((await api(`/environments/${env.id}/recovery-points/${id}`,'DELETE',undefined,202)).id)}catch(error){report.cleanupErrors.push(error.message)}
-  for(const env of environments)try{if((await api(`/environments/${env.id}`)).status!=='destroyed')await action(env,'destroy')}catch(error){report.cleanupErrors.push(error.message)}
+  for(const env of environments)try{if((await api(`/environments/${env.id}`)).status!=='destroyed')await action(env,'destroy');assert.equal((await api(`/environments/${env.id}/state`)).assets.length,0)}catch(error){report.cleanupErrors.push(error.message)}
   for(const id of volumeIds)try{if((await api('/volumes')).some(item=>item.id===id))await operation((await api(`/volumes/${id}`,'DELETE',undefined,202)).id)}catch(error){report.cleanupErrors.push(error.message)}
   if(ceph)try{await operation((await api(`/storage-pools/${ceph.id}`,'DELETE',undefined,202)).id)}catch(error){report.cleanupErrors.push(error.message)}
   for(const template of templates)try{await operation((await api(`/templates/${template.id}`,'DELETE',undefined,202)).id)}catch(error){report.cleanupErrors.push(error.message)}
   for(const id of workers.keys())try{await node(id,'rm','-f','--',`/var/lib/netlab-dev/test-tmp/volume-${run}.qcow2`,`/var/lib/netlab-dev/test-tmp/volume-${run}.tar`)}catch(error){report.cleanupErrors.push(error.message)}
-  if(baseline)try{const pools=await api('/storage-pools');for(const before of baseline)assert.equal(pools.find(item=>item.id===before.id).allocatedGiB,before.allocatedGiB)}catch(error){report.cleanupErrors.push(error.message)}
+  try{assert.equal((await api('/volumes')).filter(volume=>volumeIds.has(volume.id)).length,0)}catch(error){report.cleanupErrors.push(error.message)}
   for(const volume of volumeFiles)try{await node(volume.nodeId,'test','!','-e',volume.path)}catch(error){report.cleanupErrors.push(error.message)}
   for(const id of workers.keys())try {
     const instances=(await node(id,'virsh','list','--all','--uuid'))+(await node(id,'ctr','-n','netlab','containers','list','-q'))

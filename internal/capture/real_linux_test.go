@@ -110,6 +110,9 @@ func TestRealMirrorCaptureLifecycle(t *testing.T) {
 		}
 		t.Fatalf("stop: %+v %v", segment, err)
 	}
+	if segment.KernelDroppedPackets == nil {
+		t.Fatal("tshark did not persist interface drop statistics")
+	}
 	file, err := os.Open(filepath.Join(directory, "captures", id, "capture.pcapng"))
 	if err != nil {
 		t.Fatal(err)

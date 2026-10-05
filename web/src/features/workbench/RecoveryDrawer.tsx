@@ -118,7 +118,7 @@ export function RecoveryDrawer({
       api.captureRecoveryPoint(id, {
         name,
         expectedRevision: revision,
-        includeMemory,
+        includeMemory: canCaptureMemory && includeMemory,
       }),
     onSuccess: () => {
       setCreating(false);

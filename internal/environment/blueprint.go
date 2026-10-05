@@ -108,6 +108,7 @@ func (s Service) CreationSpec(ctx context.Context, identity access.Identity, req
 func clearRecoveryPlacement(spec *api.EnvironmentSpec) {
 	for i := range spec.Assets {
 		spec.Assets[i].StoragePoolId = nil
+		spec.Assets[i].PciBinding = nil
 		if spec.Assets[i].Volumes != nil {
 			copies := append([]api.Volume{}, (*spec.Assets[i].Volumes)...)
 			for j := range copies {
@@ -134,6 +135,7 @@ func instantiate(spec *api.EnvironmentSpec, view *api.CanvasView) {
 	}
 	for i := range spec.Assets {
 		asset := &spec.Assets[i]
+		asset.PciBinding = nil
 		id := uuid.NewString()
 		assets[asset.Id], objects[asset.Id] = id, id
 		asset.Id = id

@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
-import { promisify } from 'node:util'
 import { delay } from './guest-ssh.mjs'
+import { qga as guestAgent, ready as guestReady, powershell } from './windows-qga.mjs'
 
-const execute = promisify(execFile)
 const base = process.env.NETLAB_TEST_URL || 'http://127.0.0.1:8090'
-const workers = new Map(JSON.parse(await readFile('D:/.cache/netlab/artifacts/multi-node-workers.json', 'utf8')).map(worker => [worker.nodeId, worker]))
 const report = { startedAt: new Date().toISOString(), steps: [], cleanupErrors: [] }
-const quote = value => `'${String(value).replaceAll("'", "'\"'\"'")}'`
 let cookie, environment, point, actual
 
 async function api(path, method = 'GET', body) {
@@ -31,31 +27,9 @@ async function step(name, action) {
   const item = { name, passed: false }, start = performance.now()
   try { await action(); item.passed = true } catch (error) { item.error = error.message; throw error } finally { item.durationMs = Math.round(performance.now() - start); report.steps.push(item); console.log(JSON.stringify(item)) }
 }
-async function qga(request) {
-  const worker = workers.get(actual.nodeId), command = ['virsh', 'qemu-agent-command', actual.instanceId, JSON.stringify(request)]
-  const args = worker.host ? ['ssh', '-i', worker.keyPath, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', `UserKnownHostsFile=${worker.keyPath}.hosts`, `root@${worker.host}`, command.map(quote).join(' ')] : command
-  const result = JSON.parse((await execute('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', ...args], { encoding: 'utf8', timeout: 20_000 })).stdout)
-  assert.ok(!result.error, JSON.stringify(result.error))
-  return result.return
-}
-async function ready(probe = () => qga({ execute: 'guest-get-osinfo' })) {
-  for (const deadline = Date.now() + 180_000;;) {
-    try { return await probe() } catch (error) { if (Date.now() >= deadline) throw error; await delay(1000) }
-  }
-}
-async function shell(script) {
-  const command = await qga({ execute: 'guest-exec', arguments: { path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', arg: ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop'; " + script, 'utf16le').toString('base64')], 'capture-output': true } })
-  for (const deadline = Date.now() + 60_000; Date.now() < deadline;) {
-    const status = await qga({ execute: 'guest-exec-status', arguments: { pid: command.pid } })
-    if (status.exited) {
-      const output = Buffer.from(status['out-data'] || '', 'base64').toString().trim()
-      assert.equal(status.exitcode, 0, output + '\n' + Buffer.from(status['err-data'] || '', 'base64').toString())
-      return output
-    }
-    await delay(250)
-  }
-  throw new Error('Windows guest command timed out')
-}
+const qga = request => guestAgent(actual, request)
+const ready = (probe = () => qga({ execute: 'guest-get-osinfo' })) => guestReady(probe)
+const shell = script => powershell(actual, script)
 try {
   await api('/sessions/login', 'POST', JSON.parse(await readFile('data/dev-login.json', 'utf8')))
   await step('从已有 Windows 模板启动真实来宾并确认 QGA', async () => {

@@ -193,7 +193,11 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 	}
 	info.ExternalInterfaces = &interfaces
 	if e.vm != nil {
-		info.VmHardware = &e.vm.hardware
+		hardware := e.vm.hardware
+		if hardware.PciGroups, err = pciGroups("/sys"); err != nil {
+			return api.NodeInfo{}, err
+		}
+		info.VmHardware = &hardware
 	}
 	return info, nil
 }
@@ -201,7 +205,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 	unlocked := e.lock(plan.EnvironmentId)
 	defer unlocked()
 	result := api.NodeResult{Results: []api.ExecutionResult{}}
-	if plan.Phase == api.NodePlanPhaseDestroy && e.captures != nil {
+	if (plan.Phase == api.NodePlanPhaseDestroy || plan.Phase == api.NodePlanPhaseMigrate || plan.Phase == api.NodePlanPhaseStop) && e.captures != nil {
 		if err := e.captures.StopAssets(ctx, plan.EnvironmentId, plan.Assets); err != nil {
 			result.Error = ptr(err.Error())
 			return result
@@ -278,6 +282,12 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			var state string
 			var err error
 			phase := plan.Phase
+			if phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery {
+				if err = e.validatePciBinding(a); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
 			if phase == api.NodePlanPhaseMigrate {
 				destination, ok := plan.Migrations[a.Asset.Id]
 				if !ok || a.Template.Kind != api.Vm {
@@ -315,7 +325,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				case api.NodePlanPhaseRollbackRecovery:
 					state, err = e.rollbackRecovery(ctx, plan.EnvironmentId, a, plan.RecoveryTargets[a.Asset.Id])
 				case api.NodePlanPhaseCleanupRecovery:
-					state, err = "cleaned", e.cleanupRecovery(ctx, plan.EnvironmentId, plan.OperationId, a)
+					state, err = "cleaned", e.cleanupRecovery(ctx, plan.EnvironmentId, a, plan.RecoveryTargets[a.Asset.Id])
 				}
 				result.Results[i] = executionResult(a, state, err)
 				return

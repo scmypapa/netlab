@@ -7,7 +7,7 @@ import (
 	"netlab.local/core/internal/access"
 )
 
-func AuthorizeExternal(identity access.Identity, before, after api.EnvironmentSpec) error {
+func AuthorizeHostBindings(identity access.Identity, before, after api.EnvironmentSpec) error {
 	if identity.Administrator() {
 		return nil
 	}
@@ -21,6 +21,15 @@ func AuthorizeExternal(identity access.Identity, before, after api.EnvironmentSp
 		}
 		old := previous[network.Id]
 		if !reflect.DeepEqual(old.External, network.External) || old.Cidr != network.Cidr || !reflect.DeepEqual(old.AllocationPool, network.AllocationPool) {
+			return access.ErrForbidden
+		}
+	}
+	bindings := map[string]*api.PciBinding{}
+	for _, asset := range before.Assets {
+		bindings[asset.Id] = asset.PciBinding
+	}
+	for _, asset := range after.Assets {
+		if asset.PciBinding != nil && !reflect.DeepEqual(bindings[asset.Id], asset.PciBinding) {
 			return access.ErrForbidden
 		}
 	}

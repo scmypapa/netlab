@@ -725,6 +725,11 @@ export default function TrafficWorkspace({
                 {segment.error && (
                   <div className={styles.error}>{segment.error}</div>
                 )}
+                {segment.kernelDroppedPackets !== undefined && (
+                  <span className="traffic-budget">
+                    内核丢包 {segment.kernelDroppedPackets.toLocaleString()}
+                  </span>
+                )}
                 {segment.omittedFlows > 0 && (
                   <div className={styles.error}>
                     在线汇总未纳入 {segment.omittedFlows.toLocaleString()}{" "}

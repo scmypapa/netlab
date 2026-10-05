@@ -1,9 +1,25 @@
 package environment
 
 import (
+	"errors"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/access"
 	"testing"
 )
+
+func TestHostBindingAuthorization(t *testing.T) {
+	binding := &api.PciBinding{NodeId: "node", GroupIds: []string{"group"}}
+	spec := api.EnvironmentSpec{Assets: []api.Asset{{Id: "asset", PciBinding: binding}}}
+	if err := AuthorizeHostBindings(access.Identity{}, api.EnvironmentSpec{}, spec); !errors.Is(err, access.ErrForbidden) {
+		t.Fatal("non-admin bound host hardware", err)
+	}
+	if err := AuthorizeHostBindings(access.Identity{}, spec, spec); err != nil {
+		t.Fatal("ordinary edit changed authorization", err)
+	}
+	if err := AuthorizeHostBindings(access.Identity{}, spec, api.EnvironmentSpec{}); err != nil {
+		t.Fatal("removal blocked", err)
+	}
+}
 
 func TestExternalAddressOwnership(t *testing.T) {
 	pool, gateway := "192.0.2.128/26", "192.0.2.1"

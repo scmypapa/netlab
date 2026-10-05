@@ -63,6 +63,8 @@ func machineCapabilities(c libvirtxml.DomainCaps) api.VmMachine {
 
 func (v *VirtualMachines) hardwareCapabilities() (api.VmHardware, error) {
 	hardware := api.VmHardware{Machines: []api.VmMachine{}, CpuModes: []string{}, CpuModels: []string{}, NicModels: []string{}, DiskControllers: []string{}}
+	_, placementErr := exec.LookPath("numad")
+	hardware.NumaPlacement = ptr(placementErr == nil)
 	text, err := v.conn.GetCapabilities()
 	if err != nil {
 		return hardware, err

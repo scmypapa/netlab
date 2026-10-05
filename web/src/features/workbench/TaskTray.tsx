@@ -35,6 +35,18 @@ const phaseLabels: Record<string, string> = {
   "recovery-quiesce": "暂停写入",
   "recovery-capture": "保存恢复点",
   "recovery-resume": "恢复运行",
+  "migration-prepare": "准备目标节点",
+  "migration-stop": "停止源资产",
+  "migration-capture": "保存迁移数据",
+  "migration-copy": "传输数据",
+  "migration-apply": "应用资产配置",
+  "migration-activate": "启动目标资产",
+  "migration-release-capture": "清理迁移数据",
+  "migration-transfer": "迁移虚拟机",
+  "migration-verify": "确认目标运行",
+  "migration-commit": "交接节点归属",
+  "migration-cleanup": "清理源节点",
+  "migration-services": "更新访问入口",
 };
 
 export function TaskTray({

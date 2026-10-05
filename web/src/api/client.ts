@@ -485,6 +485,20 @@ export const api = {
       "POST",
       body,
     ),
+  migrationDestinations: (id: string, assetId: string) =>
+    request<Schema<"MigrationDestination">[]>(
+      `/environments/${id}/assets/${assetId}/migrations`,
+    ),
+  migrateAsset: (
+    id: string,
+    assetId: string,
+    body: Schema<"MigrationRequest">,
+  ) =>
+    request<Operation>(
+      `/environments/${id}/assets/${assetId}/migrations`,
+      "POST",
+      body,
+    ),
   saveDraft: (id: string, body: Schema<"Draft">) =>
     request<void>(`/environments/${id}/draft`, "PUT", body),
   discardDraft: (id: string) =>

@@ -132,6 +132,12 @@ const (
 	HardwareNicModelVmxnet3 HardwareNicModel = "vmxnet3"
 )
 
+// Defines values for HardwareNumaPlacement.
+const (
+	Preferred HardwareNumaPlacement = "preferred"
+	Strict    HardwareNumaPlacement = "strict"
+)
+
 // Defines values for LogChunkStream.
 const (
 	LogChunkStreamStderr LogChunkStream = "stderr"
@@ -395,6 +401,7 @@ type Asset struct {
 	Media      *[]string          `json:"media,omitempty"`
 	Name       string             `json:"name"`
 	Parameters *map[string]string `json:"parameters,omitempty"`
+	PciBinding *PciBinding        `json:"pciBinding,omitempty"`
 	Resources  Resources          `json:"resources"`
 
 	// RestartPolicy Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
@@ -414,6 +421,7 @@ type AssetExecution struct {
 	DataSetId          string              `json:"dataSetId,omitempty"`
 	InstanceId         string              `json:"instanceId"`
 	Interfaces         []ResolvedInterface `json:"interfaces"`
+	PciDevices         []string            `json:"pciDevices,omitempty"`
 	PreviousInstanceId *string             `json:"previousInstanceId,omitempty"`
 	Rbd                *RbdStorage         `json:"rbd,omitempty"`
 
@@ -583,8 +591,11 @@ type CaptureSegment struct {
 	Error         *string    `json:"error,omitempty"`
 	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
 	Id            string     `json:"id"`
-	NodeId        string     `json:"nodeId"`
-	NodeName      *string    `json:"nodeName,omitempty"`
+
+	// KernelDroppedPackets Kernel capture drops from the pcapng interface statistics; present after the recorder reports statistics.
+	KernelDroppedPackets *int64  `json:"kernelDroppedPackets,omitempty"`
+	NodeId               string  `json:"nodeId"`
+	NodeName             *string `json:"nodeName,omitempty"`
 
 	// OmittedFlows Packets excluded from online aggregation due to distinct conversation limit; raw capture is unaffected.
 	OmittedFlows int64                `json:"omittedFlows"`
@@ -840,6 +851,7 @@ type ExecutionResult struct {
 	Error         *string          `json:"error,omitempty"`
 	Execution     *AssetExecution  `json:"execution,omitempty"`
 	InstanceId    string           `json:"instanceId"`
+	NodeId        *string          `json:"nodeId,omitempty"`
 	ObservedAt    time.Time        `json:"observedAt"`
 	Recovery      *RecoveryCapture `json:"recovery,omitempty"`
 	State         string           `json:"state"`
@@ -907,9 +919,12 @@ type Hardware struct {
 	NicModel       HardwareNicModel `json:"nicModel"`
 
 	// NumaNodes Guest NUMA nodes; vCPUs and memory are divided evenly. Omitted keeps one NUMA node.
-	NumaNodes  *int  `json:"numaNodes,omitempty"`
-	SecureBoot *bool `json:"secureBoot,omitempty"`
-	Tpm        *bool `json:"tpm,omitempty"`
+	NumaNodes *int `json:"numaNodes,omitempty"`
+
+	// NumaPlacement Native automatic host CPU and memory placement. Omitted lets the host scheduler choose.
+	NumaPlacement *HardwareNumaPlacement `json:"numaPlacement,omitempty"`
+	SecureBoot    *bool                  `json:"secureBoot,omitempty"`
+	Tpm           *bool                  `json:"tpm,omitempty"`
 }
 
 // HardwareDiskBus defines model for Hardware.DiskBus.
@@ -920,6 +935,9 @@ type HardwareFirmware string
 
 // HardwareNicModel defines model for Hardware.NicModel.
 type HardwareNicModel string
+
+// HardwareNumaPlacement Native automatic host CPU and memory placement. Omitted lets the host scheduler choose.
+type HardwareNumaPlacement string
 
 // Identity defines model for Identity.
 type Identity struct {
@@ -986,6 +1004,23 @@ type MetricSeries struct {
 
 // MetricSeriesMetric defines model for MetricSeries.Metric.
 type MetricSeriesMetric string
+
+// MigrationDestination defines model for MigrationDestination.
+type MigrationDestination struct {
+	Available Resources `json:"available"`
+	Id        string    `json:"id"`
+	Live      bool      `json:"live"`
+	Name      string    `json:"name"`
+}
+
+// MigrationRequest defines model for MigrationRequest.
+type MigrationRequest struct {
+	ClientRequestId  *string `json:"clientRequestId,omitempty"`
+	ExpectedRevision int     `json:"expectedRevision"`
+
+	// TargetNodeId Omit to select a compatible destination automatically
+	TargetNodeId *string `json:"targetNodeId,omitempty"`
+}
 
 // Network defines model for Network.
 type Network struct {
@@ -1088,6 +1123,20 @@ type NodeInfo struct {
 	Storage            *StorageInfo         `json:"storage,omitempty"`
 	Version            string               `json:"version"`
 	VmHardware         *VmHardware          `json:"vmHardware,omitempty"`
+}
+
+// NodeMigrationCleanup defines model for NodeMigrationCleanup.
+type NodeMigrationCleanup struct {
+	Source AssetExecution `json:"source"`
+	Target AssetExecution `json:"target"`
+}
+
+// NodeMigrationPreparation defines model for NodeMigrationPreparation.
+type NodeMigrationPreparation struct {
+	DomainXml      string         `json:"domainXml"`
+	EnvironmentId  string         `json:"environmentId"`
+	Execution      AssetExecution `json:"execution"`
+	SourceEndpoint string         `json:"sourceEndpoint"`
 }
 
 // NodeObservation defines model for NodeObservation.
@@ -1237,6 +1286,20 @@ type Operation struct {
 
 // OperationState defines model for Operation.State.
 type OperationState string
+
+// PciBinding defines model for PciBinding.
+type PciBinding struct {
+	GroupIds []string `json:"groupIds"`
+	NodeId   string   `json:"nodeId"`
+}
+
+// PciGroup defines model for PciGroup.
+type PciGroup struct {
+	Available bool     `json:"available"`
+	Devices   []string `json:"devices"`
+	Id        string   `json:"id"`
+	Name      string   `json:"name"`
+}
 
 // Permission defines model for Permission.
 type Permission string
@@ -1725,6 +1788,10 @@ type VmHardware struct {
 	DiskControllers []string    `json:"diskControllers"`
 	Machines        []VmMachine `json:"machines"`
 	NicModels       []string    `json:"nicModels"`
+
+	// NumaPlacement Host supports libvirt automatic placement through numad.
+	NumaPlacement *bool      `json:"numaPlacement,omitempty"`
+	PciGroups     []PciGroup `json:"pciGroups,omitempty"`
 }
 
 // VmMachine defines model for VmMachine.
@@ -1933,6 +2000,9 @@ type AssetActionJSONRequestBody = ActionRequest
 
 // ChangeAssetFilesJSONRequestBody defines body for ChangeAssetFiles for application/json ContentType.
 type ChangeAssetFilesJSONRequestBody = FileCommand
+
+// MigrateAssetJSONRequestBody defines body for MigrateAsset for application/json ContentType.
+type MigrateAssetJSONRequestBody = MigrationRequest
 
 // SaveAssetRDPSettingsJSONRequestBody defines body for SaveAssetRDPSettings for application/json ContentType.
 type SaveAssetRDPSettingsJSONRequestBody = RDPSettings

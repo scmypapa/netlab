@@ -29,6 +29,7 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
+	Migration           *Migration                 `json:"migration,omitempty"`
 	Volume              *api.NodeVolume            `json:"volume,omitempty"`
 	VolumeNode          string                     `json:"volumeNode,omitempty"`
 	BackupID            *string                    `json:"backupId,omitempty"`
@@ -148,6 +149,9 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			results = payload.Results
 		} else if op.Kind == "vpn-create" || op.Kind == "vpn-revoke" {
 			err = w.vpnOperation(ctx, &op, &payload)
+		} else if op.Kind == "migrate" {
+			err = w.migration(ctx, &op, &payload)
+			results = payload.Results
 		} else {
 			err = w.environment(ctx, &op, &payload)
 			results = payload.Results
@@ -423,7 +427,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 				spec = *p.BeforeSpec
 			}
 			plan := api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts}
-			if phase == api.NodePlanPhaseRollbackRecovery {
+			if phase == api.NodePlanPhaseRollbackRecovery || phase == api.NodePlanPhaseCleanupRecovery {
 				plan.RecoveryTargets = map[string]api.AssetExecution{}
 				for _, target := range desiredTargets(p) {
 					plan.RecoveryTargets[target.Execution.Asset.Id] = target.Execution
@@ -451,6 +455,7 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 					continue
 				}
 				valid = append(valid, r)
+				valid[len(valid)-1].NodeId = &id
 				observed[r.InstanceId] = r
 				if r.Error != nil {
 					err = errors.Join(err, fmt.Errorf("asset %s: %s", r.AssetId, *r.Error))

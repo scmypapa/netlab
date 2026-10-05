@@ -101,7 +101,8 @@ func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.A
 	}
 	for _, disk := range manifest.Disks {
 		if disk.RBDImage != "" {
-			source := vmDisk{rbd: a.Rbd, root: *a.StoragePath, image: disk.RBDImage, snapshot: disk.RBDSnapshot}
+			source := executionDiskMap(e.cfg.DataDir, env, a)[disk.Serial]
+			source.image, source.snapshot = disk.RBDImage, disk.RBDSnapshot
 			bytes, err := source.usedBytes(ctx)
 			if err != nil {
 				return api.RecoveryCapture{}, err
@@ -433,7 +434,7 @@ func (e *Engine) deleteRecovery(ctx context.Context, env, point string, a api.As
 			return err
 		}
 	}
-	if a.Rbd != nil {
+	if a.Template.Kind == api.Vm {
 		if err := e.vm.deleteDiskSnapshots(ctx, env, point, a); err != nil {
 			return err
 		}

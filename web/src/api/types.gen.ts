@@ -4,6 +4,25 @@
  */
 
 export interface paths {
+  "/environments/{id}/assets/{assetId}/migrations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["migrationDestinations"];
+    put?: never;
+    post: operations["migrateAsset"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/volumes": {
     parameters: {
       query?: never;
@@ -1409,6 +1428,11 @@ export interface components {
       cpuTopology?: components["schemas"]["CpuTopology"];
       /** @description Guest NUMA nodes; vCPUs and memory are divided evenly. Omitted keeps one NUMA node. */
       numaNodes?: number;
+      /**
+       * @description Native automatic host CPU and memory placement. Omitted lets the host scheduler choose.
+       * @enum {string}
+       */
+      numaPlacement?: "preferred" | "strict";
       secureBoot?: boolean;
       tpm?: boolean;
       guestAgent?: boolean;
@@ -1544,6 +1568,17 @@ export interface components {
       guest?: components["schemas"]["GuestSettings"];
       /** @description Attached template media IDs. Omitted attaches all; an empty array ejects all. */
       media?: string[];
+      pciBinding?: components["schemas"]["PciBinding"];
+    };
+    PciBinding: {
+      nodeId: string;
+      groupIds: string[];
+    };
+    PciGroup: {
+      id: string;
+      name: string;
+      available: boolean;
+      devices: string[];
     };
     /**
      * @description Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
@@ -1856,6 +1891,7 @@ export interface components {
       volumeSources?: {
         [key: string]: components["schemas"]["NodeVolume"];
       };
+      pciDevices?: string[];
       /** @description Node-local managed storage selected by the scheduler */
       storagePath?: string;
       /** @description Actual selected pool; omitted for node default storage */
@@ -1929,6 +1965,29 @@ export interface components {
       /** @description Native migratable domain XML with destination host paths and unchanged instance identity */
       domainXml: string;
     };
+    MigrationRequest: {
+      expectedRevision: number;
+      /** @description Omit to select a compatible destination automatically */
+      targetNodeId?: string;
+      clientRequestId?: string;
+    };
+    MigrationDestination: {
+      id: string;
+      name: string;
+      available: components["schemas"]["Resources"];
+      live: boolean;
+    };
+    NodeMigrationPreparation: {
+      environmentId: string;
+      execution: components["schemas"]["AssetExecution"];
+      domainXml: string;
+      /** Format: uri */
+      sourceEndpoint: string;
+    };
+    NodeMigrationCleanup: {
+      source: components["schemas"]["AssetExecution"];
+      target: components["schemas"]["AssetExecution"];
+    };
     NodeTemplatePreparation: {
       template: components["schemas"]["Template"];
       artifactEndpoint?: string;
@@ -1947,6 +2006,7 @@ export interface components {
     };
     ExecutionResult: {
       environmentId?: string;
+      nodeId?: string;
       assetId: string;
       instanceId: string;
       state: string;
@@ -2206,6 +2266,9 @@ export interface components {
       cpuModels: string[];
       nicModels: string[];
       diskControllers: string[];
+      /** @description Host supports libvirt automatic placement through numad. */
+      numaPlacement?: boolean;
+      pciGroups?: components["schemas"]["PciGroup"][];
     };
     VmMachine: {
       name: string;
@@ -2373,6 +2436,11 @@ export interface components {
        * @description Packets excluded from online aggregation due to distinct conversation limit; raw capture is unaffected.
        */
       omittedFlows: number;
+      /**
+       * Format: int64
+       * @description Kernel capture drops from the pcapng interface statistics; present after the recorder reports statistics.
+       */
+      kernelDroppedPackets?: number;
     };
     CaptureList: {
       segments: components["schemas"]["CaptureSegment"][];
@@ -2432,6 +2500,55 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  migrationDestinations: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Compatible migration destinations */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MigrationDestination"][];
+        };
+      };
+    };
+  };
+  migrateAsset: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        assetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MigrationRequest"];
+      };
+    };
+    responses: {
+      202: components["responses"]["Accepted"];
+      /** @description Revision changed or an environment operation is unfinished */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   listVolumes: {
     parameters: {
       query?: never;

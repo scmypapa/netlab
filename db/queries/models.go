@@ -127,6 +127,16 @@ type GuestConnection struct {
 	Protocol      string
 }
 
+type MigrationAssetReservation struct {
+	EnvironmentID string
+	NodeID        interface{}
+	Execution     interface{}
+	Cpu           int32
+	MemoryMib     int64
+	DiskGib       int64
+	VolumeGib     int64
+}
+
 type Node struct {
 	ID               string
 	Name             string
@@ -135,6 +145,13 @@ type Node struct {
 	CapacityOverride []byte
 	State            string
 	ObservedAt       pgtype.Timestamptz
+}
+
+type NodeAssetReservation struct {
+	NodeID    string
+	Cpu       int32
+	MemoryMib int64
+	DiskGib   int64
 }
 
 type Operation struct {

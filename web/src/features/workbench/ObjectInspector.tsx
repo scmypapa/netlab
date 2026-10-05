@@ -43,6 +43,7 @@ export function ObjectInspector({
   canManage,
   canCapture,
   onCapture,
+  onMigrate,
   canConnect,
   canFile,
   onFiles,
@@ -71,6 +72,7 @@ export function ObjectInspector({
   canManage: boolean;
   canCapture: boolean;
   onCapture: () => void;
+  onMigrate: () => void;
   canConnect: boolean;
   canObserve: boolean;
   onClose: () => void;
@@ -327,6 +329,20 @@ export function ObjectInspector({
                           重建资产
                         </Menu.Item>
                       )}
+                      {canManage &&
+                        !asset.pciBinding &&
+                        assetState &&
+                        ["running", "suspended", "stopped"].includes(
+                          assetState.state,
+                        ) && (
+                          <Menu.Item
+                            disabled={busy}
+                            leftSection={<Monitor size={15} />}
+                            onClick={onMigrate}
+                          >
+                            迁移节点
+                          </Menu.Item>
+                        )}
                       {canCapture && template?.kind === "vm" && (
                         <Menu.Item
                           leftSection={<Copy size={15} />}

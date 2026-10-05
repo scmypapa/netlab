@@ -19,12 +19,16 @@ func TestBlueprintCreationsOwnIdentitiesAndPreserveNetworkDesign(t *testing.T) {
 		if err := json.Unmarshal(raw, &versions[i]); err != nil {
 			t.Fatal(err)
 		}
+		versions[i].Assets[0].PciBinding = &api.PciBinding{NodeId: "source", GroupIds: []string{"group"}}
 		if err := json.Unmarshal([]byte(`{"positions":{"lan":{"x":10,"y":20},"dns":{"x":30,"y":40}},"collapsed":["lan"]}`), &views[i]); err != nil {
 			t.Fatal(err)
 		}
 		instantiate(&versions[i], &views[i])
 		spec, view := versions[i], views[i]
 		network, asset := spec.Networks[0], spec.Assets[0]
+		if asset.PciBinding != nil {
+			t.Fatal("new environment inherited source host hardware")
+		}
 		iface, volume, policy := asset.Interfaces[0], (*asset.Volumes)[0], (*spec.Policies)[0]
 		for _, id := range []string{network.Id, asset.Id, iface.Id, volume.Id, policy.Id} {
 			if id == "" || identities[id] {

@@ -8,11 +8,13 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/coder/websocket"
@@ -21,6 +23,286 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/internal/stream"
 )
+
+func (e *Engine) Migration(w http.ResponseWriter, r *http.Request) {
+	var value api.NodeVMMigration
+	var err error
+	if r.Method == http.MethodDelete {
+		var input api.NodeMigrationCleanup
+		if err = json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&input); err == nil {
+			a := input.Source
+			if a.InstanceId != r.PathValue("instanceId") || a.Asset.Id != r.PathValue("assetId") || a.InstanceId != input.Target.InstanceId {
+				err = errors.New("migration cleanup identity does not match")
+			} else {
+				err = e.cleanupMigration(r.Context(), r.PathValue("environmentId"), a, input.Target)
+			}
+		}
+	} else if r.Method == http.MethodPost {
+		var input api.NodeMigrationPreparation
+		if err = json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&input); err == nil {
+			value.DomainXml, err = e.prepareMigration(r.Context(), input)
+		}
+	} else {
+		if e.vm == nil {
+			http.Error(w, "virtual machine runtime is not configured", http.StatusConflict)
+			return
+		}
+		env, asset, instance := r.PathValue("environmentId"), r.PathValue("assetId"), r.PathValue("instanceId")
+		domain, readErr := e.vm.conn.LookupDomainByUUIDString(instance)
+		if readErr != nil {
+			err = readErr
+		} else {
+			defer domain.Free()
+			var owner Ownership
+			owner, err = e.vm.owned(domain, env, asset)
+			if err == nil {
+				value.DomainXml, err = domain.GetXMLDesc(libvirt.DOMAIN_XML_MIGRATABLE)
+				if err == nil && r.PathValue("file") == "files" {
+					var a api.AssetExecution
+					if err = json.Unmarshal([]byte(owner.Execution), &a); err == nil {
+						var reader io.ReadCloser
+						reader, _, err = e.migrationFiles(value.DomainXml, env, a)
+						if err == nil {
+							defer reader.Close()
+							w.Header().Set("Content-Type", "application/x-tar")
+							io.Copy(w, reader)
+							return
+						}
+					}
+				}
+			}
+		}
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(value)
+}
+
+func sharedDisk(a, b vmDisk) bool {
+	return a.rbd != nil && b.rbd != nil && a.rbd.Fsid == b.rbd.Fsid && a.rbd.Pool == b.rbd.Pool && a.image == b.image
+}
+
+func (e *Engine) cleanupMigration(ctx context.Context, env string, source, target api.AssetExecution) error {
+	unlock := e.lock(env + "/" + source.Asset.Id)
+	defer unlock()
+	if source.Template.Kind == api.Container {
+		state, err := e.container.Execute(ctx, env, api.NodePlanPhaseInspect, source)
+		if state != "absent" {
+			if err != nil {
+				return err
+			}
+			if state != "stopped" && state != "prepared" && state != "created" {
+				return errors.New("migration instance is still running")
+			}
+		}
+		if _, err := e.container.Execute(ctx, env, api.NodePlanPhaseDestroy, source); err != nil {
+			return err
+		}
+	} else {
+		domain, err := e.vm.conn.LookupDomainByUUIDString(source.InstanceId)
+		if err == nil {
+			defer domain.Free()
+			if _, err = e.vm.owned(domain, env, source.Asset.Id); err != nil {
+				return err
+			}
+			state, err := vmState(domain)
+			if err != nil {
+				return err
+			}
+			if state != "stopped" {
+				return errors.New("migration source is still running")
+			}
+			if err = domain.UndefineFlags(libvirt.DOMAIN_UNDEFINE_KEEP_NVRAM | libvirt.DOMAIN_UNDEFINE_KEEP_TPM); err != nil {
+				return err
+			}
+		} else if !noDomain(err) {
+			return err
+		}
+		destination := executionDisks(e.cfg.DataDir, env, target)
+		for _, disk := range executionDisks(e.cfg.DataDir, env, source) {
+			shared := false
+			for _, next := range destination {
+				if sharedDisk(disk, next) {
+					shared = true
+					break
+				}
+			}
+			if !shared {
+				if err := disk.remove(ctx); err != nil {
+					return err
+				}
+			}
+		}
+		if err := os.RemoveAll(tpmDirectory(source.InstanceId)); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(assetDirectory(e.cfg.DataDir, env, source)); err != nil {
+			return err
+		}
+	}
+	for name, volume := range source.VolumeSources {
+		if sharedDisk(persistentDisk(volume), persistentDisk(target.VolumeSources[name])) {
+			continue
+		}
+		if err := e.Volume(ctx, "delete", volume); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Engine) migrationFiles(text, env string, a api.AssetExecution) (io.ReadCloser, int64, error) {
+	if a.Rbd == nil {
+		return nil, 0, errors.New("native migration boot files require shared VM disks")
+	}
+	var config libvirtxml.Domain
+	if err := config.Unmarshal(text); err != nil {
+		return nil, 0, err
+	}
+	directory := assetDirectory(e.vm.data, env, a)
+	files := []string{}
+	if config.OS.NVRam != nil {
+		files = append(files, filepath.Base(config.OS.NVRam.NVRam))
+	}
+	for _, disk := range config.Devices.Disks {
+		if disk.Device == "cdrom" && disk.Source != nil && disk.Source.File != nil {
+			if filepath.Dir(disk.Source.File.File) != directory {
+				return nil, 0, errors.New("migration media is outside the managed instance")
+			}
+			files = append(files, filepath.Base(disk.Source.File.File))
+		}
+	}
+	return openArtifactFiles(directory, files)
+}
+
+func (e *Engine) prepareMigration(ctx context.Context, input api.NodeMigrationPreparation) (string, error) {
+	if e.vm == nil {
+		return "", errors.New("virtual machine runtime is not configured")
+	}
+	a, env := input.Execution, input.EnvironmentId
+	unlock := e.lock(env + "/" + a.Asset.Id)
+	defer unlock()
+	if existing, err := e.vm.conn.LookupDomainByUUIDString(a.InstanceId); err == nil {
+		defer existing.Free()
+		if _, err = e.vm.owned(existing, env, a.Asset.Id); err != nil {
+			return "", err
+		}
+		return existing.GetXMLDesc(libvirt.DOMAIN_XML_MIGRATABLE)
+	} else if !noDomain(err) {
+		return "", err
+	}
+	var config libvirtxml.Domain
+	if err := config.Unmarshal(input.DomainXml); err != nil {
+		return "", err
+	}
+	var owner Ownership
+	if config.UUID != a.InstanceId || config.Metadata == nil {
+		return "", errors.New("migration identity does not match")
+	}
+	if err := xml.Unmarshal([]byte(config.Metadata.XML), &owner); err != nil {
+		return "", err
+	}
+	if owner.Environment != env || owner.Asset != a.Asset.Id || owner.Instance != a.InstanceId {
+		return "", errors.New("migration ownership does not match")
+	}
+	var original api.AssetExecution
+	if err := json.Unmarshal([]byte(owner.Execution), &original); err != nil {
+		return "", err
+	}
+	if original.Rbd == nil || a.Rbd == nil || original.Rbd.Fsid != a.Rbd.Fsid || original.Rbd.Pool != a.Rbd.Pool || original.DataSetId != a.DataSetId {
+		return "", errors.New("migration requires the same shared data set")
+	}
+	directory := assetDirectory(e.vm.data, env, a)
+	if err := os.MkdirAll(directory, 0711); err != nil {
+		return "", err
+	}
+	staging, err := os.MkdirTemp(e.cfg.DataDir, "migration-files-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(staging)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(input.SourceEndpoint, "/")+"/node/v1/environments/"+env+"/assets/"+a.Asset.Id+"/instances/"+a.InstanceId+"/migration/files", nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := e.cfg.ArtifactHTTP.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 16384))
+		return "", fmt.Errorf("migration boot files: %d %s", response.StatusCode, message)
+	}
+	if err = receiveDirectoryArtifact(response.Body, staging); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(staging)
+	if err != nil {
+		return "", err
+	}
+	for _, file := range entries {
+		if err = os.Rename(filepath.Join(staging, file.Name()), filepath.Join(directory, file.Name())); err != nil {
+			return "", err
+		}
+	}
+	raw, err := json.Marshal(a)
+	if err != nil {
+		return "", err
+	}
+	metadata, err := xml.Marshal(Ownership{Environment: env, Asset: a.Asset.Id, Instance: a.InstanceId, Execution: string(raw)})
+	if err != nil {
+		return "", err
+	}
+	config.Metadata.XML = string(metadata)
+	config.SecLabel = nil
+	config.Devices.Emulator = ""
+	if config.OS.NVRam != nil {
+		config.OS.NVRam.NVRam = filepath.Join(directory, filepath.Base(config.OS.NVRam.NVRam))
+	}
+	for i := range config.Devices.Disks {
+		disk := &config.Devices.Disks[i]
+		if disk.Device == "cdrom" && disk.Source != nil && disk.Source.File != nil {
+			disk.Source.File.File = filepath.Join(directory, filepath.Base(disk.Source.File.File))
+		}
+	}
+	for i := range config.Devices.Interfaces {
+		nic := &config.Devices.Interfaces[i]
+		if nic.Source != nil && nic.Source.Bridge != nil {
+			nic.Source.Bridge.Bridge = e.vm.bridge
+		}
+		nic.Target = nil
+	}
+	for i := range config.Devices.Channels {
+		ch := &config.Devices.Channels[i]
+		if ch.Source != nil && ch.Source.UNIX != nil {
+			ch.Source.UNIX.Path = ""
+		}
+	}
+	for i := range config.Devices.Serials {
+		ch := &config.Devices.Serials[i]
+		if ch.Source != nil && ch.Source.Pty != nil {
+			ch.Source.Pty.Path = ""
+		}
+	}
+	for i := range config.Devices.Consoles {
+		ch := &config.Devices.Consoles[i]
+		if ch.Source != nil && ch.Source.Pty != nil {
+			ch.Source.Pty.Path = ""
+		}
+	}
+	for i := range config.Devices.Graphics {
+		if vnc := config.Devices.Graphics[i].VNC; vnc != nil {
+			vnc.Port = 0
+			vnc.AutoPort = "yes"
+			vnc.Listen = "127.0.0.1"
+		}
+	}
+	return config.Marshal()
+}
 
 // Libvirt stays on its Unix socket; native migration RPC and memory use the node mTLS connection.
 func (e *Engine) LibvirtTunnel(w http.ResponseWriter, r *http.Request) {

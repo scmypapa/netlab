@@ -48,6 +48,25 @@ func Templates(ctx context.Context, q *queries.Queries, assets []api.Asset) (map
 
 // ReferenceResources holds resource rows until the referencing write commits.
 func ReferenceResources(ctx context.Context, q *queries.Queries, assets []api.Asset) error {
+	defaultNodes := []string{}
+	for _, asset := range assets {
+		if asset.StoragePoolId != nil && strings.HasPrefix(*asset.StoragePoolId, "default:") {
+			defaultNodes = append(defaultNodes, strings.TrimPrefix(*asset.StoragePoolId, "default:"))
+		}
+	}
+	nodes, err := q.GetNodeEndpoints(ctx, defaultNodes)
+	if err != nil {
+		return err
+	}
+	knownNodes := map[string]bool{}
+	for _, node := range nodes {
+		knownNodes[node.ID] = true
+	}
+	for _, id := range defaultNodes {
+		if !knownNodes[id] {
+			return Invalid("存储节点已删除")
+		}
+	}
 	volumeIDs := PersistentVolumeIDs(assets)
 	volumes, err := q.LockPersistentVolumes(ctx, volumeIDs)
 	if err != nil {
@@ -87,7 +106,7 @@ func ReferenceResources(ctx context.Context, q *queries.Queries, assets []api.As
 	}
 	poolIDs := []string{}
 	for _, asset := range assets {
-		if asset.StoragePoolId != nil && !seen["pool:"+*asset.StoragePoolId] {
+		if asset.StoragePoolId != nil && !strings.HasPrefix(*asset.StoragePoolId, "default:") && !seen["pool:"+*asset.StoragePoolId] {
 			poolIDs = append(poolIDs, *asset.StoragePoolId)
 			seen["pool:"+*asset.StoragePoolId] = true
 		}
@@ -253,7 +272,7 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			return api.Environment{}, err
 		}
 	}
-	if err = AuthorizeExternal(identity, api.EnvironmentSpec{}, spec); err != nil {
+	if err = AuthorizeHostBindings(identity, api.EnvironmentSpec{}, spec); err != nil {
 		return api.Environment{}, err
 	}
 	if source.Definition == nil {
@@ -535,7 +554,11 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 			if err = json.Unmarshal(asset.Execution, &execution); err != nil {
 				return api.ChangePreview{}, nil, err
 			}
-			if execution.StoragePoolId == nil || *execution.StoragePoolId != pool {
+			actualPool := "default:" + asset.NodeID
+			if execution.StoragePoolId != nil {
+				actualPool = *execution.StoragePoolId
+			}
+			if actualPool != pool {
 				return api.ChangePreview{}, nil, Invalid("资产 %s 的磁盘移动应通过迁移完成", execution.Asset.Name)
 			}
 		}

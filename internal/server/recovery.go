@@ -86,6 +86,9 @@ func (s *Server) captureRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 		if err = json.Unmarshal(asset.Execution, &execution); err != nil {
 			return err
 		}
+		if input.IncludeMemory && execution.Asset.PciBinding != nil {
+			return environment.Invalid("PCI 直通设备的现场状态不能保存到内存恢复点，请选择磁盘恢复点")
+		}
 		recovery.Assets = append(recovery.Assets, operation.Target{NodeID: asset.NodeID, Execution: execution, State: asset.State})
 	}
 	if len(recovery.Assets) != len(recovery.Spec.Assets) {
@@ -202,7 +205,7 @@ func (s *Server) restoreRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 			return err
 		}
 	}
-	if err = environment.AuthorizeExternal(identity, before, recovery.Spec); err != nil {
+	if err = environment.AuthorizeHostBindings(identity, before, recovery.Spec); err != nil {
 		return err
 	}
 	if err = environment.ReferenceResources(ctx, q, recovery.Spec.Assets); err != nil {

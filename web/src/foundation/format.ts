@@ -45,6 +45,7 @@ export const actionLabels: Record<string, string> = {
   suspend: "暂停",
   resume: "继续运行",
   rebuild: "重建",
+  migrate: "迁移设备",
   destroy: "销毁",
   changes: "应用变更",
   change: "应用变更",

@@ -5,7 +5,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"netlab.local/core/api"
@@ -58,7 +57,7 @@ func (e *Engine) Volume(ctx context.Context, action string, volume api.NodeVolum
 	}
 	path := persistentDirectory(volume)
 	if action == "delete" {
-		return os.RemoveAll(path)
+		return removeDirectoryVolume(path)
 	}
-	return os.MkdirAll(path, 0755)
+	return prepareDirectoryVolume(ctx, path, volume.SizeGiB)
 }

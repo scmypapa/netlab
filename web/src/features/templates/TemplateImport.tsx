@@ -610,6 +610,25 @@ function HardwareFields({
           value={value.numaNodes ?? 1}
           onChange={(numaNodes) => change({ numaNodes: Number(numaNodes) })}
         />
+        {profile.hardware.numaPlacement && (
+          <Select
+            label="宿主 NUMA 放置"
+            value={value.numaPlacement ?? ""}
+            allowDeselect={false}
+            data={[
+              { value: "", label: "宿主调度" },
+              { value: "preferred", label: "自动亲和" },
+              { value: "strict", label: "严格绑定" },
+            ]}
+            onChange={(mode) =>
+              change({
+                numaPlacement: mode
+                  ? (mode as Hardware["numaPlacement"])
+                  : undefined,
+              })
+            }
+          />
+        )}
       </div>
       {(profile.machine.secureBoot || profile.machine.tpm2) && (
         <div className="hardware-options">

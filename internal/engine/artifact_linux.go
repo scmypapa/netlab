@@ -35,8 +35,7 @@ func openDirectoryArtifact(directory string) (io.ReadCloser, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	headers := make([]*tar.Header, 0, len(entries))
-	length := int64(1024)
+	files := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
@@ -45,7 +44,23 @@ func openDirectoryArtifact(directory string) (io.ReadCloser, int64, error) {
 		if !info.Mode().IsRegular() {
 			return nil, 0, fmt.Errorf("template artifact %s is not a regular file", entry.Name())
 		}
-		header := &tar.Header{Name: entry.Name(), Mode: 0640, Size: info.Size(), Typeflag: tar.TypeReg, Format: tar.FormatGNU}
+		files = append(files, entry.Name())
+	}
+	return openArtifactFiles(directory, files)
+}
+
+func openArtifactFiles(directory string, files []string) (io.ReadCloser, int64, error) {
+	headers := make([]*tar.Header, 0, len(files))
+	length := int64(1024)
+	for _, name := range files {
+		info, err := os.Stat(filepath.Join(directory, name))
+		if err != nil {
+			return nil, 0, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, 0, fmt.Errorf("artifact %s is not a regular file", name)
+		}
+		header := &tar.Header{Name: name, Mode: 0640, Size: info.Size(), Typeflag: tar.TypeReg, Format: tar.FormatGNU}
 		headers = append(headers, header)
 		length += 512 + (header.Size+511)/512*512
 	}

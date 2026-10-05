@@ -47,6 +47,7 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 	if !ok || source.Execution.Asset.Id != a.Asset.Id {
 		return errors.New("recovery source does not match target")
 	}
+	move := a.InstanceId == source.Execution.InstanceId && a.DataSetId == source.Execution.DataSetId
 	directory := assetDirectory(e.cfg.DataDir, plan.EnvironmentId, a)
 	if _, err = readRecoveryManifest(directory, source.EnvironmentId, *plan.RecoveryPointId, source.Execution); err == nil {
 		return nil
@@ -54,7 +55,7 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 		return err
 	}
 	// Preparation owns only this operation's new data, never the current instance data.
-	if err = e.removeRecoveryData(ctx, plan.EnvironmentId, a); err != nil {
+	if err = e.removeRecoveryData(ctx, plan.EnvironmentId, a, move); err != nil {
 		return err
 	}
 	staging := directory + ".pending"
@@ -67,7 +68,7 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 	defer func() {
 		err = errors.Join(err, os.RemoveAll(staging))
 		if err != nil {
-			err = errors.Join(err, e.removeRecoveryData(context.WithoutCancel(ctx), plan.EnvironmentId, a))
+			err = errors.Join(err, e.removeRecoveryData(context.WithoutCancel(ctx), plan.EnvironmentId, a, move))
 		}
 	}()
 	input := filepath.Join(staging, "input")
@@ -180,7 +181,7 @@ func (c *Containers) prepareRecovery(ctx context.Context, env string, a api.Asse
 	}
 	for i, volume := range manifest.Volumes {
 		path := c.volumeDir(env, a, volume.Id)
-		if err = os.MkdirAll(path, 0755); err != nil {
+		if err = prepareDirectoryVolume(ctx, path, volume.SizeGiB); err != nil {
 			return err
 		}
 		file, err := os.Open(filepath.Join(input, fmt.Sprintf("volume-%d.tar", i)))
@@ -216,15 +217,8 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	domain.SecLabel = nil
 	domain.Name, domain.UUID = "netlab-"+a.InstanceId, a.InstanceId
 	directory := assetDirectory(v.data, env, a)
-	disks := map[string]vmDisk{}
-	for i, disk := range *a.Template.Disks {
-		disks["image-"+disk.Id] = systemDisk(directory, a, i)
-	}
-	if a.Asset.Volumes != nil {
-		for _, volume := range *a.Asset.Volumes {
-			disks["volume-"+volume.Id] = volumeDisk(directory, env, a, volume.Id)
-		}
-	}
+	disks := executionDiskMap(v.data, env, a)
+	sourceDisks := executionDiskMap(v.data, env, manifest.Execution)
 	for _, disk := range manifest.Disks {
 		if disk.BackingTemplateDisk != nil {
 			source := systemDiskPath(templateDirectory(v.data, a.Template.Id, a.Template.Version), *disk.BackingTemplateDisk)
@@ -240,7 +234,11 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 			target.file = filepath.Join(staging, filepath.Base(target.file))
 		}
 		if disk.RBDImage != "" {
-			source := vmDisk{rbd: manifest.Execution.Rbd, root: target.root, image: disk.RBDImage, snapshot: disk.RBDSnapshot}
+			source := sourceDisks[disk.Serial]
+			source.root, source.image, source.snapshot = target.root, disk.RBDImage, disk.RBDSnapshot
+			if sharedDisk(source, target) {
+				continue
+			}
 			err = target.restoreSnapshot(ctx, source)
 		} else {
 			err = target.restoreFile(ctx, filepath.Join(input, disk.File))
@@ -296,6 +294,9 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 			channel.Source.UNIX.Path = ""
 		}
 	}
+	if domain.Devices.Hostdevs, err = domainHostDevices(a.PciDevices); err != nil {
+		return err
+	}
 	execution, err := json.Marshal(a)
 	if err != nil {
 		return err
@@ -305,7 +306,7 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 		return err
 	}
 	domain.Metadata = &libvirtxml.DomainMetadata{XML: string(metadata)}
-	if !restoreMemory {
+	if !restoreMemory && (a.InstanceId != manifest.Execution.InstanceId || a.DataSetId != manifest.Execution.DataSetId) {
 		domain.GenID = &libvirtxml.DomainGenID{Value: uuid.NewString()}
 	}
 	config, err := domain.Marshal()
@@ -502,7 +503,7 @@ func (v *VirtualMachines) restoreRecoveryMemory(domain *libvirt.Domain, director
 	return vmState(domain)
 }
 
-func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.AssetExecution) error {
+func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.AssetExecution, preserveShared bool) error {
 	for _, source := range a.VolumeSources {
 		if source.Kind == api.Container {
 			if err := e.Volume(ctx, "delete", source); err != nil {
@@ -522,6 +523,9 @@ func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.Asset
 	}
 	if a.Template.Kind == api.Vm {
 		for _, disk := range executionDisks(e.cfg.DataDir, env, a) {
+			if preserveShared && disk.rbd != nil {
+				continue
+			}
 			if err := disk.remove(ctx); err != nil {
 				return err
 			}
@@ -535,6 +539,11 @@ func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.Asset
 		}
 	}
 	volumes := filepath.Join(storageRoot(e.cfg.DataDir, a), "environments", env, "volumes", a.Asset.Id, a.DataSetId)
+	if a.Template.Kind == api.Container {
+		if err := removeDirectoryVolumes(volumes); err != nil {
+			return err
+		}
+	}
 	directory := assetDirectory(e.cfg.DataDir, env, a)
 	for _, path := range []string{directory, directory + ".pending", volumes} {
 		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
@@ -577,7 +586,7 @@ func (e *Engine) rollbackRecovery(ctx context.Context, env string, original, nex
 				}
 			} else {
 				state, err = containerState(ctx, container)
-				return state, errors.Join(err, e.removeRecoveryData(ctx, env, next))
+				return state, errors.Join(err, e.removeRecoveryData(ctx, env, next, false))
 			}
 		} else if !errdefs.IsNotFound(err) {
 			return "unknown", err
@@ -610,7 +619,7 @@ func (e *Engine) rollbackRecovery(ctx context.Context, env string, original, nex
 			if actual.DataSetId != operation && errors.Is(backupErr, os.ErrNotExist) {
 				state, err = vmState(domain)
 				domain.Free()
-				return state, errors.Join(err, e.removeRecoveryData(ctx, env, next))
+				return state, errors.Join(err, e.removeRecoveryData(ctx, env, next, false))
 			}
 			state, err = vmState(domain)
 			if err == nil && state != "stopped" {
@@ -651,14 +660,12 @@ func (e *Engine) rollbackRecovery(ctx context.Context, env string, original, nex
 			return "absent", err
 		}
 	}
-	return state, e.removeRecoveryData(ctx, env, next)
+	return state, e.removeRecoveryData(ctx, env, next, false)
 }
 
-func (e *Engine) cleanupRecovery(ctx context.Context, env, operation string, original api.AssetExecution) error {
-	next := original
-	next.DataSetId = operation
+func (e *Engine) cleanupRecovery(ctx context.Context, env string, original, next api.AssetExecution) error {
 	directory := assetDirectory(e.cfg.DataDir, env, next)
-	if original.DataSetId != operation {
+	if original.DataSetId != next.DataSetId {
 		if original.Template.Kind == api.Container {
 			ctx = namespaces.WithNamespace(ctx, "netlab")
 			info, err := readRecoveryContainer(filepath.Join(directory, "before", "container.json"))

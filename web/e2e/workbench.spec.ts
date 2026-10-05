@@ -1,5 +1,124 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("虚拟机按完整 PCI 设备组绑定节点并保存到原草稿", async ({ page }) => {
+  const calls = await fixture(page);
+  await page.route("**/api/v1/nodes**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "node",
+          name: "Compute A",
+          state: "ready",
+          vmHardware: {
+            pciGroups: [
+              {
+                id: "gpu",
+                name: "Graphics controller",
+                available: true,
+                devices: ["0000:03:00.0", "0000:03:00.1"],
+              },
+              {
+                id: "nic",
+                name: "Host NIC",
+                available: false,
+                devices: ["0000:04:00.0"],
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑资产" });
+  await editor.getByRole("button", { name: "PCI 直通" }).click();
+  await editor.getByRole("textbox", { name: "宿主节点", exact: true }).click();
+  await page.getByRole("option", { name: "Compute A", exact: true }).click();
+  await editor.getByRole("textbox", { name: "设备组", exact: true }).click();
+  await expect(
+    page.getByRole("option", { name: "Host NIC", exact: true }),
+  ).toHaveAttribute("data-combobox-disabled", "true");
+  await page
+    .getByRole("option", { name: "Graphics controller", exact: true })
+    .click();
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await editor.evaluate((element) => element.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  }
+  await editor.getByRole("button", { name: "更新资产", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  expect(
+    calls.find((call) => call.path.endsWith("/draft"))?.body,
+  ).toMatchObject({
+    spec: {
+      assets: [
+        expect.anything(),
+        expect.objectContaining({
+          id: "windows",
+          pciBinding: { nodeId: "node", groupIds: ["gpu"] },
+        }),
+      ],
+    },
+  });
+});
+
+test("资产迁移选择节点并提交原运行修订", async ({ page }) => {
+  await fixture(page);
+  let submitted: unknown;
+  await page.route(
+    "**/api/v1/environments/env/assets/windows/migrations",
+    async (route) => {
+      if (route.request().method() === "POST") {
+        submitted = route.request().postDataJSON();
+        await route.fulfill({
+          status: 202,
+          json: { id: "migration", state: "queued", phase: "queued" },
+        });
+      } else {
+        await route.fulfill({
+          json: [
+            {
+              id: "other",
+              name: "Worker B",
+              live: true,
+              available: { cpu: 8, memoryMiB: 8192 },
+            },
+          ],
+        });
+      }
+    },
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "迁移节点", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "迁移 windows-01" });
+  await dialog.getByRole("textbox", { name: "目标节点" }).click();
+  await page.getByRole("option", { name: /Worker B/ }).click();
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await dialog.evaluate((element) => element.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  }
+  await dialog.getByRole("button", { name: "在线迁移", exact: true }).click();
+  await expect
+    .poll(() => submitted)
+    .toEqual({
+      expectedRevision: 1,
+      targetNodeId: "other",
+      clientRequestId: expect.any(String),
+    });
+  await expect(dialog).not.toBeVisible();
+});
+
 test("资产附加持久卷，容量取自目录并通过现有草稿提交", async ({ page }) => {
   const calls = await fixture(page);
   await page.route("**/api/v1/volumes", (route) =>

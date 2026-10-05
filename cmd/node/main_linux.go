@@ -113,6 +113,10 @@ func run() error {
 	defer executor.Close()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /node/v1/libvirt", executor.LibvirtTunnel)
+	mux.HandleFunc("POST /node/v1/migrations/prepare", executor.Migration)
+	for _, pattern := range []string{"GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/migration", "GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/migration/{file}", "DELETE /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/migration"} {
+		mux.HandleFunc(pattern, executor.Migration)
+	}
 	mux.HandleFunc("GET /node/v1/system/update", func(w http.ResponseWriter, r *http.Request) {
 		status, err := updates.Status(r.Context())
 		respond(w, status, err)
@@ -557,8 +561,15 @@ func validatePlanPaths(p api.NodePlan) error {
 		if err := validateExecutionPaths(a); err != nil {
 			return err
 		}
-		if (p.Phase == api.NodePlanPhasePrepareRecovery || p.Phase == api.NodePlanPhaseApplyRecovery) && (a.DataSetId != p.OperationId || p.RecoveryPointId == nil) {
-			return errors.New("recovery target must use the operation data set")
+		if (p.Phase == api.NodePlanPhasePrepareRecovery || p.Phase == api.NodePlanPhaseApplyRecovery) && p.RecoveryPointId == nil {
+			return errors.New("missing recovery point identity")
+		}
+	}
+	if p.Phase == api.NodePlanPhaseCleanupRecovery {
+		for _, asset := range p.Assets {
+			if target := p.RecoveryTargets[asset.Asset.Id]; target.Asset.Id != asset.Asset.Id || target.InstanceId != asset.InstanceId {
+				return errors.New("cleanup target identity does not match asset")
+			}
 		}
 	}
 	if p.Phase == api.NodePlanPhaseRollbackRecovery {

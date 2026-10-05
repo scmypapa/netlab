@@ -18,6 +18,9 @@ func supports(info api.NodeInfo, template api.Template, cpu int) bool {
 		(h.SecureBoot != nil && *h.SecureBoot && h.Firmware != api.Uefi) {
 		return false
 	}
+	if h.NumaPlacement != nil && (available.NumaPlacement == nil || !*available.NumaPlacement) {
+		return false
+	}
 	model := "host-model"
 	if h.CpuModel != nil && *h.CpuModel != "" {
 		model = *h.CpuModel

@@ -99,7 +99,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		if err != nil {
 			return state, err
 		}
-		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, func(id string) error { return os.RemoveAll(c.volumeDir(env, a, id)) }, true)
+		return state, removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, func(id string) error { return removeDirectoryVolume(c.volumeDir(env, a, id)) }, true)
 	case api.NodePlanPhaseUpdate:
 		return c.update(ctx, container, env, a)
 	case api.NodePlanPhaseStart:
@@ -174,7 +174,8 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 		return "absent", err
 	}
 	if err = c.initializeVolumes(ctx, created, env, a, volumes); err != nil {
-		return "absent", errors.Join(err, created.Delete(context.WithoutCancel(ctx), containerd.WithSnapshotCleanup))
+		a.Asset.Volumes = &volumes
+		return "absent", errors.Join(err, created.Delete(context.WithoutCancel(ctx), containerd.WithSnapshotCleanup), c.removeFiles(context.WithoutCancel(ctx), env, a))
 	}
 	return "prepared", nil
 }
@@ -192,6 +193,7 @@ func (c *Containers) containerConfiguration(ctx context.Context, env string, a a
 		return nil, nil, err
 	}
 	volumes := managedVolumes(config, a.Asset.Volumes)
+	a.Asset.Volumes = &volumes
 	mounts := []specs.Mount{{Destination: "/etc/resolv.conf", Type: "bind", Source: filepath.Join(dir, "resolv.conf"), Options: []string{"rbind", "ro"}}, {Destination: "/etc/hosts", Type: "bind", Source: filepath.Join(dir, "hosts"), Options: []string{"rbind", "ro"}}}
 	volumeMounts, err := c.volumeMounts(env, a, volumes)
 	if err != nil {
@@ -435,7 +437,10 @@ func (c *Containers) initializeVolumes(ctx context.Context, container containerd
 	return mount.WithTempMount(ctx, mounts, func(root string) error {
 		for _, v := range volumes {
 			dst := c.volumeDir(env, a, v.Id)
-			if _, err := os.Stat(dst); err == nil {
+			if _, err := os.Stat(dst + ".ext4"); err == nil {
+				if err = prepareDirectoryVolume(ctx, dst, v.SizeGiB); err != nil {
+					return err
+				}
 				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return err
@@ -450,19 +455,14 @@ func (c *Containers) initializeVolumes(ctx context.Context, container containerd
 			if err != nil {
 				return err
 			}
-			stage, err := os.MkdirTemp(filepath.Dir(dst), "initializing-")
-			if err != nil {
+			if err = prepareDirectoryVolume(ctx, dst, v.SizeGiB); err != nil {
 				return err
 			}
 			if _, err = os.Stat(resolved); err == nil {
-				err = fs.CopyDir(stage, resolved)
+				err = fs.CopyDir(dst, resolved)
 			} else if errors.Is(err, os.ErrNotExist) {
 				err = nil
 			}
-			if err == nil {
-				err = os.Rename(stage, dst)
-			}
-			os.RemoveAll(stage)
 			if err != nil {
 				return err
 			}
@@ -504,6 +504,19 @@ func (c *Containers) start(ctx context.Context, container containerd.Container, 
 		return "unknown", err
 	}
 	dir := assetDirectory(c.data, env, a)
+	labels, err := container.Labels(ctx)
+	if err != nil {
+		return "stopped", err
+	}
+	var volumes []api.Volume
+	if err = json.Unmarshal([]byte(labels["netlab.volumes"]), &volumes); err != nil {
+		return "stopped", err
+	}
+	for _, volume := range volumes {
+		if err = prepareDirectoryVolume(ctx, c.volumeDir(env, a, volume.Id), volume.SizeGiB); err != nil {
+			return "stopped", err
+		}
+	}
 	task, err := container.NewTask(ctx, containerLogFiles(dir))
 	if err != nil {
 		return "stopped", err
@@ -661,7 +674,7 @@ func (c *Containers) removeFiles(ctx context.Context, env string, a api.AssetExe
 	if err != nil {
 		return err
 	}
-	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, func(id string) error { return os.RemoveAll(c.volumeDir(env, a, id)) }, false)
+	return removeVolumeFiles(a.Asset.Volumes, references, func(id string) string { return c.volumeDir(env, a, id) }, func(id string) error { return removeDirectoryVolume(c.volumeDir(env, a, id)) }, false)
 }
 
 func (c *Containers) volumeReferences(ctx context.Context, env, asset string) (map[string]bool, error) {

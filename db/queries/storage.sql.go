@@ -197,6 +197,12 @@ SELECT name::text FROM (
  CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a(value)
  WHERE a.value->'execution'->>'storagePoolId'=$1
  UNION SELECT '持久卷：'||v.name FROM persistent_volumes v WHERE v.storage_pool_id=$1
+ UNION SELECT '迁移任务：'||e.name FROM operations o JOIN environments e ON e.id=o.environment_id
+ CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.payload->'before','[]')||jsonb_build_array(o.payload->'migration'->'target')) t
+ WHERE o.kind='migrate' AND o.phase NOT IN ('complete','rolled-back') AND (
+  t->'execution'->>'storagePoolId'=$1 OR EXISTS(
+   SELECT 1 FROM jsonb_each(t->'execution'->'volumeSources') volume
+   WHERE volume.value->'storage'->'rbd'->>'secretId'=$1))
  UNION SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
  WHERE o.state IN ('queued','running') AND (
   o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('storagePoolId',$1::text))) OR
@@ -230,6 +236,9 @@ WITH assets AS (
  FROM runtime_assets WHERE node_id=ANY($1::text[])
 ), allocations AS (
  SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib FROM assets GROUP BY node_id,pool_id
+ UNION ALL
+ SELECT node_id,COALESCE(execution->>'storagePoolId','')::text,(disk_gib+volume_gib)::bigint
+ FROM migration_asset_reservations WHERE node_id=ANY($1::text[])
  UNION ALL
  SELECT node_id,pool_id,-sum(reused)::bigint FROM (
   SELECT a.node_id,a.pool_id,a.environment_id,a.asset_id,v->>'id' AS volume_id,sum((v->>'sizeGiB')::bigint)-max((v->>'sizeGiB')::bigint) AS reused

@@ -110,6 +110,13 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		if !ok {
 			return spec, Invalid("资产 %s 引用的模板不存在", a.Name)
 		}
+		if binding := a.PciBinding; binding != nil {
+			if t.Kind != api.Vm || binding.NodeId == "" || len(binding.GroupIds) == 0 {
+				return spec, Invalid("PCI 直通需要虚拟机、节点和设备组")
+			}
+			slices.Sort(binding.GroupIds)
+			binding.GroupIds = slices.Compact(binding.GroupIds)
+		}
 		mediaIDs := []string{}
 		if t.Media != nil {
 			for _, media := range *t.Media {
@@ -313,7 +320,7 @@ func RequiresStop(kind api.TemplateKind, before, after api.Asset) bool {
 }
 
 func RequiresReplacement(template api.Template, before, after api.Asset, networkChanged bool) bool {
-	return before.TemplateId != after.TemplateId || !reflect.DeepEqual(before.Guest, after.Guest) ||
+	return before.TemplateId != after.TemplateId || !reflect.DeepEqual(before.Guest, after.Guest) || !reflect.DeepEqual(before.PciBinding, after.PciBinding) ||
 		(template.Initialization != nil && *template.Initialization == "cloudbase-init" && networkChanged)
 }
 

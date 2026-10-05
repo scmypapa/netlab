@@ -8,6 +8,9 @@ import { delay, guestKey, guestSSH } from './guest-ssh.mjs'
 const execute = promisify(execFile)
 const base = process.env.NETLAB_TEST_URL || 'http://127.0.0.1:8090'
 const report = { startedAt: new Date().toISOString(), steps: [], cleanupErrors: [] }
+const concurrency = Number(process.env.NETLAB_OBSERVATION_CONCURRENCY || 64)
+const duration = Number(process.env.NETLAB_OBSERVATION_SECONDS || 60)
+report.workload = { concurrencyPerNode: concurrency, durationSeconds: duration, responseBytes: 2 * 1024 * 1024 }
 const workers = new Map(JSON.parse(await readFile('D:/.cache/netlab/artifacts/multi-node-workers.json', 'utf8')).map(worker => [worker.nodeId, worker]))
 const pools = []
 const captures = []
@@ -78,9 +81,9 @@ try {
     await complete(environment.operationId)
     environment = await api(`/environments/${environment.id}`)
     current = (await api(`/environments/${environment.id}/state`)).assets
-    for (const asset of environment.spec.assets) assert.equal(current.find(item => item.assetId === asset.id).nodeId, pools.find(pool => pool.id === asset.storagePoolId).nodeId)
+    for (const asset of environment.spec.assets) assert.equal(current.find(item => item.assetId === asset.id).nodeId, pools.find(pool => pool.id === asset.storagePoolId).nodeIds[0])
     report.assets = current.map(({ assetId, nodeId, instanceId }) => ({ assetId, nodeId, instanceId }))
-    const server = "import os,http.server\nif os.fork()==0:\n os.setsid()\n fd=os.open('/dev/null',os.O_RDWR)\n for stream in range(3): os.dup2(fd,stream)\n class Handler(http.server.BaseHTTPRequestHandler):\n  def do_GET(self):\n   body=b'x'*(2*1024*1024);self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n  def log_message(self,*args): pass\n http.server.ThreadingHTTPServer(('0.0.0.0',8088),Handler).serve_forever()"
+    const server = "import os,http.server\nif os.fork()==0:\n os.setsid()\n fd=os.open('/dev/null',os.O_RDWR)\n for stream in range(3): os.dup2(fd,stream)\n body=b'x'*(2*1024*1024)\n class Handler(http.server.BaseHTTPRequestHandler):\n  def do_GET(self):\n   self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)\n  def log_message(self,*args): pass\n class Server(http.server.ThreadingHTTPServer):\n  request_queue_size=512\n  daemon_threads=True\n Server(('0.0.0.0',8088),Handler).serve_forever()"
     const localClient = current.find(actual => !workers.get(actual.nodeId).host && environment.spec.assets.find(asset => asset.id === actual.assetId).templateId === container.id)
     for (const actual of current) {
       const asset = environment.spec.assets.find(item => item.id === actual.assetId)
@@ -107,7 +110,7 @@ try {
     }
   })
   await step('双节点 VM/容器持续大包通信，同时运行采样、抓包与资源历史', async () => {
-    const capture = await api(`/environments/${environment.id}/captures`, 'POST', { assetIds: current.map(asset => asset.assetId), durationSeconds: 90, fileSizeMiB: 128 })
+    const capture = await api(`/environments/${environment.id}/captures`, 'POST', { assetIds: current.map(asset => asset.assetId), durationSeconds: Math.min(1800, duration + 30), fileSizeMiB: 256 })
     captures.push(...capture.segments)
     assert.deepEqual(capture.errors, {})
     assert.equal(capture.segments.length, 2)
@@ -116,11 +119,10 @@ try {
     const sampled = []
     const load = Promise.all(clients.map(async client => {
       const targets = report.workloads.filter(target => target.nodeId !== client.nodeId).map(target => `http://${target.address}:${target.container ? 80 : 8088}/${target.container ? 'large.bin' : ''}`)
-      return { nodeId: client.nodeId, ...JSON.parse(await namespace(client, ['python3', '-c', source, JSON.stringify(targets), '16', '30'], 90_000)) }
+      return { nodeId: client.nodeId, ...JSON.parse(await namespace(client, ['python3', '-c', source, JSON.stringify(targets), String(concurrency), String(duration)], (duration + 30) * 1000)) }
     }))
-    for (let i = 0; i < 6; i++) { await delay(4000); sampled.push(await api(`/environments/${environment.id}/traffic`)) }
+    for (let i = 0; i < Math.floor(duration / 4); i++) { await delay(4000); sampled.push(await api(`/environments/${environment.id}/traffic`)) }
     report.load = await load
-    for (const result of report.load) { assert.equal(result.failures, 0, JSON.stringify(result.errors)); assert.ok(result.bytes > 0) }
     report.traffic = sampled
     assert.ok(sampled.some(sample => sample.flows.some(flow => flow.sourceAssetId && flow.destinationAssetId)), 'asset relationships were not sampled')
     report.captureResults = []
@@ -130,11 +132,13 @@ try {
       const detail = await api(path)
       assert.notEqual(detail.segment.status, 'failed', detail.segment.error)
       assert.ok(detail.segment.packets > 0)
+      assert.equal(typeof detail.segment.kernelDroppedPackets, 'number', 'capture interface statistics missing')
       report.captureResults.push(detail)
     }
     const history = await api(`/environments/${environment.id}/metrics?range=180&step=10`)
     for (const asset of current) assert.ok(history.series.some(series => series.assetId === asset.assetId && ['receive', 'transmit'].includes(series.metric) && series.points.some(point => point.value > 0)), 'missing real interface rates for ' + asset.assetId)
     report.metricSeriesAfterLoad = history.series
+    for (const result of report.load) { assert.equal(result.failures, 0, JSON.stringify(result.errors)); assert.ok(result.bytes > 0) }
   })
 } catch (error) {
   report.error = error.message

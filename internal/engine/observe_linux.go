@@ -135,6 +135,10 @@ func (v *VirtualMachines) observedExecution(ctx context.Context, domain *libvirt
 	if config.CPU != nil && config.CPU.Numa != nil {
 		hardware.NumaNodes = ptr(len(config.CPU.Numa.Cell))
 	}
+	hardware.NumaPlacement = nil
+	if config.NUMATune != nil && config.NUMATune.Memory != nil && config.NUMATune.Memory.Placement == "auto" {
+		hardware.NumaPlacement = ptr(api.HardwareNumaPlacement(config.NUMATune.Memory.Mode))
+	}
 	hardware.Machine = config.OS.Type.Machine
 	hardware.DiskBus = api.HardwareDiskBus(config.Devices.Disks[0].Target.Bus)
 	hardware.Firmware = api.Bios

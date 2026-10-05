@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 	"netlab.local/core/api"
 )
@@ -53,9 +54,11 @@ func TestRealNativeSnapshotAndNUMA(t *testing.T) {
 		t.Fatal(err)
 	}
 	numa := 2
+	placement := api.Strict
 	disks := []api.TemplateDisk{{Id: "boot", SizeGiB: 1, Bus: api.Virtio, BootOrder: 1}}
 	a := api.AssetExecution{InstanceId: uuid.NewString(), Asset: api.Asset{Id: uuid.NewString(), Name: "Native snapshot", Resources: api.Resources{Cpu: 4, MemoryMiB: 512, DiskGiB: 1}}, Template: api.Template{Id: "template", Version: 1, Kind: api.Vm, Disks: &disks, Hardware: &api.Hardware{Machine: "q35", Firmware: api.Bios, DiskBus: api.HardwareDiskBusVirtio, NicModel: api.HardwareNicModelVirtio, CpuTopology: &api.CpuTopology{Sockets: 1, Threads: 2}, NumaNodes: &numa}}}
 	env, point := uuid.NewString(), uuid.NewString()
+	a.Template.Hardware.NumaPlacement = &placement
 	directory := assetDirectory(data, env, a)
 	if err = os.MkdirAll(directory, 0711); err != nil {
 		t.Fatal(err)
@@ -94,6 +97,13 @@ func TestRealNativeSnapshotAndNUMA(t *testing.T) {
 	}
 	if actual.Asset.Resources.Cpu != 4 || actual.Template.Hardware.CpuTopology.Threads != 2 || *actual.Template.Hardware.NumaNodes != 2 {
 		t.Fatalf("actual hardware: %+v", actual)
+	}
+	if actual.Template.Hardware.NumaPlacement == nil || *actual.Template.Hardware.NumaPlacement != placement {
+		t.Fatalf("host NUMA placement was lost: %+v", actual.Template.Hardware)
+	}
+	nodes, err := domain.GetNumaParameters(libvirt.DOMAIN_AFFECT_LIVE)
+	if err != nil || !nodes.NodesetSet || nodes.Nodeset == "" {
+		t.Fatalf("actual host memory binding: %+v %v", nodes, err)
 	}
 	if err = domain.Destroy(); err != nil {
 		t.Fatal(err)

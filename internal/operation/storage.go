@@ -83,6 +83,7 @@ func actualPool(node string, a api.AssetExecution) string {
 func assignStorage(a *api.AssetExecution, p storageCandidate) {
 	a.StoragePath, a.StorageFilesystem = &p.info.Path, &p.info.Filesystem
 	a.Rbd = p.info.Rbd
+	a.StoragePoolId = nil
 	if p.id != defaultStorage(p.node) {
 		a.StoragePoolId = &p.id
 	}

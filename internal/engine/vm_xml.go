@@ -50,6 +50,13 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	if t := h.CpuTopology; t != nil {
 		d.CPU.Topology = &libvirtxml.DomainCPUTopology{Sockets: t.Sockets, Threads: t.Threads, Cores: a.Asset.Resources.Cpu / t.Sockets / t.Threads}
 	}
+	if d.Devices.Hostdevs, err = domainHostDevices(a.PciDevices); err != nil {
+		return "", err
+	}
+	if h.NumaPlacement != nil {
+		d.VCPU.Placement = "auto"
+		d.NUMATune = &libvirtxml.DomainNUMATune{Memory: &libvirtxml.DomainNUMATuneMemory{Mode: string(*h.NumaPlacement), Placement: "auto"}}
+	}
 	if h.NumaNodes != nil && *h.NumaNodes > 1 {
 		d.CPU.Numa = &libvirtxml.DomainNuma{}
 		nodes := *h.NumaNodes

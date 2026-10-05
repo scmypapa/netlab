@@ -164,7 +164,9 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (se
 	if err != nil {
 		return api.CaptureSegment{}, err
 	}
-	args := []string{"-l", "-n", "-i", peer, "-w", filepath.Join(directory, "capture.pcapng"), "-P", "-T", "fields", "-E", "occurrence=f", "-a", fmt.Sprint("duration:", request.Settings.DurationSeconds), "-a", fmt.Sprint("filesize:", request.Settings.FileSizeMiB*1024)}
+	args := []string{"-l", "-n", "-B", "64", "-i", peer, "-w", filepath.Join(directory, "capture.pcapng"), "-P", "-T", "fields", "-E", "occurrence=f", "-a", fmt.Sprint("duration:", request.Settings.DurationSeconds), "-a", fmt.Sprint("filesize:", request.Settings.FileSizeMiB*1024)}
+	// Online flow fields need packet headers, not reconstructed TCP streams; PCAP retains the full packets.
+	args = append(args, "-o", "tcp.desegment_tcp_streams:FALSE", "-o", "tcp.analyze_sequence_numbers:FALSE")
 	if request.Settings.Filter != nil && *request.Settings.Filter != "" {
 		args = append(args, "-f", *request.Settings.Filter)
 	}
@@ -214,11 +216,14 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (se
 			waitErr = nil
 		}
 		finalErr := errors.Join(decodeErr, scanner.Err(), waitErr, stderr.Close())
+		drops, statsErr := captureDrops(filepath.Join(directory, "capture.pcapng"))
+		finalErr = errors.Join(finalErr, statsErr)
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		finalErr = errors.Join(finalErr, m.cleanup(cleanupCtx, request.Id))
 		cancel()
 		s.mu.Lock()
 		s.detail = s.snapshot()
+		s.detail.Segment.KernelDroppedPackets = drops
 		now := time.Now().UTC()
 		s.detail.Segment.FinishedAt, s.detail.Segment.Status = &now, api.CaptureSegmentStatusStopped
 		if finalErr != nil {

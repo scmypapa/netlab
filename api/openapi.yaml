@@ -3,6 +3,20 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /environments/{id}/assets/{assetId}/migrations:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: assetId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: migrationDestinations
+      responses:
+        '200': {description: Compatible migration destinations, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/MigrationDestination'}}}}}
+    post:
+      operationId: migrateAsset
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MigrationRequest'}}}}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+        '409': {description: Revision changed or an environment operation is unfinished}
   /volumes:
     get:
       operationId: listVolumes
@@ -839,6 +853,7 @@ components:
         cpuModel: {type: string}
         cpuTopology: {$ref: '#/components/schemas/CpuTopology'}
         numaNodes: {type: integer, minimum: 1, description: Guest NUMA nodes; vCPUs and memory are divided evenly. Omitted keeps one NUMA node.}
+        numaPlacement: {type: string, enum: [preferred, strict], description: Native automatic host CPU and memory placement. Omitted lets the host scheduler choose.}
         secureBoot: {type: boolean}
         tpm: {type: boolean}
         guestAgent: {type: boolean}
@@ -986,6 +1001,21 @@ components:
         restartPolicy: {$ref: '#/components/schemas/RestartPolicy'}
         guest: {$ref: '#/components/schemas/GuestSettings'}
         media: {type: array, items: {type: string}, description: Attached template media IDs. Omitted attaches all; an empty array ejects all.}
+        pciBinding: {$ref: '#/components/schemas/PciBinding'}
+    PciBinding:
+      type: object
+      required: [nodeId, groupIds]
+      properties:
+        nodeId: {type: string}
+        groupIds: {type: array, minItems: 1, uniqueItems: true, items: {type: string}}
+    PciGroup:
+      type: object
+      required: [id, name, available, devices]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        available: {type: boolean}
+        devices: {type: array, items: {type: string}}
     RestartPolicy:
       type: string
       enum: [never, on-failure, always]
@@ -1319,6 +1349,7 @@ components:
         previousInstanceId: {type: string}
         dataSetId: {type: string, x-go-type-skip-optional-pointer: true, description: Actual writable data set; retained across ordinary rebuilds}
         volumeSources: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeVolume'}, x-go-type-skip-optional-pointer: true}
+        pciDevices: {type: array, items: {type: string}, x-go-type-skip-optional-pointer: true}
         storagePath: {type: string, description: Node-local managed storage selected by the scheduler}
         storagePoolId: {type: string, description: Actual selected pool; omitted for node default storage}
         storageFilesystem: {type: string, description: Physical filesystem reservation identity}
@@ -1351,6 +1382,35 @@ components:
       properties:
         endpoint: {type: string, format: uri, description: Destination node mTLS endpoint}
         domainXml: {type: string, description: Native migratable domain XML with destination host paths and unchanged instance identity}
+    MigrationRequest:
+      type: object
+      required: [expectedRevision]
+      properties:
+        expectedRevision: {type: integer, minimum: 0}
+        targetNodeId: {type: string, description: Omit to select a compatible destination automatically}
+        clientRequestId: {type: string}
+    MigrationDestination:
+      type: object
+      required: [id, name, available, live]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        available: {$ref: '#/components/schemas/Resources'}
+        live: {type: boolean}
+    NodeMigrationPreparation:
+      type: object
+      required: [environmentId, execution, domainXml, sourceEndpoint]
+      properties:
+        environmentId: {type: string}
+        execution: {$ref: '#/components/schemas/AssetExecution'}
+        domainXml: {type: string}
+        sourceEndpoint: {type: string, format: uri}
+    NodeMigrationCleanup:
+      type: object
+      required: [source, target]
+      properties:
+        source: {$ref: '#/components/schemas/AssetExecution'}
+        target: {$ref: '#/components/schemas/AssetExecution'}
     NodeTemplatePreparation:
       type: object
       required: [template]
@@ -1378,6 +1438,7 @@ components:
       required: [assetId, instanceId, state, observedAt]
       properties:
         environmentId: {type: string}
+        nodeId: {type: string}
         assetId: {type: string}
         instanceId: {type: string}
         state: {type: string}
@@ -1660,6 +1721,8 @@ components:
         cpuModels: {type: array, items: {type: string}}
         nicModels: {type: array, items: {type: string}}
         diskControllers: {type: array, items: {type: string}}
+        numaPlacement: {type: boolean, description: Host supports libvirt automatic placement through numad.}
+        pciGroups: {type: array, items: {$ref: '#/components/schemas/PciGroup'}, x-go-type-skip-optional-pointer: true}
     VmMachine:
       type: object
       required: [name, aliases, maxVcpus, firmware, secureBoot, tpm2, diskBuses, firmwareFiles]
@@ -1830,6 +1893,7 @@ components:
         bytes: {type: integer, format: int64}
         packets: {type: integer, format: int64}
         omittedFlows: {type: integer, format: int64, description: Packets excluded from online aggregation due to distinct conversation limit; raw capture is unaffected.}
+        kernelDroppedPackets: {type: integer, format: int64, description: Kernel capture drops from the pcapng interface statistics; present after the recorder reports statistics.}
     CaptureList:
       type: object
       required: [segments, errors]

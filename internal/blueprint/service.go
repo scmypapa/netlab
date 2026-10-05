@@ -121,7 +121,9 @@ func (s Service) Save(ctx context.Context, identity access.Identity, environment
 		return api.Blueprint{}, api.BlueprintVersion{}, err
 	}
 	// Templates describe new disks, not attachments to existing environment data.
-	for _, asset := range spec.Assets {
+	for i := range spec.Assets {
+		asset := &spec.Assets[i]
+		asset.PciBinding = nil
 		if asset.Volumes != nil {
 			for i := range *asset.Volumes {
 				(*asset.Volumes)[i].PersistentVolumeId = nil

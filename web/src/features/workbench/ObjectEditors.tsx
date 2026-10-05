@@ -67,6 +67,11 @@ export function AssetEditor({
     Boolean(asset?.volumes?.length),
   );
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const [devicesOpen, setDevicesOpen] = useState(Boolean(asset?.pciBinding));
+  const [pciBinding, setPciBinding] = useState(asset?.pciBinding);
+  const deviceNodes = useCursorList(["nodes", "pci-devices"], api.nodes, {
+    enabled: devicesOpen && Boolean(identity.data?.administrator),
+  });
   const availableVolumes = useQuery({
     queryKey: ["volumes"],
     queryFn: api.volumes,
@@ -120,6 +125,10 @@ export function AssetEditor({
       volumes,
       media: template?.media?.length ? media : undefined,
       restartPolicy: template?.kind === "container" ? restartPolicy : undefined,
+      pciBinding:
+        template?.kind === "vm" && pciBinding?.groupIds.length
+          ? pciBinding
+          : undefined,
       guest: initialized
         ? {
             hostname: hostname.trim() || undefined,
@@ -273,6 +282,58 @@ export function AssetEditor({
             onChange={(value) => setDisk(Number(value))}
           />
         </Collapse>
+        {template?.kind === "vm" && identity.data?.administrator && (
+          <>
+            <button
+              className="disclosure"
+              type="button"
+              aria-expanded={devicesOpen}
+              onClick={() => setDevicesOpen(!devicesOpen)}
+            >
+              PCI 直通{" "}
+              <ChevronDown size={16} className={devicesOpen ? "rotated" : ""} />
+            </button>
+            <Collapse in={devicesOpen}>
+              <Select
+                label="宿主节点"
+                clearable
+                value={pciBinding?.nodeId ?? null}
+                data={(deviceNodes.data ?? [])
+                  .filter((node) => node.vmHardware?.pciGroups?.length)
+                  .map((node) => ({ value: node.id, label: node.name }))}
+                onChange={(nodeId) =>
+                  setPciBinding(nodeId ? { nodeId, groupIds: [] } : undefined)
+                }
+              />
+              {pciBinding && (
+                <MultiSelect
+                  label="设备组"
+                  searchable
+                  value={pciBinding.groupIds}
+                  data={(
+                    deviceNodes.data?.find(
+                      (node) => node.id === pciBinding.nodeId,
+                    )?.vmHardware?.pciGroups ?? []
+                  ).map((group) => ({
+                    value: group.id,
+                    label: group.name,
+                    disabled:
+                      !group.available &&
+                      !(
+                        asset?.pciBinding?.nodeId === pciBinding.nodeId &&
+                        asset.pciBinding.groupIds.includes(group.id)
+                      ),
+                  }))}
+                  onChange={(groupIds) =>
+                    setPciBinding({ ...pciBinding, groupIds })
+                  }
+                />
+              )}
+              <ErrorMessage error={deviceNodes.error} />
+              <LoadMore list={deviceNodes} />
+            </Collapse>
+          </>
+        )}
         <button
           className="disclosure"
           type="button"
