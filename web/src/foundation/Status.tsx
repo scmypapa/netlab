@@ -14,6 +14,7 @@ export function Status({ value }: { value: string }) {
             "deleting",
             "capturing",
             "creating",
+            "resizing",
             "connecting",
           ].includes(value)
         ? "active"

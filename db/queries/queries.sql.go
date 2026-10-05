@@ -734,7 +734,8 @@ func (q *Queries) GetPrincipalByName(ctx context.Context, name string) (Principa
 }
 
 const getReservedResources = `-- name: GetReservedResources :one
-SELECT COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM runtime_assets WHERE node_id=$1
+SELECT COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,
+(COALESCE(sum(disk_gib),0)+(SELECT COALESCE(sum(v.size_gib),0) FROM persistent_volumes v WHERE v.node_id=$1))::bigint AS disk_gib FROM runtime_assets WHERE node_id=$1
 `
 
 type GetReservedResourcesRow struct {
@@ -902,11 +903,12 @@ func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsPara
 }
 
 const listNodePage = `-- name: ListNodePage :many
-SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,COALESCE(sum(a.disk_gib),0)::bigint AS reserved_disk
+SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
+LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 WHERE ($1::text='' OR n.id>$1)
 AND ($2::text='' OR n.name ILIKE '%'||$2||'%')
-GROUP BY n.id ORDER BY n.id LIMIT $3
+GROUP BY n.id,v.disk_gib ORDER BY n.id LIMIT $3
 `
 
 type ListNodePageParams struct {
@@ -960,8 +962,10 @@ func (q *Queries) ListNodePage(ctx context.Context, arg ListNodePageParams) ([]L
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,COALESCE(sum(a.disk_gib),0)::bigint AS reserved_disk
-FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id GROUP BY n.id ORDER BY n.id
+SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
+LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
+GROUP BY n.id,v.disk_gib ORDER BY n.id
 `
 
 type ListNodesRow struct {
@@ -1156,10 +1160,11 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]Template, error) {
 
 const listVisibleOperations = `-- name: ListVisibleOperations :many
 SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id,COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
- COALESCE(CASE o.scope_kind WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
+ COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
 FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
-LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
+ LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
+ LEFT JOIN persistent_volumes v ON o.scope_kind='volume' AND v.id=o.scope_id
 WHERE ($1::text='' OR o.environment_id=$1)
 AND ($2::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=$2))
 AND ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS

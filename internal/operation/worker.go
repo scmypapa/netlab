@@ -29,6 +29,8 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
+	Volume              *api.NodeVolume            `json:"volume,omitempty"`
+	VolumeNode          string                     `json:"volumeNode,omitempty"`
 	BackupID            *string                    `json:"backupId,omitempty"`
 	BackupInitialize    bool                       `json:"backupInitialize,omitempty"`
 	BackupNativeID      *string                    `json:"backupNativeId,omitempty"`
@@ -137,6 +139,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			err = w.deleteTemplate(ctx, &op, &payload)
 		} else if op.Kind == "delete-storage-pool" {
 			err = w.deleteStoragePool(ctx, &op, &payload)
+		} else if op.ScopeKind == "volume" {
+			err = w.volume(ctx, &op, &payload)
 		} else if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
 			err = w.backup(ctx, &op, &payload)
 		} else if op.Kind == "capture-recovery" || op.Kind == "delete-recovery" {
@@ -191,6 +195,28 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
+	if op.ScopeKind == "volume" {
+		if op.Kind == "delete-volume" && err == nil {
+			dbErr = q.DeletePersistentVolume(ctx, op.ScopeID)
+		} else {
+			volumeState := "ready"
+			size := payload.Volume.SizeGiB
+			if err != nil {
+				volumeState = "failed"
+				row, readErr := q.GetPersistentVolume(ctx, op.ScopeID)
+				if readErr != nil {
+					slog.Error("volume completion", "error", readErr)
+					return
+				}
+				size = row.SizeGib
+			}
+			dbErr = q.FinishVolume(ctx, queries.FinishVolumeParams{ID: op.ScopeID, State: volumeState, SizeGib: size})
+		}
+		if dbErr != nil {
+			slog.Error("volume completion", "error", dbErr)
+			return
+		}
+	}
 	if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
 		if dbErr = w.finishBackup(ctx, q, op, &payload, err); dbErr != nil {
 			slog.Error("backup completion", "error", dbErr)
@@ -397,6 +423,12 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 				spec = *p.BeforeSpec
 			}
 			plan := api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts}
+			if phase == api.NodePlanPhaseRollbackRecovery {
+				plan.RecoveryTargets = map[string]api.AssetExecution{}
+				for _, target := range desiredTargets(p) {
+					plan.RecoveryTargets[target.Execution.Asset.Id] = target.Execution
+				}
+			}
 			if p.Recovery != nil {
 				plan.RecoveryPointId = &p.Recovery.ID
 				plan.IncludeMemory = p.Recovery.IncludeMemory

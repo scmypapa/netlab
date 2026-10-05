@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Button,
   Collapse,
   Drawer,
@@ -9,7 +10,7 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -59,6 +60,18 @@ export function AssetEditor({
   );
   const [disk, setDisk] = useState(asset?.resources.diskGiB ?? 20);
   const [advanced, setAdvanced] = useState(false);
+  const [volumes, setVolumes] = useState<Schema<"Volume">[]>(
+    asset?.volumes ?? [],
+  );
+  const [volumesOpen, setVolumesOpen] = useState(
+    Boolean(asset?.volumes?.length),
+  );
+  const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const availableVolumes = useQuery({
+    queryKey: ["volumes"],
+    queryFn: api.volumes,
+    enabled: volumesOpen && Boolean(identity.data?.administrator),
+  });
   const [storagePoolId, setStoragePoolId] = useState<string | null>(
     asset?.storagePoolId ?? null,
   );
@@ -85,6 +98,7 @@ export function AssetEditor({
     const template = templates.find((item) => item.id === id);
     setChosenTemplate(template);
     if (template) {
+      if (!asset) setVolumes(template.volumes ?? []);
       setMedia(template.media?.map((item) => item.id));
       setCpu(template.resources.cpu);
       setMemoryGiB(template.resources.memoryMiB / 1024);
@@ -103,6 +117,7 @@ export function AssetEditor({
       templateId,
       storagePoolId: storagePoolId ?? undefined,
       resources: { cpu, memoryMiB: memoryGiB * 1024, diskGiB: disk },
+      volumes,
       media: template?.media?.length ? media : undefined,
       restartPolicy: template?.kind === "container" ? restartPolicy : undefined,
       guest: initialized
@@ -257,6 +272,125 @@ export function AssetEditor({
             value={disk}
             onChange={(value) => setDisk(Number(value))}
           />
+        </Collapse>
+        <button
+          className="disclosure"
+          type="button"
+          aria-expanded={volumesOpen}
+          onClick={() => setVolumesOpen(!volumesOpen)}
+        >
+          数据卷
+          <ChevronDown size={16} className={volumesOpen ? "rotated" : ""} />
+        </button>
+        <Collapse in={volumesOpen}>
+          <div className="form-stack">
+            {volumes.map((volume, index) => {
+              const update = (values: Partial<Schema<"Volume">>) =>
+                setVolumes((items) =>
+                  items.map((item, i) =>
+                    i === index ? { ...item, ...values } : item,
+                  ),
+                );
+              return (
+                <div className="form-stack" key={volume.id}>
+                  <div className="form-columns">
+                    <Select
+                      label="数据来源"
+                      clearable
+                      placeholder="随资产创建"
+                      value={volume.persistentVolumeId ?? null}
+                      onChange={(id) => {
+                        const source = availableVolumes.data?.find(
+                          (item) => item.id === id,
+                        );
+                        update({
+                          persistentVolumeId: id ?? undefined,
+                          sizeGiB: source?.sizeGiB ?? volume.sizeGiB,
+                        });
+                        if (source)
+                          setStoragePoolId(
+                            source.storagePoolId.startsWith("default:")
+                              ? null
+                              : source.storagePoolId,
+                          );
+                      }}
+                      data={
+                        !identity.data?.administrator &&
+                        volume.persistentVolumeId
+                          ? [
+                              {
+                                value: volume.persistentVolumeId,
+                                label: "已附加数据卷",
+                              },
+                            ]
+                          : (availableVolumes.data ?? [])
+                              .filter(
+                                (item) =>
+                                  item.kind === template?.kind &&
+                                  (item.state === "ready" ||
+                                    item.id === volume.persistentVolumeId),
+                              )
+                              .map((item) => ({
+                                value: item.id,
+                                label: item.name,
+                              }))
+                      }
+                    />
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      aria-label={`移除数据卷 ${index + 1}`}
+                      onClick={() =>
+                        setVolumes((items) =>
+                          items.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      <Trash2 size={16} />
+                    </ActionIcon>
+                  </div>
+                  <div className="form-columns">
+                    <TextInput
+                      label={template?.kind === "vm" ? "盘名" : "挂载目录"}
+                      value={volume.mountPath}
+                      required
+                      onChange={(event) =>
+                        update({ mountPath: event.currentTarget.value })
+                      }
+                    />
+                    <NumberInput
+                      label="容量 · GiB"
+                      value={volume.sizeGiB}
+                      min={1}
+                      disabled={Boolean(volume.persistentVolumeId)}
+                      onChange={(value) => update({ sizeGiB: Number(value) })}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            <ErrorMessage error={availableVolumes.error} />
+            <Button
+              variant="default"
+              size="compact-sm"
+              leftSection={<Plus size={15} />}
+              onClick={() =>
+                setVolumes((items) => [
+                  ...items,
+                  {
+                    id: crypto.randomUUID(),
+                    mountPath:
+                      template?.kind === "vm"
+                        ? `数据盘 ${items.length + 1}`
+                        : `/data${items.length ? items.length + 1 : ""}`,
+                    sizeGiB: 10,
+                  },
+                ])
+              }
+            >
+              添加数据卷
+            </Button>
+          </div>
         </Collapse>
         {initialized && (
           <>

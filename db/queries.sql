@@ -102,8 +102,10 @@ WHERE o.state IN ('queued','running') AND (
 -- name: CreateTemplate :exec
 INSERT INTO templates(id,definition) VALUES($1,$2);
 -- name: ListNodes :many
-SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,COALESCE(sum(a.disk_gib),0)::bigint AS reserved_disk
-FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id GROUP BY n.id ORDER BY n.id;
+SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
+LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
+GROUP BY n.id,v.disk_gib ORDER BY n.id;
 -- name: PutNode :exec
 INSERT INTO nodes(id,name,endpoint,info) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,endpoint=EXCLUDED.endpoint,info=EXCLUDED.info,state='ready',observed_at=now();
 -- name: SetNodeState :exec
@@ -113,7 +115,8 @@ UPDATE nodes SET capacity_override=$2 WHERE id=$1;
 -- name: LockNode :one
 SELECT * FROM nodes WHERE id=$1 FOR UPDATE;
 -- name: GetReservedResources :one
-SELECT COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM runtime_assets WHERE node_id=$1;
+SELECT COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,
+(COALESCE(sum(disk_gib),0)+(SELECT COALESCE(sum(v.size_gib),0) FROM persistent_volumes v WHERE v.node_id=$1))::bigint AS disk_gib FROM runtime_assets WHERE node_id=$1;
 -- name: ListRuntimeAssets :many
 SELECT * FROM runtime_assets WHERE environment_id=$1 ORDER BY asset_id,instance_id;
 -- name: SetCurrentAsset :exec
@@ -192,17 +195,19 @@ AND (sqlc.arg(kind)::text='' OR t.definition->>'kind'=sqlc.arg(kind))
 AND (cardinality(sqlc.arg(ids)::text[])=0 OR t.id=ANY(sqlc.arg(ids)::text[]))
 ORDER BY t.created_at DESC,t.id DESC LIMIT sqlc.arg(page_limit);
 -- name: ListNodePage :many
-SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,COALESCE(sum(a.disk_gib),0)::bigint AS reserved_disk
+SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN runtime_assets a ON a.node_id=n.id
+LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor))
 AND (sqlc.arg(search)::text='' OR n.name ILIKE '%'||sqlc.arg(search)||'%')
-GROUP BY n.id ORDER BY n.id LIMIT sqlc.arg(page_limit);
+GROUP BY n.id,v.disk_gib ORDER BY n.id LIMIT sqlc.arg(page_limit);
 -- name: ListVisibleOperations :many
 SELECT sqlc.embed(o),COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
- COALESCE(CASE o.scope_kind WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
+ COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
 FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
-LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
+ LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
+ LEFT JOIN persistent_volumes v ON o.scope_kind='volume' AND v.id=o.scope_id
 WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))
 AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
 AND (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS

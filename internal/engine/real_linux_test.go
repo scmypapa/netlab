@@ -218,8 +218,18 @@ func TestRealMixedLifecycle(t *testing.T) {
 	if output, err := exec.Command("ovs-vsctl", "--columns=name", "--format=csv", "--data=bare", "--no-headings", "find", "Interface", "external_ids:iface-id="+oldPort).Output(); err != nil || len(output) > 0 {
 		t.Fatalf("stop left the installed interface behind: %s %v", output, err)
 	}
-	retained := true
-	addedVolumes := append(append([]api.Volume{}, volumes...), api.Volume{Id: "temporary", MountPath: "/netlab-temporary", SizeGiB: 1}, api.Volume{Id: "retained", MountPath: "/netlab-retained", SizeGiB: 1, Retain: &retained})
+	retained := uuid.NewString()
+	storage, err := StorageInfo(e.cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistent := api.NodeVolume{Id: retained, Kind: api.Container, SizeGiB: 1, Storage: storage}
+	if err = e.Volume(ctx, "prepare", persistent); err != nil {
+		t.Fatal(err)
+	}
+	defer e.Volume(context.Background(), "delete", persistent)
+	plan.Assets[2].VolumeSources = map[string]api.NodeVolume{"retained": persistent}
+	addedVolumes := append(append([]api.Volume{}, volumes...), api.Volume{Id: "temporary", MountPath: "/netlab-temporary", SizeGiB: 1}, api.Volume{Id: "retained", MountPath: "/netlab-retained", SizeGiB: 1, PersistentVolumeId: &retained})
 	plan.Assets[2].Asset.Volumes = &addedVolumes
 	for i := range plan.Assets {
 		plan.Assets[i].Asset.Resources.Cpu = 2

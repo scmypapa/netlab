@@ -1,5 +1,117 @@
 import { expect, test } from "@playwright/test";
 
+test("持久卷创建、扩容和删除使用同一节点工作区", async ({ page }) => {
+  let volume: Record<string, unknown> | undefined;
+  const requests: { method: string; body: unknown }[] = [];
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1", "");
+    let response: unknown = [],
+      status = 200;
+    if (path === "/identity")
+      response = { id: "admin", name: "admin", administrator: true };
+    if (path === "/nodes")
+      response = [
+        {
+          id: "node",
+          name: "数据节点",
+          state: "ready",
+          endpoint: "https://node.test",
+          observedAt: new Date().toISOString(),
+          capacity: { cpu: 8, memoryMiB: 16384, diskGiB: 100 },
+          reserved: { cpu: 0, memoryMiB: 0, diskGiB: 0 },
+          capabilities: ["vm", "container"],
+          slots: 4,
+        },
+      ];
+    if (path === "/storage-pools")
+      response = [
+        {
+          id: "default:node",
+          nodeIds: ["node"],
+          name: "本地存储",
+          default: true,
+          driver: "directory",
+          allocatedGiB: 0,
+          capabilities: ["volumes"],
+          storage: {
+            path: "/var/lib/netlab",
+            filesystem: "root",
+            capacityBytes: 100 * 2 ** 30,
+            availableBytes: 80 * 2 ** 30,
+          },
+        },
+      ];
+    if (path.startsWith("/volumes")) {
+      if (request.method() === "GET") response = volume ? [volume] : [];
+      else {
+        const body =
+          request.method() === "DELETE" ? undefined : request.postDataJSON();
+        requests.push({ method: request.method(), body });
+        if (request.method() === "POST")
+          volume = {
+            ...body,
+            id: "data",
+            nodeId: "node",
+            state: "ready",
+            references: [],
+          };
+        if (request.method() === "PUT") volume = { ...volume, ...body };
+        if (request.method() === "DELETE") volume = undefined;
+        status = 202;
+        response = { id: "operation", state: "queued", total: 1, completed: 0 };
+      }
+    }
+    await route.fulfill({ status, json: response });
+  });
+  await page.goto("/resources");
+  await page.getByRole("button", { name: /数据节点/ }).click();
+  await page.getByRole("tab", { name: "数据卷", exact: true }).click();
+  await page.getByRole("button", { name: "创建数据卷" }).click();
+  let dialog = page.getByRole("dialog", { name: "创建数据卷" });
+  await dialog
+    .getByRole("textbox", { name: "名称", exact: true })
+    .fill("业务数据");
+  await dialog.getByRole("textbox", { name: "容量 · GiB" }).fill("2");
+  await dialog.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByText("业务数据", { exact: true })).toBeVisible();
+  expect(requests[0].body).toEqual({
+    name: "业务数据",
+    kind: "vm",
+    storagePoolId: "default:node",
+    sizeGiB: 2,
+  });
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: `../data/volumes-${width}.png`,
+      animations: "disabled",
+    });
+  }
+  await page.getByRole("button", { name: "操作 业务数据" }).click();
+  await page.getByRole("menuitem", { name: "扩容", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "扩容 业务数据" });
+  await dialog.getByRole("textbox", { name: "容量 · GiB" }).fill("4");
+  await dialog.getByRole("button", { name: "扩容", exact: true }).click();
+  await expect(page.getByText("4 GiB", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "操作 业务数据" }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "删除 业务数据" })
+    .getByRole("button", { name: "删除", exact: true })
+    .click();
+  await expect(page.getByText("暂无数据卷", { exact: true })).toBeVisible();
+  expect(requests.slice(1)).toEqual([
+    { method: "PUT", body: { sizeGiB: 4 } },
+    { method: "DELETE", body: undefined },
+  ]);
+});
+
 test("仓库目录中的备份通过标准创建接口恢复", async ({ page }) => {
   let restored = false;
   await page.route("**/api/v1/**", async (route) => {

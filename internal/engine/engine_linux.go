@@ -211,6 +211,9 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		result.Error = ptr("service gateway plan was sent to another node")
 		return result
 	}
+	if plan.Phase == api.NodePlanPhaseNetwork && len(plan.Spec.Networks) == 0 {
+		plan.Phase = api.NodePlanPhaseRemoveNetwork
+	}
 	switch plan.Phase {
 	case api.NodePlanPhaseExternalAttachments:
 		var attachments []api.ExternalAttachment
@@ -297,7 +300,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 						state, err = e.vm.applyRecovery(ctx, plan.EnvironmentId, a)
 					}
 				case api.NodePlanPhaseRollbackRecovery:
-					state, err = e.rollbackRecovery(ctx, plan.EnvironmentId, plan.OperationId, a)
+					state, err = e.rollbackRecovery(ctx, plan.EnvironmentId, a, plan.RecoveryTargets[a.Asset.Id])
 				case api.NodePlanPhaseCleanupRecovery:
 					state, err = "cleaned", e.cleanupRecovery(ctx, plan.EnvironmentId, plan.OperationId, a)
 				}

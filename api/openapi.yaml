@@ -3,6 +3,34 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /volumes:
+    get:
+      operationId: listVolumes
+      responses:
+        '200': {description: Persistent volumes, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/PersistentVolume'}}}}}
+    post:
+      operationId: createVolume
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateVolume'}}}}
+      responses:
+        '202': {description: Volume creation accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+  /volumes/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: getVolume
+      responses:
+        '200': {description: Persistent volume, content: {application/json: {schema: {$ref: '#/components/schemas/PersistentVolume'}}}}
+        '404': {description: Volume not found}
+    put:
+      operationId: resizeVolume
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [sizeGiB], properties: {sizeGiB: {type: integer, format: int64, minimum: 1}}}}}}
+      responses:
+        '202': {description: Detached volume expansion accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+        '409': {description: Volume is attached or an operation is pending}
+    delete:
+      operationId: deleteVolume
+      responses:
+        '202': {description: Unreferenced volume deletion accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+        '409': {description: Volume is referenced}
   /environments/{id}/traffic:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -829,7 +857,35 @@ components:
         id: {type: string}
         mountPath: {type: string}
         sizeGiB: {type: integer, format: int64}
-        retain: {type: boolean}
+        persistentVolumeId: {type: string, description: Registered persistent volume. Its size comes from the volume catalogue.}
+    CreateVolume:
+      type: object
+      required: [name, storagePoolId, kind, sizeGiB]
+      properties:
+        name: {type: string}
+        storagePoolId: {type: string}
+        kind: {$ref: '#/components/schemas/TemplateKind'}
+        sizeGiB: {type: integer, format: int64, minimum: 1}
+    PersistentVolume:
+      allOf:
+        - {$ref: '#/components/schemas/CreateVolume'}
+        - type: object
+          required: [id, nodeId, state, references]
+          properties:
+            id: {type: string}
+            nodeId: {type: string}
+            state: {type: string, enum: [creating, ready, resizing, deleting, failed]}
+            references: {type: array, items: {type: string}}
+            operationId: {type: string}
+            error: {type: string}
+    NodeVolume:
+      type: object
+      required: [id, kind, sizeGiB, storage]
+      properties:
+        id: {type: string}
+        kind: {$ref: '#/components/schemas/TemplateKind'}
+        sizeGiB: {type: integer, format: int64}
+        storage: {$ref: '#/components/schemas/StorageInfo'}
     TemplateDisk:
       type: object
       required: [id, sizeGiB, bus, bootOrder]
@@ -1262,6 +1318,7 @@ components:
         instanceId: {type: string}
         previousInstanceId: {type: string}
         dataSetId: {type: string, x-go-type-skip-optional-pointer: true, description: Actual writable data set; retained across ordinary rebuilds}
+        volumeSources: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeVolume'}, x-go-type-skip-optional-pointer: true}
         storagePath: {type: string, description: Node-local managed storage selected by the scheduler}
         storagePoolId: {type: string, description: Actual selected pool; omitted for node default storage}
         storageFilesystem: {type: string, description: Physical filesystem reservation identity}
@@ -1278,6 +1335,7 @@ components:
         includeMemory: {type: boolean, x-go-type-skip-optional-pointer: true}
         captureStates: {type: object, additionalProperties: {type: string}}
         recoverySources: {type: object, additionalProperties: {$ref: '#/components/schemas/NodeRecoverySource'}}
+        recoveryTargets: {type: object, additionalProperties: {$ref: '#/components/schemas/AssetExecution'}, x-go-type-skip-optional-pointer: true}
         assets: {type: array, items: {$ref: '#/components/schemas/AssetExecution'}}
         spec: {$ref: '#/components/schemas/EnvironmentSpec'}
         gateway: {$ref: '#/components/schemas/ServiceGateway'}

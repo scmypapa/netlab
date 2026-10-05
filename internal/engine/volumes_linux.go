@@ -3,7 +3,10 @@
 package engine
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"netlab.local/core/api"
 )
@@ -13,7 +16,7 @@ func removeVolumeFiles(volumes *[]api.Volume, references map[string]bool, pathFo
 		return nil
 	}
 	for _, volume := range *volumes {
-		if volume.Retain != nil && *volume.Retain {
+		if volume.PersistentVolumeId != nil {
 			continue
 		}
 		path := pathFor(volume.Id)
@@ -28,4 +31,34 @@ func removeVolumeFiles(volumes *[]api.Volume, references map[string]bool, pathFo
 		}
 	}
 	return nil
+}
+
+func persistentDirectory(volume api.NodeVolume) string {
+	return filepath.Join(volume.Storage.Path, "volumes", volume.Id)
+}
+
+func (e *Engine) Volume(ctx context.Context, action string, volume api.NodeVolume) error {
+	unlock := e.lock("volume:" + volume.Id)
+	defer unlock()
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
+	if volume.Kind == api.Vm {
+		disk := persistentDisk(volume)
+		if action == "delete" {
+			return disk.remove(ctx)
+		}
+		return disk.prepare(ctx, "", volume.SizeGiB)
+	}
+	if volume.Kind != api.Container || volume.Storage.Rbd != nil {
+		return fmt.Errorf("目录数据卷需要目录存储")
+	}
+	path := persistentDirectory(volume)
+	if action == "delete" {
+		return os.RemoveAll(path)
+	}
+	return os.MkdirAll(path, 0755)
 }

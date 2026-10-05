@@ -193,6 +193,12 @@ function list<T>(
 }
 
 export const api = {
+  volumes: () => request<Schema<"PersistentVolume">[]>("/volumes"),
+  createVolume: (body: Schema<"CreateVolume">) =>
+    request<Operation>("/volumes", "POST", body),
+  resizeVolume: (id: string, sizeGiB: number) =>
+    request<Operation>(`/volumes/${id}`, "PUT", { sizeGiB }),
+  deleteVolume: (id: string) => request<Operation>(`/volumes/${id}`, "DELETE"),
   traffic: (id: string, signal?: AbortSignal) =>
     request<Schema<"TrafficObservation">>(
       `/environments/${id}/traffic`,

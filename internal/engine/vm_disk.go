@@ -29,9 +29,20 @@ func systemDisk(directory string, a api.AssetExecution, index int) vmDisk {
 }
 
 func volumeDisk(directory, env string, a api.AssetExecution, id string) vmDisk {
+	if source, ok := a.VolumeSources[id]; ok {
+		return persistentDisk(source)
+	}
 	disk := vmDisk{file: filepath.Join(filepath.Dir(filepath.Dir(directory)), "volumes", a.Asset.Id, a.DataSetId, id+".qcow2")}
 	if a.Rbd != nil {
 		disk = vmDisk{image: a.Rbd.ImagePrefix + env + "." + a.Asset.Id + "." + a.DataSetId + ".volume-" + id, rbd: a.Rbd, root: *a.StoragePath}
+	}
+	return disk
+}
+
+func persistentDisk(volume api.NodeVolume) vmDisk {
+	disk := vmDisk{file: filepath.Join(volume.Storage.Path, "volumes", volume.Id+".qcow2")}
+	if volume.Storage.Rbd != nil {
+		disk = vmDisk{image: volume.Storage.Rbd.ImagePrefix + "volume-" + volume.Id, rbd: volume.Storage.Rbd, root: volume.Storage.Path}
 	}
 	return disk
 }

@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+  "/volumes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listVolumes"];
+    put?: never;
+    post: operations["createVolume"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/volumes/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["getVolume"];
+    put: operations["resizeVolume"];
+    post?: never;
+    delete: operations["deleteVolume"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/traffic": {
     parameters: {
       query?: never;
@@ -1390,7 +1424,31 @@ export interface components {
       mountPath: string;
       /** Format: int64 */
       sizeGiB: number;
-      retain?: boolean;
+      /** @description Registered persistent volume. Its size comes from the volume catalogue. */
+      persistentVolumeId?: string;
+    };
+    CreateVolume: {
+      name: string;
+      storagePoolId: string;
+      kind: components["schemas"]["TemplateKind"];
+      /** Format: int64 */
+      sizeGiB: number;
+    };
+    PersistentVolume: components["schemas"]["CreateVolume"] & {
+      id: string;
+      nodeId: string;
+      /** @enum {string} */
+      state: "creating" | "ready" | "resizing" | "deleting" | "failed";
+      references: string[];
+      operationId?: string;
+      error?: string;
+    };
+    NodeVolume: {
+      id: string;
+      kind: components["schemas"]["TemplateKind"];
+      /** Format: int64 */
+      sizeGiB: number;
+      storage: components["schemas"]["StorageInfo"];
     };
     TemplateDisk: {
       id: string;
@@ -1795,6 +1853,9 @@ export interface components {
       previousInstanceId?: string;
       /** @description Actual writable data set; retained across ordinary rebuilds */
       dataSetId?: string;
+      volumeSources?: {
+        [key: string]: components["schemas"]["NodeVolume"];
+      };
       /** @description Node-local managed storage selected by the scheduler */
       storagePath?: string;
       /** @description Actual selected pool; omitted for node default storage */
@@ -1838,6 +1899,9 @@ export interface components {
       };
       recoverySources?: {
         [key: string]: components["schemas"]["NodeRecoverySource"];
+      };
+      recoveryTargets?: {
+        [key: string]: components["schemas"]["AssetExecution"];
       };
       assets: components["schemas"]["AssetExecution"][];
       spec: components["schemas"]["EnvironmentSpec"];
@@ -2355,6 +2419,144 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listVolumes: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Persistent volumes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PersistentVolume"][];
+        };
+      };
+    };
+  };
+  createVolume: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateVolume"];
+      };
+    };
+    responses: {
+      /** @description Volume creation accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Operation"];
+        };
+      };
+    };
+  };
+  getVolume: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Persistent volume */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PersistentVolume"];
+        };
+      };
+      /** @description Volume not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  resizeVolume: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Format: int64 */
+          sizeGiB: number;
+        };
+      };
+    };
+    responses: {
+      /** @description Detached volume expansion accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Operation"];
+        };
+      };
+      /** @description Volume is attached or an operation is pending */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  deleteVolume: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Unreferenced volume deletion accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Operation"];
+        };
+      };
+      /** @description Volume is referenced */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   observeTraffic: {
     parameters: {
       query?: never;

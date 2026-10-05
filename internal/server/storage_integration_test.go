@@ -14,7 +14,7 @@ import (
 	"netlab.local/core/internal/transport"
 )
 
-func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin string, call func(string, string, string, any, int) []byte) {
+func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, user string, call func(string, string, string, any, int) []byte) {
 	id := uuid.NewString()
 	cleaned := 0
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -110,4 +110,7 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin str
 		t.Fatal("referenced deleting pool")
 	}
 	t.Log("storage reference, shared volume reservation and deletion checks passed:", pool.Name)
+	t.Run("persistent volumes", func(t *testing.T) {
+		testPersistentVolumesAPI(t, ctx, s, admin, user, id, image, call)
+	})
 }

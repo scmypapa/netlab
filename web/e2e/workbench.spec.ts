@@ -1,5 +1,69 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("资产附加持久卷，容量取自目录并通过现有草稿提交", async ({ page }) => {
+  const calls = await fixture(page);
+  await page.route("**/api/v1/volumes", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "durable-data",
+          name: "业务文件",
+          nodeId: "node",
+          storagePoolId: "default:node",
+          kind: "container",
+          sizeGiB: 3,
+          state: "ready",
+          references: [],
+        },
+      ],
+    }),
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑资产" });
+  await editor.getByRole("button", { name: "数据卷", exact: true }).click();
+  await editor.getByRole("button", { name: "添加数据卷", exact: true }).click();
+  await editor.getByRole("textbox", { name: "数据来源" }).click();
+  await page.getByRole("option", { name: "业务文件", exact: true }).click();
+  await expect(
+    editor.getByRole("textbox", { name: "容量 · GiB", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    editor.getByRole("textbox", { name: "容量 · GiB", exact: true }),
+  ).toHaveValue("3");
+  for (const width of [390, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await editor.evaluate((element) => element.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: `../data/volume-editor-${width}.png` });
+  }
+  await editor.getByRole("button", { name: "更新资产", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  expect(
+    calls.find((call) => call.path.endsWith("/draft"))?.body,
+  ).toMatchObject({
+    spec: {
+      assets: [
+        expect.objectContaining({
+          id: "web",
+          volumes: [
+            expect.objectContaining({
+              persistentVolumeId: "durable-data",
+              sizeGiB: 3,
+              mountPath: "/data",
+            }),
+          ],
+        }),
+        expect.anything(),
+      ],
+    },
+  });
+});
+
 test("通信图与抓包贯通，角色仅更新画布，分段失败可见", async ({ page }) => {
   const calls = await fixture(page);
   const capture = "cd3aa501-fda4-4b61-9d68-7337f896ad80";

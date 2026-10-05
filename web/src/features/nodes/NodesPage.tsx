@@ -5,6 +5,7 @@ import { Cpu, Plus, Search, Server } from "lucide-react";
 import { useState } from "react";
 import { api, type Node } from "../../api/client";
 import { StoragePanel } from "./StoragePanel";
+import { VolumePanel } from "./VolumePanel";
 import { BackupRepositoryPanel } from "./BackupRepositoryPanel";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime, memory } from "../../foundation/format";
@@ -161,6 +162,7 @@ export function NodesPage() {
           <Tabs defaultValue="storage">
             <Tabs.List mb="md">
               <Tabs.Tab value="storage">存储池</Tabs.Tab>
+              <Tabs.Tab value="volumes">数据卷</Tabs.Tab>
               <Tabs.Tab value="backups">备份仓库</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="storage">
@@ -168,6 +170,9 @@ export function NodesPage() {
             </Tabs.Panel>
             <Tabs.Panel value="backups">
               <BackupRepositoryPanel node={selected} />
+            </Tabs.Panel>
+            <Tabs.Panel value="volumes">
+              <VolumePanel node={selected} />
             </Tabs.Panel>
           </Tabs>
         )}

@@ -38,6 +38,10 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 func (s Service) CurrentOperationID(ctx context.Context, row queries.Operation, current *string) (*string, error) {
 	var err error
 	switch row.ScopeKind {
+	case "volume":
+		var volume queries.PersistentVolume
+		volume, err = s.Queries.GetPersistentVolume(ctx, row.ScopeID)
+		current = volume.OperationID
 	case "backup":
 		var backup queries.Backup
 		backup, err = s.Queries.GetBackup(ctx, row.ScopeID)
@@ -141,6 +145,23 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 			return api.Operation{}, environment.ErrConflict
 		}
 		revision = e.Revision
+	} else if row.ScopeKind == "volume" {
+		rows, err := q.LockPersistentVolumes(ctx, []string{row.ScopeID})
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if len(rows) != 1 || rows[0].OperationID == nil || *rows[0].OperationID != id {
+			return api.Operation{}, environment.ErrConflict
+		}
+		state := "creating"
+		if row.Kind == "resize-volume" {
+			state = "resizing"
+		} else if row.Kind == "delete-volume" {
+			state = "deleting"
+		}
+		if err = q.SetVolumeOperation(ctx, queries.SetVolumeOperationParams{ID: row.ScopeID, State: state, OperationID: &id}); err != nil {
+			return api.Operation{}, err
+		}
 	} else if row.ScopeKind == "backup" {
 		backup, err := q.LockBackup(ctx, row.ScopeID)
 		if err != nil {

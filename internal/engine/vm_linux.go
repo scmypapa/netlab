@@ -231,6 +231,16 @@ func (v *VirtualMachines) removeVolumes(ctx context.Context, env string, a api.A
 
 func (v *VirtualMachines) prepareVolumes(ctx context.Context, env string, a api.AssetExecution) error {
 	for _, volume := range *a.Asset.Volumes {
+		if _, persistent := a.VolumeSources[volume.Id]; persistent {
+			exists, err := volumeDisk(assetDirectory(v.data, env, a), env, a, volume.Id).exists(ctx)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return fmt.Errorf("persistent volume %s is missing", volume.Id)
+			}
+			continue
+		}
 		if err := volumeDisk(assetDirectory(v.data, env, a), env, a, volume.Id).prepare(ctx, "", volume.SizeGiB); err != nil {
 			return err
 		}

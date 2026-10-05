@@ -17,6 +17,7 @@ export const statusLabels: Record<string, string> = {
   stopped: "已停止",
   suspended: "已暂停",
   changing: "应用变更",
+  resizing: "扩容中",
   destroying: "销毁中",
   destroyed: "已销毁",
   failed: "失败",

@@ -503,6 +503,13 @@ func (v *VirtualMachines) restoreRecoveryMemory(domain *libvirt.Domain, director
 }
 
 func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.AssetExecution) error {
+	for _, source := range a.VolumeSources {
+		if source.Kind == api.Container {
+			if err := e.Volume(ctx, "delete", source); err != nil {
+				return err
+			}
+		}
+	}
 	if a.Template.Kind == api.Container {
 		ctx = namespaces.WithNamespace(ctx, "netlab")
 		err := e.container.client.SnapshotService("overlayfs").Remove(ctx, a.InstanceId+"."+a.DataSetId)
@@ -513,15 +520,17 @@ func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.Asset
 			return err
 		}
 	}
-	if a.Rbd != nil {
+	if a.Template.Kind == api.Vm {
 		for _, disk := range executionDisks(e.cfg.DataDir, env, a) {
 			if err := disk.remove(ctx); err != nil {
 				return err
 			}
-			pending := disk
-			pending.image += ".pending"
-			if err := pending.remove(ctx); err != nil {
-				return err
+			if disk.rbd != nil {
+				pending := disk
+				pending.image += ".pending"
+				if err := pending.remove(ctx); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -540,9 +549,8 @@ func (e *Engine) removeRecoveryData(ctx context.Context, env string, a api.Asset
 	return nil
 }
 
-func (e *Engine) rollbackRecovery(ctx context.Context, env, operation string, original api.AssetExecution) (string, error) {
-	next := original
-	next.DataSetId = operation
+func (e *Engine) rollbackRecovery(ctx context.Context, env string, original, next api.AssetExecution) (string, error) {
+	operation := next.DataSetId
 	before := filepath.Join(assetDirectory(e.cfg.DataDir, env, next), "before")
 	state := "destroyed"
 	if original.Template.Kind == api.Container {

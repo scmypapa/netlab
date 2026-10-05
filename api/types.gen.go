@@ -200,6 +200,15 @@ const (
 	PermissionSession Permission = "session"
 )
 
+// Defines values for PersistentVolumeState.
+const (
+	PersistentVolumeStateCreating PersistentVolumeState = "creating"
+	PersistentVolumeStateDeleting PersistentVolumeState = "deleting"
+	PersistentVolumeStateFailed   PersistentVolumeState = "failed"
+	PersistentVolumeStateReady    PersistentVolumeState = "ready"
+	PersistentVolumeStateResizing PersistentVolumeState = "resizing"
+)
+
 // Defines values for PolicyAction.
 const (
 	Allow PolicyAction = "allow"
@@ -323,14 +332,14 @@ const (
 
 // Defines values for UpdateActivityPhase.
 const (
-	Downloading       UpdateActivityPhase = "downloading"
-	Failed            UpdateActivityPhase = "failed"
-	Installing        UpdateActivityPhase = "installing"
-	Queued            UpdateActivityPhase = "queued"
-	Restarting        UpdateActivityPhase = "restarting"
-	Succeeded         UpdateActivityPhase = "succeeded"
-	UpdatingNodes     UpdateActivityPhase = "updating_nodes"
-	WaitingOperations UpdateActivityPhase = "waiting_operations"
+	UpdateActivityPhaseDownloading       UpdateActivityPhase = "downloading"
+	UpdateActivityPhaseFailed            UpdateActivityPhase = "failed"
+	UpdateActivityPhaseInstalling        UpdateActivityPhase = "installing"
+	UpdateActivityPhaseQueued            UpdateActivityPhase = "queued"
+	UpdateActivityPhaseRestarting        UpdateActivityPhase = "restarting"
+	UpdateActivityPhaseSucceeded         UpdateActivityPhase = "succeeded"
+	UpdateActivityPhaseUpdatingNodes     UpdateActivityPhase = "updating_nodes"
+	UpdateActivityPhaseWaitingOperations UpdateActivityPhase = "waiting_operations"
 )
 
 // Defines values for VPNAccessState.
@@ -414,8 +423,9 @@ type AssetExecution struct {
 	StoragePath *string `json:"storagePath,omitempty"`
 
 	// StoragePoolId Actual selected pool; omitted for node default storage
-	StoragePoolId *string  `json:"storagePoolId,omitempty"`
-	Template      Template `json:"template"`
+	StoragePoolId *string               `json:"storagePoolId,omitempty"`
+	Template      Template              `json:"template"`
+	VolumeSources map[string]NodeVolume `json:"volumeSources,omitempty"`
 }
 
 // AssetState defines model for AssetState.
@@ -734,6 +744,14 @@ type CreateVPNAccess struct {
 	Name             string   `json:"name"`
 	NetworkIds       []string `json:"networkIds"`
 	PublicKey        string   `json:"publicKey"`
+}
+
+// CreateVolume defines model for CreateVolume.
+type CreateVolume struct {
+	Kind          TemplateKind `json:"kind"`
+	Name          string       `json:"name"`
+	SizeGiB       int64        `json:"sizeGiB"`
+	StoragePoolId string       `json:"storagePoolId"`
 }
 
 // Draft defines model for Draft.
@@ -1093,6 +1111,7 @@ type NodePlan struct {
 	Phase             NodePlanPhase                  `json:"phase"`
 	RecoveryPointId   *string                        `json:"recoveryPointId,omitempty"`
 	RecoverySources   *map[string]NodeRecoverySource `json:"recoverySources,omitempty"`
+	RecoveryTargets   map[string]AssetExecution      `json:"recoveryTargets,omitempty"`
 	Services          *[]NodeServiceBinding          `json:"services,omitempty"`
 	Spec              EnvironmentSpec                `json:"spec"`
 	Vpn               *NodeVPNPlan                   `json:"vpn,omitempty"`
@@ -1181,6 +1200,14 @@ type NodeVPNResult struct {
 	PublicKey  string        `json:"publicKey"`
 }
 
+// NodeVolume defines model for NodeVolume.
+type NodeVolume struct {
+	Id      string       `json:"id"`
+	Kind    TemplateKind `json:"kind"`
+	SizeGiB int64        `json:"sizeGiB"`
+	Storage StorageInfo  `json:"storage"`
+}
+
 // Operation defines model for Operation.
 type Operation struct {
 	Completed     int                `json:"completed"`
@@ -1202,6 +1229,23 @@ type OperationState string
 
 // Permission defines model for Permission.
 type Permission string
+
+// PersistentVolume defines model for PersistentVolume.
+type PersistentVolume struct {
+	Error         *string               `json:"error,omitempty"`
+	Id            string                `json:"id"`
+	Kind          TemplateKind          `json:"kind"`
+	Name          string                `json:"name"`
+	NodeId        string                `json:"nodeId"`
+	OperationId   *string               `json:"operationId,omitempty"`
+	References    []string              `json:"references"`
+	SizeGiB       int64                 `json:"sizeGiB"`
+	State         PersistentVolumeState `json:"state"`
+	StoragePoolId string                `json:"storagePoolId"`
+}
+
+// PersistentVolumeState defines model for PersistentVolume.State.
+type PersistentVolumeState string
 
 // Point defines model for Point.
 type Point struct {
@@ -1688,8 +1732,10 @@ type VmMachine struct {
 type Volume struct {
 	Id        string `json:"id"`
 	MountPath string `json:"mountPath"`
-	Retain    *bool  `json:"retain,omitempty"`
-	SizeGiB   int64  `json:"sizeGiB"`
+
+	// PersistentVolumeId Registered persistent volume. Its size comes from the volume catalogue.
+	PersistentVolumeId *string `json:"persistentVolumeId,omitempty"`
+	SizeGiB            int64   `json:"sizeGiB"`
 }
 
 // Cursor defines model for Cursor.
@@ -1854,6 +1900,11 @@ type CreateTemplateMultipartBody struct {
 	Template TemplateImport       `json:"template"`
 }
 
+// ResizeVolumeJSONBody defines parameters for ResizeVolume.
+type ResizeVolumeJSONBody struct {
+	SizeGiB int64 `json:"sizeGiB"`
+}
+
 // CreateBackupRepositoryJSONRequestBody defines body for CreateBackupRepository for application/json ContentType.
 type CreateBackupRepositoryJSONRequestBody = CreateBackupRepository
 
@@ -1949,3 +2000,9 @@ type CreateTemplateJSONRequestBody = TemplateImport
 
 // CreateTemplateMultipartRequestBody defines body for CreateTemplate for multipart/form-data ContentType.
 type CreateTemplateMultipartRequestBody CreateTemplateMultipartBody
+
+// CreateVolumeJSONRequestBody defines body for CreateVolume for application/json ContentType.
+type CreateVolumeJSONRequestBody = CreateVolume
+
+// ResizeVolumeJSONRequestBody defines body for ResizeVolume for application/json ContentType.
+type ResizeVolumeJSONRequestBody ResizeVolumeJSONBody

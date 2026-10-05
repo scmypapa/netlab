@@ -157,6 +157,17 @@ type Operation struct {
 	ClientRequestID  *string
 }
 
+type PersistentVolume struct {
+	ID            string
+	NodeID        string
+	StoragePoolID string
+	Name          string
+	Kind          string
+	SizeGib       int64
+	State         string
+	OperationID   *string
+}
+
 type Principal struct {
 	ID            string
 	Name          string

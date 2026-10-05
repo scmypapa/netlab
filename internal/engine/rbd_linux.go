@@ -311,6 +311,9 @@ func (d vmDisk) restoreSnapshot(ctx context.Context, source vmDisk) (err error) 
 
 func (v *VirtualMachines) deleteDiskSnapshots(ctx context.Context, env, point string, a api.AssetExecution) error {
 	live := map[string]bool{}
+	for _, volume := range a.VolumeSources {
+		live[persistentDisk(volume).key()] = true
+	}
 	domain, err := v.conn.LookupDomainByUUIDString(a.InstanceId)
 	if err == nil {
 		defer domain.Free()

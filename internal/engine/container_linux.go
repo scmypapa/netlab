@@ -440,6 +440,9 @@ func (c *Containers) initializeVolumes(ctx context.Context, container containerd
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
+			if _, persistent := a.VolumeSources[v.Id]; persistent {
+				return fmt.Errorf("persistent volume %s is missing", v.Id)
+			}
 			if err = os.MkdirAll(filepath.Dir(dst), 0750); err != nil {
 				return err
 			}
@@ -645,6 +648,9 @@ func (c *Containers) Inventory(ctx context.Context, env string) ([]api.Execution
 	return results, nil
 }
 func (c *Containers) volumeDir(env string, a api.AssetExecution, volume string) string {
+	if source, ok := a.VolumeSources[volume]; ok {
+		return persistentDirectory(source)
+	}
 	return filepath.Join(storageRoot(c.data, a), "environments", env, "volumes", a.Asset.Id, a.DataSetId, volume)
 }
 func (c *Containers) removeFiles(ctx context.Context, env string, a api.AssetExecution) error {

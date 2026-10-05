@@ -57,6 +57,11 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/volumes":                                                  s.listVolumes,
+		"GET /api/v1/volumes/{id}":                                             s.listVolumes,
+		"POST /api/v1/volumes":                                                 s.volumeAction,
+		"PUT /api/v1/volumes/{id}":                                             s.volumeAction,
+		"DELETE /api/v1/volumes/{id}":                                          s.volumeAction,
 		"GET /api/v1/system/update":                                            s.systemUpdate,
 		"POST /api/v1/system/update":                                           s.applySystemUpdate,
 		"POST /api/v1/system/update/check":                                     s.checkSystemUpdate,

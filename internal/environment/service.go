@@ -48,6 +48,19 @@ func Templates(ctx context.Context, q *queries.Queries, assets []api.Asset) (map
 
 // ReferenceResources holds resource rows until the referencing write commits.
 func ReferenceResources(ctx context.Context, q *queries.Queries, assets []api.Asset) error {
+	volumeIDs := PersistentVolumeIDs(assets)
+	volumes, err := q.LockPersistentVolumes(ctx, volumeIDs)
+	if err != nil {
+		return err
+	}
+	if len(volumes) != len(volumeIDs) {
+		return Invalid("数据卷已删除")
+	}
+	for _, volume := range volumes {
+		if volume.State != "ready" {
+			return Invalid("数据卷 %s 尚不可用", volume.Name)
+		}
+	}
 	ids := []string{}
 	seen := map[string]bool{}
 	for _, asset := range assets {
@@ -139,6 +152,7 @@ func Operation(row queries.Operation) (api.Operation, error) {
 		Updates    []struct{ Execution api.AssetExecution } `json:"updates"`
 		Old        []struct{ Execution api.AssetExecution } `json:"old"`
 		Template   *api.Template                            `json:"template"`
+		Volume     *api.NodeVolume                          `json:"volume"`
 		Recovery   *struct {
 			Assets []struct{ Execution api.AssetExecution } `json:"assets"`
 		} `json:"recovery"`
@@ -176,7 +190,7 @@ func Operation(row queries.Operation) (api.Operation, error) {
 		}
 		result.Total = len(services)
 	}
-	if payload.Template != nil {
+	if payload.Template != nil || payload.Volume != nil {
 		result.Total = 1
 	}
 	if row.State == "succeeded" {
@@ -242,6 +256,15 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	if err = AuthorizeExternal(identity, api.EnvironmentSpec{}, spec); err != nil {
 		return api.Environment{}, err
 	}
+	if source.Definition == nil {
+		if err = AuthorizeVolumes(identity, nil, spec.Assets); err != nil {
+			return api.Environment{}, err
+		}
+		spec, err = ResolveVolumes(ctx, s.Queries, spec)
+		if err != nil {
+			return api.Environment{}, err
+		}
+	}
 	if len(Services(spec)) > 0 && !identity.Allows("access", project, "", "", nil) {
 		return api.Environment{}, access.ErrForbidden
 	}
@@ -286,6 +309,9 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	}
 	if identity.Principal.Kind == "user" {
 		owner = &identity.Principal.ID
+	}
+	if err = CheckVolumeUses(ctx, q, spec.Assets, ""); err != nil {
+		return api.Environment{}, err
 	}
 	row, err := q.CreateEnvironment(ctx, queries.CreateEnvironmentParams{ID: uuid.NewString(), ProjectID: project, OwnerID: owner, Name: strings.TrimSpace(request.Name), ExternalReference: request.ExternalReference, Spec: raw, ClientRequestID: request.ClientRequestId})
 	if errors.Is(err, pgx.ErrNoRows) && request.ClientRequestId != nil {
@@ -440,6 +466,14 @@ func (s Service) Action(ctx context.Context, identity access.Identity, id, asset
 		}
 		assetID = &asset
 	}
+	if request.Action == api.ActionRequestActionStart || request.Action == api.ActionRequestActionRebuild {
+		if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
+			return api.Operation{}, err
+		}
+		if err = CheckVolumeUses(ctx, q, spec.Assets, id); err != nil {
+			return api.Operation{}, err
+		}
+	}
 	op, err := submit(ctx, q, row, string(request.Action), assetID, spec, request.ClientRequestId)
 	if err != nil {
 		return api.Operation{}, err
@@ -472,6 +506,13 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		return api.ChangePreview{}, nil, err
 	}
 	if err = AuthorizeChange(identity, row, before, spec); err != nil {
+		return api.ChangePreview{}, nil, err
+	}
+	if err = AuthorizeVolumes(identity, before.Assets, spec.Assets); err != nil {
+		return api.ChangePreview{}, nil, err
+	}
+	spec, err = ResolveVolumes(ctx, s.Queries, spec)
+	if err != nil {
 		return api.ChangePreview{}, nil, err
 	}
 	requestedPools := map[string]string{}
@@ -543,6 +584,9 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 	if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
 		return preview, nil, err
 	}
+	if err = CheckVolumeUses(ctx, q, spec.Assets, id); err != nil {
+		return preview, nil, err
+	}
 	if row.AppliedSpec == nil {
 		raw, marshalErr := json.Marshal(spec)
 		if marshalErr != nil {
@@ -587,6 +631,17 @@ func (s Service) SaveDraft(ctx context.Context, identity access.Identity, id str
 	}
 	if row.Status == "destroyed" {
 		return Invalid("环境已销毁")
+	}
+	var before api.EnvironmentSpec
+	current := row.Spec
+	if row.AppliedSpec != nil {
+		current = row.AppliedSpec
+	}
+	if err = json.Unmarshal(current, &before); err != nil {
+		return err
+	}
+	if err = AuthorizeVolumes(identity, before.Assets, input.Spec.Assets); err != nil {
+		return err
 	}
 	if err = ReferenceResources(ctx, q, input.Spec.Assets); err != nil {
 		return err

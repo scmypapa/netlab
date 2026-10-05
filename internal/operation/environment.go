@@ -286,6 +286,15 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 	if err != nil {
 		return err
 	}
+	if restoresData(op.Kind) {
+		for _, target := range desiredTargets(p) {
+			for _, volume := range target.Execution.VolumeSources {
+				if err = q.FinishVolume(ctx, queries.FinishVolumeParams{ID: volume.Id, State: "ready", SizeGib: volume.SizeGiB}); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	raw, err := json.Marshal(p.Spec)
 	if err != nil {
 		return err
@@ -374,7 +383,7 @@ func removedVolumes(beforeTargets, afterTargets []Target) []Target {
 			found := false
 			if t.Execution.Asset.Volumes != nil {
 				for _, next := range *t.Execution.Asset.Volumes {
-					if v.Id == next.Id {
+					if v.Id == next.Id && reflect.DeepEqual(v.PersistentVolumeId, next.PersistentVolumeId) {
 						found = true
 						break
 					}
@@ -385,8 +394,8 @@ func removedVolumes(beforeTargets, afterTargets []Target) []Target {
 			}
 		}
 		if len(volumes) > 0 {
-			t.Execution.Asset.Volumes = &volumes
-			removed = append(removed, t)
+			before.Execution.Asset.Volumes = &volumes
+			removed = append(removed, before)
 		}
 	}
 	return removed
@@ -551,6 +560,15 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	q := w.Queries.WithTx(tx)
 	if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if restoresData(op.Kind) {
+		for _, target := range desiredTargets(p) {
+			for _, volume := range target.Execution.VolumeSources {
+				if err = q.DeletePersistentVolume(ctx, volume.Id); err != nil {
+					return fmt.Errorf("%w: %v", errPersistence, err)
+				}
+			}
+		}
 	}
 	retained := api.EnvironmentSpec{}
 	if p.BeforeSpec != nil {

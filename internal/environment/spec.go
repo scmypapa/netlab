@@ -137,6 +137,19 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			volumes := slices.Clone(*t.Volumes)
 			a.Volumes = &volumes
 		}
+		if a.Volumes != nil {
+			ids, paths := map[string]bool{}, map[string]bool{}
+			for j := range *a.Volumes {
+				volume := &(*a.Volumes)[j]
+				if volume.Id == "" {
+					volume.Id = uuid.NewString()
+				}
+				if ids[volume.Id] || paths[volume.MountPath] || volume.SizeGiB < 1 {
+					return spec, Invalid("资产 %s 的数据卷配置无效", a.Name)
+				}
+				ids[volume.Id], paths[volume.MountPath] = true, true
+			}
+		}
 		if strings.TrimSpace(a.Name) == "" {
 			a.Name = t.Name
 		}

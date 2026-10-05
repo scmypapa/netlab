@@ -21,9 +21,13 @@ WITH assets AS (
  UNION ALL
  SELECT node_id,pool_id,-sum(reused)::bigint FROM (
   SELECT a.node_id,a.pool_id,a.environment_id,a.asset_id,v->>'id' AS volume_id,sum((v->>'sizeGiB')::bigint)-max((v->>'sizeGiB')::bigint) AS reused
-  FROM assets a CROSS JOIN LATERAL jsonb_array_elements(a.execution->'asset'->'volumes') v
+  FROM assets a CROSS JOIN LATERAL jsonb_array_elements(a.execution->'asset'->'volumes') v WHERE v->>'persistentVolumeId' IS NULL
   GROUP BY a.node_id,a.pool_id,a.environment_id,a.asset_id,COALESCE(a.execution->>'dataSetId',''),v->>'id'
  ) volumes GROUP BY node_id,pool_id
+ UNION ALL SELECT v.node_id,CASE WHEN v.storage_pool_id LIKE 'default:%' THEN '' ELSE v.storage_pool_id END,
+ sum(CASE WHEN o.kind='resize-volume' AND v.state<>'ready' THEN GREATEST(v.size_gib,(o.payload->'volume'->>'sizeGiB')::bigint) ELSE v.size_gib END)::bigint
+ FROM persistent_volumes v LEFT JOIN operations o ON o.id=v.operation_id
+ WHERE v.node_id=ANY($1::text[]) GROUP BY v.node_id,v.storage_pool_id
 )
 SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib FROM allocations GROUP BY node_id,pool_id;
 -- name: StorageReferences :many
@@ -39,6 +43,7 @@ SELECT name::text FROM (
  UNION SELECT '恢复点：'||p.name FROM recovery_points p
  CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a(value)
  WHERE a.value->'execution'->>'storagePoolId'=sqlc.arg(pool_id)
+ UNION SELECT '持久卷：'||v.name FROM persistent_volumes v WHERE v.storage_pool_id=sqlc.arg(pool_id)
  UNION SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
  WHERE o.state IN ('queued','running') AND (
   o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('storagePoolId',sqlc.arg(pool_id)::text))) OR

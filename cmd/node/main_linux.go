@@ -246,6 +246,19 @@ func run() error {
 			slog.Warn("backup transfer interrupted", "error", err)
 		}
 	})
+	mux.HandleFunc("POST /node/v1/volumes/{action}", func(w http.ResponseWriter, r *http.Request) {
+		action := r.PathValue("action")
+		var input api.NodeVolume
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !pathID(input.Id) || input.SizeGiB < 1 || (action != "prepare" && action != "delete") {
+			http.Error(w, "invalid volume request", http.StatusBadRequest)
+			return
+		}
+		respond(w, struct{}{}, executor.Volume(r.Context(), action, input))
+	})
 	mux.HandleFunc("GET /node/v1/storage/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !pathID(r.PathValue("id")) {
 			http.Error(w, "invalid storage identity", http.StatusBadRequest)
@@ -535,12 +548,24 @@ func validatePlanPaths(p api.NodePlan) error {
 			return fmt.Errorf("invalid plan identity")
 		}
 	}
-	for _, a := range p.Assets {
+	assets := append([]api.AssetExecution{}, p.Assets...)
+	for _, target := range p.RecoveryTargets {
+		assets = append(assets, target)
+	}
+	for _, a := range assets {
 		if err := validateExecutionPaths(a); err != nil {
 			return err
 		}
 		if (p.Phase == api.NodePlanPhasePrepareRecovery || p.Phase == api.NodePlanPhaseApplyRecovery) && (a.DataSetId != p.OperationId || p.RecoveryPointId == nil) {
 			return errors.New("recovery target must use the operation data set")
+		}
+	}
+	if p.Phase == api.NodePlanPhaseRollbackRecovery {
+		for _, asset := range p.Assets {
+			target := p.RecoveryTargets[asset.Asset.Id]
+			if target.Asset.Id != asset.Asset.Id || target.DataSetId != p.OperationId {
+				return errors.New("rollback must identify the operation's recovery target")
+			}
 		}
 	}
 	if p.Phase == api.NodePlanPhasePrepareRecovery && p.RecoverySources == nil {
@@ -562,6 +587,11 @@ func validatePlanPaths(p api.NodePlan) error {
 	return nil
 }
 func validateExecutionPaths(a api.AssetExecution) error {
+	for _, source := range a.VolumeSources {
+		if !pathID(source.Id) {
+			return errors.New("invalid persistent volume identity")
+		}
+	}
 	if a.DataSetId != "" && !pathID(a.DataSetId) {
 		return errors.New("invalid data set identity")
 	}
