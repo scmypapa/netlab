@@ -179,13 +179,9 @@ p {
   letter-spacing: -1px;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
-  color: white;
-  background: #138f7d;
+  object-fit: contain;
 }
 .brand-period {
   color: var(--accent);
@@ -1425,9 +1421,6 @@ a.object-link:hover strong {
   }
   .brand {
     font-size: 21px;
-  }
-  .brand-mark {
-    display: none;
   }
   .primary-nav {
     gap: 0;

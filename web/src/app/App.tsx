@@ -15,7 +15,6 @@ import {
   Layers3,
   LogOut,
   Moon,
-  Network,
   Server,
   Sun,
   UsersRound,
@@ -81,9 +80,13 @@ export function App() {
     <div className="app-shell">
       <header className="global-header">
         <NavLink to="/environments" className="brand" aria-label="Netlab 首页">
-          <span className="brand-mark">
-            <Network size={20} strokeWidth={2.3} />
-          </span>
+          <img
+            className="brand-mark"
+            src="/netlab-icon.png"
+            alt=""
+            width={32}
+            height={32}
+          />
           <span>
             netlab<span className="brand-period">.</span>
           </span>
@@ -192,7 +195,7 @@ function Login() {
   return (
     <main className="login-shell">
       <div className="login-brand">
-        <Network size={28} />
+        <img src="/netlab-icon.png" alt="" width={48} height={48} />
         <span>netlab.</span>
       </div>
       <form

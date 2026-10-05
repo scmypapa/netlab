@@ -141,7 +141,7 @@ func (e *Engine) RestoreBackupTemplate(ctx context.Context, request api.NodeRest
 	if err = json.Unmarshal(raw, &t); err != nil {
 		return t, err
 	}
-	t.ArtifactNodeId = &e.cfg.ID
+	t.ArtifactNodeId = ptr(e.cfg.ID)
 	t.OperationId, t.Error = nil, nil
 	ready := api.TemplateStateReady
 	t.State = &ready
