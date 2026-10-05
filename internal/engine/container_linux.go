@@ -246,10 +246,10 @@ func (c *Containers) image(ctx context.Context, t api.Template, registry *api.Re
 func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (api.Template, error) {
 	directory := templateDirectory(c.data, t.Id, t.Version)
 	if raw, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
-		origin := t.ArtifactNodeId
-		err = json.Unmarshal(raw, &t)
-		t.ArtifactNodeId = origin
-		return t, err
+		var cached api.Template
+		err = json.Unmarshal(raw, &cached)
+		cached.ArtifactNodeId = t.ArtifactNodeId
+		return cached, err
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return t, err
 	}

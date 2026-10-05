@@ -21,6 +21,34 @@ import (
 	"netlab.local/core/api"
 )
 
+func TestCachedTemplatePreservesNodeIdentity(t *testing.T) {
+	for _, kind := range []api.TemplateKind{api.Container, api.Vm} {
+		t.Run(string(kind), func(t *testing.T) {
+			data := t.TempDir()
+			input := api.Template{Id: "cached", Version: 1, Kind: kind}
+			directory := templateDirectory(data, input.Id, input.Version)
+			if err := os.MkdirAll(directory, 0711); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := json.Marshal(api.Template{Id: input.Id, Version: input.Version, Kind: kind, ArtifactNodeId: ptr("other-node")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filepath.Join(directory, "template.json"), manifest, 0640); err != nil {
+				t.Fatal(err)
+			}
+			executor := &Engine{cfg: Config{ID: "local-node", DataDir: data}, slots: make(chan struct{}, 1), locks: make(map[string]*objectLock), container: &Containers{data: data}, vm: &VirtualMachines{data: data}}
+			prepared, err := executor.PrepareTemplate(context.Background(), api.NodeTemplatePreparation{Template: input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if executor.cfg.ID != "local-node" || prepared.ArtifactNodeId == nil || *prepared.ArtifactNodeId != "local-node" {
+				t.Fatalf("cache changed node identity: node=%s template=%v", executor.cfg.ID, prepared.ArtifactNodeId)
+			}
+		})
+	}
+}
+
 func TestTemplateArtifactTransfer(t *testing.T) {
 	origin := "source-node"
 	disks := []api.TemplateDisk{{Id: "boot"}}

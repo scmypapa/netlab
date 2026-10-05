@@ -445,7 +445,7 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 		}
 	}
 	if t.ArtifactNodeId == nil {
-		t.ArtifactNodeId = &e.cfg.ID
+		t.ArtifactNodeId = ptr(e.cfg.ID)
 	}
 	switch t.Kind {
 	case api.Container:

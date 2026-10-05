@@ -489,10 +489,10 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template, c
 	defer mutex.Unlock()
 	directory := filepath.Join(v.data, "artifacts", key)
 	if data, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
-		origin := t.ArtifactNodeId
-		err = json.Unmarshal(data, &t)
-		t.ArtifactNodeId = origin
-		return t, err
+		var cached api.Template
+		err = json.Unmarshal(data, &cached)
+		cached.ArtifactNodeId = t.ArtifactNodeId
+		return cached, err
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return t, err
 	}
