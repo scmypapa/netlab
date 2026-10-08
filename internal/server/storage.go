@@ -40,6 +40,8 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 	for _, pool := range pools {
 		state := api.StoragePoolState(pool.State)
 		item := api.StoragePool{Id: pool.ID, NodeIds: pool.NodeIds, Name: pool.Name, Driver: api.StorageDriver(pool.Driver), State: &state, OperationId: pool.OperationID, Error: pool.OperationError, Capabilities: []string{"vm-disks", "volumes"}}
+		item.Managed = &pool.Managed
+		item.OperationState = pool.OperationState
 		if pool.Driver == "rbd" {
 			item.Capabilities = []string{"vm-disks", "vm-volumes"}
 		}

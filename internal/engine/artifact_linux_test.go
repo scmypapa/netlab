@@ -74,7 +74,7 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 		if r.URL.Path != "/node/v1/templates/system/versions/3/artifact" {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
-		reader, length, err := source.OpenTemplateArtifact(template.Id, template.Version)
+		reader, length, err := source.OpenTemplateArtifact(template.Id, template.Version, false)
 		if err != nil {
 			t.Error(err)
 			http.Error(w, err.Error(), 500)
@@ -91,7 +91,7 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			if err := target.fetchTemplateArtifact(context.Background(), template, server.URL); err != nil {
+			if err := target.fetchTemplateArtifact(context.Background(), template, server.URL, false); err != nil {
 				t.Error(err)
 			}
 		})
@@ -101,12 +101,64 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 		t.Fatalf("concurrent assets downloaded %d copies", calls.Load())
 	}
 	server.Close()
-	if err := target.fetchTemplateArtifact(context.Background(), template, server.URL); err != nil {
+	if err := target.fetchTemplateArtifact(context.Background(), template, server.URL, false); err != nil {
 		t.Fatalf("cached artifact depends on online origin: %v", err)
 	}
 	actual, err := os.ReadFile(filepath.Join(templateDirectory(target.cfg.DataDir, template.Id, template.Version), "disk-0.qcow2"))
 	if err != nil || !bytes.Equal(actual, content) {
 		t.Fatalf("disk contents changed: %v", err)
+	}
+}
+
+func TestSharedTemplateTransfersOnlyRuntimeFiles(t *testing.T) {
+	origin := "source"
+	disks := []api.TemplateDisk{{Id: "boot"}}
+	template := api.Template{Id: "shared", Version: 1, Kind: api.Vm, ArtifactNodeId: &origin, Disks: &disks}
+	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}}
+	directory := templateDirectory(source.cfg.DataDir, template.Id, template.Version)
+	if err := os.MkdirAll(directory, 0711); err != nil {
+		t.Fatal(err)
+	}
+	manifest, _ := json.Marshal(template)
+	if err := os.WriteFile(filepath.Join(directory, "template.json"), manifest, 0640); err != nil {
+		t.Fatal(err)
+	}
+	// A shared execution does not require the source system disk to be transferred.
+	var calls atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Query().Get("runtimeOnly") != "true" {
+			t.Error("full disk transfer requested")
+		}
+		reader, length, err := source.OpenTemplateArtifact(template.Id, template.Version, true)
+		if err != nil {
+			t.Error(err)
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		defer reader.Close()
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		if _, err = io.Copy(w, reader); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+	target := &Engine{cfg: Config{ID: "target", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock)}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			if err := target.fetchTemplateArtifact(context.Background(), template, server.URL, true); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if calls.Load() != 1 {
+		t.Fatalf("downloaded runtime metadata %d times", calls.Load())
+	}
+	entries, err := os.ReadDir(templateRuntimeDirectory(target.cfg.DataDir, template.Id, template.Version))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "template.json" {
+		t.Fatalf("unexpected runtime cache: %v %v", entries, err)
 	}
 }
 
@@ -162,7 +214,7 @@ func TestTemplateArtifactRejectsInvalidTransfer(t *testing.T) {
 			}))
 			defer server.Close()
 			target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock)}
-			if err = target.fetchTemplateArtifact(context.Background(), template, server.URL); err == nil {
+			if err = target.fetchTemplateArtifact(context.Background(), template, server.URL, false); err == nil {
 				t.Fatal("invalid transfer was committed")
 			}
 			entries, err := os.ReadDir(filepath.Join(target.cfg.DataDir, "artifacts", template.Id))
@@ -193,7 +245,7 @@ func TestLargeTemplateArtifactHeader(t *testing.T) {
 	if err = disk.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reader, length, err := source.OpenTemplateArtifact("large-disk", 1)
+	reader, length, err := source.OpenTemplateArtifact("large-disk", 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}

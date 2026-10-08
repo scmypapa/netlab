@@ -140,6 +140,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			err = w.deleteTemplate(ctx, &op, &payload)
 		} else if op.Kind == "delete-storage-pool" {
 			err = w.deleteStoragePool(ctx, &op, &payload)
+		} else if op.Kind == "configure-storage-pool" {
+			err = w.configureStoragePool(ctx, &op, &payload)
 		} else if op.ScopeKind == "volume" {
 			err = w.volume(ctx, &op, &payload)
 		} else if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
@@ -284,6 +286,12 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	}
 	if dbErr = tx.Commit(ctx); dbErr != nil {
 		slog.Error("operation commit", "error", dbErr)
+		return
+	}
+	if op.Kind == "configure-storage-pool" && err == nil {
+		if dbErr = (Service{Pool: w.Pool, Queries: w.Queries}).ConfigureManagedStorage(ctx); dbErr != nil {
+			slog.Error("storage membership", "error", dbErr)
+		}
 	}
 }
 func (w Worker) phase(ctx context.Context, op *queries.Operation, p *Payload, phase string) error {
@@ -377,6 +385,11 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 		}
 		for _, origin := range origins {
 			artifacts[origin.ID] = origin.Endpoint
+		}
+		if phase == api.NodePlanPhasePrepare {
+			if err = w.prepareSharedTemplates(ctx, targets, artifacts); err != nil {
+				return nil, err
+			}
 		}
 	}
 	grouped := map[string][]api.AssetExecution{}

@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -21,6 +21,9 @@ import (
 )
 
 var cephName = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// The Ceph key parser includes key values in malformed-key errors.
+var cephKeyDiagnostic = regexp.MustCompile(`type=key val=[^:\s]+`)
 
 func cephCommand(ctx context.Context, tool, root, user string, args ...string) ([]byte, error) {
 	args = append([]string{"--conf", filepath.Join(root, "ceph.conf"), "--id", user}, args...)
@@ -61,7 +64,7 @@ func (e *Engine) registerRBD(ctx context.Context, id, root string, input api.Cep
 		return api.StorageInfo{}, errors.New("请填写 Ceph 存储池、客户端和 MON 地址")
 	}
 	for _, endpoint := range input.Monitors {
-		if _, _, err := net.SplitHostPort(endpoint); err != nil {
+		if _, _, err := cephMonitor(endpoint); err != nil {
 			return api.StorageInfo{}, fmt.Errorf("MON 地址 %s 应为 host:port", endpoint)
 		}
 	}
@@ -114,8 +117,16 @@ func (e *Engine) removeRBD(ctx context.Context, info api.StorageInfo) error {
 	if err != nil {
 		return err
 	}
-	if len(names) > 0 {
-		return errors.New("存储池仍包含虚拟磁盘或恢复点")
+	for _, name := range names {
+		if !strings.HasPrefix(name, info.Rbd.ImagePrefix+"template.") {
+			return errors.New("存储池仍包含虚拟磁盘或恢复点")
+		}
+	}
+	for _, name := range names {
+		disk.image = name
+		if err = disk.removeTemplateBase(ctx); err != nil {
+			return err
+		}
 	}
 	secret, err := e.vm.conn.LookupSecretByUUIDString(info.Rbd.SecretId)
 	var native libvirt.Error
@@ -146,8 +157,12 @@ func (d vmDisk) exists(ctx context.Context) (bool, error) {
 		}
 		return err == nil, err
 	}
-	names, err := d.rbdImages(ctx)
-	return slices.Contains(names, d.image), err
+	_, err := d.rbdCommand(ctx, "info", d.image, "--format", "json")
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 2 {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func (d vmDisk) prepare(ctx context.Context, source string, sizeGiB int64) (err error) {
@@ -226,6 +241,21 @@ type rbdSnapshot struct {
 	Size int64  `json:"size"`
 }
 
+type rbdChild struct {
+	Pool  string `json:"pool"`
+	Image string `json:"image"`
+}
+
+func (d vmDisk) children(ctx context.Context, point string) ([]rbdChild, error) {
+	out, err := d.rbdCommand(ctx, "children", d.image+"@"+point, "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var children []rbdChild
+	err = json.Unmarshal(out, &children)
+	return children, err
+}
+
 func (d vmDisk) usedBytes(ctx context.Context) (int64, error) {
 	name := d.image
 	if d.snapshot != "" {
@@ -286,7 +316,21 @@ func (d vmDisk) restoreFile(ctx context.Context, source string) error {
 	return d.prepare(ctx, source, 0)
 }
 
-func (d vmDisk) restoreSnapshot(ctx context.Context, source vmDisk) (err error) {
+func (d vmDisk) restoreSnapshot(ctx context.Context, source vmDisk) error {
+	return d.cloneSnapshot(ctx, source, 0)
+}
+
+func (d vmDisk) cloneSnapshot(ctx context.Context, source vmDisk, sizeGiB int64) (err error) {
+	exists, err := d.exists(ctx)
+	if err != nil {
+		return err
+	}
+	if exists {
+		if sizeGiB == 0 {
+			return nil
+		}
+		return expandDisk(ctx, d.address(), sizeGiB)
+	}
 	staging := d
 	staging.image += ".pending"
 	if err = staging.remove(ctx); err != nil {
@@ -302,8 +346,10 @@ func (d vmDisk) restoreSnapshot(ctx context.Context, source vmDisk) (err error) 
 	if _, err = d.rbdCommand(ctx, "--rbd-default-clone-format", "2", "clone", src, target); err != nil {
 		return err
 	}
-	if _, err = staging.rbdCommand(ctx, "flatten", staging.image); err != nil {
-		return err
+	if sizeGiB > 0 {
+		if err = expandDisk(ctx, staging.address(), sizeGiB); err != nil {
+			return err
+		}
 	}
 	_, err = d.rbdCommand(ctx, "rename", staging.image, d.image)
 	return err
@@ -344,6 +390,16 @@ func (v *VirtualMachines) deleteDiskSnapshots(ctx context.Context, env, point st
 		}
 		for _, snap := range snapshots {
 			if snap.Name == point {
+				// Detach only when the user deletes a referenced recovery point.
+				children, err := disk.children(ctx, point)
+				if err != nil {
+					return err
+				}
+				for _, child := range children {
+					if _, err = disk.rbdCommand(ctx, "flatten", child.Pool+"/"+child.Image); err != nil {
+						return err
+					}
+				}
 				if _, err = disk.rbdCommand(ctx, "snap", "rm", disk.image+"@"+point); err != nil {
 					return err
 				}

@@ -29,6 +29,7 @@ type Config struct {
 	ProviderCIDR                                                                      string
 	AdvertiseAddress                                                                  string
 	GuacdAddress                                                                      string
+	StorageDevice                                                                     string
 	ArtifactHTTP                                                                      *http.Client
 	OVNTLS                                                                            *tls.Config
 }
@@ -180,6 +181,9 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 		return api.NodeInfo{}, err
 	}
 	info.Storage = &storage
+	if e.cfg.StorageDevice != "" {
+		info.StorageDevice = &e.cfg.StorageDevice
+	}
 	info.ServiceNetwork = ptr(e.gateway.Network())
 	address, err := network.AccessAddress(e.cfg.AdvertiseAddress)
 	if err != nil {
@@ -301,12 +305,12 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				result.Results[i] = observed
 				return
 			}
-			if (phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery) && a.Template.ArtifactNodeId != nil {
+			if phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
 				endpoint := ""
 				if plan.ArtifactEndpoints != nil {
 					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
 				}
-				if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint); err != nil {
+				if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint, a.Rbd != nil); err != nil {
 					result.Results[i] = executionResult(a, "absent", err)
 					return
 				}
@@ -435,12 +439,39 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 	}
 	defer func() { <-e.slots }()
 	var err error
+	if request.StoragePoolId != nil {
+		if t.Kind != api.Vm || t.Disks == nil {
+			return t, errors.New("共享存储需要已准备的虚拟机模板")
+		}
+		storage, err := e.Storage(ctx, *request.StoragePoolId, "")
+		if err != nil {
+			return t, err
+		}
+		if storage.Rbd == nil {
+			return t, errors.New("共享模板需要 RBD 存储")
+		}
+		ready := true
+		for index := range *t.Disks {
+			exists, err := sharedTemplateDisk(storage.Path, *storage.Rbd, t, index).exists(ctx)
+			if err != nil {
+				return t, err
+			}
+			ready = ready && exists
+		}
+		if ready {
+			endpoint := ""
+			if request.ArtifactEndpoint != nil {
+				endpoint = *request.ArtifactEndpoint
+			}
+			return t, e.fetchTemplateArtifact(ctx, t, endpoint, true)
+		}
+	}
 	if t.ArtifactNodeId != nil {
 		endpoint := ""
 		if request.ArtifactEndpoint != nil {
 			endpoint = *request.ArtifactEndpoint
 		}
-		if err = e.fetchTemplateArtifact(ctx, t, endpoint); err != nil {
+		if err = e.fetchTemplateArtifact(ctx, t, endpoint, false); err != nil {
 			return t, err
 		}
 	}
@@ -458,6 +489,13 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 			return t, errors.New("virtual machine runtime not configured")
 		}
 		t, err = e.vm.prepareTemplate(ctx, t, request.Capture)
+		if err == nil && request.StoragePoolId != nil {
+			var storage api.StorageInfo
+			storage, err = e.Storage(ctx, *request.StoragePoolId, "")
+			if err == nil {
+				err = e.vm.prepareSharedTemplate(ctx, t, storage)
+			}
+		}
 	default:
 		err = fmt.Errorf("invalid template kind %s", t.Kind)
 	}

@@ -132,8 +132,8 @@ export function StoragePanel({ node }: { node: Node }) {
                     ) : (
                       <span className="secondary-line">{pool.directory}</span>
                     )}
-                    {pool.state === "deleting" && (
-                      <Status value={pool.error ? "failed" : "deleting"} />
+                    {(pool.state !== "ready" || pool.operationState === "queued" || pool.operationState === "running") && (
+                      <Status value={pool.error ? "failed" : pool.state === "deleting" ? "deleting" : "preparing"} />
                     )}
                   </td>
                   <td>{pool.allocatedGiB} GiB</td>
@@ -144,12 +144,12 @@ export function StoragePanel({ node }: { node: Node }) {
                   </td>
                   <td>
                     {!pool.default &&
-                      (pool.state === "deleting" ? (
+                      (pool.state !== "ready" || pool.operationState && pool.operationState !== "succeeded" ? (
                         pool.error &&
                         pool.operationId && (
                           <ActionIcon
                             variant="subtle"
-                            aria-label={`重试删除 ${pool.name}`}
+                            aria-label={`重试 ${pool.name}`}
                             onClick={() => retry.mutate(pool.operationId!)}
                             loading={retry.isPending}
                           >

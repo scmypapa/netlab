@@ -409,7 +409,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			delta.DiskGiB = resources(t.Execution.Asset).DiskGiB
 		}
 		u := add(used[t.NodeID], delta)
-		if !fits(u, capacity[t.NodeID]) {
+		if !fits(api.Resources{Cpu: u.Cpu, MemoryMiB: u.MemoryMiB}, capacity[t.NodeID]) {
 			return fmt.Errorf("资产 %s 的节点容量不足", t.Execution.Asset.Name)
 		}
 		if restoring && !supports(infos[t.NodeID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
@@ -426,7 +426,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if pool.err != nil {
 			return fmt.Errorf("资产 %s 的存储不可用：%w", t.Execution.Asset.Name, pool.err)
 		}
-		if !pool.ready || diskUsed[pool.filesystem()]+delta.DiskGiB > diskCapacity[pool.filesystem()] {
+		if !pool.ready || diskUsed[pool.filesystem()]+delta.DiskGiB > diskCapacity[pool.filesystem()] || pool.info.Rbd == nil && diskUsed[pool.filesystem()]+delta.DiskGiB > capacity[t.NodeID].DiskGiB {
 			return fmt.Errorf("资产 %s 的存储容量不足", t.Execution.Asset.Name)
 		}
 		diskUsed[pool.filesystem()] += delta.DiskGiB
@@ -443,6 +443,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		best := ""
 		var bestPool storageCandidate
 		score := 2.0
+		bestPriority := 2
 		preferred := ""
 		if t.Execution.Asset.StoragePoolId != nil {
 			preferred = *t.Execution.Asset.StoragePoolId
@@ -486,7 +487,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				}
 			}
 			u := add(used[n.ID], requirement)
-			if !fits(u, c) {
+			if !fits(api.Resources{Cpu: u.Cpu, MemoryMiB: u.MemoryMiB}, c) {
 				continue
 			}
 			for _, pool := range storage {
@@ -497,9 +498,17 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				if pool.info.Rbd != nil && t.Execution.Template.Kind != api.Vm {
 					continue
 				}
+				if pool.info.Rbd == nil && diskUsed[key]+diskRequirement > c.DiskGiB {
+					continue
+				}
 				s := max(float64(u.Cpu)/float64(c.Cpu), float64(u.MemoryMiB)/float64(c.MemoryMiB), float64(diskUsed[key]+diskRequirement)/float64(diskCapacity[key]), 1-float64(pool.info.AvailableBytes)/float64(pool.info.CapacityBytes))
-				if s < score || s == score && pool.id < bestPool.id {
+				priority := 0
+				if preferred == "" && t.Execution.Template.Kind == api.Vm && pool.info.Rbd == nil {
+					priority = 1
+				}
+				if priority < bestPriority || priority == bestPriority && (s < score || s == score && pool.id < bestPool.id) {
 					best, bestPool, score = n.ID, pool, s
+					bestPriority = priority
 				}
 			}
 		}

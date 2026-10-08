@@ -127,9 +127,7 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 				return nil, err
 			}
 		}
-		if !fits(add(used[node.ID], resources(source.Execution.Asset)), capacity) {
-			continue
-		}
+		needed := add(used[node.ID], resources(source.Execution.Asset))
 		accessible := func(id string) bool {
 			for _, pool := range pools {
 				if pool.ID == id {
@@ -137,6 +135,12 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 				}
 			}
 			return false
+		}
+		if source.Execution.Rbd != nil && accessible(actualPool(source.NodeID, source.Execution)) {
+			needed.DiskGiB = 0
+		}
+		if !fits(needed, capacity) {
+			continue
 		}
 		live := source.Execution.Template.Kind == api.Vm && source.Execution.Rbd != nil && !matches(source.State, "stopped") && accessible(actualPool(source.NodeID, source.Execution))
 		for _, volume := range source.Execution.VolumeSources {

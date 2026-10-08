@@ -51,6 +51,7 @@ func run() error {
 	flag.StringVar(&cfg.ID, "id", "", "node ID")
 	flag.StringVar(&cfg.Name, "name", "", "node name")
 	flag.StringVar(&cfg.DataDir, "data", "/var/lib/netlab", "managed storage directory")
+	flag.StringVar(&cfg.StorageDevice, "storage-device", "", "dedicated Ceph disk accepted at installation")
 	flag.StringVar(&cfg.ContainerdSocket, "containerd", "/run/containerd/containerd.sock", "containerd socket; empty disables containers")
 	flag.StringVar(&cfg.LibvirtURI, "libvirt", "qemu:///system", "libvirt URI; empty disables VMs")
 	flag.StringVar(&cfg.OVNEndpoint, "ovn", "unix:/run/ovn/ovnnb_db.sock", "OVN northbound endpoint")
@@ -112,6 +113,34 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /node/v1/ceph/{id}/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		result, err := executor.BootstrapCeph(r.Context(), r.PathValue("id"))
+		respond(w, result, err)
+	})
+	mux.HandleFunc("POST /node/v1/ceph/{id}/join", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeCephBootstrap
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		result, err := executor.JoinCeph(r.Context(), r.PathValue("id"), input)
+		respond(w, result, err)
+	})
+	mux.HandleFunc("POST /node/v1/ceph/{id}/configure", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeCephConfiguration
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		result, err := executor.ConfigureCeph(r.Context(), r.PathValue("id"), input)
+		respond(w, result, err)
+	})
+	mux.HandleFunc("POST /node/v1/ceph/{id}/prepare-removal", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, nil, executor.PrepareCephRemoval(r.Context(), r.PathValue("id")))
+	})
+	mux.HandleFunc("DELETE /node/v1/ceph/{id}", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, nil, executor.RemoveCeph(r.Context(), r.PathValue("id")))
+	})
 	mux.HandleFunc("GET /node/v1/libvirt", executor.LibvirtTunnel)
 	mux.HandleFunc("POST /node/v1/migrations/prepare", executor.Migration)
 	for _, pattern := range []string{"GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/migration", "GET /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/migration/{file}", "DELETE /node/v1/environments/{environmentId}/assets/{assetId}/instances/{instanceId}/migration"} {
@@ -445,7 +474,7 @@ func run() error {
 			http.Error(w, "invalid template identity", http.StatusBadRequest)
 			return
 		}
-		reader, length, err := executor.OpenTemplateArtifact(r.PathValue("id"), version)
+		reader, length, err := executor.OpenTemplateArtifact(r.PathValue("id"), version, r.URL.Query().Get("runtimeOnly") == "true")
 		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, os.ErrNotExist) {
@@ -489,13 +518,12 @@ func run() error {
 			slog.Warn("recovery transfer interrupted", "error", err)
 		}
 	})
-	mux.HandleFunc("DELETE /node/v1/templates/{id}/versions/{version}", func(w http.ResponseWriter, r *http.Request) {
-		version, err := strconv.Atoi(r.PathValue("version"))
-		if err != nil || version < 1 || !pathID(r.PathValue("id")) {
+	mux.HandleFunc("DELETE /node/v1/templates/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !pathID(r.PathValue("id")) {
 			http.Error(w, "invalid template identity", http.StatusBadRequest)
 			return
 		}
-		if err = executor.RemoveTemplate(r.Context(), r.PathValue("id"), version); err != nil {
+		if err := executor.RemoveTemplate(r.Context(), r.PathValue("id"), r.URL.Query()["storagePool"]); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"sync"
 
@@ -21,11 +21,25 @@ func (w Worker) deleteTemplate(ctx context.Context, op *queries.Operation, p *Pa
 	if err = w.phase(ctx, op, p, "remove-template"); err != nil {
 		return err
 	}
+	pools, err := w.Queries.ListStoragePools(ctx)
+	if err != nil {
+		return err
+	}
+	owned := map[string][]string{}
+	for _, pool := range pools {
+		if pool.Driver == "rbd" {
+			owned[pool.NodeIds[0]] = append(owned[pool.NodeIds[0]], pool.ID)
+		}
+	}
 	var wg sync.WaitGroup
 	failures := make([]error, len(nodes))
 	for i, node := range nodes {
 		wg.Go(func() {
-			failures[i] = w.Client.Do(ctx, http.MethodDelete, node.Endpoint, fmt.Sprintf("/node/v1/templates/%s/versions/%d", p.Template.Id, p.Template.Version), nil, nil)
+			path := "/node/v1/templates/" + p.Template.Id
+			if len(owned[node.ID]) > 0 {
+				path += "?" + (url.Values{"storagePool": owned[node.ID]}).Encode()
+			}
+			failures[i] = w.Client.Do(ctx, http.MethodDelete, node.Endpoint, path, nil, nil)
 		})
 	}
 	wg.Wait()

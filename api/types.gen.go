@@ -292,8 +292,9 @@ const (
 
 // Defines values for StoragePoolState.
 const (
-	StoragePoolStateDeleting StoragePoolState = "deleting"
-	StoragePoolStateReady    StoragePoolState = "ready"
+	StoragePoolStateDeleting  StoragePoolState = "deleting"
+	StoragePoolStatePreparing StoragePoolState = "preparing"
+	StoragePoolStateReady     StoragePoolState = "ready"
 )
 
 // Defines values for TemplateDiskBus.
@@ -1110,6 +1111,24 @@ type NodeCaptureRequest struct {
 	Settings      CreateCapture      `json:"settings"`
 }
 
+// NodeCephBootstrap defines model for NodeCephBootstrap.
+type NodeCephBootstrap struct {
+	PublicKey string `json:"publicKey"`
+}
+
+// NodeCephConfiguration defines model for NodeCephConfiguration.
+type NodeCephConfiguration struct {
+	Hosts    []NodeCephHost `json:"hosts"`
+	Replicas *int           `json:"replicas,omitempty"`
+}
+
+// NodeCephHost defines model for NodeCephHost.
+type NodeCephHost struct {
+	Address string  `json:"address"`
+	Device  *string `json:"device,omitempty"`
+	Name    string  `json:"name"`
+}
+
 // NodeInfo defines model for NodeInfo.
 type NodeInfo struct {
 	AccessAddress      *string              `json:"accessAddress,omitempty"`
@@ -1122,8 +1141,11 @@ type NodeInfo struct {
 	ServiceNetwork     *ServiceNetwork      `json:"serviceNetwork,omitempty"`
 	Slots              int                  `json:"slots"`
 	Storage            *StorageInfo         `json:"storage,omitempty"`
-	Version            string               `json:"version"`
-	VmHardware         *VmHardware          `json:"vmHardware,omitempty"`
+
+	// StorageDevice Dedicated disk accepted during node installation
+	StorageDevice *string     `json:"storageDevice,omitempty"`
+	Version       string      `json:"version"`
+	VmHardware    *VmHardware `json:"vmHardware,omitempty"`
 }
 
 // NodeMigrationCleanup defines model for NodeMigrationCleanup.
@@ -1229,6 +1251,7 @@ type NodeTemplatePreparation struct {
 	ArtifactEndpoint *string                `json:"artifactEndpoint,omitempty"`
 	Capture          *TemplateCaptureSource `json:"capture,omitempty"`
 	Registry         *RegistryCredentials   `json:"registry,omitempty"`
+	StoragePoolId    *string                `json:"storagePoolId,omitempty"`
 	Template         Template               `json:"template"`
 }
 
@@ -1579,15 +1602,17 @@ type StoragePool struct {
 	Default      bool     `json:"default"`
 
 	// Directory Original node storage location; visible to administrators
-	Directory   *string           `json:"directory,omitempty"`
-	Driver      StorageDriver     `json:"driver"`
-	Error       *string           `json:"error,omitempty"`
-	Id          string            `json:"id"`
-	Name        string            `json:"name"`
-	NodeIds     []string          `json:"nodeIds"`
-	OperationId *string           `json:"operationId,omitempty"`
-	State       *StoragePoolState `json:"state,omitempty"`
-	Storage     *StorageInfo      `json:"storage,omitempty"`
+	Directory      *string           `json:"directory,omitempty"`
+	Driver         StorageDriver     `json:"driver"`
+	Error          *string           `json:"error,omitempty"`
+	Id             string            `json:"id"`
+	Managed        *bool             `json:"managed,omitempty"`
+	Name           string            `json:"name"`
+	NodeIds        []string          `json:"nodeIds"`
+	OperationId    *string           `json:"operationId,omitempty"`
+	OperationState *string           `json:"operationState,omitempty"`
+	State          *StoragePoolState `json:"state,omitempty"`
+	Storage        *StorageInfo      `json:"storage,omitempty"`
 }
 
 // StoragePoolState defines model for StoragePool.State.

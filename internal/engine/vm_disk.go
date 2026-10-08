@@ -80,13 +80,17 @@ func (d vmDisk) address() string {
 	return "json:" + string(raw)
 }
 
+func cephMonitor(endpoint string) (string, string, error) {
+	return net.SplitHostPort(strings.TrimPrefix(strings.TrimPrefix(endpoint, "v1:"), "v2:"))
+}
+
 func (d vmDisk) source() (*libvirtxml.DomainDiskSource, *libvirtxml.DomainDiskAuth, error) {
 	if d.rbd == nil {
 		return &libvirtxml.DomainDiskSource{File: &libvirtxml.DomainDiskSourceFile{File: d.file}}, nil, nil
 	}
 	hosts := make([]libvirtxml.DomainDiskSourceHost, 0, len(d.rbd.Monitors))
 	for _, endpoint := range d.rbd.Monitors {
-		host, port, err := net.SplitHostPort(endpoint)
+		host, port, err := cephMonitor(endpoint)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -251,6 +251,7 @@ type StoragePool struct {
 	CreatedAt   pgtype.Timestamptz
 	NodeIds     []string
 	Driver      string
+	Managed     bool
 }
 
 type Template struct {

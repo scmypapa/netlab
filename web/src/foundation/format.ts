@@ -28,6 +28,7 @@ export const statusLabels: Record<string, string> = {
   capturing: "捕获中",
   creating: "创建中",
   connecting: "连接中",
+  preparing: "准备中",
   online: "在线",
   offline: "离线",
   queued: "等待执行",

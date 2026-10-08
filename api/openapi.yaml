@@ -901,6 +901,24 @@ components:
         kind: {$ref: '#/components/schemas/TemplateKind'}
         sizeGiB: {type: integer, format: int64}
         storage: {$ref: '#/components/schemas/StorageInfo'}
+    NodeCephBootstrap:
+      type: object
+      required: [publicKey]
+      properties:
+        publicKey: {type: string}
+    NodeCephHost:
+      type: object
+      required: [name, address]
+      properties:
+        name: {type: string}
+        address: {type: string}
+        device: {type: string}
+    NodeCephConfiguration:
+      type: object
+      required: [hosts]
+      properties:
+        hosts: {type: array, items: {$ref: '#/components/schemas/NodeCephHost'}}
+        replicas: {type: integer, minimum: 1, maximum: 3, default: 1}
     TemplateDisk:
       type: object
       required: [id, sizeGiB, bus, bootOrder]
@@ -1417,6 +1435,7 @@ components:
       properties:
         template: {$ref: '#/components/schemas/Template'}
         artifactEndpoint: {type: string}
+        storagePoolId: {type: string}
         registry: {$ref: '#/components/schemas/RegistryCredentials'}
         capture: {$ref: '#/components/schemas/TemplateCaptureSource'}
     TemplateCaptureSource:
@@ -1638,6 +1657,7 @@ components:
         networkChassis: {type: string}
         externalInterfaces: {type: array, items: {$ref: '#/components/schemas/ExternalInterface'}}
         storage: {$ref: '#/components/schemas/StorageInfo'}
+        storageDevice: {type: string, description: Dedicated disk accepted during node installation}
     StorageDriver:
       type: string
       enum: [directory, rbd]
@@ -1689,7 +1709,9 @@ components:
         directory: {type: string, description: Original node storage location; visible to administrators}
         default: {type: boolean}
         driver: {$ref: '#/components/schemas/StorageDriver'}
-        state: {type: string, enum: [ready, deleting], x-enum-varnames: [StoragePoolStateReady, StoragePoolStateDeleting]}
+        state: {type: string, enum: [ready, preparing, deleting], x-enum-varnames: [StoragePoolStateReady, StoragePoolStatePreparing, StoragePoolStateDeleting]}
+        managed: {type: boolean, default: false}
+        operationState: {type: string}
         operationId: {type: string}
         storage: {$ref: '#/components/schemas/StorageInfo'}
         allocatedGiB: {type: integer, format: int64}

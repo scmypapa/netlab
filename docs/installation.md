@@ -34,6 +34,14 @@ sudo bash netlab-release/scripts/install-node.sh 10.0.0.10 /root/netlab-node-cer
 
 节点目录为 `/opt/netlab-node`，资产及缓存保存在 `/var/lib/netlab-node`。安装器配置 containerd、libvirt、OVN/OVS、虚拟机固件、TPM、抓包和远程桌面依赖；发布包包含 Restic 0.18.1，节点服务优先使用包内版本。节点使用主站 CA 接入 OVN NB/SB，不开放明文管理数据库。
 
+安装时可直接接受默认数据目录。共享存储盘默认推荐容量最大的独立空盘；确认后交由 Ceph 管理。填写 `none` 使用本地存储。批量安装通过第三、四个参数指定数据目录及专用盘，例如：
+
+```bash
+sudo bash netlab-release/scripts/install-node.sh 10.0.0.10 /root/netlab-node-certs /var/lib/netlab-node /dev/disk/by-id/专用盘标识
+```
+
+登记第二个 VM 节点后，平台自动创建共享池、接入节点及配置凭据。有专用盘的节点提供存储，其他节点可直接使用共享盘。默认单副本；Ceph 的复制配置仍可通过官方管理工具调整。一个模板版本在共享池中保存一份基础盘，各环境使用独立的写入层。
+
 在面板「资源 → 节点」登记 `https://10.0.0.11:9443`。节点上报实际能力和容量；模板与运行环境沿既有 API 创建。
 
 ## 管理网络

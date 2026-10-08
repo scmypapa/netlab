@@ -138,7 +138,7 @@ func TestRealNativeSnapshotAndNUMA(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = v.prepareRecovery(ctx, env, restored, input, staging, manifest); err != nil {
+	if err = v.prepareRecovery(ctx, env, restored, input, staging, templateDirectory(data, a.Template.Id, a.Template.Version), manifest); err != nil {
 		t.Fatal(err)
 	}
 	if err = command(ctx, "qemu-io", "-f", "qcow2", "-c", "read -P 0x5a 0 1M", systemDiskPath(staging, 0)); err != nil {

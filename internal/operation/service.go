@@ -50,6 +50,10 @@ func (s Service) CurrentOperationID(ctx context.Context, row queries.Operation, 
 		var repository queries.BackupRepository
 		repository, err = s.Queries.GetBackupRepository(ctx, row.ScopeID)
 		current = repository.OperationID
+	case "storage-pool":
+		var storage queries.StoragePool
+		storage, err = s.Queries.GetStoragePool(ctx, row.ScopeID)
+		current = storage.OperationID
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -145,6 +149,14 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 			return api.Operation{}, environment.ErrConflict
 		}
 		revision = e.Revision
+	} else if row.ScopeKind == "storage-pool" {
+		storage, err := q.LockStoragePool(ctx, row.ScopeID)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if storage.OperationID == nil || *storage.OperationID != id {
+			return api.Operation{}, environment.ErrConflict
+		}
 	} else if row.ScopeKind == "volume" {
 		rows, err := q.LockPersistentVolumes(ctx, []string{row.ScopeID})
 		if err != nil {

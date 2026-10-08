@@ -11,6 +11,36 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const configureManagedStorage = `-- name: ConfigureManagedStorage :exec
+UPDATE storage_pools SET operation_id=$2 WHERE id=$1
+`
+
+type ConfigureManagedStorageParams struct {
+	ID          string
+	OperationID *string
+}
+
+func (q *Queries) ConfigureManagedStorage(ctx context.Context, arg ConfigureManagedStorageParams) error {
+	_, err := q.db.Exec(ctx, configureManagedStorage, arg.ID, arg.OperationID)
+	return err
+}
+
+const createManagedStorage = `-- name: CreateManagedStorage :exec
+INSERT INTO storage_pools(id,node_ids,name,driver,directory,path,state,operation_id,managed)
+VALUES($1,$2,'共享存储','rbd','','','preparing',$3,true)
+`
+
+type CreateManagedStorageParams struct {
+	ID          string
+	NodeIds     []string
+	OperationID *string
+}
+
+func (q *Queries) CreateManagedStorage(ctx context.Context, arg CreateManagedStorageParams) error {
+	_, err := q.db.Exec(ctx, createManagedStorage, arg.ID, arg.NodeIds, arg.OperationID)
+	return err
+}
+
 const createStoragePool = `-- name: CreateStoragePool :exec
 INSERT INTO storage_pools(id,node_ids,name,driver,directory,path) VALUES($1,$2,$3,$4,$5,$6)
 `
@@ -45,8 +75,23 @@ func (q *Queries) DeleteStoragePool(ctx context.Context, id string) error {
 	return err
 }
 
+const finishManagedStorage = `-- name: FinishManagedStorage :exec
+UPDATE storage_pools SET node_ids=$2,path=$3,state='ready' WHERE id=$1
+`
+
+type FinishManagedStorageParams struct {
+	ID      string
+	NodeIds []string
+	Path    string
+}
+
+func (q *Queries) FinishManagedStorage(ctx context.Context, arg FinishManagedStorageParams) error {
+	_, err := q.db.Exec(ctx, finishManagedStorage, arg.ID, arg.NodeIds, arg.Path)
+	return err
+}
+
 const getStoragePool = `-- name: GetStoragePool :one
-SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver FROM storage_pools WHERE id=$1
+SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver, managed FROM storage_pools WHERE id=$1
 `
 
 func (q *Queries) GetStoragePool(ctx context.Context, id string) (StoragePool, error) {
@@ -62,12 +107,13 @@ func (q *Queries) GetStoragePool(ctx context.Context, id string) (StoragePool, e
 		&i.CreatedAt,
 		&i.NodeIds,
 		&i.Driver,
+		&i.Managed,
 	)
 	return i, err
 }
 
 const listStoragePools = `-- name: ListStoragePools :many
-SELECT s.id, s.name, s.directory, s.path, s.state, s.operation_id, s.created_at, s.node_ids, s.driver,o.error AS operation_error FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.id
+SELECT s.id, s.name, s.directory, s.path, s.state, s.operation_id, s.created_at, s.node_ids, s.driver, s.managed,o.error AS operation_error,o.state AS operation_state FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.id
 `
 
 type ListStoragePoolsRow struct {
@@ -80,7 +126,9 @@ type ListStoragePoolsRow struct {
 	CreatedAt      pgtype.Timestamptz
 	NodeIds        []string
 	Driver         string
+	Managed        bool
 	OperationError *string
+	OperationState *string
 }
 
 func (q *Queries) ListStoragePools(ctx context.Context) ([]ListStoragePoolsRow, error) {
@@ -102,7 +150,9 @@ func (q *Queries) ListStoragePools(ctx context.Context) ([]ListStoragePoolsRow, 
 			&i.CreatedAt,
 			&i.NodeIds,
 			&i.Driver,
+			&i.Managed,
 			&i.OperationError,
+			&i.OperationState,
 		); err != nil {
 			return nil, err
 		}
@@ -115,7 +165,7 @@ func (q *Queries) ListStoragePools(ctx context.Context) ([]ListStoragePoolsRow, 
 }
 
 const lockStoragePool = `-- name: LockStoragePool :one
-SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver FROM storage_pools WHERE id=$1 FOR UPDATE
+SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver, managed FROM storage_pools WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockStoragePool(ctx context.Context, id string) (StoragePool, error) {
@@ -131,12 +181,13 @@ func (q *Queries) LockStoragePool(ctx context.Context, id string) (StoragePool, 
 		&i.CreatedAt,
 		&i.NodeIds,
 		&i.Driver,
+		&i.Managed,
 	)
 	return i, err
 }
 
 const lockStoragePools = `-- name: LockStoragePools :many
-SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver FROM storage_pools WHERE id=ANY($1::text[]) ORDER BY id FOR KEY SHARE
+SELECT id, name, directory, path, state, operation_id, created_at, node_ids, driver, managed FROM storage_pools WHERE id=ANY($1::text[]) ORDER BY id FOR KEY SHARE
 `
 
 func (q *Queries) LockStoragePools(ctx context.Context, dollar_1 []string) ([]StoragePool, error) {
@@ -158,6 +209,7 @@ func (q *Queries) LockStoragePools(ctx context.Context, dollar_1 []string) ([]St
 			&i.CreatedAt,
 			&i.NodeIds,
 			&i.Driver,
+			&i.Managed,
 		); err != nil {
 			return nil, err
 		}

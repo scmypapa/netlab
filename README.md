@@ -83,6 +83,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ### 4. 存储、快照与灾备
 
 * **存储支持**：本地目录、Btrfs CoW 原生快照、Ceph RBD 共享块存储。
+* **共享镜像**：单机使用本地基础盘与独立写入层；多节点自动优先使用共享池。每个池、模板版本保存一份基础盘，实例原生克隆，其他节点仅传输模板配置、固件和挂载介质。
 * **一致性恢复点**：
   * Linux VM：通过 QEMU Guest Agent 冻结文件系统。
   * Windows VM：通过 QGA 触发 VSS 卷影复制，实现应用级一致性快照。
@@ -114,7 +115,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 
 ```bash
 # 获取发布包并解压
-gh release download v1.0.0 --repo scmypapa/netlab --pattern netlab_linux_amd64.tar.gz
+gh release download v1.0.1 --repo scmypapa/netlab --pattern netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -260,5 +261,6 @@ curl -H "Authorization: Bearer <Your-Token>" \
 - [安装与更新](docs/installation.md)
 - [API 契约](api/openapi.yaml)
 - [v1.0.0 发布记录](docs/release-v1.0.0.md)
+- [v1.0.1 发布记录](docs/release-v1.0.1.md)
 - [实现与实测记录](docs/implementation.md)
 - [存储、虚拟机与观测](docs/storage-vm-observation.md)

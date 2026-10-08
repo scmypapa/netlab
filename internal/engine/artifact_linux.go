@@ -22,10 +22,25 @@ func templateDirectory(data, id string, version int) string {
 	return filepath.Join(data, "artifacts", id, strconv.Itoa(version))
 }
 
-func (e *Engine) OpenTemplateArtifact(id string, version int) (io.ReadCloser, int64, error) {
+func templateRuntimeDirectory(data, id string, version int) string {
+	return filepath.Join(data, "template-runtime", id, strconv.Itoa(version))
+}
+
+func (e *Engine) OpenTemplateArtifact(id string, version int, runtimeOnly bool) (io.ReadCloser, int64, error) {
 	directory := templateDirectory(e.cfg.DataDir, id, version)
 	if _, err := os.Stat(filepath.Join(directory, "template.json")); err != nil {
 		return nil, 0, err
+	}
+	if runtimeOnly {
+		raw, err := os.ReadFile(filepath.Join(directory, "template.json"))
+		if err != nil {
+			return nil, 0, err
+		}
+		var template api.Template
+		if err = json.Unmarshal(raw, &template); err != nil {
+			return nil, 0, err
+		}
+		return openArtifactFiles(directory, templateArtifactFiles(template, true))
 	}
 	return openDirectoryArtifact(directory)
 }
@@ -91,29 +106,32 @@ func openArtifactFiles(directory string, files []string) (io.ReadCloser, int64, 
 	return reader, length, nil
 }
 
-func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endpoint string) error {
-	if t.ArtifactNodeId == nil || *t.ArtifactNodeId == e.cfg.ID {
+func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endpoint string, shared bool) error {
+	if t.ArtifactNodeId == nil || *t.ArtifactNodeId == e.cfg.ID && !shared {
 		return nil
 	}
 	unlock := e.lock(fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
 	defer unlock()
 	directory := templateDirectory(e.cfg.DataDir, t.Id, t.Version)
+	if shared {
+		directory = templateRuntimeDirectory(e.cfg.DataDir, t.Id, t.Version)
+	}
 	if _, err := os.Stat(filepath.Join(directory, "template.json")); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	reader, _, err := e.openTemplateSource(ctx, t, *t.ArtifactNodeId, endpoint)
+	reader, _, err := e.openTemplateSource(ctx, t, *t.ArtifactNodeId, endpoint, shared)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
-	return e.installTemplateArtifact(t, reader)
+	return e.installTemplateArtifact(t, reader, shared)
 }
 
-func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, endpoint string) (io.ReadCloser, int64, error) {
+func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, endpoint string, shared bool) (io.ReadCloser, int64, error) {
 	if node == e.cfg.ID {
-		return e.OpenTemplateArtifact(t.Id, t.Version)
+		return e.OpenTemplateArtifact(t.Id, t.Version, shared)
 	}
 	if endpoint == "" || e.cfg.ArtifactHTTP == nil {
 		return nil, 0, errors.New("template artifact node transport is not configured")
@@ -121,6 +139,9 @@ func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, e
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/node/v1/templates/%s/versions/%d/artifact", strings.TrimRight(endpoint, "/"), t.Id, t.Version), nil)
 	if err != nil {
 		return nil, 0, err
+	}
+	if shared {
+		request.URL.RawQuery = "runtimeOnly=true"
 	}
 	response, err := e.cfg.ArtifactHTTP.Do(request)
 	if err != nil {
@@ -137,8 +158,11 @@ func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, e
 	return response.Body, response.ContentLength, nil
 }
 
-func (e *Engine) installTemplateArtifact(t api.Template, reader io.Reader) error {
+func (e *Engine) installTemplateArtifact(t api.Template, reader io.Reader, shared bool) error {
 	directory := templateDirectory(e.cfg.DataDir, t.Id, t.Version)
+	if shared {
+		directory = templateRuntimeDirectory(e.cfg.DataDir, t.Id, t.Version)
+	}
 	var err error
 	if err = os.MkdirAll(filepath.Dir(directory), 0711); err != nil {
 		return err
@@ -165,30 +189,38 @@ func (e *Engine) installTemplateArtifact(t api.Template, reader io.Reader) error
 	if prepared.Id != t.Id || prepared.Version != t.Version || prepared.Kind != t.Kind {
 		return errors.New("template artifact identity does not match requested version")
 	}
-	files := []string{"image.tar"}
 	if prepared.Kind == api.Vm {
 		if prepared.Disks == nil || len(*prepared.Disks) == 0 {
 			return errors.New("VM artifact contains no disks")
 		}
-		files = make([]string, len(*prepared.Disks))
-		for index := range files {
-			files[index] = fmt.Sprintf("disk-%d.qcow2", index)
-		}
-		if prepared.Media != nil {
-			for index := range *prepared.Media {
-				files = append(files, fmt.Sprintf("media-%d.iso", index))
-			}
-		}
-		if prepared.StateFiles != nil {
-			files = append(files, (*prepared.StateFiles)...)
-		}
 	}
-	for _, name := range files {
+	for _, name := range templateArtifactFiles(prepared, shared) {
 		if _, err = os.Stat(filepath.Join(staging, name)); err != nil {
 			return err
 		}
 	}
 	return os.Rename(staging, directory)
+}
+
+func templateArtifactFiles(t api.Template, runtimeOnly bool) []string {
+	files := []string{"template.json"}
+	if t.Kind == api.Container {
+		return append(files, "image.tar")
+	}
+	if !runtimeOnly && t.Disks != nil {
+		for index := range *t.Disks {
+			files = append(files, fmt.Sprintf("disk-%d.qcow2", index))
+		}
+	}
+	if t.Media != nil {
+		for index := range *t.Media {
+			files = append(files, fmt.Sprintf("media-%d.iso", index))
+		}
+	}
+	if t.StateFiles != nil {
+		files = append(files, (*t.StateFiles)...)
+	}
+	return files
 }
 
 func receiveDirectoryArtifact(reader io.Reader, directory string) error {

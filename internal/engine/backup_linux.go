@@ -63,7 +63,7 @@ func (e *Engine) BackupRecovery(ctx context.Context, id string, plan api.NodeBac
 		if _, exists := result.Templates[key]; exists {
 			continue
 		}
-		reader, size, err = e.openTemplateSource(ctx, source.Execution.Template, source.NodeId, source.Endpoint)
+		reader, size, err = e.openTemplateSource(ctx, source.Execution.Template, source.NodeId, source.Endpoint, false)
 		if err != nil {
 			return result, fmt.Errorf("template %s: %w", source.Execution.Template.Name, err)
 		}
@@ -127,7 +127,7 @@ func (e *Engine) RestoreBackupTemplate(ctx context.Context, request api.NodeRest
 		}
 		defer func() { <-e.ioSlots }()
 		reader := e.openBackupStream(ctx, request.Source, "/templates/"+backup.TemplateKey(t)+".tar")
-		err = e.installTemplateArtifact(t, reader)
+		err = e.installTemplateArtifact(t, reader, false)
 		if err = errors.Join(err, reader.Close()); err != nil {
 			return t, err
 		}

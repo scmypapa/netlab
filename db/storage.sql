@@ -1,5 +1,5 @@
 -- name: ListStoragePools :many
-SELECT s.*,o.error AS operation_error FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.id;
+SELECT s.*,o.error AS operation_error,o.state AS operation_state FROM storage_pools s LEFT JOIN operations o ON o.id=s.operation_id ORDER BY s.id;
 -- name: GetStoragePool :one
 SELECT * FROM storage_pools WHERE id=$1;
 -- name: LockStoragePools :many
@@ -12,6 +12,13 @@ INSERT INTO storage_pools(id,node_ids,name,driver,directory,path) VALUES($1,$2,$
 DELETE FROM storage_pools WHERE id=$1;
 -- name: MarkStorageDeleting :exec
 UPDATE storage_pools SET state='deleting',operation_id=$2 WHERE id=$1;
+-- name: CreateManagedStorage :exec
+INSERT INTO storage_pools(id,node_ids,name,driver,directory,path,state,operation_id,managed)
+VALUES($1,$2,'共享存储','rbd','','','preparing',$3,true);
+-- name: ConfigureManagedStorage :exec
+UPDATE storage_pools SET operation_id=$2 WHERE id=$1;
+-- name: FinishManagedStorage :exec
+UPDATE storage_pools SET node_ids=$2,path=$3,state='ready' WHERE id=$1;
 -- name: StorageReservations :many
 WITH assets AS (
  SELECT node_id,environment_id,asset_id,execution,disk_gib,COALESCE(execution->>'storagePoolId','')::text AS pool_id

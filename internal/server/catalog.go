@@ -311,6 +311,9 @@ func (s *Server) registerNode(w http.ResponseWriter, r *http.Request, identity a
 	if err = s.Queries.PutNode(r.Context(), queries.PutNodeParams{ID: info.Id, Name: input.Name, Endpoint: input.Endpoint, Info: raw}); err != nil {
 		return err
 	}
+	if err = (operation.Service{Pool: s.Pool, Queries: s.Queries}).ConfigureManagedStorage(r.Context()); err != nil {
+		return err
+	}
 	reserved, err := s.Queries.GetReservedResources(r.Context(), info.Id)
 	if err != nil {
 		return err

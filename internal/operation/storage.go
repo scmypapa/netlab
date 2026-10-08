@@ -2,8 +2,10 @@ package operation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -89,7 +91,89 @@ func assignStorage(a *api.AssetExecution, p storageCandidate) {
 	}
 }
 
+func (w Worker) prepareSharedTemplates(ctx context.Context, targets []Target, artifacts map[string]string) error {
+	pools, err := w.Queries.ListStoragePools(ctx)
+	if err != nil {
+		return err
+	}
+	nodes, err := w.Queries.ListNodes(ctx)
+	if err != nil {
+		return err
+	}
+	endpoints := map[string]string{}
+	for _, node := range nodes {
+		if node.State == "ready" {
+			endpoints[node.ID] = node.Endpoint
+		}
+	}
+	members := map[string][]string{}
+	for _, pool := range pools {
+		members[pool.ID] = pool.NodeIds
+	}
+	prepared := map[string]bool{}
+	for _, target := range targets {
+		a := target.Execution
+		if a.Rbd == nil {
+			continue
+		}
+		key := *a.StoragePoolId + "/" + a.Template.Id + fmt.Sprintf("/%d", a.Template.Version)
+		if prepared[key] {
+			continue
+		}
+		request := api.NodeTemplatePreparation{Template: a.Template, StoragePoolId: a.StoragePoolId}
+		if a.Template.ArtifactNodeId != nil {
+			endpoint := artifacts[*a.Template.ArtifactNodeId]
+			request.ArtifactEndpoint = &endpoint
+		}
+		owner := ""
+		for _, node := range members[*a.StoragePoolId] {
+			if endpoints[node] != "" {
+				owner = node
+				break
+			}
+		}
+		if a.Template.ArtifactNodeId != nil && slices.Contains(members[*a.StoragePoolId], *a.Template.ArtifactNodeId) && endpoints[*a.Template.ArtifactNodeId] != "" {
+			owner = *a.Template.ArtifactNodeId
+		}
+		if owner == "" {
+			return fmt.Errorf("共享存储没有可准备镜像的在线节点")
+		}
+		if err = w.prepareSharedTemplate(ctx, key, endpoints[owner], request); err != nil {
+			return err
+		}
+		prepared[key] = true
+	}
+	return nil
+}
+
+func (w Worker) prepareSharedTemplate(ctx context.Context, key, endpoint string, request api.NodeTemplatePreparation) (err error) {
+	conn, err := w.Pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	// Serialize publication across operations and nodes without a slow DB transaction.
+	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock(hashtextextended($1, 0))", "shared-template/"+key); err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, unlockErr := conn.Exec(cleanup, "SELECT pg_advisory_unlock(hashtextextended($1, 0))", "shared-template/"+key)
+		if unlockErr != nil {
+			conn.Conn().Close(cleanup)
+		}
+		err = errors.Join(err, unlockErr)
+	}()
+	var prepared api.Template
+	return w.Client.Do(ctx, http.MethodPost, endpoint, "/node/v1/templates/prepare", request, &prepared)
+}
+
 func (w Worker) deleteStoragePool(ctx context.Context, op *queries.Operation, p *Payload) error {
+	pool, err := w.Queries.GetStoragePool(ctx, op.ScopeID)
+	if err != nil {
+		return err
+	}
 	nodes, err := w.Queries.GetNodeEndpoints(ctx, p.StoragePool.NodeIds)
 	if err != nil {
 		return err
@@ -107,6 +191,25 @@ func (w Worker) deleteStoragePool(ctx context.Context, op *queries.Operation, p 
 		}
 		if err = w.Client.Do(ctx, http.MethodDelete, node.Endpoint, transport.StorageRoute(op.ScopeID, directory), nil, nil); err != nil {
 			return err
+		}
+	}
+	if pool.Managed {
+		endpoints := map[string]string{}
+		for _, node := range nodes {
+			endpoints[node.ID] = node.Endpoint
+		}
+		owner := pool.NodeIds[0]
+		path := "/node/v1/ceph/" + pool.ID
+		if err = w.phase(ctx, op, p, "storage-remove-cluster"); err != nil {
+			return err
+		}
+		if err = w.Client.Do(ctx, http.MethodPost, endpoints[owner], path+"/prepare-removal", nil, nil); err != nil {
+			return err
+		}
+		for _, id := range append(slices.Clone(pool.NodeIds[1:]), owner) {
+			if err = w.Client.Do(ctx, http.MethodDelete, endpoints[id], path, nil, nil); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

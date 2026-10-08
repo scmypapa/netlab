@@ -94,11 +94,30 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 	if err != nil {
 		return err
 	}
+	templateDir := templateDirectory(e.cfg.DataDir, a.Template.Id, a.Template.Version)
+	if a.Template.ArtifactNodeId != nil {
+		endpoint := ""
+		if plan.ArtifactEndpoints != nil {
+			endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
+		}
+		runtimeOnly := a.Rbd != nil
+		for _, disk := range manifest.Disks {
+			if disk.BackingTemplateDisk != nil {
+				runtimeOnly = false
+			}
+		}
+		if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint, runtimeOnly); err != nil {
+			return err
+		}
+		if runtimeOnly {
+			templateDir = templateRuntimeDirectory(e.cfg.DataDir, a.Template.Id, a.Template.Version)
+		}
+	}
 	switch a.Template.Kind {
 	case api.Container:
 		err = e.container.prepareRecovery(ctx, plan.EnvironmentId, a, input, staging, manifest)
 	case api.Vm:
-		err = e.vm.prepareRecovery(ctx, plan.EnvironmentId, a, input, staging, manifest)
+		err = e.vm.prepareRecovery(ctx, plan.EnvironmentId, a, input, staging, templateDir, manifest)
 	}
 	if err != nil {
 		return err
@@ -196,7 +215,7 @@ func (c *Containers) prepareRecovery(ctx context.Context, env string, a api.Asse
 	return writeRecoveryJSON(filepath.Join(staging, "container.json"), info)
 }
 
-func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api.AssetExecution, input, staging string, manifest recoveryManifest) error {
+func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api.AssetExecution, input, staging, templateDir string, manifest recoveryManifest) error {
 	raw, err := os.ReadFile(filepath.Join(input, "domain.xml"))
 	if err != nil {
 		return err
@@ -221,7 +240,7 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	sourceDisks := executionDiskMap(v.data, env, manifest.Execution)
 	for _, disk := range manifest.Disks {
 		if disk.BackingTemplateDisk != nil {
-			source := systemDiskPath(templateDirectory(v.data, a.Template.Id, a.Template.Version), *disk.BackingTemplateDisk)
+			source := systemDiskPath(templateDir, *disk.BackingTemplateDisk)
 			if err = command(ctx, "qemu-img", "rebase", "-u", "-f", "qcow2", "-F", "qcow2", "-b", source, filepath.Join(input, disk.File)); err != nil {
 				return err
 			}
@@ -271,7 +290,7 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	}
 	if a.Template.Media != nil {
 		for i := range *a.Template.Media {
-			if err = os.Symlink(templateMediaPath(templateDirectory(v.data, a.Template.Id, a.Template.Version), i), templateMediaPath(staging, i)); err != nil {
+			if err = os.Symlink(templateMediaPath(templateDir, i), templateMediaPath(staging, i)); err != nil {
 				return err
 			}
 		}

@@ -151,18 +151,24 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	if err := os.MkdirAll(dir, 0711); err != nil {
 		return "absent", err
 	}
-	template, err := v.prepareTemplate(ctx, a.Template, nil)
-	if err != nil {
-		return "absent", err
+	template := a.Template
+	var err error
+	templateDir := templateRuntimeDirectory(v.data, template.Id, template.Version)
+	if a.Rbd == nil {
+		template, err = v.prepareTemplate(ctx, template, nil)
+		if err != nil {
+			return "absent", err
+		}
+		templateDir = templateDirectory(v.data, template.Id, template.Version)
 	}
 	a.Template = template
-	if err = restoreTemplateState(ctx, templateDirectory(v.data, template.Id, template.Version), dir, a.InstanceId, template); err != nil {
+	if err = restoreTemplateState(ctx, templateDir, dir, a.InstanceId, template); err != nil {
 		return "absent", err
 	}
 	if template.Media != nil {
 		for index := range *template.Media {
 			target := templateMediaPath(dir, index)
-			source := templateMediaPath(templateDirectory(v.data, template.Id, template.Version), index)
+			source := templateMediaPath(templateDir, index)
 			if err = os.Symlink(source, target); err != nil && !errors.Is(err, os.ErrExist) {
 				return "absent", err
 			}
@@ -173,8 +179,14 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 		return "absent", err
 	}
 	for index, size := range sizes {
-		source := systemDiskPath(filepath.Join(v.data, "artifacts", a.Template.Id, fmt.Sprint(a.Template.Version)), index)
-		if err = systemDisk(dir, a, index).prepare(ctx, source, size); err != nil {
+		disk := systemDisk(dir, a, index)
+		if a.Rbd != nil {
+			base := sharedTemplateDisk(*a.StoragePath, *a.Rbd, template, index)
+			err = disk.cloneSnapshot(ctx, base, size)
+		} else {
+			err = disk.prepare(ctx, systemDiskPath(templateDir, index), size)
+		}
+		if err != nil {
 			return "absent", err
 		}
 	}
@@ -418,7 +430,7 @@ func commandOutput(ctx context.Context, name string, args ...string) ([]byte, er
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
-			return nil, fmt.Errorf("%s: %w: %s", name, err, exit.Stderr)
+			return nil, fmt.Errorf("%s: %w: %s", name, err, cephKeyDiagnostic.ReplaceAll(exit.Stderr, []byte("type=key val=[redacted]")))
 		}
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}

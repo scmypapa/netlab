@@ -1474,6 +1474,19 @@ export interface components {
       sizeGiB: number;
       storage: components["schemas"]["StorageInfo"];
     };
+    NodeCephBootstrap: {
+      publicKey: string;
+    };
+    NodeCephHost: {
+      name: string;
+      address: string;
+      device?: string;
+    };
+    NodeCephConfiguration: {
+      hosts: components["schemas"]["NodeCephHost"][];
+      /** @default 1 */
+      replicas: number;
+    };
     TemplateDisk: {
       id: string;
       /** Format: int64 */
@@ -1991,6 +2004,7 @@ export interface components {
     NodeTemplatePreparation: {
       template: components["schemas"]["Template"];
       artifactEndpoint?: string;
+      storagePoolId?: string;
       registry?: components["schemas"]["RegistryCredentials"];
       capture?: components["schemas"]["TemplateCaptureSource"];
     };
@@ -2193,6 +2207,8 @@ export interface components {
       networkChassis?: string;
       externalInterfaces?: components["schemas"]["ExternalInterface"][];
       storage?: components["schemas"]["StorageInfo"];
+      /** @description Dedicated disk accepted during node installation */
+      storageDevice?: string;
     };
     /** @enum {string} */
     StorageDriver: "directory" | "rbd";
@@ -2238,7 +2254,10 @@ export interface components {
       default: boolean;
       driver: components["schemas"]["StorageDriver"];
       /** @enum {string} */
-      state?: "ready" | "deleting";
+      state?: "ready" | "preparing" | "deleting";
+      /** @default false */
+      managed: boolean;
+      operationState?: string;
       operationId?: string;
       storage?: components["schemas"]["StorageInfo"];
       /** Format: int64 */
