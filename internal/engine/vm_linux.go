@@ -82,6 +82,13 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if state == "stopped" {
 			err = d.Create()
 		}
+		if err == nil {
+			err = v.bindGuestNetwork(ctx, d, a)
+			if err != nil {
+				current, observeErr := vmState(d)
+				return current, errors.Join(err, observeErr)
+			}
+		}
 	case api.NodePlanPhaseStop:
 		if state == "suspended" {
 			if err = d.Resume(); err != nil {

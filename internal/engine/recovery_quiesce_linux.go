@@ -3,14 +3,12 @@
 package engine
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"libvirt.org/go/libvirt"
-	"libvirt.org/go/libvirtxml"
 	"netlab.local/core/api"
 )
 
@@ -19,48 +17,24 @@ func recoveryFreezePath(data, point string, a api.AssetExecution) string {
 }
 
 func guestFreezeState(domain *libvirt.Domain) (string, error) {
-	text, err := domain.QemuAgentCommand(`{"execute":"guest-fsfreeze-status"}`, libvirt.DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, 0)
-	if err != nil {
+	var status string
+	if err := guestAgentCommand(domain, "guest-fsfreeze-status", nil, &status); err != nil {
 		return "", err
 	}
-	var result struct {
-		Return string `json:"return"`
-		Error  *struct {
-			Desc string `json:"desc"`
-		} `json:"error"`
+	if status != "frozen" && status != "thawed" {
+		return "", fmt.Errorf("invalid guest freeze state %q", status)
 	}
-	if err = json.Unmarshal([]byte(text), &result); err != nil {
-		return "", err
-	}
-	if result.Error != nil {
-		return "", errors.New(result.Error.Desc)
-	}
-	if result.Return != "frozen" && result.Return != "thawed" {
-		return "", fmt.Errorf("invalid guest freeze state %q", result.Return)
-	}
-	return result.Return, nil
+	return status, nil
 }
 
 func guestRecoveryConsistency(domain *libvirt.Domain) (api.RecoveryConsistency, error) {
-	text, err := domain.QemuAgentCommand(`{"execute":"guest-get-osinfo"}`, libvirt.DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, 0)
-	if err != nil {
-		return api.Crash, err
-	}
 	var result struct {
-		Return struct {
-			ID string `json:"id"`
-		} `json:"return"`
-		Error *struct {
-			Desc string `json:"desc"`
-		} `json:"error"`
+		ID string `json:"id"`
 	}
-	if err = json.Unmarshal([]byte(text), &result); err != nil {
+	if err := guestAgentCommand(domain, "guest-get-osinfo", nil, &result); err != nil {
 		return api.Crash, err
 	}
-	if result.Error != nil {
-		return api.Crash, errors.New(result.Error.Desc)
-	}
-	if result.Return.ID == "mswindows" {
+	if result.ID == "mswindows" {
 		// QGA's Windows freeze completes VSS preparation, writer checks and snapshot creation.
 		return api.Application, nil
 	}
@@ -68,19 +42,9 @@ func guestRecoveryConsistency(domain *libvirt.Domain) (api.RecoveryConsistency, 
 }
 
 func (v *VirtualMachines) freezeRecoveryFS(domain *libvirt.Domain, point string, a api.AssetExecution, paused bool) (bool, error) {
-	text, err := domain.GetXMLDesc(0)
+	connected, err := guestAgentConnected(domain)
 	if err != nil {
 		return false, err
-	}
-	var config libvirtxml.Domain
-	if err = config.Unmarshal(text); err != nil {
-		return false, err
-	}
-	connected := false
-	for _, channel := range config.Devices.Channels {
-		if channel.Target != nil && channel.Target.VirtIO != nil && channel.Target.VirtIO.Name == "org.qemu.guest_agent.0" && channel.Target.VirtIO.State == "connected" {
-			connected = true
-		}
 	}
 	if !connected {
 		return false, nil
