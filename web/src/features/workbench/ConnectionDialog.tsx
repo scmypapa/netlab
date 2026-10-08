@@ -8,7 +8,7 @@ import {
   TextInput,
 } from "@mantine/core";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, ApiError, type Asset, type Schema } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
 import styles from "./FileWorkspace.module.css";
@@ -42,57 +42,66 @@ export function ConnectionDialog({
       }
     },
   });
-  const [settings, setSettings] = useState<Settings>(() =>
-    kind === "ssh"
+  const [draft, setDraft] = useState<Settings>();
+  const settings: Settings =
+    draft ??
+    saved.data ??
+    (kind === "ssh"
       ? {
           username: asset.guest?.username ?? "",
           port: 22,
           authKind: "password",
           hostKey: "",
         }
-      : { username: asset.guest?.username ?? "", port: 3389, certificate: "" },
-  );
+      : { username: asset.guest?.username ?? "", port: 3389, certificate: "" });
   const [password, setPassword] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [passphrase, setPassphrase] = useState("");
-  useEffect(() => {
-    if (saved.data) setSettings(saved.data);
-  }, [saved.data]);
   const ssh = "authKind" in settings ? settings : undefined;
   const rdp = "certificate" in settings ? settings : undefined;
-  const fingerprint = ssh?.hostKey ?? rdp?.certificate ?? "";
+  const configuredFingerprint = ssh?.hostKey ?? rdp?.certificate ?? "";
   const savedFingerprint =
     saved.data &&
     ("hostKey" in saved.data ? saved.data.hostKey : saved.data.certificate);
   const change = (
     patch: Partial<Schema<"SSHSettings"> & Schema<"RDPSettings">>,
-  ) => setSettings((current) => ({ ...current, ...patch }));
-  const confirm = (value: string) =>
-    setSettings((current) =>
-      "hostKey" in current
-        ? { ...current, hostKey: value }
-        : { ...current, certificate: value },
-    );
-  const probe = useMutation({
-    mutationFn: () =>
+  ) => setDraft({ ...settings, ...patch });
+  const probe = useQuery({
+    queryKey: [
+      kind,
+      "fingerprint",
+      environmentId,
+      asset.id,
+      settings.port,
+      settings.interfaceId,
+    ],
+    enabled:
+      saved.isSuccess &&
+      !configuredFingerprint &&
+      settings.port > 0 &&
+      settings.port <= 65535,
+    retry: false,
+    queryFn: () =>
       (kind === "ssh" ? api.sshHostKey : api.rdpCertificate)(
         environmentId,
         asset.id,
         { port: settings.port, interfaceId: settings.interfaceId },
       ),
-    onSuccess: (value) => confirm(value.fingerprint),
   });
+  const fingerprint = probe.data?.fingerprint ?? configuredFingerprint;
   const save = useMutation({
     mutationFn: () =>
       "authKind" in settings
         ? api.saveSSHSettings(environmentId, asset.id, {
             ...settings,
+            hostKey: fingerprint,
             password: password || undefined,
             privateKey: privateKey || undefined,
             passphrase: passphrase || undefined,
           })
         : api.saveRDPSettings(environmentId, asset.id, {
             ...settings,
+            certificate: fingerprint,
             password: password || undefined,
           }),
     onSuccess: onSaved,
@@ -132,8 +141,12 @@ export function ConnectionDialog({
               min={1}
               max={65535}
               onChange={(value) => {
-                change({ port: Number(value) });
-                confirm("");
+                change({
+                  port: Number(value),
+                  ...("authKind" in settings
+                    ? { hostKey: "" }
+                    : { certificate: "" }),
+                });
               }}
             />
           </div>
@@ -158,8 +171,12 @@ export function ConnectionDialog({
                 })),
               ]}
               onChange={(value) => {
-                change({ interfaceId: value || undefined });
-                confirm("");
+                change({
+                  interfaceId: value || undefined,
+                  ...("authKind" in settings
+                    ? { hostKey: "" }
+                    : { certificate: "" }),
+                });
               }}
             />
           )}
@@ -212,8 +229,8 @@ export function ConnectionDialog({
             <Button
               variant="default"
               size="compact-sm"
-              onClick={() => probe.mutate()}
-              loading={probe.isPending}
+              onClick={() => void probe.refetch()}
+              loading={probe.isFetching}
             >
               {kind === "ssh" ? "读取主机密钥" : "读取服务器证书"}
             </Button>
@@ -226,7 +243,7 @@ export function ConnectionDialog({
             <Button
               type="submit"
               loading={save.isPending}
-              disabled={!fingerprint || probe.isPending}
+              disabled={!fingerprint || probe.isFetching}
             >
               {fingerprint === savedFingerprint ? "保存" : "信任并保存"}
             </Button>

@@ -1,5 +1,61 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page }) => {
+  await fixture(page);
+  let submitted: unknown;
+  await page.route("**/api/v1/environments/env/assets/web/ssh", (route) => {
+    if (route.request().method() === "PUT") {
+      submitted = route.request().postDataJSON();
+      return route.fulfill({ status: 204 });
+    }
+    return route.fulfill({ status: 404, json: { detail: "尚未配置" } });
+  });
+  let releaseInitial: () => void = () => {};
+  const initial = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  const ports: number[] = [];
+  await page.route(
+    "**/api/v1/environments/env/assets/web/ssh/host-key",
+    async (route) => {
+      const { port } = route.request().postDataJSON();
+      ports.push(port);
+      if (port === 22) await initial;
+      await route.fulfill({ json: { fingerprint: `SHA256:server-${port}` } });
+    },
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "SSH", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "web-01 · SSH" });
+  await dialog
+    .getByRole("textbox", { name: "用户名", exact: true })
+    .fill("operator");
+  await dialog.getByLabel("密码", { exact: true }).fill("test-password");
+  await expect.poll(() => ports).toContain(22);
+  await expect(
+    dialog.getByRole("button", { name: "信任并保存" }),
+  ).toBeDisabled();
+  await dialog.getByRole("textbox", { name: "端口", exact: true }).fill("2222");
+  await expect(dialog).toContainText("SHA256:server-2222");
+  releaseInitial();
+  await expect(
+    dialog.getByRole("button", { name: "信任并保存" }),
+  ).toBeEnabled();
+  await dialog.getByRole("button", { name: "信任并保存" }).click();
+  await expect
+    .poll(() => submitted)
+    .toMatchObject({
+      username: "operator",
+      password: "test-password",
+      authKind: "password",
+      port: 2222,
+      hostKey: "SHA256:server-2222",
+    });
+});
+
 test("会话过期后切换账号清除前账号的环境缓存", async ({ page }) => {
   await fixture(page);
   let expired = false;
