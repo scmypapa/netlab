@@ -1,4 +1,5 @@
 import { randomUUID } from "../../foundation/id";
+import { copyText } from "../../foundation/clipboard";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import {
@@ -38,7 +39,7 @@ export function useVPNAccess(
   const create = useMutation({
     gcTime: 0,
     mutationFn: async (input: VPNInput) => {
-      const pair = await wireguardKeys();
+      const pair = wireguardKeys();
       const operation = await api.createVPNAccess(id, {
         ...input,
         publicKey: pair.publicKey,
@@ -86,7 +87,7 @@ export function useVPNAccess(
   const copy = useMutation({
     mutationFn: async (item: Schema<"VPNAccess">) => {
       const connection = await api.vpnConnection(id, item.id);
-      await navigator.clipboard.writeText(wireguardConfig(connection));
+      await copyText(wireguardConfig(connection));
     },
   });
   return { access, create, revoke, canDownload, download, copy };

@@ -1,16 +1,12 @@
+import { x25519 } from "@noble/curves/ed25519.js";
 import type { Schema } from "../../api/client";
 
-export async function wireguardKeys() {
-  const pair = (await crypto.subtle.generateKey({ name: "X25519" }, true, [
-    "deriveBits",
-  ])) as CryptoKeyPair;
-  const [secret, publicKey] = await Promise.all([
-    crypto.subtle.exportKey("jwk", pair.privateKey),
-    crypto.subtle.exportKey("raw", pair.publicKey),
-  ]);
+export function wireguardKeys() {
+  const secret = x25519.utils.randomSecretKey();
+  const publicKey = x25519.getPublicKey(secret);
   return {
-    privateKey: secret.d!.replace(/-/g, "+").replace(/_/g, "/") + "=",
-    publicKey: btoa(String.fromCharCode(...new Uint8Array(publicKey))),
+    privateKey: btoa(String.fromCharCode(...secret)),
+    publicKey: btoa(String.fromCharCode(...publicKey)),
   };
 }
 

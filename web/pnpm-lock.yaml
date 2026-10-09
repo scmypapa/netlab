@@ -17,6 +17,9 @@ importers:
       '@mantine/hooks':
         specifier: ^8.3.0
         version: 8.3.18(react@19.3.0)
+      '@noble/curves':
+        specifier: 2.0.1
+        version: 2.0.1
       '@novnc/novnc':
         specifier: 1.7.0
         version: 1.7.0
@@ -395,6 +398,14 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+
+  '@noble/curves@2.0.1':
+    resolution: {integrity: sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.0.1':
+    resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
+    engines: {node: '>= 20.19.0'}
 
   '@novnc/novnc@1.7.0':
     resolution: {integrity: sha512-ucEJOx4T2avIRCleodk7YobZj5O2Ga2AeLfQ69A/yjG9HHba2+PDgwSkN3FttrmG+70ZGx21sElNFouK13RzyA==}
@@ -1656,6 +1667,12 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@noble/curves@2.0.1':
+    dependencies:
+      '@noble/hashes': 2.0.1
+
+  '@noble/hashes@2.0.1': {}
 
   '@novnc/novnc@1.7.0': {}
 

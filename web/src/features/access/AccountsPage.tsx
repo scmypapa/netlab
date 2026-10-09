@@ -27,6 +27,7 @@ import {
   type Schema,
 } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
+import { copyText } from "../../foundation/clipboard";
 import { dateTime } from "../../foundation/format";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
@@ -374,7 +375,7 @@ function TokenEditor({
               aria-label="复制 Token"
               variant="default"
               onClick={async () => {
-                await navigator.clipboard.writeText(issue.data!.token);
+                await copyText(issue.data!.token);
                 setCopied(true);
               }}
             >
