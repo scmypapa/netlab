@@ -4,7 +4,7 @@ Netlab 是一个用来快速搭建**隔离网络环境**、管理**虚拟机与�
 
 无论你是要做网络实验、工控协议仿真、安全攻防靶场，还是混合多节点的教学培训，Netlab 的目标都是让你像画架构图一样：拉几台 Windows、几台 Linux、几个容器，给它们划好子网、配上限速或丢包规则，一键启动。在浏览器里就能直接开 VNC/RDP 运维，随时点开任意接口抓包，玩坏了随时用快照恢复。
 
-系统使用同一套 `/api/v1` 提供 Web 工作台与外部平台对接，底层不依赖 Kubernetes，采用 Linux 原生组件配合 systemd 守护，简单稳定。
+系统使用同一套 `/api/v1` 提供 Web 工作台与外部平台对接，采用 Linux 原生组件和 systemd 服务。
 
 ---
 
@@ -109,13 +109,14 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 
 ## 快速上手
 
-发布包包含控制面、执行节点、前端，以及 VictoriaMetrics、Restic 和 guacd；安装器配置宿主依赖与服务。使用具有仓库读取权限的 GitHub 账号登录 `gh` 后下载。
+发布包包含控制面、执行节点、前端，以及 VictoriaMetrics、Restic 和 guacd；安装器配置宿主依赖与服务。从 GitHub Releases 下载发布包。
 
 ### 1. 部署控制面（以单机 IP 10.0.0.10 为例）
 
 ```bash
 # 获取发布包并解压
-gh release download v1.0.1 --repo scmypapa/netlab --pattern netlab_linux_amd64.tar.gz
+curl -fL -o netlab_linux_amd64.tar.gz \
+  https://github.com/scmypapa/netlab/releases/download/v1.0.1/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -128,7 +129,7 @@ sudo bash netlab-release/scripts/install-controller.sh \
 
 - 访问：`http://10.0.0.10:8090`
 - 初始账号：`admin`
-- 初始密码：保存在 `/etc/netlab/controller.env` 文件中
+- 初始密码：安装时随机生成，保存在 `/etc/netlab/controller.env` 的 `NETLAB_ADMIN_PASSWORD` 中
 
 ### 2. 接入执行节点（以目标节点 10.0.0.11 为例）
 
@@ -247,7 +248,7 @@ curl -H "Authorization: Bearer <Your-Token>" \
 
 ## 版本更新
 
-从账号菜单打开「系统更新」，查看 GitHub 正式发布日志并选择版本。更新器等待现有任务完成，逐节点更新后切换控制面；程序保存在版本目录，数据保留。私有仓库的更新访问令牌配置为 `NETLAB_GITHUB_TOKEN`。
+从账号菜单打开「系统更新」，查看 GitHub 正式发布日志并选择版本。更新器等待现有任务完成，逐节点更新后切换控制面；程序保存在版本目录，数据保留。
 
 ---
 
@@ -260,7 +261,4 @@ curl -H "Authorization: Bearer <Your-Token>" \
 
 - [安装与更新](docs/installation.md)
 - [API 契约](api/openapi.yaml)
-- [v1.0.0 发布记录](docs/release-v1.0.0.md)
-- [v1.0.1 发布记录](docs/release-v1.0.1.md)
-- [实现与实测记录](docs/implementation.md)
-- [存储、虚拟机与观测](docs/storage-vm-observation.md)
+- [版本与更新日志](https://github.com/scmypapa/netlab/releases)

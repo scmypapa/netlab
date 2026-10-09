@@ -78,5 +78,3 @@ sudo systemctl start netlab-update.service
 ```bash
 sudo journalctl -u netlab-update.service -u netlab-node-update.service -n 100
 ```
-
-本轮完成定向验证与构建，尚未执行空白宿主安装、真实多节点版本切换和宿主/服务进程强杀验收。
