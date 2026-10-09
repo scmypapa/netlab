@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import {
   ActionIcon,
   Button,
@@ -117,7 +118,7 @@ export function AssetEditor({
   const save = () =>
     onSave({
       ...asset,
-      id: asset?.id ?? crypto.randomUUID(),
+      id: asset?.id ?? randomUUID(),
       name,
       templateId,
       storagePoolId: storagePoolId ?? undefined,
@@ -142,7 +143,7 @@ export function AssetEditor({
       interfaces: networkIds.map(
         (networkId, index) =>
           asset?.interfaces.find((item) => item.networkId === networkId) ?? {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             networkId,
             mac: "",
             address: "",
@@ -439,7 +440,7 @@ export function AssetEditor({
                 setVolumes((items) => [
                   ...items,
                   {
-                    id: crypto.randomUUID(),
+                    id: randomUUID(),
                     mountPath:
                       template?.kind === "vm"
                         ? `数据盘 ${items.length + 1}`
@@ -553,7 +554,7 @@ export function NetworkEditor({
   );
   const save = () =>
     onSave({
-      id: network?.id ?? crypto.randomUUID(),
+      id: network?.id ?? randomUUID(),
       name,
       cidr,
       gateway: gateway || undefined,

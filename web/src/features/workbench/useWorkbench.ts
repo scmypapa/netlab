@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, type EnvironmentSpec, type Schema } from "../../api/client";
@@ -167,7 +168,7 @@ export function useWorkbench(id: string) {
         expectedRevision: preview.data!.revision,
         spec,
         apply: true,
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: randomUUID(),
       }),
     onSuccess: () => {
       setEditing(false);
@@ -186,7 +187,7 @@ export function useWorkbench(id: string) {
       const body = {
         action: value,
         expectedRevision: environment.data!.revision,
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: randomUUID(),
       };
       return assetId
         ? api.assetAction(id, assetId, body)
@@ -217,7 +218,7 @@ export function useWorkbench(id: string) {
       api.exposeService(id, assetId, {
         ...body,
         expectedRevision: environment.data!.revision,
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: randomUUID(),
       }),
     onSuccess: refresh,
   });
@@ -227,7 +228,7 @@ export function useWorkbench(id: string) {
         id,
         serviceId,
         environment.data!.revision,
-        crypto.randomUUID(),
+        randomUUID(),
       ),
     onSuccess: refresh,
   });

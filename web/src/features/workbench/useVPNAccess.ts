@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import {
@@ -42,7 +43,7 @@ export function useVPNAccess(
         ...input,
         publicKey: pair.publicKey,
         expectedRevision: environment!.revision,
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: randomUUID(),
       });
       keys.set(pair.publicKey, pair.privateKey);
       return operation;
@@ -56,7 +57,7 @@ export function useVPNAccess(
         id,
         item.id,
         environment!.revision,
-        crypto.randomUUID(),
+        randomUUID(),
       );
       keys.delete(item.publicKey);
       return operation;

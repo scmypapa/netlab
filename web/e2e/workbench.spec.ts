@@ -1737,6 +1737,31 @@ test("suspended environment and asset both offer a normal stop", async ({
     });
 });
 
+test("HTTP 浏览器缺少 randomUUID 时仍能启动资产", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "randomUUID", { value: undefined });
+  });
+  const calls = await fixture(page, { status: "stopped" });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "启动", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        calls.find(
+          (call) => call.path === "/environments/env/assets/windows/actions",
+        )?.body,
+    )
+    .toMatchObject({
+      action: "start",
+      clientRequestId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      ),
+    });
+});
+
 test("stopped assets cannot pause", async ({ page }) => {
   await fixture(page, { status: "stopped" });
   await page.goto("/environments/env");

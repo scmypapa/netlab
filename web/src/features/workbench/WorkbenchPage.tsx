@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import { ActionIcon, Button, Menu, Modal, TextInput } from "@mantine/core";
 import {
   ArrowLeft,
@@ -279,17 +280,17 @@ function Workbench({ id }: { id: string }) {
     if (asset)
       updateAsset({
         ...structuredClone(asset),
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         name: `${asset.name}-副本`,
         interfaces: asset.interfaces.map((item) => ({
           ...item,
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           address: "",
           mac: "",
         })),
         volumes: asset.volumes?.map((volume) => ({
           ...volume,
-          id: crypto.randomUUID(),
+          id: randomUUID(),
         })),
       });
   };
