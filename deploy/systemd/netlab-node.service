@@ -10,7 +10,7 @@ ExecStart=/opt/netlab-node/current/netlab-node $NETLAB_NODE_ARGS
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=120
-UMask=0077
+UMask=0022
 
 [Install]
 WantedBy=multi-user.target
