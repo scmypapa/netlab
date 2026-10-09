@@ -83,7 +83,9 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ### 4. 存储、快照与灾备
 
 * **存储支持**：本地目录、Btrfs CoW 原生快照、Ceph RBD 共享块存储。
+* **存储管理**：在工作台选择节点存储盘，查看 Ceph 成员、容量、健康状态与副本数；已有资产保留原存储，可按需迁移到其他节点或同节点的其他存储池。
 * **共享镜像**：单机使用本地基础盘与独立写入层；多节点自动优先使用共享池。每个池、模板版本保存一份基础盘，实例原生克隆，其他节点仅传输模板配置、固件和挂载介质。
+* **缓存释放**：查看各节点镜像基础盘的实际占用，释放已存入共享池且未被本地资产或恢复点引用的基础盘；再次使用本地存储时从共享池恢复。
 * **一致性恢复点**：
   * Linux VM：通过 QEMU Guest Agent 冻结文件系统。
   * Windows VM：通过 QGA 触发 VSS 卷影复制，实现应用级一致性快照。
@@ -116,7 +118,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.0.1/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.0.2/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -243,6 +245,8 @@ curl -H "Authorization: Bearer <Your-Token>" \
 
 **细粒度权限模型**：
 权限作用域覆盖项目、环境与单项资产。支持把**远程会话**与**文件传输**完全解耦（例如：允许学生通过 RDP/SSH 连接测试靶机，但剥离其文件上传/下载的权限）。
+
+个人菜单提供密码修改入口，修改后撤销旧登录。账号管理集中调整用户的管理员身份、启用状态，以及项目、环境和资产授权；系统保留至少一个启用的管理员。
 
 ---
 

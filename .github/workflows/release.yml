@@ -53,4 +53,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
-        run: gh release create "$VERSION" netlab_linux_amd64.tar.gz --verify-tag --generate-notes --title "Netlab $VERSION" --latest
+        run: gh release create "$VERSION" netlab_linux_amd64.tar.gz --verify-tag --notes-file .github/release-notes.md --title "Netlab $VERSION" --latest
