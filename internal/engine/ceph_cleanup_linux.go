@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"netlab.local/core/api"
 )
 
 func (e *Engine) PrepareCephRemoval(ctx context.Context, id string) error {
@@ -31,24 +33,32 @@ func (e *Engine) PrepareCephRemoval(ctx context.Context, id string) error {
 			return errors.New("集群仍包含其他存储池")
 		}
 	}
-	root := e.cephRoot(id)
-	out, err = commandOutput(ctx, "rbd", "--conf", filepath.Join(root, "ceph.conf"), "--keyring", filepath.Join(root, "ceph.client.admin.keyring"), "ls", "netlab", "--format", "json")
-	if err != nil {
-		return err
-	}
-	var images []string
-	if err = json.Unmarshal(out, &images); err != nil {
-		return err
-	}
-	if len(images) > 0 {
-		return errors.New("集群仍包含虚拟磁盘")
+	if slices.Contains(pools, "netlab") {
+		root := e.cephRoot(id)
+		out, err = commandOutput(ctx, "rbd", "--conf", filepath.Join(root, "ceph.conf"), "--keyring", filepath.Join(root, "ceph.client.admin.keyring"), "ls", "netlab", "--format", "json")
+		if err != nil {
+			return err
+		}
+		var images []string
+		if err = json.Unmarshal(out, &images); err != nil {
+			return err
+		}
+		if len(images) > 0 {
+			return errors.New("集群仍包含虚拟磁盘")
+		}
 	}
 	_, err = e.managedCeph(ctx, id, "orch", "pause")
 	return err
 }
 
 func (e *Engine) RemoveCeph(ctx context.Context, id string) error {
-	if e.cfg.StorageDevice == "" {
+	unlockSelection := e.lock("storage-device")
+	defer unlockSelection()
+	device, err := e.storageSelection()
+	if err != nil {
+		return err
+	}
+	if device == "" {
 		return nil
 	}
 	unlock := e.lock("ceph:" + id)
@@ -65,7 +75,9 @@ func (e *Engine) RemoveCeph(ctx context.Context, id string) error {
 	}
 	if slices.ContainsFunc(daemons, func(d struct {
 		Fsid string `json:"fsid"`
-	}) bool { return d.Fsid == id }) {
+	}) bool {
+		return d.Fsid == id
+	}) {
 		if err = command(ctx, "cephadm", "rm-cluster", "--fsid", id, "--force", "--zap-osds"); err != nil {
 			return err
 		}
@@ -82,5 +94,8 @@ func (e *Engine) RemoveCeph(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return os.RemoveAll(e.cephRoot(id))
+	if err = os.RemoveAll(e.cephRoot(id)); err != nil {
+		return err
+	}
+	return e.saveStorageSelection(api.ConfigureNodeStorage{})
 }

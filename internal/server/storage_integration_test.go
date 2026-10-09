@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/operation"
 	"netlab.local/core/internal/transport"
 )
 
@@ -20,6 +21,10 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
+			if r.URL.Path == "/node/v1/storage-device" {
+				writeJSON(w, 200, api.NodeStorageDevices{Devices: []api.StorageDevice{{Path: "/dev/test-unused", SizeBytes: 32 << 30, Available: true}}})
+				return
+			}
 			info := api.StorageInfo{Path: r.URL.Query().Get("directory"), Filesystem: "root", CapacityBytes: 8 << 30, AvailableBytes: 4 << 30}
 			if r.URL.Path == "/node/v1/info" {
 				info.Path = "/var/lib/netlab"
@@ -39,11 +44,41 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 	if err := s.Queries.PutNode(ctx, queries.PutNodeParams{ID: id, Name: "Storage node", Endpoint: node.URL, Info: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
+	storagePath := "/nodes/" + id + "/storage-device"
+	call("GET", storagePath, user, nil, 403)
+	call("PUT", storagePath, user, api.ConfigureNodeStorage{Device: "/dev/test-unused"}, 403)
+	var inventory api.NodeStorageDevices
+	if err := json.Unmarshal(call("GET", storagePath, admin, nil, 200), &inventory); err != nil || len(inventory.Devices) != 1 || !inventory.Devices[0].Available {
+		t.Fatal("node disk inventory not exposed", err)
+	}
+	var preparation api.Operation
+	if err := json.Unmarshal(call("PUT", storagePath, admin, api.ConfigureNodeStorage{Device: "/dev/test-unused"}, 202), &preparation); err != nil {
+		t.Fatal(err)
+	}
+	call("PUT", storagePath, admin, api.ConfigureNodeStorage{Device: "/dev/test-unused"}, 409)
+	if err := json.Unmarshal(call("GET", storagePath, admin, nil, 200), &inventory); err != nil || inventory.Operation == nil || inventory.Operation.Id != preparation.Id {
+		t.Fatal("disk preparation not linked to the node", err)
+	}
+	queued, err := s.Queries.GetOperation(ctx, preparation.Id)
+	var payload operation.Payload
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(queued.Payload, &payload); err != nil || queued.ScopeID != id || payload.StorageDevice == nil || payload.StorageDevice.Device != "/dev/test-unused" {
+		t.Fatal("node preparation lost its accepted device", err)
+	}
+	if _, err = s.Pool.Exec(ctx, "DELETE FROM operations WHERE id=$1", preparation.Id); err != nil {
+		t.Fatal(err)
+	}
 	var pool api.StoragePool
 	directory := "/mnt/pool"
 	if err := json.Unmarshal(call("POST", "/storage-pools", admin, api.CreateStoragePool{NodeIds: []string{id}, Driver: api.StorageDriverDirectory, Name: "Data", Directory: &directory}, 201), &pool); err != nil {
 		t.Fatal(err)
 	}
+	call("GET", "/storage-pools/"+pool.Id+"/ceph", user, nil, 403)
+	call("PUT", "/storage-pools/"+pool.Id+"/ceph", user, api.ConfigureCephPool{Replicas: 1}, 403)
+	call("GET", "/storage-pools/"+pool.Id+"/ceph", admin, nil, 400)
+	call("PUT", "/storage-pools/"+pool.Id+"/ceph", admin, api.ConfigureCephPool{Replicas: 1}, 400)
 	call("POST", "/storage-pools", admin, api.CreateStoragePool{NodeIds: []string{id}, Driver: api.StorageDriverDirectory, Name: "Duplicate", Directory: &directory}, 409)
 	if cleaned != 1 {
 		t.Fatal("failed registration did not release its directory")

@@ -3,6 +3,34 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /nodes/{id}/storage-device:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: nodeStorageDevices
+      responses:
+        '200': {description: Physical disks, selected Ceph disk and preparation task, content: {application/json: {schema: {$ref: '#/components/schemas/NodeStorageDevices'}}}}
+    put:
+      operationId: configureNodeStorage
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ConfigureNodeStorage'}}}}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+  /storage-pools/{id}/ceph:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: cephStatus
+      responses:
+        '200': {description: Live managed Ceph status, content: {application/json: {schema: {$ref: '#/components/schemas/CephStatus'}}}}
+    put:
+      operationId: configureCephPool
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ConfigureCephPool'}}}}
+      responses:
+        '202': {$ref: '#/components/responses/Accepted'}
+  /storage-pools/{id}/assets:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: storagePoolAssets
+      responses:
+        '200': {description: Assets using this pool, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/StoragePoolAsset'}}}}}
   /environments/{id}/assets/{assetId}/migrations:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -1405,6 +1433,7 @@ components:
       type: object
       required: [expectedRevision]
       properties:
+        targetStoragePoolId: {type: string}
         expectedRevision: {type: integer, minimum: 0}
         targetNodeId: {type: string, description: Omit to select a compatible destination automatically}
         clientRequestId: {type: string}
@@ -1673,6 +1702,73 @@ components:
         availableBytes: {type: integer, format: int64}
         nativeSnapshots: {type: boolean, x-go-type-skip-optional-pointer: true}
         rbd: {$ref: '#/components/schemas/RbdStorage'}
+    ConfigureNodeStorage:
+      type: object
+      required: [device]
+      properties:
+        device: {type: string, description: Physical empty disk selected for Ceph; empty clears an unused selection}
+    StorageDevice:
+      type: object
+      required: [path, sizeBytes, model, serial, available, reason]
+      properties:
+        path: {type: string}
+        sizeBytes: {type: integer, format: int64}
+        model: {type: string}
+        serial: {type: string}
+        available: {type: boolean}
+        reason: {type: string}
+    NodeStorageDevices:
+      type: object
+      required: [devices, selected]
+      properties:
+        devices: {type: array, items: {$ref: '#/components/schemas/StorageDevice'}}
+        selected: {type: string}
+        operation: {$ref: '#/components/schemas/Operation'}
+    ConfigureCephPool:
+      type: object
+      required: [replicas]
+      properties:
+        replicas: {type: integer, minimum: 1, maximum: 3}
+    CephDaemon:
+      type: object
+      required: [name, host, role, state]
+      properties:
+        name: {type: string}
+        host: {type: string}
+        role: {type: string}
+        state: {type: string}
+    CephDisk:
+      type: object
+      required: [name, host, capacityBytes, usedBytes, state]
+      properties:
+        name: {type: string}
+        host: {type: string}
+        capacityBytes: {type: integer, format: int64}
+        usedBytes: {type: integer, format: int64}
+        state: {type: string}
+    CephStatus:
+      type: object
+      required: [health, messages, replicas, osdsUp, osdsTotal, disks, daemons]
+      properties:
+        health: {type: string}
+        messages: {type: array, items: {type: string}}
+        replicas: {type: integer}
+        osdsUp: {type: integer}
+        osdsTotal: {type: integer}
+        disks: {type: array, items: {$ref: '#/components/schemas/CephDisk'}}
+        daemons: {type: array, items: {$ref: '#/components/schemas/CephDaemon'}}
+    StoragePoolAsset:
+      type: object
+      required: [environmentId, environmentName, revision, assetId, assetName, nodeId, sizeGiB, state]
+      properties:
+        environmentId: {type: string}
+        environmentName: {type: string}
+        revision: {type: integer, format: int64}
+        assetId: {type: string}
+        assetName: {type: string}
+        nodeId: {type: string}
+        sizeGiB: {type: integer, format: int64}
+        state: {type: string}
     RbdStorage:
       type: object
       required: [pool, imagePrefix, monitors, user, fsid, secretId]

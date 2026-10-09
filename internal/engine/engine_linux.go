@@ -65,6 +65,9 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 	concurrency := max(1, runtime.NumCPU()/2)
 	e := &Engine{cfg: cfg, slots: make(chan struct{}, concurrency), ioSlots: make(chan struct{}, concurrency), locks: make(map[string]*objectLock)}
+	if err := e.initializeStorageSelection(); err != nil {
+		return nil, err
+	}
 	var err error
 	if e.ovs, err = network.NewOVS(ctx, cfg.OVSEndpoint, cfg.Bridge); err != nil {
 		return nil, err
@@ -181,8 +184,12 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 		return api.NodeInfo{}, err
 	}
 	info.Storage = &storage
-	if e.cfg.StorageDevice != "" {
-		info.StorageDevice = &e.cfg.StorageDevice
+	device, err := e.storageSelection()
+	if err != nil {
+		return api.NodeInfo{}, err
+	}
+	if device != "" {
+		info.StorageDevice = &device
 	}
 	info.ServiceNetwork = ptr(e.gateway.Network())
 	address, err := network.AccessAddress(e.cfg.AdvertiseAddress)

@@ -4,6 +4,60 @@
  */
 
 export interface paths {
+  "/nodes/{id}/storage-device": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["nodeStorageDevices"];
+    put: operations["configureNodeStorage"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/storage-pools/{id}/ceph": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["cephStatus"];
+    put: operations["configureCephPool"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/storage-pools/{id}/assets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["storagePoolAssets"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/assets/{assetId}/migrations": {
     parameters: {
       query?: never;
@@ -1981,6 +2035,7 @@ export interface components {
       domainXml: string;
     };
     MigrationRequest: {
+      targetStoragePoolId?: string;
       expectedRevision: number;
       /** @description Omit to select a compatible destination automatically */
       targetNodeId?: string;
@@ -2223,6 +2278,63 @@ export interface components {
       availableBytes: number;
       nativeSnapshots?: boolean;
       rbd?: components["schemas"]["RbdStorage"];
+    };
+    ConfigureNodeStorage: {
+      /** @description Physical empty disk selected for Ceph; empty clears an unused selection */
+      device: string;
+    };
+    StorageDevice: {
+      path: string;
+      /** Format: int64 */
+      sizeBytes: number;
+      model: string;
+      serial: string;
+      available: boolean;
+      reason: string;
+    };
+    NodeStorageDevices: {
+      devices: components["schemas"]["StorageDevice"][];
+      selected: string;
+      operation?: components["schemas"]["Operation"];
+    };
+    ConfigureCephPool: {
+      replicas: number;
+    };
+    CephDaemon: {
+      name: string;
+      host: string;
+      role: string;
+      state: string;
+    };
+    CephDisk: {
+      name: string;
+      host: string;
+      /** Format: int64 */
+      capacityBytes: number;
+      /** Format: int64 */
+      usedBytes: number;
+      state: string;
+    };
+    CephStatus: {
+      health: string;
+      messages: string[];
+      replicas: number;
+      osdsUp: number;
+      osdsTotal: number;
+      disks: components["schemas"]["CephDisk"][];
+      daemons: components["schemas"]["CephDaemon"][];
+    };
+    StoragePoolAsset: {
+      environmentId: string;
+      environmentName: string;
+      /** Format: int64 */
+      revision: number;
+      assetId: string;
+      assetName: string;
+      nodeId: string;
+      /** Format: int64 */
+      sizeGiB: number;
+      state: string;
     };
     RbdStorage: {
       pool: string;
@@ -2522,6 +2634,108 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  nodeStorageDevices: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Physical disks */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["NodeStorageDevices"];
+        };
+      };
+    };
+  };
+  configureNodeStorage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ConfigureNodeStorage"];
+      };
+    };
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  cephStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Live managed Ceph status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CephStatus"];
+        };
+      };
+    };
+  };
+  configureCephPool: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ConfigureCephPool"];
+      };
+    };
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  storagePoolAssets: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Assets using this pool */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StoragePoolAsset"][];
+        };
+      };
+    };
+  };
   migrationDestinations: {
     parameters: {
       query?: never;

@@ -193,6 +193,16 @@ function list<T>(
 }
 
 export const api = {
+  nodeStorageDevices: (id: string) =>
+    request<Schema<"NodeStorageDevices">>(`/nodes/${id}/storage-device`),
+  configureNodeStorage: (id: string, device: string) =>
+    request<Operation>(`/nodes/${id}/storage-device`, "PUT", { device }),
+  cephStatus: (id: string) =>
+    request<Schema<"CephStatus">>(`/storage-pools/${id}/ceph`),
+  configureCephPool: (id: string, replicas: number) =>
+    request<Operation>(`/storage-pools/${id}/ceph`, "PUT", { replicas }),
+  storagePoolAssets: (id: string) =>
+    request<Schema<"StoragePoolAsset">[]>(`/storage-pools/${id}/assets`),
   volumes: () => request<Schema<"PersistentVolume">[]>("/volumes"),
   createVolume: (body: Schema<"CreateVolume">) =>
     request<Operation>("/volumes", "POST", body),

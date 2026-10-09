@@ -31,7 +31,11 @@ func (e *Engine) BootstrapCeph(ctx context.Context, id string) (api.NodeCephBoot
 	root := e.cephRoot(id)
 	config := filepath.Join(root, "ceph.conf")
 	if _, err := os.Stat(config); errors.Is(err, os.ErrNotExist) {
-		if e.cfg.StorageDevice == "" {
+		device, err := e.storageSelection()
+		if err != nil {
+			return api.NodeCephBootstrap{}, err
+		}
+		if device == "" {
 			return api.NodeCephBootstrap{}, errors.New("节点未指定集群存储盘")
 		}
 		address, err := network.AccessAddress(e.cfg.AdvertiseAddress)
@@ -73,10 +77,14 @@ func (e *Engine) JoinCeph(ctx context.Context, id string, input api.NodeCephBoot
 		return api.NodeCephHost{}, err
 	}
 	host := api.NodeCephHost{Name: name, Address: address}
-	if e.cfg.StorageDevice == "" {
+	device, err := e.storageSelection()
+	if err != nil {
+		return api.NodeCephHost{}, err
+	}
+	if device == "" {
 		return host, nil
 	}
-	host.Device = &e.cfg.StorageDevice
+	host.Device = &device
 	key, _, _, rest, err := ssh.ParseAuthorizedKey([]byte(input.PublicKey))
 	if err != nil || len(strings.TrimSpace(string(rest))) > 0 {
 		return api.NodeCephHost{}, errors.New("无效的集群 SSH 公钥")
@@ -251,7 +259,9 @@ func (e *Engine) ConfigureCeph(ctx context.Context, id string, input api.NodeCep
 						ready = ready && slices.ContainsFunc(daemons, func(d struct {
 							Hostname string
 							Status   int
-						}) bool { return d.Hostname == host && d.Status == 1 })
+						}) bool {
+							return d.Hostname == host && d.Status == 1
+						})
 					}
 					if !ready {
 						break

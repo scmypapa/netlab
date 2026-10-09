@@ -2,6 +2,7 @@ package operation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -194,20 +195,32 @@ func (w Worker) deleteStoragePool(ctx context.Context, op *queries.Operation, p 
 		}
 	}
 	if pool.Managed {
-		endpoints := map[string]string{}
+		members := map[string]queries.GetNodeEndpointsRow{}
 		for _, node := range nodes {
-			endpoints[node.ID] = node.Endpoint
+			members[node.ID] = node
 		}
 		owner := pool.NodeIds[0]
 		path := "/node/v1/ceph/" + pool.ID
 		if err = w.phase(ctx, op, p, "storage-remove-cluster"); err != nil {
 			return err
 		}
-		if err = w.Client.Do(ctx, http.MethodPost, endpoints[owner], path+"/prepare-removal", nil, nil); err != nil {
+		if err = w.Client.Do(ctx, http.MethodPost, members[owner].Endpoint, path+"/prepare-removal", nil, nil); err != nil {
 			return err
 		}
 		for _, id := range append(slices.Clone(pool.NodeIds[1:]), owner) {
-			if err = w.Client.Do(ctx, http.MethodDelete, endpoints[id], path, nil, nil); err != nil {
+			node := members[id]
+			if err = w.Client.Do(ctx, http.MethodDelete, node.Endpoint, path, nil, nil); err != nil {
+				return err
+			}
+			info, err := w.Client.Info(ctx, node.Endpoint)
+			if err != nil {
+				return err
+			}
+			raw, err := json.Marshal(info)
+			if err != nil {
+				return err
+			}
+			if err = w.Queries.PutNode(ctx, queries.PutNodeParams{ID: id, Name: node.Name, Endpoint: node.Endpoint, Info: raw}); err != nil {
 				return err
 			}
 		}

@@ -28,6 +28,9 @@ func TestRealManagedCephLifecycle(t *testing.T) {
 	}
 	defer v.Close()
 	e := Engine{cfg: Config{DataDir: data, StorageDevice: device, AdvertiseAddress: address}, vm: v, locks: make(map[string]*objectLock)}
+	if err = e.initializeStorageSelection(); err != nil {
+		t.Fatal(err)
+	}
 	id := uuid.NewString()
 	t.Cleanup(func() {
 		if err := e.RemoveCeph(context.Background(), id); err != nil {

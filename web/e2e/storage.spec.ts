@@ -53,38 +53,45 @@ for (const scenario of [
             error: scenario === "failed" ? "Ceph 专用盘无法访问" : undefined,
           },
         ];
+      if (path === "/storage-pools/shared/ceph")
+        response = {
+          health: "HEALTH_OK",
+          messages: [],
+          replicas: 1,
+          osdsUp: 1,
+          osdsTotal: 1,
+          disks: [],
+          daemons: [
+            { name: "mon.one", role: "mon", host: "one", state: "running" },
+          ],
+        };
       if (path === "/operations/configure/retry") {
         retries++;
         response = { id: "configure" };
       }
       await route.fulfill({ json: response });
     });
-    await page.goto("/resources");
-    await page.getByRole("button", { name: /节点 one/ }).click();
-    await page.getByRole("button", { name: /Ceph 共享存储/ }).click();
+    await page.goto("/resources/storage");
     if (scenario === "missing-disk") {
-      await expect(page.getByText("✓ 两个就绪的 KVM 节点")).toBeVisible();
-      await expect(
-        page.getByText("○ 至少一个节点已指定 Ceph 专用盘"),
-      ).toBeVisible();
+      await expect(page.getByText("两个就绪的 KVM 节点")).toBeVisible();
+      await expect(page.getByText("至少一块专用盘")).toBeVisible();
     } else {
       await expect(
-        page.getByText("/dev/disk/by-id/ceph", { exact: true }),
+        page.getByRole("heading", { name: "共享存储", exact: true }),
       ).toBeVisible();
-      await expect(page.getByText("成员：节点 one、节点 two")).toBeVisible();
-      await expect(
-        page.getByText(
-          scenario === "ready"
-            ? "已启用"
-            : scenario === "failed"
-              ? "配置失败"
-              : "配置中",
-          { exact: true },
-        ),
-      ).toBeVisible();
+      if (scenario === "ready") {
+        await expect(page.getByText("集群健康", { exact: true })).toBeVisible();
+        await page.getByRole("tab", { name: "Ceph 服务", exact: true }).click();
+        await expect(page.getByText("mon.one", { exact: true })).toBeVisible();
+      } else
+        await expect(
+          page.getByText("存储任务", { exact: true }),
+        ).toBeVisible();
     }
     if (scenario === "failed") {
-      await page.getByRole("button", { name: "重试配置", exact: true }).click();
+      await page
+        .getByRole("button", { name: "重试 共享存储", exact: true })
+        .click();
       await expect.poll(() => retries).toBe(1);
     }
     for (const width of [390, 1366]) {
@@ -368,6 +375,7 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
                   storage,
                   state: failed ? "deleting" : "ready",
                   operationId: failed ? "delete" : undefined,
+                  operationState: failed ? "failed" : undefined,
                   error: failed ? "存储池仍包含保留数据" : undefined,
                 },
               ]
@@ -390,33 +398,31 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
       body: JSON.stringify(response),
     });
   });
-  await page.goto("/resources");
-  await page.getByRole("button", { name: /实验节点/ }).click();
-  await expect(page.getByText("80 / 100 GiB")).toBeVisible();
+  await page.goto("/resources/storage");
+  await expect(page.getByText("80 GiB", { exact: true })).toBeVisible();
   await expect(page.getByText("准备中", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: /Ceph 共享存储/ }).click();
-  await expect(page.getByText("○ 两个就绪的 KVM 节点")).toBeVisible();
-  await expect(
-    page.getByText("○ 至少一个节点已指定 Ceph 专用盘"),
-  ).toBeVisible();
-  await page.getByText("配置专用盘", { exact: true }).click();
-  await expect(
-    page.getByText(/sudo bash netlab-release\/scripts\/install-node.sh/),
-  ).toBeVisible();
-  await page.getByRole("button", { name: /Ceph 共享存储/ }).click();
+  await expect(page.getByText("两个就绪的 KVM 节点")).toBeVisible();
+  await expect(page.getByText("至少一块专用盘")).toBeVisible();
   await page.getByRole("button", { name: "接入存储" }).click();
   await page.getByRole("textbox", { name: "名称", exact: true }).fill("数据盘");
+  await page.getByRole("textbox", { name: "节点", exact: true }).click();
+  await page.getByRole("option", { name: "实验节点", exact: true }).click();
   await page.getByRole("textbox", { name: "节点上的目录" }).fill("/mnt/data");
   await page.getByRole("button", { name: "接入", exact: true }).click();
-  await expect(page.getByText("数据盘", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "移除 数据盘", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "数据盘", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "管理存储池", exact: true }).click();
+  await page.getByRole("menuitem", { name: "移除存储池", exact: true }).click();
   await page.getByRole("button", { name: "移除", exact: true }).click();
   await expect(page.getByText("资源仍在使用：环境：实验网络")).toBeVisible();
   await page.getByRole("button", { name: "取消", exact: true }).click();
   failed = true;
-  await page.getByRole("button", { name: "关闭节点", exact: true }).click();
   await page.reload();
-  await page.getByRole("button", { name: /实验节点/ }).click();
+  await page
+    .getByRole("group", { name: "选择存储池" })
+    .getByRole("button", { name: /数据盘/ })
+    .click();
   await expect(page.getByText("存储池仍包含保留数据")).toBeVisible();
   await page.getByRole("button", { name: "重试 数据盘", exact: true }).click();
   await expect.poll(() => tries).toBe(1);

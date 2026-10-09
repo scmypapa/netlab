@@ -38,6 +38,10 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 func (s Service) CurrentOperationID(ctx context.Context, row queries.Operation, current *string) (*string, error) {
 	var err error
 	switch row.ScopeKind {
+	case "node":
+		var latest queries.Operation
+		latest, err = s.Queries.NodeStorageOperation(ctx, row.ScopeID)
+		current = &latest.ID
 	case "volume":
 		var volume queries.PersistentVolume
 		volume, err = s.Queries.GetPersistentVolume(ctx, row.ScopeID)
@@ -149,6 +153,17 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 			return api.Operation{}, environment.ErrConflict
 		}
 		revision = e.Revision
+	} else if row.ScopeKind == "node" {
+		if _, err = q.LockNode(ctx, row.ScopeID); err != nil {
+			return api.Operation{}, err
+		}
+		latest, err := q.NodeStorageOperation(ctx, row.ScopeID)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if latest.ID != id {
+			return api.Operation{}, environment.ErrConflict
+		}
 	} else if row.ScopeKind == "storage-pool" {
 		storage, err := q.LockStoragePool(ctx, row.ScopeID)
 		if err != nil {
@@ -275,10 +290,10 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	}
 	if phase == "rolled-back" || phase == "queued" || row.Kind == "prepare-template" {
 		if p.Migration != nil {
-			p.Migration = &Migration{RequestedNode: p.Migration.RequestedNode}
+			p.Migration = &Migration{RequestedNode: p.Migration.RequestedNode, RequestedPool: p.Migration.RequestedPool}
 			p.Recovery = nil
 		}
-		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, Recovery: p.Recovery, Run: p.Run, BackupID: p.BackupID, BackupInitialize: p.BackupInitialize, Migration: p.Migration, Volume: p.Volume, VolumeNode: p.VolumeNode}
+		p = Payload{Spec: p.Spec, BeforeStatus: p.BeforeStatus, Template: p.Template, TemplateCredentials: p.TemplateCredentials, TemplateCapture: p.TemplateCapture, BeforeSpec: p.BeforeSpec, VPNChange: p.VPNChange, StoragePool: p.StoragePool, StorageDevice: p.StorageDevice, CephDevices: p.CephDevices, CephReplicas: p.CephReplicas, CephJoinNodes: p.CephJoinNodes, Recovery: p.Recovery, Run: p.Run, BackupID: p.BackupID, BackupInitialize: p.BackupInitialize, Migration: p.Migration, Volume: p.Volume, VolumeNode: p.VolumeNode}
 		phase = "queued"
 	}
 	raw, err := json.Marshal(p)

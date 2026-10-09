@@ -1,50 +1,99 @@
 import {
-  ActionIcon,
-  Accordion,
   Badge,
   Button,
+  Menu,
   Modal,
   MultiSelect,
   PasswordInput,
+  Progress,
   SegmentedControl,
+  Select,
+  Tabs,
   TextInput,
 } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, Plus, RotateCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, Circle, Database, HardDrive, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, type Node, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
 import { useCursorList } from "../../foundation/useCursorList";
-import { LoadMore } from "../../foundation/LoadMore";
+import { MigrationDialog } from "../workbench/MigrationDialog";
+import { CephDetails } from "./CephDetails";
+import { StorageDeviceDialog } from "./StorageDeviceDialog";
+import { VolumePanel } from "./VolumePanel";
+import styles from "./StorageWorkspace.module.css";
 
-export function StoragePanel({ node }: { node: Node }) {
+function poolStatus(pool: Schema<"StoragePool">) {
+  return pool.error
+    ? "failed"
+    : pool.operationState === "queued" || pool.operationState === "running"
+      ? "preparing"
+      : (pool.state ?? "ready");
+}
+
+export function StoragePanel() {
+  const [search] = useSearchParams();
   const client = useQueryClient();
   const pools = useQuery({
     queryKey: ["storage-pools"],
     queryFn: api.storagePools,
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   });
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [directory, setDirectory] = useState("");
-  const [driver, setDriver] = useState<Schema<"StorageDriver">>("directory");
-  const [nodeIds, setNodeIds] = useState<string[]>([node.id]);
-  const [monitors, setMonitors] = useState("");
-  const [pool, setPool] = useState("");
-  const [user, setUser] = useState("netlab");
-  const [key, setKey] = useState("");
   const nodes = useCursorList(["nodes", "storage"], (page) => api.nodes(page), {
     refetchInterval: 15000,
   });
-  const [removing, setRemoving] = useState<Schema<"StoragePool">>();
+  useEffect(() => {
+    if (nodes.hasNextPage && !nodes.isFetching) void nodes.fetchNextPage();
+  }, [nodes.hasNextPage, nodes.isFetching, nodes.fetchNextPage]);
+  const [selected, setSelected] = useState<string | undefined>(
+    search.get("pool") ?? undefined,
+  );
+  const [adding, setAdding] = useState(false);
+  const [disks, setDisks] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [name, setName] = useState("");
+  const [directory, setDirectory] = useState("");
+  const [driver, setDriver] = useState<Schema<"StorageDriver">>("directory");
+  const [nodeIds, setNodeIds] = useState<string[]>([]);
+  const [monitors, setMonitors] = useState("");
+  const [cephPool, setCephPool] = useState("");
+  const [user, setUser] = useState("netlab");
+  const [key, setKey] = useState("");
+  const [migration, setMigration] = useState<Schema<"StoragePoolAsset">>();
+  const items = pools.data ?? [];
+  const active =
+    items.find((p) => p.id === selected) ??
+    items.find((p) => p.managed) ??
+    items[0];
+  const shared = pools.data?.find((p) => p.managed);
+  const ready = (nodes.data ?? []).filter(
+    (n) => n.state === "ready" && n.capabilities.includes("vm"),
+  );
+  const assets = useQuery({
+    queryKey: ["storage-assets", active?.id],
+    queryFn: () => api.storagePoolAssets(active!.id),
+    enabled: Boolean(active),
+    refetchInterval: 15000,
+  });
+  const migrationEnvironment = useQuery({
+    queryKey: ["environment", migration?.environmentId],
+    queryFn: () => api.environment(migration!.environmentId),
+    enabled: Boolean(migration),
+  });
+  const migrationAsset = migrationEnvironment.data?.appliedSpec?.assets.find(
+    (asset) => asset.id === migration?.assetId,
+  );
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["storage-pools"] });
+    void client.invalidateQueries({ queryKey: ["nodes"] });
+    void client.invalidateQueries({ queryKey: ["storage-assets"] });
   };
   const create = useMutation({
     mutationFn: () =>
       api.createStoragePool({
-        nodeIds: driver === "directory" ? [node.id] : nodeIds,
+        nodeIds,
         name,
         driver,
         ...(driver === "directory"
@@ -52,13 +101,14 @@ export function StoragePanel({ node }: { node: Node }) {
           : {
               ceph: {
                 monitors: monitors.split(/[\s,]+/).filter(Boolean),
-                pool,
+                pool: cephPool,
                 user,
                 key,
               },
             }),
       }),
-    onSuccess: () => {
+    onSuccess: (pool) => {
+      setSelected(pool.id);
       setAdding(false);
       setName("");
       setDirectory("");
@@ -67,9 +117,9 @@ export function StoragePanel({ node }: { node: Node }) {
     },
   });
   const remove = useMutation({
-    mutationFn: (pool: Schema<"StoragePool">) => api.deleteStoragePool(pool.id),
+    mutationFn: () => api.deleteStoragePool(active!.id),
     onSuccess: () => {
-      setRemoving(undefined);
+      setRemoving(false);
       refresh();
     },
   });
@@ -77,256 +127,355 @@ export function StoragePanel({ node }: { node: Node }) {
     mutationFn: api.retryOperation,
     onSuccess: refresh,
   });
-  const items =
-    pools.data?.filter((pool) => pool.nodeIds.includes(node.id)) ?? [];
-  const shared = pools.data?.find((pool) => pool.managed);
-  const sharedReady =
-    shared?.state === "ready" && shared.operationState === "succeeded";
-  const vmNodes = (nodes.data ?? []).filter((item) =>
-    item.capabilities.includes("vm"),
-  );
-  const readyNodes = vmNodes.filter((item) => item.state === "ready");
-  const diskNodes = readyNodes.filter((item) => item.storageDevice);
   return (
     <section>
       <div className="collection-toolbar">
         <div className="section-label">
           <Database size={17} />
-          存储
+          存储池
         </div>
-        <Button
-          variant="default"
-          size="compact-sm"
-          leftSection={<Plus size={15} />}
-          onClick={() => {
-            create.reset();
-            setNodeIds([node.id]);
-            setAdding(true);
-          }}
-        >
-          接入存储
-        </Button>
+        <div className={styles.label}>
+          <Button
+            variant="default"
+            size="compact-sm"
+            onClick={() => setDisks(true)}
+          >
+            选择专用盘
+          </Button>
+          <Button
+            variant="default"
+            size="compact-sm"
+            leftSection={<Plus size={15} />}
+            onClick={() => {
+              create.reset();
+              setNodeIds([]);
+              setAdding(true);
+            }}
+          >
+            接入存储
+          </Button>
+        </div>
       </div>
       <ErrorMessage error={pools.error ?? nodes.error ?? retry.error} />
-      {!pools.isPending && !nodes.isPending && !pools.error && !nodes.error && (
-        <Accordion variant="contained" mb="md">
-          <Accordion.Item value="ceph">
-            <Accordion.Control>
-              <div className="section-label">
-                <Database size={17} />
-                Ceph 共享存储
-                <Badge
-                  size="sm"
-                  variant="light"
-                  color={shared?.error ? "red" : sharedReady ? "teal" : "gray"}
-                >
-                  {shared
-                    ? shared.error
-                      ? shared.operationState === "failed"
-                        ? "配置失败"
-                        : "连接异常"
-                      : shared.state === "deleting"
-                        ? "移除中"
-                        : sharedReady
-                          ? "已启用"
-                          : "配置中"
-                    : "未启用"}
-                </Badge>
+      {!shared &&
+        !nodes.isPending &&
+        !nodes.hasNextPage &&
+        !pools.isPending &&
+        !pools.error &&
+        !nodes.error && (
+          <section className={styles.setup}>
+            <div className={styles.heading}>
+              <h2>Ceph 共享存储</h2>
+              <Badge variant="light" color="gray">
+                未启用
+              </Badge>
+            </div>
+            <div className={styles.checks}>
+              <div className={styles.check}>
+                {ready.length >= 2 ? (
+                  <CheckCircle2 size={18} color="var(--accent)" />
+                ) : (
+                  <Circle size={18} />
+                )}
+                两个就绪的 KVM 节点
               </div>
-            </Accordion.Control>
-            <Accordion.Panel>
-              {shared ? (
-                <>
-                  <ErrorMessage
-                    error={shared.error ? new Error(shared.error) : undefined}
-                  />
-                  <p>
-                    {shared.nodeIds.includes(node.id)
-                      ? sharedReady
-                        ? "此节点已接入共享池。"
-                        : "正在配置共享池成员。"
-                      : "此节点尚未接入共享池。"}
-                  </p>
-                  <p>
-                    成员：
-                    {shared.nodeIds
-                      .map(
-                        (id) =>
-                          nodes.data?.find((item) => item.id === id)?.name ??
-                          "未加载节点",
-                      )
-                      .join("、")}
-                  </p>
-                  {shared.operationState === "failed" && shared.operationId && (
-                    <Button
-                      size="compact-sm"
-                      variant="default"
-                      loading={retry.isPending}
-                      onClick={() => retry.mutate(shared.operationId!)}
-                    >
-                      重试配置
-                    </Button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <p>
-                    {readyNodes.length >= 2 ? "✓" : "○"} 两个就绪的 KVM 节点
-                  </p>
-                  <p>
-                    {diskNodes.length ? "✓" : "○"} 至少一个节点已指定 Ceph
-                    专用盘
-                  </p>
-                  <p>
-                    条件齐备后，登记节点即自动建池、配置凭据并接入共享存储。
-                  </p>
-                </>
-              )}
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>节点</th>
-                    <th>存储角色</th>
-                    <th>专用盘</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vmNodes.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        {item.name}
-                        <Status value={item.state ?? "unknown"} />
-                      </td>
-                      <td>{item.storageDevice ? "存储与计算" : "计算"}</td>
-                      <td>{item.storageDevice ?? "未指定"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <LoadMore list={nodes} />
-              <details>
-                <summary>配置专用盘</summary>
-                <p>
-                  新节点安装时接受推荐空盘，或指定一块独立空盘；其余节点可选
-                  none。
-                </p>
-                <pre
-                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
-                >
-                  sudo bash netlab-release/scripts/install-node.sh 主站IP
-                  /root/netlab-node-certs /var/lib/netlab-node
-                  /dev/disk/by-id/专用盘标识
-                </pre>
-                <p>
-                  已有节点：安装
-                  cephadm、podman、openssh-server、lvm2、chrony；在
-                  /etc/netlab-node/node.env 的 NETLAB_NODE_ARGS 末尾添加
-                  --storage-device /dev/disk/by-id/专用盘标识，启用 ssh 和
-                  chrony 服务，重启 netlab-node 后重新登记同一节点地址。
-                </p>
-                <p>
-                  专用盘交由 Ceph
-                  初始化。当前数据目录和已挂载磁盘继续用作本地存储。
-                </p>
-                <p>
-                  默认单副本。副本数由 Ceph
-                  官方工具管理；模板基础盘共享，各环境写入层独立。
-                </p>
-              </details>
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
-      )}
+              <div className={styles.check}>
+                {ready.some((n) => n.storageDevice) ? (
+                  <CheckCircle2 size={18} color="var(--accent)" />
+                ) : (
+                  <Circle size={18} />
+                )}
+                至少一块专用盘
+              </div>
+            </div>
+          </section>
+        )}
       {pools.isPending ? (
         <Loading />
-      ) : items.length ? (
-        <div className="table-surface">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>存储池</th>
-                <th>已分配</th>
-                <th>可用 / 总计</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((pool) => (
-                <tr key={pool.id}>
-                  <td>
-                    <strong>{pool.default ? "本地存储" : pool.name}</strong>
-                    {pool.driver === "rbd" && (
-                      <Badge size="xs" variant="light">
-                        {pool.managed ? "自动 Ceph" : "外部 Ceph"}
-                      </Badge>
-                    )}
-                    {pool.storage?.nativeSnapshots && (
-                      <Badge size="xs" variant="light">
-                        原生快照
-                      </Badge>
-                    )}
-                    {pool.error ? (
-                      <ErrorMessage error={new Error(pool.error)} />
-                    ) : (
-                      <span className="secondary-line">{pool.directory}</span>
-                    )}
-                    {((pool.state && pool.state !== "ready") ||
-                      pool.operationState === "queued" ||
-                      pool.operationState === "running") && (
-                      <Status
-                        value={
-                          pool.error
-                            ? "failed"
-                            : pool.state === "deleting"
-                              ? "deleting"
-                              : "preparing"
-                        }
-                      />
-                    )}
-                  </td>
-                  <td>{pool.allocatedGiB} GiB</td>
-                  <td>
-                    {pool.storage
-                      ? `${Math.floor(pool.storage.availableBytes / 2 ** 30)} / ${Math.floor(pool.storage.capacityBytes / 2 ** 30)} GiB`
-                      : "—"}
-                  </td>
-                  <td>
-                    {!pool.default &&
-                      (pool.state !== "ready" ||
-                      (pool.operationState &&
-                        pool.operationState !== "succeeded") ? (
-                        pool.error &&
-                        pool.operationId && (
-                          <ActionIcon
-                            variant="subtle"
-                            aria-label={`重试 ${pool.name}`}
-                            onClick={() => retry.mutate(pool.operationId!)}
-                            loading={retry.isPending}
-                          >
-                            <RotateCw size={16} />
-                          </ActionIcon>
-                        )
-                      ) : (
-                        <ActionIcon
-                          color="red"
-                          variant="subtle"
-                          aria-label={`移除 ${pool.name}`}
-                          onClick={() => {
-                            remove.reset();
-                            setRemoving(pool);
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </ActionIcon>
-                      ))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       ) : (
-        <Empty icon={<Database size={28} />} title="暂无存储" />
+        <div className={styles.workspace}>
+          <div className={styles.pools} role="group" aria-label="选择存储池">
+            {items.map((pool) => (
+              <button
+                key={pool.id}
+                aria-pressed={active?.id === pool.id}
+                onClick={() => setSelected(pool.id)}
+                className={`${styles.pool} ${active?.id === pool.id ? styles.selected : ""}`}
+              >
+                <span className={styles.label}>
+                  {pool.driver === "rbd" ? (
+                    <Database size={17} />
+                  ) : (
+                    <HardDrive size={17} />
+                  )}
+                  <strong>{pool.default ? "本地存储" : pool.name}</strong>
+                </span>
+                <span className={styles.meta}>
+                  {pool.driver === "rbd"
+                    ? pool.managed
+                      ? "自动 Ceph"
+                      : "外部 Ceph"
+                    : nodes.data?.find((n) => n.id === pool.nodeIds[0])?.name}
+                </span>
+                <Status value={poolStatus(pool)} />
+              </button>
+            ))}
+          </div>
+          {active ? (
+            <div className={styles.detail}>
+              <div className={styles.heading}>
+                <div className={styles.label}>
+                  <h2>{active.default ? "本地存储" : active.name}</h2>
+                  <Badge variant="light">
+                    {active.driver === "rbd" ? "虚拟机" : "虚拟机与容器"}
+                  </Badge>
+                </div>
+                <div className={styles.label}>
+                  {active.error &&
+                    active.operationId &&
+                    active.operationState === "failed" && (
+                      <Button
+                        size="compact-sm"
+                        variant="default"
+                        loading={retry.isPending}
+                        onClick={() => retry.mutate(active.operationId!)}
+                      >
+                        重试 {active.name}
+                      </Button>
+                    )}
+                  {!active.default &&
+                    active.operationState !== "queued" &&
+                    active.operationState !== "running" && (
+                      <Menu position="bottom-end">
+                        <Menu.Target>
+                          <Button size="compact-sm" variant="subtle">
+                            管理存储池
+                          </Button>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                          <Menu.Item
+                            color="red"
+                            onClick={() => {
+                              remove.reset();
+                              setRemoving(true);
+                            }}
+                          >
+                            移除存储池
+                          </Menu.Item>
+                        </Menu.Dropdown>
+                      </Menu>
+                    )}
+                </div>
+              </div>
+              {active.error && <ErrorMessage error={new Error(active.error)} />}
+              {active.operationState &&
+                active.operationState !== "succeeded" && (
+                  <div className={styles.task}>
+                    <Status value={active.operationState} />
+                    <span>存储任务</span>
+                  </div>
+                )}
+              {active.storage && (
+                <>
+                  <div className={styles.metrics}>
+                    <div>
+                      <strong>
+                        {Math.floor(
+                          (active.storage.capacityBytes -
+                            active.storage.availableBytes) /
+                            2 ** 30,
+                        )}{" "}
+                        GiB
+                      </strong>
+                      <span>实际使用</span>
+                    </div>
+                    <div>
+                      <strong>
+                        {Math.floor(active.storage.availableBytes / 2 ** 30)}{" "}
+                        GiB
+                      </strong>
+                      <span>可用空间</span>
+                    </div>
+                    <div>
+                      <strong>{active.allocatedGiB} GiB</strong>
+                      <span>已分配</span>
+                    </div>
+                  </div>
+                  <Progress
+                    aria-label="存储使用率"
+                    value={
+                      100 *
+                      (1 -
+                        active.storage.availableBytes /
+                          active.storage.capacityBytes)
+                    }
+                    size={5}
+                    mb="lg"
+                  />
+                  <div className={styles.meta}>
+                    总计 {Math.floor(active.storage.capacityBytes / 2 ** 30)}{" "}
+                    GiB{active.directory && ` · ${active.directory}`}
+                  </div>
+                </>
+              )}
+              <Tabs
+                defaultValue="overview"
+                key={active.id}
+                mt="lg"
+                keepMounted={false}
+              >
+                <Tabs.List>
+                  <Tabs.Tab value="overview">概览</Tabs.Tab>
+                  <Tabs.Tab value="assets">环境磁盘</Tabs.Tab>
+                  <Tabs.Tab value="volumes">持久卷</Tabs.Tab>
+                  <Tabs.Tab value="members">节点</Tabs.Tab>
+                  {active.managed && (
+                    <Tabs.Tab value="services">Ceph 服务</Tabs.Tab>
+                  )}
+                </Tabs.List>
+                <Tabs.Panel value="overview" pt="lg">
+                  {active.managed ? (
+                    active.state === "ready" ? (
+                      <CephDetails pool={active} />
+                    ) : (
+                      <div>共享池未就绪</div>
+                    )
+                  ) : (
+                    <div className={styles.label}>
+                      <Badge variant="light">
+                        {active.driver === "rbd"
+                          ? "共享虚拟磁盘"
+                          : "节点本地存储"}
+                      </Badge>
+                      {active.storage?.nativeSnapshots && (
+                        <Badge variant="light">原生快照</Badge>
+                      )}
+                    </div>
+                  )}
+                </Tabs.Panel>
+                <Tabs.Panel value="assets" pt="lg">
+                  <ErrorMessage error={assets.error} />
+                  {assets.isPending ? (
+                    <Loading />
+                  ) : (
+                    <div className={styles.table}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>资产</th>
+                            <th>环境</th>
+                            <th>容量</th>
+                            <th>状态</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {assets.data?.map((asset) => (
+                            <tr key={asset.environmentId + asset.assetId}>
+                              <td>{asset.assetName}</td>
+                              <td>
+                                <Link
+                                  className={styles.link}
+                                  to={`/environments/${asset.environmentId}`}
+                                >
+                                  {asset.environmentName}
+                                </Link>
+                              </td>
+                              <td>{asset.sizeGiB} GiB</td>
+                              <td>
+                                <Status value={asset.state} />
+                              </td>
+                              <td>
+                                <Button
+                                  variant="subtle"
+                                  size="compact-sm"
+                                  onClick={() => setMigration(asset)}
+                                >
+                                  迁移
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {!assets.data?.length && (
+                        <Empty
+                          icon={<HardDrive size={24} />}
+                          title="暂无环境磁盘"
+                        />
+                      )}
+                    </div>
+                  )}
+                </Tabs.Panel>
+                <Tabs.Panel value="volumes" pt="lg">
+                  <VolumePanel storagePoolId={active.id} />
+                </Tabs.Panel>
+                <Tabs.Panel value="members" pt="lg">
+                  <div className={styles.table}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>节点</th>
+                          <th>角色</th>
+                          <th>状态</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(nodes.data ?? [])
+                          .filter((n) => active.nodeIds.includes(n.id))
+                          .map((n) => (
+                            <tr key={n.id}>
+                              <td>{n.name}</td>
+                              <td>
+                                {active.managed && n.storageDevice
+                                  ? "存储与计算"
+                                  : "计算"}
+                              </td>
+                              <td>
+                                <Status value={n.state ?? "unknown"} />
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Tabs.Panel>
+                {active.managed && (
+                  <Tabs.Panel value="services" pt="lg">
+                    <CephDetails pool={active} view="services" />
+                  </Tabs.Panel>
+                )}
+              </Tabs>
+            </div>
+          ) : (
+            <Empty icon={<Database size={28} />} title="暂无存储" />
+          )}
+        </div>
+      )}
+      {disks && (
+        <StorageDeviceDialog
+          nodes={nodes.data ?? []}
+          onClose={() => setDisks(false)}
+        />
+      )}
+      {migration && migrationEnvironment.data && migrationAsset && (
+        <MigrationDialog
+          id={migration.environmentId}
+          asset={migrationAsset}
+          revision={migrationEnvironment.data.revision}
+          onClose={() => setMigration(undefined)}
+          onSubmitted={refresh}
+        />
+      )}
+      {migration && (
+        <ErrorMessage
+          error={
+            migrationEnvironment.error ??
+            (migrationEnvironment.data && !migrationAsset
+              ? new Error("运行计划中未找到该资产，请刷新环境磁盘")
+              : null)
+          }
+        />
       )}
       <Modal
         opened={adding}
@@ -347,7 +496,10 @@ export function StoragePanel({ node }: { node: Node }) {
         >
           <SegmentedControl
             value={driver}
-            onChange={(value) => setDriver(value as Schema<"StorageDriver">)}
+            onChange={(v) => {
+              setDriver(v as Schema<"StorageDriver">);
+              setNodeIds([]);
+            }}
             data={[
               { label: "目录", value: "directory" },
               { label: "已有 Ceph", value: "rbd" },
@@ -357,54 +509,65 @@ export function StoragePanel({ node }: { node: Node }) {
             label="名称"
             required
             value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
+            onChange={(e) => setName(e.currentTarget.value)}
           />
-          {driver === "rbd" ? (
+          {driver === "directory" ? (
+            <Select
+              label="节点"
+              required
+              value={nodeIds[0] ?? null}
+              onChange={(id) => setNodeIds(id ? [id] : [])}
+              data={(nodes.data ?? []).map((n) => ({
+                value: n.id,
+                label: n.name,
+              }))}
+            />
+          ) : (
+            <MultiSelect
+              label="节点"
+              required
+              value={nodeIds}
+              onChange={setNodeIds}
+              data={(nodes.data ?? [])
+                .filter((n) => n.capabilities.includes("vm"))
+                .map((n) => ({ value: n.id, label: n.name }))}
+            />
+          )}
+          {driver === "directory" ? (
+            <TextInput
+              label="节点上的目录"
+              required
+              value={directory}
+              onChange={(e) => setDirectory(e.currentTarget.value)}
+            />
+          ) : (
             <>
-              <MultiSelect
-                label="节点"
-                required
-                value={nodeIds}
-                onChange={setNodeIds}
-                data={(nodes.data ?? [])
-                  .filter((item) => item.capabilities.includes("vm"))
-                  .map((item) => ({ value: item.id, label: item.name }))}
-              />
               <TextInput
                 label="MON 地址"
-                placeholder="10.0.0.10:3300, 10.0.0.11:3300"
                 required
                 value={monitors}
-                onChange={(event) => setMonitors(event.currentTarget.value)}
+                onChange={(e) => setMonitors(e.currentTarget.value)}
               />
               <TextInput
                 label="Ceph 存储池"
                 required
-                value={pool}
-                onChange={(event) => setPool(event.currentTarget.value)}
+                value={cephPool}
+                onChange={(e) => setCephPool(e.currentTarget.value)}
               />
               <TextInput
                 label="客户端"
                 required
                 value={user}
-                onChange={(event) => setUser(event.currentTarget.value)}
+                onChange={(e) => setUser(e.currentTarget.value)}
               />
               <PasswordInput
                 label="客户端密钥"
                 required
                 value={key}
-                onChange={(event) => setKey(event.currentTarget.value)}
                 autoComplete="off"
+                onChange={(e) => setKey(e.currentTarget.value)}
               />
             </>
-          ) : (
-            <TextInput
-              label="节点上的目录"
-              placeholder="/mnt/storage"
-              required
-              value={directory}
-              onChange={(event) => setDirectory(event.currentTarget.value)}
-            />
           )}
           <ErrorMessage error={create.error} />
           <div className="dialog-actions">
@@ -417,33 +580,73 @@ export function StoragePanel({ node }: { node: Node }) {
             >
               取消
             </Button>
-            <Button type="submit" loading={create.isPending}>
+            <Button
+              type="submit"
+              disabled={!nodeIds.length}
+              loading={create.isPending}
+            >
               接入
             </Button>
           </div>
         </form>
       </Modal>
       <Modal
-        opened={Boolean(removing)}
-        onClose={() => setRemoving(undefined)}
-        title={`移除 ${removing?.name ?? "存储池"}`}
+        opened={removing}
+        onClose={() => setRemoving(false)}
+        title={`移除 ${active?.name ?? "存储池"}`}
         centered
         size="sm"
       >
         <ErrorMessage error={remove.error} />
         <div className="dialog-actions">
-          <Button variant="default" onClick={() => setRemoving(undefined)}>
+          <Button variant="default" onClick={() => setRemoving(false)}>
             取消
           </Button>
           <Button
             color="red"
             loading={remove.isPending}
-            onClick={() => removing && remove.mutate(removing)}
+            onClick={() => remove.mutate()}
           >
             移除
           </Button>
         </div>
       </Modal>
     </section>
+  );
+}
+
+export function NodeStorageSummary({ node }: { node: Node }) {
+  const pools = useQuery({
+    queryKey: ["storage-pools"],
+    queryFn: api.storagePools,
+    refetchInterval: 5000,
+  });
+  return (
+    <>
+      <ErrorMessage error={pools.error} />
+      {pools.isPending ? (
+        <Loading />
+      ) : (
+        <div className={styles.pools}>
+          {pools.data
+            ?.filter((p) => p.nodeIds.includes(node.id))
+            .map((pool) => (
+              <Link
+                key={pool.id}
+                className={`${styles.pool} ${styles.link}`}
+                to={`/resources/storage?pool=${encodeURIComponent(pool.id)}`}
+              >
+                <strong>{pool.default ? "本地存储" : pool.name}</strong>
+                <span>
+                  {pool.storage
+                    ? `${Math.floor(pool.storage.availableBytes / 2 ** 30)} GiB 可用`
+                    : "容量暂不可用"}
+                </span>
+                <Status value={poolStatus(pool)} />
+              </Link>
+            ))}
+        </div>
+      )}
+    </>
   );
 }

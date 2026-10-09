@@ -235,6 +235,83 @@ func (q *Queries) MarkStorageDeleting(ctx context.Context, arg MarkStorageDeleti
 	return err
 }
 
+const nodeStorageOperation = `-- name: NodeStorageOperation :one
+SELECT id, environment_id, scope_kind, scope_id, kind, asset_id, state, phase, payload, results, error, expected_revision, lease_owner, lease_until, created_at, updated_at, client_request_id FROM operations WHERE scope_kind='node' AND scope_id=$1 AND kind='configure-node-storage' ORDER BY created_at DESC,id DESC LIMIT 1
+`
+
+func (q *Queries) NodeStorageOperation(ctx context.Context, scopeID string) (Operation, error) {
+	row := q.db.QueryRow(ctx, nodeStorageOperation, scopeID)
+	var i Operation
+	err := row.Scan(
+		&i.ID,
+		&i.EnvironmentID,
+		&i.ScopeKind,
+		&i.ScopeID,
+		&i.Kind,
+		&i.AssetID,
+		&i.State,
+		&i.Phase,
+		&i.Payload,
+		&i.Results,
+		&i.Error,
+		&i.ExpectedRevision,
+		&i.LeaseOwner,
+		&i.LeaseUntil,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ClientRequestID,
+	)
+	return i, err
+}
+
+const storagePoolAssets = `-- name: StoragePoolAssets :many
+SELECT e.id AS environment_id,e.name AS environment_name,e.revision,a.asset_id,
+(a.execution->'asset'->>'name')::text AS asset_name,a.node_id,a.disk_gib AS size_gib,a.state
+FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
+WHERE a.current AND COALESCE(a.execution->>'storagePoolId','default:'||a.node_id)=$1::text
+ORDER BY e.name,a.asset_id
+`
+
+type StoragePoolAssetsRow struct {
+	EnvironmentID   string
+	EnvironmentName string
+	Revision        int32
+	AssetID         string
+	AssetName       string
+	NodeID          string
+	SizeGib         int64
+	State           string
+}
+
+func (q *Queries) StoragePoolAssets(ctx context.Context, poolID string) ([]StoragePoolAssetsRow, error) {
+	rows, err := q.db.Query(ctx, storagePoolAssets, poolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []StoragePoolAssetsRow{}
+	for rows.Next() {
+		var i StoragePoolAssetsRow
+		if err := rows.Scan(
+			&i.EnvironmentID,
+			&i.EnvironmentName,
+			&i.Revision,
+			&i.AssetID,
+			&i.AssetName,
+			&i.NodeID,
+			&i.SizeGib,
+			&i.State,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const storageReferences = `-- name: StorageReferences :many
 SELECT name::text FROM (
  SELECT '环境：'||e.name AS name FROM environments e WHERE e.status<>'destroyed' AND (

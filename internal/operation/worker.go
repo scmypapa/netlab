@@ -39,6 +39,10 @@ type Payload struct {
 	Recovery            *Recovery                  `json:"recovery,omitempty"`
 	Run                 bool                       `json:"run,omitempty"`
 	StoragePool         *api.CreateStoragePool     `json:"storagePool,omitempty"`
+	StorageDevice       *api.ConfigureNodeStorage  `json:"storageDevice,omitempty"`
+	CephDevices         map[string]string          `json:"cephDevices,omitempty"`
+	CephReplicas        *int                       `json:"cephReplicas,omitempty"`
+	CephJoinNodes       []string                   `json:"cephJoinNodes,omitempty"`
 	Spec                api.EnvironmentSpec        `json:"spec"`
 	BeforeStatus        string                     `json:"beforeStatus,omitempty"`
 	Template            *api.Template              `json:"template,omitempty"`
@@ -142,6 +146,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			err = w.deleteStoragePool(ctx, &op, &payload)
 		} else if op.Kind == "configure-storage-pool" {
 			err = w.configureStoragePool(ctx, &op, &payload)
+		} else if op.Kind == "configure-node-storage" {
+			err = w.configureNodeStorage(ctx, &op, &payload)
 		} else if op.ScopeKind == "volume" {
 			err = w.volume(ctx, &op, &payload)
 		} else if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
@@ -288,8 +294,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 		slog.Error("operation commit", "error", dbErr)
 		return
 	}
-	if op.Kind == "configure-storage-pool" && err == nil {
-		if dbErr = (Service{Pool: w.Pool, Queries: w.Queries}).ConfigureManagedStorage(ctx); dbErr != nil {
+	if (op.Kind == "configure-storage-pool" || op.Kind == "configure-node-storage") && err == nil {
+		if dbErr = (Service{Pool: w.Pool, Queries: w.Queries}).ConfigureManagedStorage(ctx, nil); dbErr != nil {
 			slog.Error("storage membership", "error", dbErr)
 		}
 	}

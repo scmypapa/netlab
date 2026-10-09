@@ -20,6 +20,15 @@ export function MigrationDialog({
   onSubmitted: () => void;
 }) {
   const [target, setTarget] = useState<string | null>(null);
+  const [storage, setStorage] = useState<string | null>(null);
+  const pools = useQuery({
+    queryKey: ["storage-pools"],
+    queryFn: api.storagePools,
+  });
+  const template = useQuery({
+    queryKey: ["templates", asset.templateId],
+    queryFn: () => api.templates({ ids: [asset.templateId] }),
+  });
   const nodes = useQuery({
     queryKey: ["migration-destinations", id, asset.id],
     queryFn: () => api.migrationDestinations(id, asset.id),
@@ -29,6 +38,7 @@ export function MigrationDialog({
       api.migrateAsset(id, asset.id, {
         expectedRevision: revision,
         targetNodeId: target ?? undefined,
+        targetStoragePoolId: storage ?? undefined,
         clientRequestId: crypto.randomUUID(),
       }),
     onSuccess: () => {
@@ -48,7 +58,10 @@ export function MigrationDialog({
           placeholder="自动选择"
           clearable
           value={target}
-          onChange={setTarget}
+          onChange={(id) => {
+            setTarget(id);
+            setStorage(null);
+          }}
           disabled={migration.isPending}
           data={nodes.data.map((node) => ({
             value: node.id,
@@ -58,7 +71,31 @@ export function MigrationDialog({
       ) : (
         <Empty icon={<Monitor size={24} />} title="暂无可用迁移节点" />
       )}
-      <ErrorMessage error={migration.error} />
+      {nodes.data?.length ? (
+        <Select
+          mt="md"
+          label="目标存储池"
+          placeholder="保留共享池或使用目标节点本地存储"
+          clearable
+          value={storage}
+          onChange={setStorage}
+          data={(pools.data ?? [])
+            .filter(
+              (pool) =>
+                !pool.error &&
+                (pool.default || pool.state === "ready") &&
+                (template.data?.[0]?.kind === "vm" ||
+                  pool.driver === "directory") &&
+                (target
+                  ? pool.nodeIds.includes(target)
+                  : pool.nodeIds.some((id) =>
+                      nodes.data?.some((node) => node.id === id),
+                    )),
+            )
+            .map((pool) => ({ value: pool.id, label: pool.name }))}
+        />
+      ) : null}
+      <ErrorMessage error={migration.error ?? pools.error} />
       <div className="dialog-actions">
         <Button variant="default" onClick={onClose}>
           取消
@@ -68,11 +105,7 @@ export function MigrationDialog({
           loading={migration.isPending}
           onClick={() => migration.mutate()}
         >
-          {!target
-            ? "迁移"
-            : nodes.data?.find((node) => node.id === target)?.live
-              ? "在线迁移"
-              : "停机迁移"}
+          迁移
         </Button>
       </div>
     </Modal>

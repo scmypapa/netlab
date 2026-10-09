@@ -17,6 +17,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/access"
 	"netlab.local/core/internal/transport"
 )
 
@@ -60,7 +61,7 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 	ids := []string{}
 	for _, endpoint := range endpoints {
 		info, err := client.Info(ctx, endpoint)
-		if err != nil || info.StorageDevice == nil {
+		if err != nil {
 			t.Fatalf("storage node %s: %v", endpoint, err)
 		}
 		ids = append(ids, info.Id)
@@ -68,8 +69,42 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 		if err = q.PutNode(ctx, queries.PutNodeParams{ID: info.Id, Name: info.Name, Endpoint: endpoint, Info: raw}); err != nil {
 			t.Fatal(err)
 		}
-		if err = s.ConfigureManagedStorage(ctx); err != nil {
-			t.Fatal(err)
+		if os.Getenv("NETLAB_REAL_STORAGE_CONFIGURE") == "1" {
+			var disks api.NodeStorageDevices
+			if err = client.Do(ctx, http.MethodGet, endpoint, "/node/v1/storage-device", nil, &disks); err != nil {
+				t.Fatal(err)
+			}
+			device := ""
+			for _, disk := range disks.Devices {
+				if disk.Available {
+					device = disk.Path
+					break
+				}
+			}
+			if device == "" {
+				t.Fatal("isolated test node has no unused storage disk")
+			}
+			payload, _ := json.Marshal(Payload{StorageDevice: &api.ConfigureNodeStorage{Device: device}})
+			if _, err = q.CreateOperation(ctx, queries.CreateOperationParams{ID: uuid.NewString(), ScopeKind: "node", ScopeID: info.Id, Kind: "configure-node-storage", Payload: payload}); err != nil {
+				t.Fatal(err)
+			}
+			owner := "real-storage-test"
+			preparation, err := q.ClaimOperation(ctx, &owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.execute(ctx, queries.Operation(preparation))
+			result, err := q.GetOperation(ctx, preparation.ID)
+			if err != nil || result.State != "succeeded" {
+				t.Fatalf("node storage preparation: %s %v %v", result.State, result.Error, err)
+			}
+		} else {
+			if info.StorageDevice == nil {
+				t.Fatal("storage node has no selected disk")
+			}
+			if err = s.ConfigureManagedStorage(ctx, nil); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	owner := "real-storage-test"
@@ -88,6 +123,10 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 		t.Fatalf("published cluster: %v %v", pools, err)
 	}
 	storage := pools[0]
+	clusterEndpoint := endpoints[0]
+	if storage.NodeIds[0] == ids[1] {
+		clusterEndpoint = endpoints[1]
+	}
 	t.Cleanup(func() {
 		for _, endpoint := range []string{endpoints[1], endpoints[0]} {
 			if err := client.Do(context.Background(), http.MethodDelete, endpoint, "/node/v1/ceph/"+storage.ID, nil, nil); err != nil {
@@ -96,13 +135,33 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 		}
 	})
 	t.Logf("two storage nodes initialized: %s", time.Since(started))
+	var health api.CephStatus
+	if err = client.Do(ctx, http.MethodGet, clusterEndpoint, "/node/v1/ceph/"+storage.ID, nil, &health); err != nil || health.OsdsUp != 2 || health.OsdsTotal != 2 || len(health.Disks) != 2 || len(health.Daemons) < 4 || health.Replicas != 1 {
+		t.Fatalf("real Ceph health: %+v %v", health, err)
+	}
+	replicas := 2
+	if err = s.ConfigureManagedStorage(ctx, &replicas); err != nil {
+		t.Fatal(err)
+	}
+	op, err = q.ClaimOperation(ctx, &owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.execute(ctx, queries.Operation(op))
+	result, err = q.GetOperation(ctx, op.ID)
+	if err != nil || result.State != "succeeded" {
+		t.Fatalf("replica configuration: %s %v %v", result.State, result.Error, err)
+	}
+	if err = client.Do(ctx, http.MethodGet, clusterEndpoint, "/node/v1/ceph/"+storage.ID, nil, &health); err != nil || health.Replicas != 2 {
+		t.Fatalf("applied replica setting: %+v %v", health, err)
+	}
 	for _, endpoint := range endpoints {
 		var info api.StorageInfo
 		if err = client.Do(ctx, http.MethodGet, endpoint, transport.StorageRoute(storage.ID, ""), nil, &info); err != nil || info.AvailableBytes <= 0 {
 			t.Fatalf("registered shared storage: %v", err)
 		}
 	}
-	if err = s.ConfigureManagedStorage(ctx); err != nil {
+	if err = s.ConfigureManagedStorage(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	template := api.Template{Id: uuid.NewString(), Name: "Shared storage verification", Version: 1, Kind: api.Vm, Source: os.Getenv("NETLAB_REAL_STORAGE_TEMPLATE"),
@@ -151,6 +210,9 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 			}
 		}
 	}
+	t.Run("local-shared-local-migration", func(t *testing.T) {
+		testRealStorageMigration(t, ctx, w, s, template, ids, endpoints, storage.ID)
+	})
 	template.Version++
 	if err = client.Do(ctx, http.MethodPost, endpoints[0], "/node/v1/templates/prepare", api.NodeTemplatePreparation{Template: template, StoragePoolId: &storage.ID}, &template); err != nil {
 		t.Fatal(err)
@@ -201,5 +263,100 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 	pools, err = q.ListStoragePools(ctx)
 	if err != nil || len(pools) != 0 {
 		t.Fatalf("cluster row was left behind: %v %v", pools, err)
+	}
+	for _, endpoint := range endpoints {
+		info, err := client.Info(ctx, endpoint)
+		if err != nil || info.StorageDevice != nil {
+			t.Fatal("removed shared storage retained its disk selection", err)
+		}
+	}
+	if err = s.ConfigureManagedStorage(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	pools, err = q.ListStoragePools(ctx)
+	if err != nil || len(pools) != 0 {
+		t.Fatal("removed cluster was automatically recreated", err)
+	}
+}
+
+func testRealStorageMigration(t *testing.T, ctx context.Context, w Worker, s Service, template api.Template, ids, endpoints []string, poolID string) {
+	t.Helper()
+	asset := api.Asset{Id: uuid.NewString(), Name: "Storage migration", TemplateId: template.Id, Resources: api.Resources{Cpu: 1, MemoryMiB: 128, DiskGiB: 1}, Interfaces: []api.Interface{}}
+	spec := api.EnvironmentSpec{Assets: []api.Asset{asset}, Networks: []api.Network{}}
+	raw, _ := json.Marshal(spec)
+	env, err := s.Queries.CreateEnvironment(ctx, queries.CreateEnvironmentParams{ID: uuid.NewString(), ProjectID: "default", Name: "Storage migration", Spec: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := w.Client.Info(ctx, endpoints[0])
+	if err != nil || info.Storage == nil {
+		t.Fatal("local storage unavailable", err)
+	}
+	execution := api.AssetExecution{InstanceId: uuid.NewString(), Asset: asset, Template: template, StoragePath: &info.Storage.Path, StorageFilesystem: &info.Storage.Filesystem, Interfaces: []api.ResolvedInterface{}}
+	currentEndpoint := endpoints[0]
+	t.Cleanup(func() {
+		result, err := w.Client.Execute(context.Background(), currentEndpoint, api.NodePlan{EnvironmentId: env.ID, OperationId: uuid.NewString(), Phase: api.NodePlanPhaseDestroy, Assets: []api.AssetExecution{execution}})
+		if err != nil || result.Error != nil || len(result.Results) != 1 || result.Results[0].Error != nil {
+			t.Errorf("migration test cleanup: %+v %v", result, err)
+			return
+		}
+		if _, err = s.Pool.Exec(ctx, "DELETE FROM runtime_assets WHERE environment_id=$1", env.ID); err != nil {
+			t.Error(err)
+		}
+		if _, err = s.Pool.Exec(ctx, "UPDATE environments SET spec='{}',applied_spec='{}',status='destroyed' WHERE id=$1", env.ID); err != nil {
+			t.Error(err)
+		}
+	})
+	result, err := w.Client.Execute(ctx, currentEndpoint, api.NodePlan{EnvironmentId: env.ID, OperationId: uuid.NewString(), Spec: spec, Phase: api.NodePlanPhasePrepare, Assets: []api.AssetExecution{execution}})
+	if err != nil || result.Error != nil || len(result.Results) != 1 || result.Results[0].Error != nil {
+		t.Fatalf("local instance preparation: %+v %v", result, err)
+	}
+	raw, _ = resourceRecords(env.ID, []Target{{NodeID: ids[0], Execution: execution}})
+	if err = s.Queries.ReserveAssets(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Pool.Exec(ctx, "UPDATE runtime_assets SET current=true,state='stopped' WHERE environment_id=$1", env.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Pool.Exec(ctx, "UPDATE environments SET applied_spec=spec,status='running' WHERE id=$1", env.ID); err != nil {
+		t.Fatal(err)
+	}
+	identity := access.Identity{Principal: queries.Principal{Kind: "user", Administrator: true}}
+	for _, destination := range []struct{ node, endpoint, pool string }{
+		{ids[1], endpoints[1], poolID},
+		{ids[0], endpoints[0], defaultStorage(ids[0])},
+	} {
+		environment, err := s.Queries.GetEnvironment(ctx, env.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		accepted, err := s.Migrate(ctx, identity, env.ID, asset.Id, api.MigrationRequest{ExpectedRevision: int(environment.Revision), TargetNodeId: &destination.node, TargetStoragePoolId: &destination.pool})
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := "real-migration-test"
+		op, err := s.Queries.ClaimOperation(ctx, &owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.execute(ctx, queries.Operation(op))
+		finished, err := s.Queries.GetOperation(ctx, accepted.Id)
+		if err != nil || finished.State != "succeeded" {
+			t.Fatalf("migration to %s: %s %v %v", destination.pool, finished.Phase, finished.Error, err)
+		}
+		actual, err := s.Queries.GetCurrentAsset(ctx, queries.GetCurrentAssetParams{EnvironmentID: env.ID, AssetID: asset.Id})
+		if err != nil || actual.NodeID != destination.node {
+			t.Fatal("migration ownership not committed", err)
+		}
+		var migrated api.AssetExecution
+		if err = json.Unmarshal(actual.Execution, &migrated); err != nil {
+			t.Fatal(err)
+		}
+		execution = migrated
+		currentEndpoint = destination.endpoint
+		if actualPool(actual.NodeID, execution) != destination.pool {
+			t.Fatal("migration target storage not committed")
+		}
+		t.Logf("migration to %s completed", destination.pool)
 	}
 }

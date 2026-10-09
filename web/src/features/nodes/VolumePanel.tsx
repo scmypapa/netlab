@@ -15,7 +15,13 @@ import { api, type Node, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
 
-export function VolumePanel({ node }: { node: Node }) {
+export function VolumePanel({
+  node,
+  storagePoolId,
+}: {
+  node?: Node;
+  storagePoolId?: string;
+}) {
   const client = useQueryClient();
   const volumes = useQuery({
     queryKey: ["volumes"],
@@ -30,7 +36,9 @@ export function VolumePanel({ node }: { node: Node }) {
   const [selected, setSelected] = useState<Schema<"PersistentVolume">>();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Schema<"TemplateKind">>("vm");
-  const [pool, setPool] = useState<string | null>(`default:${node.id}`);
+  const [pool, setPool] = useState<string | null>(
+    storagePoolId ?? (node ? `default:${node.id}` : null),
+  );
   const [size, setSize] = useState(10);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["volumes"] });
@@ -53,19 +61,35 @@ export function VolumePanel({ node }: { node: Node }) {
     mutationFn: api.retryOperation,
     onSuccess: refresh,
   });
-  const items = (volumes.data ?? []).filter(
-    (volume) =>
-      volume.nodeId === node.id ||
-      pools.data?.some(
-        (pool) =>
-          pool.id === volume.storagePoolId && pool.nodeIds.includes(node.id),
-      ),
+  const items = (volumes.data ?? []).filter((volume) =>
+    storagePoolId
+      ? volume.storagePoolId === storagePoolId
+      : !node ||
+        volume.nodeId === node.id ||
+        pools.data?.some(
+          (pool) =>
+            pool.id === volume.storagePoolId && pool.nodeIds.includes(node!.id),
+        ),
   );
   const open = (mode: typeof editing, volume?: Schema<"PersistentVolume">) => {
     apply.reset();
     setSelected(volume);
     setSize(volume?.sizeGiB ?? 10);
     setName("");
+    if (mode === "create") {
+      setKind("vm");
+      setPool(
+        storagePoolId ??
+          pools.data?.find(
+            (p) =>
+              (!node || p.nodeIds.includes(node.id)) &&
+              p.driver === "rbd" &&
+              p.state === "ready" &&
+              !p.error,
+          )?.id ??
+          (node ? `default:${node.id}` : null),
+      );
+    }
     setEditing(mode);
   };
   return (
@@ -201,7 +225,14 @@ export function VolumePanel({ node }: { node: Node }) {
               />
               <SegmentedControl
                 value={kind}
-                onChange={(value) => setKind(value as Schema<"TemplateKind">)}
+                onChange={(value) => {
+                  setKind(value as Schema<"TemplateKind">);
+                  if (
+                    value === "container" &&
+                    pools.data?.find((p) => p.id === pool)?.driver === "rbd"
+                  )
+                    setPool(null);
+                }}
                 data={[
                   { label: "虚拟磁盘", value: "vm" },
                   { label: "容器目录", value: "container" },
@@ -215,7 +246,7 @@ export function VolumePanel({ node }: { node: Node }) {
                 data={(pools.data ?? [])
                   .filter(
                     (pool) =>
-                      pool.nodeIds.includes(node.id) &&
+                      (!node || pool.nodeIds.includes(node.id)) &&
                       !pool.error &&
                       (pool.default || pool.state === "ready") &&
                       (kind === "vm" || pool.driver === "directory"),

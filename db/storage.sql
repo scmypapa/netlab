@@ -40,6 +40,14 @@ WITH assets AS (
  WHERE v.node_id=ANY($1::text[]) GROUP BY v.node_id,v.storage_pool_id
 )
 SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib FROM allocations GROUP BY node_id,pool_id;
+-- name: NodeStorageOperation :one
+SELECT * FROM operations WHERE scope_kind='node' AND scope_id=$1 AND kind='configure-node-storage' ORDER BY created_at DESC,id DESC LIMIT 1;
+-- name: StoragePoolAssets :many
+SELECT e.id AS environment_id,e.name AS environment_name,e.revision,a.asset_id,
+(a.execution->'asset'->>'name')::text AS asset_name,a.node_id,a.disk_gib AS size_gib,a.state
+FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
+WHERE a.current AND COALESCE(a.execution->>'storagePoolId','default:'||a.node_id)=sqlc.arg(pool_id)::text
+ORDER BY e.name,a.asset_id;
 -- name: StorageReferences :many
 SELECT name::text FROM (
  SELECT '环境：'||e.name AS name FROM environments e WHERE e.status<>'destroyed' AND (

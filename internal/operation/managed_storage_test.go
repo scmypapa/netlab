@@ -80,7 +80,7 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	}
 	device := "/dev/disk/by-id/test"
 	put("a", nil)
-	if err = service.ConfigureManagedStorage(ctx); err != nil {
+	if err = service.ConfigureManagedStorage(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := q.ListStoragePools(ctx)
@@ -91,7 +91,7 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			if err := service.ConfigureManagedStorage(ctx); err != nil {
+			if err := service.ConfigureManagedStorage(ctx, nil); err != nil {
 				t.Error(err)
 			}
 		})
@@ -134,5 +134,44 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	current, err = q.GetStoragePool(ctx, rows[0].ID)
 	if err != nil || current.State != "ready" || len(current.NodeIds) != 3 {
 		t.Fatal("pool expansion did not complete", err)
+	}
+	before := joined
+	put("c", &device)
+	if err = service.ConfigureManagedStorage(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = q.ClaimOperation(ctx, &owner)
+	if err != nil {
+		t.Fatal("existing compute member's disk selection was omitted", err)
+	}
+	worker.execute(ctx, queries.Operation(claimed))
+	if joined != before+1 {
+		t.Fatal("unchanged storage members were reconfigured")
+	}
+	replicas := 2
+	if err = service.ConfigureManagedStorage(ctx, &replicas); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = q.ClaimOperation(ctx, &owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var configuration Payload
+	if err = json.Unmarshal(claimed.Payload, &configuration); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.CephReplicas == nil || *configuration.CephReplicas != 2 || len(configuration.CephJoinNodes) != 0 {
+		t.Fatal("replica change replayed node registration")
+	}
+	worker.execute(ctx, queries.Operation(claimed))
+	if err = service.ConfigureManagedStorage(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = q.ClaimOperation(ctx, &owner); err != pgx.ErrNoRows {
+		t.Fatal("unchanged desired storage created another operation", err)
+	}
+	replicas = 3
+	if err = service.ConfigureManagedStorage(ctx, &replicas); err == nil {
+		t.Fatal("replicas exceeded storage host count")
 	}
 }

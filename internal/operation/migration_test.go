@@ -33,6 +33,22 @@ func TestMigrationOwnershipHandoff(t *testing.T) {
 	}
 }
 
+func TestMigrationDestinationsUsePoolCapacity(t *testing.T) {
+	info := api.NodeInfo{Capacity: api.Resources{Cpu: 4, MemoryMiB: 4096, DiskGiB: 1}, Capabilities: []string{"vm"},
+		VmHardware: &api.VmHardware{CpuModes: []string{"host-model"}, NicModels: []string{"virtio"}, Machines: []api.VmMachine{{Name: "q35", MaxVcpus: 8, Firmware: []string{"bios"}, DiskBuses: []string{"virtio"}}}}}
+	raw, _ := json.Marshal(info)
+	source := Target{NodeID: "source", State: "stopped", Execution: api.AssetExecution{
+		Template: api.Template{Kind: api.Vm, Hardware: &api.Hardware{Machine: "q35", Firmware: api.Bios, DiskBus: api.HardwareDiskBusVirtio, NicModel: api.HardwareNicModelVirtio}},
+		Asset:    api.Asset{Resources: api.Resources{Cpu: 1, MemoryMiB: 1024, DiskGiB: 20}},
+	}}
+	nodes := []queries.ListNodesRow{{ID: "target", Name: "Target", State: "ready", Info: raw}}
+	pools := []queries.ListStoragePoolsRow{{ID: "shared", NodeIds: []string{"target"}, State: "ready", Driver: "rbd"}}
+	result, err := migrationCandidates(source, nodes, pools, nil)
+	if err != nil || len(result) != 1 || result[0].Live {
+		t.Fatalf("shared storage destination rejected because of its local root disk: %+v %v", result, err)
+	}
+}
+
 func testMigrationOwnershipHandoff(t *testing.T, rejected bool) {
 	dsn := os.Getenv("NETLAB_DATABASE_URL")
 	if dsn == "" {

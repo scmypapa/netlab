@@ -113,6 +113,23 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /node/v1/storage-device", func(w http.ResponseWriter, r *http.Request) {
+		result, err := executor.StorageDevices(r.Context())
+		respond(w, result, err)
+	})
+	mux.HandleFunc("PUT /node/v1/storage-device", func(w http.ResponseWriter, r *http.Request) {
+		var input api.ConfigureNodeStorage
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		result, err := executor.ConfigureStorageDevice(r.Context(), input)
+		respond(w, result, err)
+	})
+	mux.HandleFunc("GET /node/v1/ceph/{id}", func(w http.ResponseWriter, r *http.Request) {
+		result, err := executor.CephStatus(r.Context(), r.PathValue("id"))
+		respond(w, result, err)
+	})
 	mux.HandleFunc("POST /node/v1/ceph/{id}/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		result, err := executor.BootstrapCeph(r.Context(), r.PathValue("id"))
 		respond(w, result, err)

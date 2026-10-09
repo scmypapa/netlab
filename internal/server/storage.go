@@ -187,8 +187,14 @@ func (s *Server) deleteStoragePool(w http.ResponseWriter, r *http.Request, ident
 	if err != nil {
 		return err
 	}
-	if pool.State != "ready" {
-		return httpError{http.StatusConflict, "请等待存储任务完成；失败任务可重试"}
+	if pool.OperationID != nil {
+		current, err := q.GetOperation(ctx, *pool.OperationID)
+		if err != nil {
+			return err
+		}
+		if current.State == "queued" || current.State == "running" {
+			return environment.ErrConflict
+		}
 	}
 	refs, err := q.StorageReferences(ctx, id)
 	if err != nil {

@@ -162,6 +162,7 @@ export function App() {
           <Route path="/environments/:id" element={<WorkbenchPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/resources" element={<NodesPage />} />
+          <Route path="/resources/storage" element={<NodesPage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="*" element={<EnvironmentsPage />} />
         </Routes>

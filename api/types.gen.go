@@ -624,6 +624,34 @@ type CephConnection struct {
 	User     string   `json:"user"`
 }
 
+// CephDaemon defines model for CephDaemon.
+type CephDaemon struct {
+	Host  string `json:"host"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
+	State string `json:"state"`
+}
+
+// CephDisk defines model for CephDisk.
+type CephDisk struct {
+	CapacityBytes int64  `json:"capacityBytes"`
+	Host          string `json:"host"`
+	Name          string `json:"name"`
+	State         string `json:"state"`
+	UsedBytes     int64  `json:"usedBytes"`
+}
+
+// CephStatus defines model for CephStatus.
+type CephStatus struct {
+	Daemons   []CephDaemon `json:"daemons"`
+	Disks     []CephDisk   `json:"disks"`
+	Health    string       `json:"health"`
+	Messages  []string     `json:"messages"`
+	OsdsTotal int          `json:"osdsTotal"`
+	OsdsUp    int          `json:"osdsUp"`
+	Replicas  int          `json:"replicas"`
+}
+
 // ChangeItem defines model for ChangeItem.
 type ChangeItem struct {
 	DataEffect   *string          `json:"dataEffect,omitempty"`
@@ -652,6 +680,17 @@ type ChangeRequest struct {
 	ClientRequestId  *string         `json:"clientRequestId,omitempty"`
 	ExpectedRevision int             `json:"expectedRevision"`
 	Spec             EnvironmentSpec `json:"spec"`
+}
+
+// ConfigureCephPool defines model for ConfigureCephPool.
+type ConfigureCephPool struct {
+	Replicas int `json:"replicas"`
+}
+
+// ConfigureNodeStorage defines model for ConfigureNodeStorage.
+type ConfigureNodeStorage struct {
+	// Device Physical empty disk selected for Ceph; empty clears an unused selection
+	Device string `json:"device"`
 }
 
 // ConsoleKind defines model for ConsoleKind.
@@ -1021,7 +1060,8 @@ type MigrationRequest struct {
 	ExpectedRevision int     `json:"expectedRevision"`
 
 	// TargetNodeId Omit to select a compatible destination automatically
-	TargetNodeId *string `json:"targetNodeId,omitempty"`
+	TargetNodeId        *string `json:"targetNodeId,omitempty"`
+	TargetStoragePoolId *string `json:"targetStoragePoolId,omitempty"`
 }
 
 // Network defines model for Network.
@@ -1247,6 +1287,13 @@ type NodeServiceBinding struct {
 	Protocol      ServiceProtocol `json:"protocol"`
 	TargetAddress string          `json:"targetAddress"`
 	TargetPort    int             `json:"targetPort"`
+}
+
+// NodeStorageDevices defines model for NodeStorageDevices.
+type NodeStorageDevices struct {
+	Devices   []StorageDevice `json:"devices"`
+	Operation *Operation      `json:"operation,omitempty"`
+	Selected  string          `json:"selected"`
 }
 
 // NodeTemplatePreparation defines model for NodeTemplatePreparation.
@@ -1585,6 +1632,16 @@ type ServiceNetwork struct {
 // ServiceProtocol defines model for ServiceProtocol.
 type ServiceProtocol string
 
+// StorageDevice defines model for StorageDevice.
+type StorageDevice struct {
+	Available bool   `json:"available"`
+	Model     string `json:"model"`
+	Path      string `json:"path"`
+	Reason    string `json:"reason"`
+	Serial    string `json:"serial"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
+
 // StorageDriver defines model for StorageDriver.
 type StorageDriver string
 
@@ -1620,6 +1677,18 @@ type StoragePool struct {
 
 // StoragePoolState defines model for StoragePool.State.
 type StoragePoolState string
+
+// StoragePoolAsset defines model for StoragePoolAsset.
+type StoragePoolAsset struct {
+	AssetId         string `json:"assetId"`
+	AssetName       string `json:"assetName"`
+	EnvironmentId   string `json:"environmentId"`
+	EnvironmentName string `json:"environmentName"`
+	NodeId          string `json:"nodeId"`
+	Revision        int64  `json:"revision"`
+	SizeGiB         int64  `json:"sizeGiB"`
+	State           string `json:"state"`
+}
 
 // SystemUpdate defines model for SystemUpdate.
 type SystemUpdate struct {
@@ -2087,6 +2156,9 @@ type CreateVPNAccessJSONRequestBody = CreateVPNAccess
 // RegisterNodeJSONRequestBody defines body for RegisterNode for application/json ContentType.
 type RegisterNodeJSONRequestBody = NodeRegistration
 
+// ConfigureNodeStorageJSONRequestBody defines body for ConfigureNodeStorage for application/json ContentType.
+type ConfigureNodeStorageJSONRequestBody = ConfigureNodeStorage
+
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUser
 
@@ -2101,6 +2173,9 @@ type LoginJSONRequestBody = Login
 
 // CreateStoragePoolJSONRequestBody defines body for CreateStoragePool for application/json ContentType.
 type CreateStoragePoolJSONRequestBody = CreateStoragePool
+
+// ConfigureCephPoolJSONRequestBody defines body for ConfigureCephPool for application/json ContentType.
+type ConfigureCephPoolJSONRequestBody = ConfigureCephPool
 
 // ApplySystemUpdateJSONRequestBody defines body for ApplySystemUpdate for application/json ContentType.
 type ApplySystemUpdateJSONRequestBody = ApplySystemUpdate

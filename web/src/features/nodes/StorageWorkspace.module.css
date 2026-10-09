@@ -1,0 +1,148 @@
+.workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.pools {
+  display: grid;
+  gap: 6px;
+}
+.pool {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 14px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+}
+.pool:hover {
+  background: var(--surface-hover);
+}
+.selected {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+.label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+.detail {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 24px;
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin: 24px 0;
+}
+.metrics strong {
+  font-size: 24px;
+  display: block;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.metrics span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.setup {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+.setup h2 {
+  font-size: 17px;
+  margin: 0;
+}
+.checks {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.table {
+  overflow-x: auto;
+}
+.table table {
+  min-width: 420px;
+}
+.disks {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+.disk {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+.disk span {
+  overflow-wrap: anywhere;
+}
+.task {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+.link {
+  color: var(--accent);
+  text-decoration: none;
+}
+@media (max-width: 850px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .pools {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  .detail {
+    padding: 16px;
+  }
+  .metrics {
+    gap: 10px;
+  }
+  .metrics strong {
+    font-size: 19px;
+  }
+}

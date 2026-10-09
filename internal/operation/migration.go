@@ -20,6 +20,7 @@ import (
 
 type Migration struct {
 	RequestedNode *string `json:"requestedNode,omitempty"`
+	RequestedPool *string `json:"requestedPool,omitempty"`
 	Target        *Target `json:"target,omitempty"`
 	DomainXML     string  `json:"domainXml,omitempty"`
 	Live          bool    `json:"live"`
@@ -83,7 +84,7 @@ func (s Service) Migrate(ctx context.Context, identity access.Identity, id, asse
 	if err = json.Unmarshal(row.AppliedSpec, &spec); err != nil {
 		return api.Operation{}, err
 	}
-	p := Payload{Spec: spec, BeforeStatus: row.Status, Migration: &Migration{RequestedNode: input.TargetNodeId}}
+	p := Payload{Spec: spec, BeforeStatus: row.Status, Migration: &Migration{RequestedNode: input.TargetNodeId, RequestedPool: input.TargetStoragePoolId}}
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return api.Operation{}, err
@@ -128,6 +129,8 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 			}
 		}
 		needed := add(used[node.ID], resources(source.Execution.Asset))
+		// The selected storage pool is admitted in planMigration, independently of the host root disk.
+		needed.DiskGiB = 0
 		accessible := func(id string) bool {
 			for _, pool := range pools {
 				if pool.ID == id {
@@ -135,9 +138,6 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 				}
 			}
 			return false
-		}
-		if source.Execution.Rbd != nil && accessible(actualPool(source.NodeID, source.Execution)) {
-			needed.DiskGiB = 0
 		}
 		if !fits(needed, capacity) {
 			continue
@@ -288,7 +288,13 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 		if source.Execution.Rbd == nil || !pool.ready || pool.err != nil || pool.info.Rbd == nil {
 			pool = storage[storageKey(candidate.Id, defaultStorage(candidate.Id))]
 		}
+		if p.Migration.RequestedPool != nil {
+			pool = storage[storageKey(candidate.Id, *p.Migration.RequestedPool)]
+		}
 		if !pool.ready || pool.err != nil {
+			continue
+		}
+		if source.Execution.Template.Kind != api.Vm && pool.info.Rbd != nil {
 			continue
 		}
 		target := source
@@ -296,7 +302,7 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 		assignStorage(&target.Execution, pool)
 		target.Execution.Asset.StoragePoolId = target.Execution.StoragePoolId
 		target.Execution.VolumeSources = map[string]api.NodeVolume{}
-		live := candidate.Live && pool.info.Rbd != nil
+		live := candidate.Live && sameSharedStorage(source.Execution.Rbd, pool.info.Rbd)
 		for name, volume := range source.Execution.VolumeSources {
 			volumePool := pool
 			if volume.Storage.Rbd != nil {
@@ -306,7 +312,7 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 				}
 			}
 			volume.Storage = volumePool.info
-			live = live && volume.Storage.Rbd != nil
+			live = live && sameSharedStorage(source.Execution.VolumeSources[name].Storage.Rbd, volume.Storage.Rbd)
 			target.Execution.VolumeSources[name] = volume
 		}
 		allocated, err := q.StorageReservations(ctx, ids)
@@ -324,11 +330,11 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 			}
 		}
 		additional := int64(0)
-		if pool.info.Rbd == nil {
+		if !sameSharedStorage(source.Execution.Rbd, pool.info.Rbd) {
 			additional = resources(target.Execution.Asset).DiskGiB
 		}
-		for _, volume := range target.Execution.VolumeSources {
-			if volume.Storage.Rbd == nil {
+		for name, volume := range target.Execution.VolumeSources {
+			if !sameSharedStorage(source.Execution.VolumeSources[name].Storage.Rbd, volume.Storage.Rbd) {
 				additional += volume.SizeGiB
 			}
 		}
@@ -359,6 +365,10 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	return nil
+}
+
+func sameSharedStorage(a, b *api.RbdStorage) bool {
+	return a != nil && b != nil && a.Fsid == b.Fsid && a.Pool == b.Pool && a.ImagePrefix == b.ImagePrefix
 }
 
 func migrationRoute(env string, a api.AssetExecution) string {
