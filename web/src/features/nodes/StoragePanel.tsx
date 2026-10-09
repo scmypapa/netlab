@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Accordion,
   Badge,
   Button,
   Modal,
@@ -14,6 +15,8 @@ import { useState } from "react";
 import { api, type Node, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
+import { useCursorList } from "../../foundation/useCursorList";
+import { LoadMore } from "../../foundation/LoadMore";
 
 export function StoragePanel({ node }: { node: Node }) {
   const client = useQueryClient();
@@ -31,10 +34,8 @@ export function StoragePanel({ node }: { node: Node }) {
   const [pool, setPool] = useState("");
   const [user, setUser] = useState("netlab");
   const [key, setKey] = useState("");
-  const nodes = useQuery({
-    queryKey: ["nodes"],
-    queryFn: () => api.nodes(),
-    enabled: adding && driver === "rbd",
+  const nodes = useCursorList(["nodes", "storage"], (page) => api.nodes(page), {
+    refetchInterval: 15000,
   });
   const [removing, setRemoving] = useState<Schema<"StoragePool">>();
   const refresh = () => {
@@ -78,6 +79,14 @@ export function StoragePanel({ node }: { node: Node }) {
   });
   const items =
     pools.data?.filter((pool) => pool.nodeIds.includes(node.id)) ?? [];
+  const shared = pools.data?.find((pool) => pool.managed);
+  const sharedReady =
+    shared?.state === "ready" && shared.operationState === "succeeded";
+  const vmNodes = (nodes.data ?? []).filter((item) =>
+    item.capabilities.includes("vm"),
+  );
+  const readyNodes = vmNodes.filter((item) => item.state === "ready");
+  const diskNodes = readyNodes.filter((item) => item.storageDevice);
   return (
     <section>
       <div className="collection-toolbar">
@@ -98,7 +107,136 @@ export function StoragePanel({ node }: { node: Node }) {
           接入存储
         </Button>
       </div>
-      <ErrorMessage error={pools.error ?? retry.error} />
+      <ErrorMessage error={pools.error ?? nodes.error ?? retry.error} />
+      {!pools.isPending && !nodes.isPending && !pools.error && !nodes.error && (
+        <Accordion variant="contained" mb="md">
+          <Accordion.Item value="ceph">
+            <Accordion.Control>
+              <div className="section-label">
+                <Database size={17} />
+                Ceph 共享存储
+                <Badge
+                  size="sm"
+                  variant="light"
+                  color={shared?.error ? "red" : sharedReady ? "teal" : "gray"}
+                >
+                  {shared
+                    ? shared.error
+                      ? shared.operationState === "failed"
+                        ? "配置失败"
+                        : "连接异常"
+                      : shared.state === "deleting"
+                        ? "移除中"
+                        : sharedReady
+                          ? "已启用"
+                          : "配置中"
+                    : "未启用"}
+                </Badge>
+              </div>
+            </Accordion.Control>
+            <Accordion.Panel>
+              {shared ? (
+                <>
+                  <ErrorMessage
+                    error={shared.error ? new Error(shared.error) : undefined}
+                  />
+                  <p>
+                    {shared.nodeIds.includes(node.id)
+                      ? sharedReady
+                        ? "此节点已接入共享池。"
+                        : "正在配置共享池成员。"
+                      : "此节点尚未接入共享池。"}
+                  </p>
+                  <p>
+                    成员：
+                    {shared.nodeIds
+                      .map(
+                        (id) =>
+                          nodes.data?.find((item) => item.id === id)?.name ??
+                          "未加载节点",
+                      )
+                      .join("、")}
+                  </p>
+                  {shared.operationState === "failed" && shared.operationId && (
+                    <Button
+                      size="compact-sm"
+                      variant="default"
+                      loading={retry.isPending}
+                      onClick={() => retry.mutate(shared.operationId!)}
+                    >
+                      重试配置
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>
+                    {readyNodes.length >= 2 ? "✓" : "○"} 两个就绪的 KVM 节点
+                  </p>
+                  <p>
+                    {diskNodes.length ? "✓" : "○"} 至少一个节点已指定 Ceph
+                    专用盘
+                  </p>
+                  <p>
+                    条件齐备后，登记节点即自动建池、配置凭据并接入共享存储。
+                  </p>
+                </>
+              )}
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>节点</th>
+                    <th>存储角色</th>
+                    <th>专用盘</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vmNodes.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        {item.name}
+                        <Status value={item.state ?? "unknown"} />
+                      </td>
+                      <td>{item.storageDevice ? "存储与计算" : "计算"}</td>
+                      <td>{item.storageDevice ?? "未指定"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <LoadMore list={nodes} />
+              <details>
+                <summary>配置专用盘</summary>
+                <p>
+                  新节点安装时接受推荐空盘，或指定一块独立空盘；其余节点可选
+                  none。
+                </p>
+                <pre
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  sudo bash netlab-release/scripts/install-node.sh 主站IP
+                  /root/netlab-node-certs /var/lib/netlab-node
+                  /dev/disk/by-id/专用盘标识
+                </pre>
+                <p>
+                  已有节点：安装
+                  cephadm、podman、openssh-server、lvm2、chrony；在
+                  /etc/netlab-node/node.env 的 NETLAB_NODE_ARGS 末尾添加
+                  --storage-device /dev/disk/by-id/专用盘标识，启用 ssh 和
+                  chrony 服务，重启 netlab-node 后重新登记同一节点地址。
+                </p>
+                <p>
+                  专用盘交由 Ceph
+                  初始化。当前数据目录和已挂载磁盘继续用作本地存储。
+                </p>
+                <p>
+                  默认单副本。副本数由 Ceph
+                  官方工具管理；模板基础盘共享，各环境写入层独立。
+                </p>
+              </details>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+      )}
       {pools.isPending ? (
         <Loading />
       ) : items.length ? (
@@ -119,7 +257,7 @@ export function StoragePanel({ node }: { node: Node }) {
                     <strong>{pool.default ? "本地存储" : pool.name}</strong>
                     {pool.driver === "rbd" && (
                       <Badge size="xs" variant="light">
-                        Ceph RBD
+                        {pool.managed ? "自动 Ceph" : "外部 Ceph"}
                       </Badge>
                     )}
                     {pool.storage?.nativeSnapshots && (
@@ -132,8 +270,18 @@ export function StoragePanel({ node }: { node: Node }) {
                     ) : (
                       <span className="secondary-line">{pool.directory}</span>
                     )}
-                    {(pool.state !== "ready" || pool.operationState === "queued" || pool.operationState === "running") && (
-                      <Status value={pool.error ? "failed" : pool.state === "deleting" ? "deleting" : "preparing"} />
+                    {((pool.state && pool.state !== "ready") ||
+                      pool.operationState === "queued" ||
+                      pool.operationState === "running") && (
+                      <Status
+                        value={
+                          pool.error
+                            ? "failed"
+                            : pool.state === "deleting"
+                              ? "deleting"
+                              : "preparing"
+                        }
+                      />
                     )}
                   </td>
                   <td>{pool.allocatedGiB} GiB</td>
@@ -144,7 +292,9 @@ export function StoragePanel({ node }: { node: Node }) {
                   </td>
                   <td>
                     {!pool.default &&
-                      (pool.state !== "ready" || pool.operationState && pool.operationState !== "succeeded" ? (
+                      (pool.state !== "ready" ||
+                      (pool.operationState &&
+                        pool.operationState !== "succeeded") ? (
                         pool.error &&
                         pool.operationId && (
                           <ActionIcon
@@ -200,7 +350,7 @@ export function StoragePanel({ node }: { node: Node }) {
             onChange={(value) => setDriver(value as Schema<"StorageDriver">)}
             data={[
               { label: "目录", value: "directory" },
-              { label: "Ceph RBD", value: "rbd" },
+              { label: "已有 Ceph", value: "rbd" },
             ]}
           />
           <TextInput

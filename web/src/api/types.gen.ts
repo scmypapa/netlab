@@ -1876,6 +1876,8 @@ export interface components {
       reserved: components["schemas"]["Resources"];
       capabilities: string[];
       vmHardware?: components["schemas"]["VmHardware"];
+      /** @description Dedicated Ceph disk selected during node installation */
+      storageDevice?: string;
       slots: number;
       /** Format: date-time */
       observedAt: string;

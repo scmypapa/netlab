@@ -42,6 +42,10 @@ sudo bash netlab-release/scripts/install-node.sh 10.0.0.10 /root/netlab-node-cer
 
 登记第二个 VM 节点后，平台自动创建共享池、接入节点及配置凭据。有专用盘的节点提供存储，其他节点可直接使用共享盘。默认单副本；Ceph 的复制配置仍可通过官方管理工具调整。一个模板版本在共享池中保存一份基础盘，各环境使用独立的写入层。
 
+在节点的「存储池 → Ceph 共享存储」查看启用条件、成员、专用盘和配置状态。无需填写自动集群的 MON 地址或客户端密钥；「接入存储 → 已有 Ceph」用于接入自行管理的外部集群。
+
+已有节点增加专用空盘时，安装 `cephadm podman openssh-server lvm2 chrony`，启用 `ssh` 和 `chrony` 服务；在 `/etc/netlab-node/node.env` 的 `NETLAB_NODE_ARGS` 末尾添加 `--storage-device /dev/disk/by-id/专用盘标识`。重启 `netlab-node` 后在面板重新登记同一节点地址，平台读取新配置并启动共享池配置任务。当前数据目录和已挂载磁盘继续保留为本地存储。
+
 在面板「资源 → 节点」登记 `https://10.0.0.11:9443`。节点上报实际能力和容量；模板与运行环境沿既有 API 创建。
 
 ## 管理网络

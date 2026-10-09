@@ -232,6 +232,7 @@ func nodeRecord(row queries.ListNodePageRow) (api.Node, error) {
 	}
 	result := api.Node{Id: row.ID, Name: row.Name, Endpoint: row.Endpoint, Capacity: info.Capacity, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: int(row.ReservedCpu), MemoryMiB: row.ReservedMemory, DiskGiB: row.ReservedDisk}, State: &row.State, ObservedAt: row.ObservedAt.Time}
 	result.VmHardware = info.VmHardware
+	result.StorageDevice = info.StorageDevice
 	if len(row.CapacityOverride) > 0 {
 		if err := json.Unmarshal(row.CapacityOverride, &result.Override); err != nil {
 			return result, err
@@ -321,6 +322,7 @@ func (s *Server) registerNode(w http.ResponseWriter, r *http.Request, identity a
 	state := "ready"
 	result := api.Node{Id: info.Id, Name: input.Name, Endpoint: input.Endpoint, Capacity: info.Capacity, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: int(reserved.Cpu), MemoryMiB: reserved.MemoryMib, DiskGiB: reserved.DiskGib}, State: &state, ObservedAt: time.Now().UTC()}
 	result.VmHardware = info.VmHardware
+	result.StorageDevice = info.StorageDevice
 	return writeJSON(w, http.StatusCreated, result)
 }
 

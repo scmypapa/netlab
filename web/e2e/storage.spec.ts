@@ -1,5 +1,103 @@
 import { expect, test } from "@playwright/test";
 
+for (const scenario of [
+  "missing-disk",
+  "preparing",
+  "ready",
+  "failed",
+] as const) {
+  test(`Ceph 共享存储显示真实条件和状态：${scenario}`, async ({ page }) => {
+    let retries = 0;
+    await page.route("**/api/v1/**", async (route) => {
+      const path = new URL(route.request().url()).pathname.replace(
+        "/api/v1",
+        "",
+      );
+      let response: unknown = [];
+      if (path === "/identity")
+        response = { id: "admin", name: "admin", administrator: true };
+      if (path === "/nodes")
+        response = ["one", "two"].map((id) => ({
+          id,
+          name: `节点 ${id}`,
+          state: "ready",
+          endpoint: `https://${id}.test`,
+          observedAt: "2026-10-09T08:00:00Z",
+          slots: 4,
+          capabilities: ["vm"],
+          capacity: { cpu: 8, memoryMiB: 16384, diskGiB: 100 },
+          reserved: { cpu: 0, memoryMiB: 0, diskGiB: 0 },
+          storageDevice:
+            id === "one" && scenario !== "missing-disk"
+              ? "/dev/disk/by-id/ceph"
+              : undefined,
+        }));
+      if (path === "/storage-pools" && scenario !== "missing-disk")
+        response = [
+          {
+            id: "shared",
+            name: "共享存储",
+            driver: "rbd",
+            managed: true,
+            nodeIds: ["one", "two"],
+            allocatedGiB: 10,
+            capabilities: ["vm-disks"],
+            state: scenario === "ready" ? "ready" : "preparing",
+            operationState:
+              scenario === "ready"
+                ? "succeeded"
+                : scenario === "failed"
+                  ? "failed"
+                  : "running",
+            operationId: "configure",
+            error: scenario === "failed" ? "Ceph 专用盘无法访问" : undefined,
+          },
+        ];
+      if (path === "/operations/configure/retry") {
+        retries++;
+        response = { id: "configure" };
+      }
+      await route.fulfill({ json: response });
+    });
+    await page.goto("/resources");
+    await page.getByRole("button", { name: /节点 one/ }).click();
+    await page.getByRole("button", { name: /Ceph 共享存储/ }).click();
+    if (scenario === "missing-disk") {
+      await expect(page.getByText("✓ 两个就绪的 KVM 节点")).toBeVisible();
+      await expect(
+        page.getByText("○ 至少一个节点已指定 Ceph 专用盘"),
+      ).toBeVisible();
+    } else {
+      await expect(
+        page.getByText("/dev/disk/by-id/ceph", { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByText("成员：节点 one、节点 two")).toBeVisible();
+      await expect(
+        page.getByText(
+          scenario === "ready"
+            ? "已启用"
+            : scenario === "failed"
+              ? "配置失败"
+              : "配置中",
+          { exact: true },
+        ),
+      ).toBeVisible();
+    }
+    if (scenario === "failed") {
+      await page.getByRole("button", { name: "重试配置", exact: true }).click();
+      await expect.poll(() => retries).toBe(1);
+    }
+    for (const width of [390, 1366]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
+  });
+}
+
 test("持久卷创建、扩容和删除使用同一节点工作区", async ({ page }) => {
   let volume: Record<string, unknown> | undefined;
   const requests: { method: string; body: unknown }[] = [];
@@ -295,6 +393,17 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
   await page.goto("/resources");
   await page.getByRole("button", { name: /实验节点/ }).click();
   await expect(page.getByText("80 / 100 GiB")).toBeVisible();
+  await expect(page.getByText("准备中", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: /Ceph 共享存储/ }).click();
+  await expect(page.getByText("○ 两个就绪的 KVM 节点")).toBeVisible();
+  await expect(
+    page.getByText("○ 至少一个节点已指定 Ceph 专用盘"),
+  ).toBeVisible();
+  await page.getByText("配置专用盘", { exact: true }).click();
+  await expect(
+    page.getByText(/sudo bash netlab-release\/scripts\/install-node.sh/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Ceph 共享存储/ }).click();
   await page.getByRole("button", { name: "接入存储" }).click();
   await page.getByRole("textbox", { name: "名称", exact: true }).fill("数据盘");
   await page.getByRole("textbox", { name: "节点上的目录" }).fill("/mnt/data");
@@ -309,7 +418,7 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
   await page.reload();
   await page.getByRole("button", { name: /实验节点/ }).click();
   await expect(page.getByText("存储池仍包含保留数据")).toBeVisible();
-  await page.getByRole("button", { name: "重试删除 数据盘" }).click();
+  await page.getByRole("button", { name: "重试 数据盘", exact: true }).click();
   await expect.poll(() => tries).toBe(1);
   await page.screenshot({
     path: "../data/storage-panel-desktop.png",

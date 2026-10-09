@@ -1339,6 +1339,7 @@ components:
         reserved: {$ref: '#/components/schemas/Resources'}
         capabilities: {type: array, items: {type: string}}
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
+        storageDevice: {type: string, description: Dedicated Ceph disk selected during node installation}
         slots: {type: integer}
         observedAt: {type: string, format: date-time}
         state: {type: string}
