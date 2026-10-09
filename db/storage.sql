@@ -42,6 +42,11 @@ WITH assets AS (
 SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib FROM allocations GROUP BY node_id,pool_id;
 -- name: NodeStorageOperation :one
 SELECT * FROM operations WHERE scope_kind='node' AND scope_id=$1 AND kind='configure-node-storage' ORDER BY created_at DESC,id DESC LIMIT 1;
+-- name: TemplateLocalReferences :many
+SELECT DISTINCT node_id FROM (
+ SELECT node_id,execution FROM runtime_assets
+ UNION ALL SELECT a->>'nodeId',a->'execution' FROM recovery_points p CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a
+) refs WHERE execution->'template'->>'id'=sqlc.arg(template_id)::text AND execution->'rbd' IS NULL;
 -- name: StoragePoolAssets :many
 SELECT e.id AS environment_id,e.name AS environment_name,e.revision,a.asset_id,
 (a.execution->'asset'->>'name')::text AS asset_name,a.node_id,a.disk_gib AS size_gib,a.state

@@ -422,6 +422,40 @@ func (v *Access) Remove(ctx context.Context, environment string) error {
 	return nil
 }
 
+func (v *Access) Key(environment string) (string, error) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	record, exists := v.records[environment]
+	if !exists {
+		return "", os.ErrNotExist
+	}
+	return record.PrivateKey, nil
+}
+
+func (v *Access) Seed(plan api.NodePlan, key string) error {
+	if _, err := wgtypes.ParseKey(key); err != nil {
+		return err
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if record, exists := v.records[plan.EnvironmentId]; exists {
+		if record.PrivateKey != key {
+			return errors.New("环境 VPN 身份与目标节点不一致")
+		}
+		return nil
+	}
+	transit, clients, err := vpnRanges(plan)
+	if err != nil {
+		return err
+	}
+	record := accessRecord{PrivateKey: key, Transit: transit, Clients: clients, Networks: plan.Spec.Networks}
+	if err = v.writeRecord(plan.EnvironmentId, record); err != nil {
+		return err
+	}
+	v.records[plan.EnvironmentId] = record
+	return nil
+}
+
 type vpnConnections map[netip.Addr]bool
 
 func (filter vpnConnections) MatchConntrackFlow(flow *netlink.ConntrackFlow) bool {

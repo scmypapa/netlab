@@ -668,6 +668,12 @@ type ChangeItemEffect string
 // ChangeItemKind defines model for ChangeItem.Kind.
 type ChangeItemKind string
 
+// ChangePassword defines model for ChangePassword.
+type ChangePassword struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
 // ChangePreview defines model for ChangePreview.
 type ChangePreview struct {
 	Changes  []ChangeItem `json:"changes"`
@@ -785,8 +791,10 @@ type CreateStoragePool struct {
 
 // CreateUser defines model for CreateUser.
 type CreateUser struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
+	Administrator bool         `json:"administrator,omitempty"`
+	Grants        []ScopeGrant `json:"grants,omitempty"`
+	Name          string       `json:"name"`
+	Password      string       `json:"password"`
 }
 
 // CreateVPNAccess defines model for CreateVPNAccess.
@@ -1048,10 +1056,12 @@ type MetricSeriesMetric string
 
 // MigrationDestination defines model for MigrationDestination.
 type MigrationDestination struct {
-	Available Resources `json:"available"`
-	Id        string    `json:"id"`
-	Live      bool      `json:"live"`
-	Name      string    `json:"name"`
+	Available           Resources `json:"available"`
+	Current             bool      `json:"current,omitempty"`
+	Id                  string    `json:"id"`
+	Live                bool      `json:"live"`
+	Name                string    `json:"name"`
+	SourceStoragePoolId string    `json:"sourceStoragePoolId,omitempty"`
 }
 
 // MigrationRequest defines model for MigrationRequest.
@@ -1154,6 +1164,13 @@ type NodeCaptureRequest struct {
 	Settings      CreateCapture      `json:"settings"`
 }
 
+// NodeCephAdmin defines model for NodeCephAdmin.
+type NodeCephAdmin struct {
+	Config    string `json:"config"`
+	Keyring   string `json:"keyring"`
+	PublicKey string `json:"publicKey"`
+}
+
 // NodeCephBootstrap defines model for NodeCephBootstrap.
 type NodeCephBootstrap struct {
 	PublicKey string `json:"publicKey"`
@@ -1163,6 +1180,12 @@ type NodeCephBootstrap struct {
 type NodeCephConfiguration struct {
 	Hosts    []NodeCephHost `json:"hosts"`
 	Replicas *int           `json:"replicas,omitempty"`
+}
+
+// NodeCephDeparture defines model for NodeCephDeparture.
+type NodeCephDeparture struct {
+	Host      string   `json:"host"`
+	Remaining []string `json:"remaining"`
 }
 
 // NodeCephHost defines model for NodeCephHost.
@@ -1270,6 +1293,14 @@ type NodeResult struct {
 	Results  []ExecutionResult     `json:"results"`
 	Services *[]NodeServiceBinding `json:"services,omitempty"`
 	Vpn      *NodeVPNResult        `json:"vpn,omitempty"`
+}
+
+// NodeRetirement defines model for NodeRetirement.
+type NodeRetirement struct {
+	Assets    []StoragePoolAsset `json:"assets"`
+	Blockers  []string           `json:"blockers"`
+	Draining  bool               `json:"draining"`
+	Operation *Operation         `json:"operation,omitempty"`
 }
 
 // NodeSSH defines model for NodeSSH.
@@ -1724,6 +1755,21 @@ type Template struct {
 	Volumes        *[]Volume               `json:"volumes,omitempty"`
 }
 
+// TemplateCache defines model for TemplateCache.
+type TemplateCache struct {
+	Bytes       int64  `json:"bytes"`
+	NodeId      string `json:"nodeId"`
+	NodeName    string `json:"nodeName"`
+	Reason      string `json:"reason"`
+	Reclaimable bool   `json:"reclaimable"`
+}
+
+// TemplateCacheRequest defines model for TemplateCacheRequest.
+type TemplateCacheRequest struct {
+	PoolIds  []string `json:"poolIds"`
+	Template Template `json:"template"`
+}
+
 // TemplateCaptureSource defines model for TemplateCaptureSource.
 type TemplateCaptureSource struct {
 	AssetId       string `json:"assetId"`
@@ -1828,9 +1874,11 @@ type UpdateRelease struct {
 
 // UpdateUser defines model for UpdateUser.
 type UpdateUser struct {
-	Disabled bool    `json:"disabled"`
-	Name     string  `json:"name"`
-	Password *string `json:"password,omitempty"`
+	Administrator *bool         `json:"administrator,omitempty"`
+	Disabled      bool          `json:"disabled"`
+	Grants        *[]ScopeGrant `json:"grants,omitempty"`
+	Name          string        `json:"name"`
+	Password      *string       `json:"password,omitempty"`
 }
 
 // VPNAccess defines model for VPNAccess.
@@ -2152,6 +2200,9 @@ type SaveViewJSONRequestBody = CanvasView
 
 // CreateVPNAccessJSONRequestBody defines body for CreateVPNAccess for application/json ContentType.
 type CreateVPNAccessJSONRequestBody = CreateVPNAccess
+
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = ChangePassword
 
 // RegisterNodeJSONRequestBody defines body for RegisterNode for application/json ContentType.
 type RegisterNodeJSONRequestBody = NodeRegistration

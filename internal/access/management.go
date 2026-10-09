@@ -112,11 +112,26 @@ func (s Service) CreateUser(ctx context.Context, identity Identity, input api.Cr
 	if err != nil {
 		return api.Principal{}, err
 	}
-	id := uuid.NewString()
-	if err = s.Queries.CreatePrincipal(ctx, queries.CreatePrincipalParams{ID: id, Name: name, Kind: "user", PasswordHash: hash}); err != nil {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
 		return api.Principal{}, err
 	}
-	p, err := s.Queries.GetPrincipal(ctx, id)
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	id := uuid.NewString()
+	if err = q.CreatePrincipal(ctx, queries.CreatePrincipalParams{ID: id, Name: name, Kind: "user", PasswordHash: hash, Administrator: input.Administrator}); err != nil {
+		return api.Principal{}, err
+	}
+	if err = replacePrincipalGrants(ctx, q, id, input.Grants); err != nil {
+		return api.Principal{}, err
+	}
+	p, err := q.GetPrincipal(ctx, id)
+	if err != nil {
+		return api.Principal{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return api.Principal{}, err
+	}
 	return principal(p), err
 }
 
@@ -141,20 +156,92 @@ func (s Service) UpdateUser(ctx context.Context, identity Identity, id string, i
 	}
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(73421494)"); err != nil {
+		return err
+	}
 	p, err := q.LockPrincipal(ctx, id)
 	if err != nil {
 		return err
 	}
-	if p.Kind != "user" || p.Administrator {
+	if p.Kind != "user" {
 		return ErrForbidden
 	}
-	if err = q.UpdateUser(ctx, queries.UpdateUserParams{ID: id, Name: name, PasswordHash: hash, Disabled: input.Disabled}); err != nil {
+	if p.Administrator && !p.Disabled && (input.Disabled || input.Administrator != nil && !*input.Administrator) {
+		count, err := q.ActiveAdministrators(ctx)
+		if err != nil {
+			return err
+		}
+		if count <= 1 {
+			return InputError("保留至少一个启用的系统管理员")
+		}
+	}
+	if err = q.UpdateUser(ctx, queries.UpdateUserParams{ID: id, Name: name, PasswordHash: hash, Disabled: input.Disabled, Administrator: input.Administrator}); err != nil {
 		return err
+	}
+	if input.Grants != nil {
+		if err = replacePrincipalGrants(ctx, q, id, *input.Grants); err != nil {
+			return err
+		}
 	}
 	if input.Disabled || input.Password != nil {
 		if err = q.DeletePrincipalCredentials(ctx, id); err != nil {
 			return err
 		}
+	}
+	return tx.Commit(ctx)
+}
+
+func replacePrincipalGrants(ctx context.Context, q *queries.Queries, id string, input []api.ScopeGrant) error {
+	if err := q.DeletePrincipalGrants(ctx, id); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, grant := range input {
+		key := string(grant.ScopeKind) + "/" + grant.ScopeId
+		if seen[key] {
+			return InputError("同一授权范围重复")
+		}
+		seen[key] = true
+		permissions, err := validPermissions(grant.Permissions)
+		if err != nil {
+			return err
+		}
+		if err = validateScope(ctx, q, grant); err != nil {
+			return err
+		}
+		if err = q.PutGrant(ctx, queries.PutGrantParams{PrincipalID: id, ScopeKind: string(grant.ScopeKind), ScopeID: grant.ScopeId, Permissions: permissions}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s Service) ChangePassword(ctx context.Context, identity Identity, input api.ChangePassword) error {
+	if identity.Principal.Kind != "user" {
+		return ErrForbidden
+	}
+	hash, err := passwordHash(input.NewPassword)
+	if err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	q := s.Queries.WithTx(tx)
+	p, err := q.LockPrincipal(ctx, identity.Principal.ID)
+	if err != nil {
+		return err
+	}
+	if bcrypt.CompareHashAndPassword(p.PasswordHash, []byte(input.CurrentPassword)) != nil {
+		return InputError("当前密码不正确")
+	}
+	if err = q.UpdateUser(ctx, queries.UpdateUserParams{ID: p.ID, Name: p.Name, PasswordHash: hash, Disabled: p.Disabled}); err != nil {
+		return err
+	}
+	if err = q.DeletePrincipalCredentials(ctx, p.ID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -187,17 +274,8 @@ func (s Service) CreateToken(ctx context.Context, identity Identity, input api.C
 	if err = q.CreatePrincipal(ctx, queries.CreatePrincipalParams{ID: id, Name: name, Kind: "token"}); err != nil {
 		return api.IssuedServiceToken{}, err
 	}
-	for _, g := range input.Grants {
-		permissions, validation := validPermissions(g.Permissions)
-		if validation != nil {
-			return api.IssuedServiceToken{}, validation
-		}
-		if err = validateScope(ctx, q, g); err != nil {
-			return api.IssuedServiceToken{}, err
-		}
-		if err = q.PutGrant(ctx, queries.PutGrantParams{PrincipalID: id, ScopeKind: string(g.ScopeKind), ScopeID: g.ScopeId, Permissions: permissions}); err != nil {
-			return api.IssuedServiceToken{}, err
-		}
+	if err = replacePrincipalGrants(ctx, q, id, input.Grants); err != nil {
+		return api.IssuedServiceToken{}, err
 	}
 	expires := pgtype.Timestamptz{}
 	if input.ExpiresAt != nil {

@@ -151,7 +151,31 @@ func (s *Server) createStoragePool(w http.ResponseWriter, r *http.Request, ident
 		}
 	}
 	if err == nil {
-		err = s.Queries.CreateStoragePool(r.Context(), queries.CreateStoragePoolParams{ID: id, NodeIds: input.NodeIds, Name: input.Name, Directory: directory, Path: info.Path, Driver: string(input.Driver)})
+		tx, beginErr := s.Pool.Begin(r.Context())
+		err = beginErr
+		if err == nil {
+			defer tx.Rollback(r.Context())
+			q := s.Queries.WithTx(tx)
+			var locked []queries.Node
+			locked, err = q.LockNodes(r.Context(), input.NodeIds)
+			for _, node := range locked {
+				if node.Retiring {
+					err = environment.ErrConflict
+					break
+				}
+			}
+			if err == nil && len(locked) != len(input.NodeIds) {
+				err = environment.ErrConflict
+			}
+			if err == nil {
+				err = q.CreateStoragePool(r.Context(), queries.CreateStoragePoolParams{ID: id, NodeIds: input.NodeIds, Name: input.Name, Directory: directory, Path: info.Path, Driver: string(input.Driver)})
+			}
+			if err == nil {
+				err = tx.Commit(r.Context())
+			} else {
+				tx.Rollback(r.Context())
+			}
+		}
 	}
 	if err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

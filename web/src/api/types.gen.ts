@@ -4,6 +4,58 @@
  */
 
 export interface paths {
+  "/templates/{id}/cache": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["templateCache"];
+    put?: never;
+    post?: never;
+    delete: operations["trimTemplateCache"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/identity/password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["changePassword"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/principals/{id}/grants": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["principalGrants"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/nodes/{id}/storage-device": {
     parameters: {
       query?: never;
@@ -486,6 +538,24 @@ export interface paths {
     put?: never;
     post: operations["captureAssetTemplate"];
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/nodes/{id}/retirement": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["nodeRetirement"];
+    put?: never;
+    post: operations["retireNode"];
+    delete: operations["resumeNodeScheduling"];
     options?: never;
     head?: never;
     patch?: never;
@@ -1422,12 +1492,22 @@ export interface components {
       name: string;
       /** Format: password */
       password: string;
+      administrator?: boolean;
+      grants?: components["schemas"]["ScopeGrant"][];
     };
     UpdateUser: {
       name: string;
       /** Format: password */
       password?: string;
       disabled: boolean;
+      administrator?: boolean;
+      grants?: components["schemas"]["ScopeGrant"][];
+    };
+    ChangePassword: {
+      /** Format: password */
+      currentPassword: string;
+      /** Format: password */
+      newPassword: string;
     };
     CreateServiceToken: {
       name: string;
@@ -1527,6 +1607,21 @@ export interface components {
       /** Format: int64 */
       sizeGiB: number;
       storage: components["schemas"]["StorageInfo"];
+    };
+    NodeRetirement: {
+      assets: components["schemas"]["StoragePoolAsset"][];
+      blockers: string[];
+      draining: boolean;
+      operation?: components["schemas"]["Operation"];
+    };
+    NodeCephAdmin: {
+      config: string;
+      keyring: string;
+      publicKey: string;
+    };
+    NodeCephDeparture: {
+      host: string;
+      remaining: string[];
     };
     NodeCephBootstrap: {
       publicKey: string;
@@ -2046,6 +2141,20 @@ export interface components {
       name: string;
       available: components["schemas"]["Resources"];
       live: boolean;
+      current?: boolean;
+      sourceStoragePoolId?: string;
+    };
+    TemplateCache: {
+      nodeId: string;
+      nodeName: string;
+      /** Format: int64 */
+      bytes: number;
+      reclaimable: boolean;
+      reason: string;
+    };
+    TemplateCacheRequest: {
+      template: components["schemas"]["Template"];
+      poolIds: string[];
     };
     NodeMigrationPreparation: {
       environmentId: string;
@@ -2634,6 +2743,86 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  templateCache: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Local base disk cache */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TemplateCache"][];
+        };
+      };
+    };
+  };
+  trimTemplateCache: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+    };
+  };
+  changePassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ChangePassword"];
+      };
+    };
+    responses: {
+      /** @description Password changed; sign in again */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  principalGrants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Account grants */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ScopeGrant"][];
+        };
+      };
+    };
+  };
   nodeStorageDevices: {
     parameters: {
       query?: never;
@@ -3576,6 +3765,69 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["Template"];
         };
+      };
+    };
+  };
+  nodeRetirement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Node exit plan and progress */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["NodeRetirement"];
+        };
+      };
+    };
+  };
+  retireNode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      202: components["responses"]["Accepted"];
+      /** @description Node has dependencies to resolve */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  resumeNodeScheduling: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Scheduling resumed */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

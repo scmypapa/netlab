@@ -4,9 +4,9 @@ import {
   Drawer,
   Menu,
   Modal,
-  MultiSelect,
   PasswordInput,
   TextInput,
+  Checkbox,
 } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,15 +22,15 @@ import {
 import { useState } from "react";
 import {
   api,
-  type Permission,
   type Principal,
   type RolePreset,
+  type Schema,
 } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime } from "../../foundation/format";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
-import { PermissionEditor } from "./PermissionEditor";
+import { GrantEditor } from "./GrantEditor";
 
 export function AccountsPage() {
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
@@ -156,7 +156,7 @@ export function AccountsPage() {
                         : "长期有效"}
                   </td>
                   <td className="table-action">
-                    {!principal.administrator && (
+                    {
                       <Menu position="bottom-end">
                         <Menu.Target>
                           <ActionIcon
@@ -188,7 +188,7 @@ export function AccountsPage() {
                           )}
                         </Menu.Dropdown>
                       </Menu>
-                    )}
+                    }
                   </td>
                 </tr>
               ))}
@@ -206,6 +206,7 @@ export function AccountsPage() {
           principal={editing === "new" ? undefined : editing}
           onClose={() => setEditing(undefined)}
           onSaved={refresh}
+          roles={identity.data.roles ?? []}
         />
       )}
       {issuing && (
@@ -249,22 +250,36 @@ function UserEditor({
   principal,
   onClose,
   onSaved,
+  roles,
 }: {
   principal?: Principal;
   onClose: () => void;
   onSaved: () => void;
+  roles: RolePreset[];
 }) {
   const [name, setName] = useState(principal?.name ?? "");
   const [password, setPassword] = useState("");
+  const [administrator, setAdministrator] = useState(
+    principal?.administrator ?? false,
+  );
+  const [editedGrants, setGrants] = useState<Schema<"ScopeGrant">[]>();
+  const grants = useQuery({
+    queryKey: ["principal-grants", principal?.id],
+    queryFn: () => api.principalGrants(principal!.id),
+    enabled: Boolean(principal),
+  });
+  const value = editedGrants ?? grants.data ?? [];
   const save = useMutation({
     mutationFn: async () => {
       await (principal
         ? api.updateUser(principal.id, {
             name,
             disabled: principal.disabled,
+            administrator,
+            ...(editedGrants ? { grants: editedGrants } : {}),
             ...(password ? { password } : {}),
           })
-        : api.createUser({ name, password }));
+        : api.createUser({ name, password, administrator, grants: value }));
     },
     onSuccess: () => {
       onSaved();
@@ -302,6 +317,15 @@ function UserEditor({
           onChange={(event) => setPassword(event.currentTarget.value)}
         />
         <ErrorMessage error={save.error} />
+        <Checkbox
+          label="系统管理员"
+          checked={administrator}
+          onChange={(event) => setAdministrator(event.currentTarget.checked)}
+        />
+        {!administrator && (
+          <GrantEditor value={value} onChange={setGrants} roles={roles} />
+        )}
+        <ErrorMessage error={grants.error} />
         <div className="drawer-footer">
           <Button fullWidth type="submit" loading={save.isPending}>
             保存
@@ -321,26 +345,15 @@ function TokenEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const environments = useCursorList(
-    ["environments", "token-picker"],
-    api.environments,
-  );
   const [name, setName] = useState("");
-  const [ids, setIds] = useState<string[]>([]);
+  const [grants, setGrants] = useState<Schema<"ScopeGrant">[]>([]);
   const [expires, setExpires] = useState("");
-  const [permissions, setPermissions] = useState<Permission[]>(
-    roles[0]?.permissions ?? ["read"],
-  );
   const [copied, setCopied] = useState(false);
   const issue = useMutation({
     mutationFn: () =>
       api.createToken({
         name,
-        grants: ids.map((id) => ({
-          scopeKind: "environment",
-          scopeId: id,
-          permissions,
-        })),
+        grants,
         ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}),
       }),
     onSuccess: onSaved,
@@ -389,35 +402,19 @@ function TokenEditor({
             value={name}
             onChange={(event) => setName(event.currentTarget.value)}
           />
-          <MultiSelect
-            label="授权环境"
-            required
-            searchable
-            data={(environments.data ?? []).map((environment) => ({
-              value: environment.id,
-              label: environment.name,
-            }))}
-            value={ids}
-            onChange={setIds}
-          />
-          <LoadMore list={environments} />
-          <PermissionEditor
-            roles={roles}
-            value={permissions}
-            onChange={setPermissions}
-          />
+          <GrantEditor roles={roles} value={grants} onChange={setGrants} />
           <TextInput
             label="有效期"
             type="datetime-local"
             value={expires}
             onChange={(event) => setExpires(event.currentTarget.value)}
           />
-          <ErrorMessage error={issue.error ?? environments.error} />
+          <ErrorMessage error={issue.error} />
           <div className="drawer-footer">
             <Button
               fullWidth
               type="submit"
-              disabled={!ids.length || !permissions.length}
+              disabled={!grants.length}
               loading={issue.isPending}
             >
               签发

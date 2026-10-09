@@ -112,7 +112,7 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 	}
 	result := []api.MigrationDestination{}
 	for _, node := range nodes {
-		if node.ID == source.NodeID || node.State != "ready" {
+		if node.State != "ready" || node.Retiring {
 			continue
 		}
 		var info api.NodeInfo
@@ -129,6 +129,9 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 			}
 		}
 		needed := add(used[node.ID], resources(source.Execution.Asset))
+		if node.ID == source.NodeID {
+			needed = used[node.ID]
+		}
 		// The selected storage pool is admitted in planMigration, independently of the host root disk.
 		needed.DiskGiB = 0
 		accessible := func(id string) bool {
@@ -142,14 +145,14 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 		if !fits(needed, capacity) {
 			continue
 		}
-		live := source.Execution.Template.Kind == api.Vm && source.Execution.Rbd != nil && !matches(source.State, "stopped") && accessible(actualPool(source.NodeID, source.Execution))
+		live := node.ID != source.NodeID && source.Execution.Template.Kind == api.Vm && source.Execution.Rbd != nil && !matches(source.State, "stopped") && accessible(actualPool(source.NodeID, source.Execution))
 		for _, volume := range source.Execution.VolumeSources {
 			if volume.Storage.Rbd == nil || !accessible(volume.Storage.Rbd.SecretId) {
 				live = false
 				break
 			}
 		}
-		result = append(result, api.MigrationDestination{Id: node.ID, Name: node.Name, Live: live, Available: api.Resources{Cpu: capacity.Cpu - used[node.ID].Cpu, MemoryMiB: capacity.MemoryMiB - used[node.ID].MemoryMiB}})
+		result = append(result, api.MigrationDestination{Id: node.ID, Name: node.Name, Live: live, Current: node.ID == source.NodeID, SourceStoragePoolId: actualPool(source.NodeID, source.Execution), Available: api.Resources{Cpu: capacity.Cpu - used[node.ID].Cpu, MemoryMiB: capacity.MemoryMiB - used[node.ID].MemoryMiB}})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].Available.MemoryMiB == result[j].Available.MemoryMiB {
@@ -267,6 +270,7 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 	for i := range nodes {
 		latest := byID[nodes[i].ID]
 		nodes[i].State, nodes[i].Info, nodes[i].CapacityOverride = latest.State, latest.Info, latest.CapacityOverride
+		nodes[i].Retiring = latest.Retiring
 	}
 	reserved, err := q.GetNodeReservations(ctx, ids)
 	if err != nil {
@@ -284,6 +288,9 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 		if p.Migration.RequestedNode != nil && candidate.Id != *p.Migration.RequestedNode {
 			continue
 		}
+		if candidate.Id == source.NodeID && (p.Migration.RequestedPool == nil || *p.Migration.RequestedPool == actualPool(source.NodeID, source.Execution)) {
+			continue
+		}
 		pool := storage[storageKey(candidate.Id, actualPool(source.NodeID, source.Execution))]
 		if source.Execution.Rbd == nil || !pool.ready || pool.err != nil || pool.info.Rbd == nil {
 			pool = storage[storageKey(candidate.Id, defaultStorage(candidate.Id))]
@@ -299,6 +306,9 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 		}
 		target := source
 		target.NodeID = candidate.Id
+		if target.NodeID == source.NodeID {
+			target.Execution.InstanceId = uuid.NewString()
+		}
 		assignStorage(&target.Execution, pool)
 		target.Execution.Asset.StoragePoolId = target.Execution.StoragePoolId
 		target.Execution.VolumeSources = map[string]api.NodeVolume{}
@@ -384,7 +394,7 @@ func (w Worker) migration(ctx context.Context, op *queries.Operation, p *Payload
 		}
 	}
 	target := *p.Migration.Target
-	source := findInstance(p.Before, target.Execution.InstanceId)
+	source := findAsset(p.Before, *op.AssetID)
 	nodes, err := w.Queries.GetNodeEndpoints(ctx, []string{source.NodeID, target.NodeID})
 	if err != nil {
 		return err
@@ -503,7 +513,7 @@ func (w Worker) migration(ctx context.Context, op *queries.Operation, p *Payload
 
 func (w Worker) rollbackMigration(ctx context.Context, op *queries.Operation, p *Payload, failure error, endpoints map[string]string) error {
 	target := *p.Migration.Target
-	source := findInstance(p.Before, target.Execution.InstanceId)
+	source := findAsset(p.Before, *op.AssetID)
 	if op.Phase == "rolled-back" {
 		return errors.Join(failure, w.status(ctx, op, p, failure))
 	}
@@ -557,13 +567,22 @@ func (w Worker) commitMigration(ctx context.Context, op *queries.Operation, p *P
 		return environment.ErrConflict
 	}
 	target := *p.Migration.Target
-	source := findInstance(p.Before, target.Execution.InstanceId)
-	result := p.Results[0]
+	source := findAsset(p.Before, *op.AssetID)
+	var result api.ExecutionResult
+	for _, observed := range p.Results {
+		if observed.InstanceId == target.Execution.InstanceId {
+			result = observed
+			break
+		}
+	}
+	if result.InstanceId == "" {
+		return errors.New("迁移目标未返回执行结果")
+	}
 	raw, err := json.Marshal(target.Execution)
 	if err != nil {
 		return err
 	}
-	count, err := q.CommitAssetMigration(ctx, queries.CommitAssetMigrationParams{InstanceID: target.Execution.InstanceId, NodeID: source.NodeID, NodeID_2: target.NodeID, Execution: raw, State: result.State, ObservedAt: pgtype.Timestamptz{Time: result.ObservedAt, Valid: true}})
+	count, err := q.CommitAssetMigration(ctx, queries.CommitAssetMigrationParams{InstanceID: source.Execution.InstanceId, TargetInstance: target.Execution.InstanceId, NodeID: source.NodeID, NodeID_2: target.NodeID, Execution: raw, State: result.State, ObservedAt: pgtype.Timestamptz{Time: result.ObservedAt, Valid: true}})
 	if err != nil {
 		return err
 	}

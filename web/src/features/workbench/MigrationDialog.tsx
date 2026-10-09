@@ -65,7 +65,7 @@ export function MigrationDialog({
           disabled={migration.isPending}
           data={nodes.data.map((node) => ({
             value: node.id,
-            label: `${node.name} · ${node.available.cpu} 核 / ${memory(node.available.memoryMiB)} · ${node.live ? "在线" : "停机"}`,
+            label: `${node.name}${node.current ? "（当前节点）" : ""} · ${node.available.cpu} 核 / ${memory(node.available.memoryMiB)}`,
           }))}
         />
       ) : (
@@ -83,6 +83,10 @@ export function MigrationDialog({
             .filter(
               (pool) =>
                 !pool.error &&
+                (!nodes.data?.find((node) => node.id === target)?.current ||
+                  pool.id !==
+                    nodes.data.find((node) => node.id === target)
+                      ?.sourceStoragePoolId) &&
                 (pool.default || pool.state === "ready") &&
                 (template.data?.[0]?.kind === "vm" ||
                   pool.driver === "directory") &&
@@ -101,11 +105,25 @@ export function MigrationDialog({
           取消
         </Button>
         <Button
-          disabled={!nodes.data?.length}
+          disabled={
+            !nodes.data?.length ||
+            Boolean(
+              nodes.data?.find((node) => node.id === target)?.current &&
+              !storage,
+            )
+          }
           loading={migration.isPending}
           onClick={() => migration.mutate()}
         >
-          迁移
+          {target
+            ? nodes.data?.find((node) => node.id === target)?.live &&
+              (!storage ||
+                storage ===
+                  nodes.data.find((node) => node.id === target)
+                    ?.sourceStoragePoolId)
+              ? "在线迁移"
+              : "停机迁移"
+            : "迁移"}
         </Button>
       </div>
     </Modal>

@@ -252,12 +252,15 @@ func (g *Gateway) Apply(ctx context.Context, plan api.NodePlan) ([]api.NodeServi
 	return services, nil
 }
 
-func (g *Gateway) Remove(ctx context.Context, environment string) error {
+func (g *Gateway) Remove(ctx context.Context, environment string, topology bool) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	previous, exists := g.records[environment]
 	if !exists {
-		return g.ovn.Remove(ctx, environment)
+		if topology {
+			return g.ovn.Remove(ctx, environment)
+		}
+		return nil
 	}
 	records := maps.Clone(g.records)
 	delete(records, environment)
@@ -271,8 +274,10 @@ func (g *Gateway) Remove(ctx context.Context, environment string) error {
 	if err := clearBindingConnections(netip.MustParseAddr(previous.Gateway.Address), changedPorts(previous, gatewayRecord{})); err != nil {
 		return errors.Join(err, g.applyKernel(g.records))
 	}
-	if err := g.ovn.Remove(ctx, environment); err != nil {
-		return errors.Join(err, g.applyKernel(g.records))
+	if topology {
+		if err := g.ovn.Remove(ctx, environment); err != nil {
+			return errors.Join(err, g.applyKernel(g.records))
+		}
 	}
 	if err := g.applyKernel(records); err != nil {
 		return err

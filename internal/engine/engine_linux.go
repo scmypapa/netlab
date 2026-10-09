@@ -253,7 +253,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			result.Error = ptr(err.Error())
 			return result
 		}
-		if err := e.gateway.Remove(ctx, plan.EnvironmentId); err != nil {
+		if err := e.gateway.Remove(ctx, plan.EnvironmentId, true); err != nil {
 			result.Error = ptr(err.Error())
 		}
 		return result
@@ -293,6 +293,10 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			var state string
 			var err error
 			phase := plan.Phase
+			if a.Template.Kind == api.Vm && (phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery) {
+				unlockTemplate := e.lock("template:" + a.Template.Id)
+				defer unlockTemplate()
+			}
 			if phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery {
 				if err = e.validatePciBinding(a); err != nil {
 					result.Results[i] = executionResult(a, "absent", err)

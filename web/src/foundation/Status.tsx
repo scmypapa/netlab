@@ -17,6 +17,7 @@ export function Status({ value }: { value: string }) {
             "resizing",
             "connecting",
             "preparing",
+            "draining",
           ].includes(value)
         ? "active"
         : "neutral";

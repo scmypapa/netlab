@@ -405,4 +405,21 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	testRecoveryAPI(t, ctx, s, admin, call)
 	testBackupsAPI(t, ctx, s, admin, call)
 	testCaptureAPI(t, ctx, s, admin, call)
+	t.Run("password and user grants", func(t *testing.T) {
+		call("PUT", "/identity/password", admin, api.ChangePassword{CurrentPassword: "incorrect", NewPassword: "changed-admin-password"}, 400)
+		call("PUT", "/principals/"+adminIdentity.Principal.ID, admin, api.UpdateUser{Name: "admin", Disabled: true}, 400)
+		call("PUT", "/identity/password", admin, api.ChangePassword{CurrentPassword: "access-test-password", NewPassword: "changed-admin-password"}, 204)
+		call("GET", "/identity", admin, nil, 401)
+		admin = login("admin", "changed-admin-password")
+		grants := []api.ScopeGrant{{ScopeKind: api.ScopeGrantScopeKindProject, ScopeId: "default", Permissions: []api.Permission{api.PermissionRead}}}
+		call("PUT", "/principals/"+user.Id, admin, api.UpdateUser{Name: "operator", Grants: &grants}, 204)
+		call("GET", "/environments/env-b", login("operator", password), nil, 200)
+		var actual []api.ScopeGrant
+		if err := json.Unmarshal(call("GET", "/principals/"+user.Id+"/grants", admin, nil, 200), &actual); err != nil || !reflect.DeepEqual(actual, grants) {
+			t.Fatalf("grants=%+v error=%v", actual, err)
+		}
+		empty := []api.ScopeGrant{}
+		call("PUT", "/principals/"+user.Id, admin, api.UpdateUser{Name: "operator", Grants: &empty}, 204)
+		call("GET", "/environments/env-b", login("operator", password), nil, 403)
+	})
 }

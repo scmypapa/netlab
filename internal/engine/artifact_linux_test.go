@@ -53,7 +53,7 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 	origin := "source-node"
 	disks := []api.TemplateDisk{{Id: "boot"}}
 	template := api.Template{Id: "system", Version: 3, Kind: api.Vm, ArtifactNodeId: &origin, Disks: &disks}
-	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}}
+	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}, locks: make(map[string]*objectLock)}
 	directory := templateDirectory(source.cfg.DataDir, template.Id, template.Version)
 	if err := os.MkdirAll(directory, 0711); err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 		if r.URL.Path != "/node/v1/templates/system/versions/3/artifact" {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
-		reader, length, err := source.OpenTemplateArtifact(template.Id, template.Version, false)
+		reader, length, err := source.OpenTemplateArtifact(r.Context(), template.Id, template.Version, false)
 		if err != nil {
 			t.Error(err)
 			http.Error(w, err.Error(), 500)
@@ -114,7 +114,7 @@ func TestSharedTemplateTransfersOnlyRuntimeFiles(t *testing.T) {
 	origin := "source"
 	disks := []api.TemplateDisk{{Id: "boot"}}
 	template := api.Template{Id: "shared", Version: 1, Kind: api.Vm, ArtifactNodeId: &origin, Disks: &disks}
-	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}}
+	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}, locks: make(map[string]*objectLock)}
 	directory := templateDirectory(source.cfg.DataDir, template.Id, template.Version)
 	if err := os.MkdirAll(directory, 0711); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestSharedTemplateTransfersOnlyRuntimeFiles(t *testing.T) {
 		if r.URL.Query().Get("runtimeOnly") != "true" {
 			t.Error("full disk transfer requested")
 		}
-		reader, length, err := source.OpenTemplateArtifact(template.Id, template.Version, true)
+		reader, length, err := source.OpenTemplateArtifact(r.Context(), template.Id, template.Version, true)
 		if err != nil {
 			t.Error(err)
 			http.Error(w, err.Error(), 500)
@@ -226,12 +226,12 @@ func TestTemplateArtifactRejectsInvalidTransfer(t *testing.T) {
 }
 
 func TestLargeTemplateArtifactHeader(t *testing.T) {
-	source := &Engine{cfg: Config{DataDir: t.TempDir()}}
+	source := &Engine{cfg: Config{DataDir: t.TempDir()}, locks: make(map[string]*objectLock)}
 	directory := templateDirectory(source.cfg.DataDir, "large-disk", 1)
 	if err := os.MkdirAll(directory, 0711); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "template.json"), []byte(`{"id":"large-disk","version":1,"kind":"vm"}`), 0640); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "template.json"), []byte(`{"id":"large-disk","version":1,"kind":"vm","disks":[{"id":"boot"}]}`), 0640); err != nil {
 		t.Fatal(err)
 	}
 	disk, err := os.Create(filepath.Join(directory, "disk-0.qcow2"))
@@ -245,12 +245,16 @@ func TestLargeTemplateArtifactHeader(t *testing.T) {
 	if err = disk.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reader, length, err := source.OpenTemplateArtifact("large-disk", 1, false)
+	reader, length, err := source.OpenTemplateArtifact(context.Background(), "large-disk", 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	header, err := tar.NewReader(reader).Next()
+	archive := tar.NewReader(reader)
+	if _, err = archive.Next(); err != nil {
+		t.Fatal(err)
+	}
+	header, err := archive.Next()
 	if err != nil || header.Size != 9<<30 || length <= header.Size {
 		t.Fatalf("large disk header was not representable: %v %v", header, err)
 	}

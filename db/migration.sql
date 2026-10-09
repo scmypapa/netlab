@@ -2,7 +2,7 @@
 SELECT EXISTS(SELECT 1 FROM operations WHERE scope_kind='environment' AND scope_id=$1 AND state IN ('queued','running'));
 
 -- name: CommitAssetMigration :execrows
-UPDATE runtime_assets SET node_id=$3,execution=$4,state=$5,error=NULL,observed_at=$6
+UPDATE runtime_assets SET node_id=$3,execution=$4,state=$5,error=NULL,observed_at=$6,instance_id=sqlc.arg(target_instance)::text
 WHERE instance_id=$1 AND node_id=$2 AND current;
 
 -- name: MoveMigratedVolume :exec

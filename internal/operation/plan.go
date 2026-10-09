@@ -122,7 +122,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			p.Owner = &Target{NodeID: n.ID}
 			break
 		}
-		if p.Owner == nil && n.State == "ready" && slices.Contains(infos[n.ID].Capabilities, "network") && (len(environment.Services(p.Spec)) == 0 || infos[n.ID].ServiceNetwork != nil) {
+		if p.Owner == nil && n.State == "ready" && !n.Retiring && slices.Contains(infos[n.ID].Capabilities, "network") && (len(environment.Services(p.Spec)) == 0 || infos[n.ID].ServiceNetwork != nil) {
 			p.Owner = &Target{NodeID: n.ID}
 		}
 	}
@@ -373,7 +373,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		occupiedDevices[device.NodeID+"/"+device.GroupID] = device.EnvironmentID + "/" + device.AssetID
 	}
 	for _, n := range locked {
-		if n.State != "ready" {
+		if n.State != "ready" || n.Retiring {
 			continue
 		}
 		var info api.NodeInfo
@@ -643,6 +643,15 @@ func fits(a, b api.Resources) bool {
 func findInstance(targets []Target, id string) Target {
 	for _, t := range targets {
 		if t.Execution.InstanceId == id {
+			return t
+		}
+	}
+	return Target{}
+}
+
+func findAsset(targets []Target, id string) Target {
+	for _, t := range targets {
+		if t.Execution.Asset.Id == id {
 			return t
 		}
 	}

@@ -19,7 +19,7 @@ type Service struct {
 }
 
 func Retryable(identity access.Identity, row queries.Operation, environment queries.Environment) bool {
-	if row.State != "failed" && row.State != "partially_applied" {
+	if row.Phase == "cancelled" || row.State != "failed" && row.State != "partially_applied" {
 		return false
 	}
 	if row.EnvironmentID == nil {
@@ -40,7 +40,7 @@ func (s Service) CurrentOperationID(ctx context.Context, row queries.Operation, 
 	switch row.ScopeKind {
 	case "node":
 		var latest queries.Operation
-		latest, err = s.Queries.NodeStorageOperation(ctx, row.ScopeID)
+		latest, err = s.Queries.NodeOperation(ctx, row.ScopeID)
 		current = &latest.ID
 	case "volume":
 		var volume queries.PersistentVolume
@@ -154,10 +154,17 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 		revision = e.Revision
 	} else if row.ScopeKind == "node" {
-		if _, err = q.LockNode(ctx, row.ScopeID); err != nil {
-			return api.Operation{}, err
+		node, lockErr := q.LockNode(ctx, row.ScopeID)
+		if lockErr != nil {
+			return api.Operation{}, lockErr
 		}
-		latest, err := q.NodeStorageOperation(ctx, row.ScopeID)
+		if row.Kind == "retire-node" && (!node.Retiring || row.Phase == "cancelled") {
+			return api.Operation{}, environment.ErrConflict
+		}
+		if row.Kind == "configure-node-storage" && (node.State != "ready" || node.Retiring) {
+			return api.Operation{}, environment.ErrConflict
+		}
+		latest, err := q.NodeOperation(ctx, row.ScopeID)
 		if err != nil {
 			return api.Operation{}, err
 		}
@@ -249,6 +256,8 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		state := api.TemplateStateImporting
 		if row.Kind == "delete-template" {
 			state = api.TemplateStateDeleting
+		} else if row.Kind == "trim-template-cache" {
+			state = api.TemplateStateReady
 		}
 		template.State, template.Error, template.OperationId = &state, nil, &id
 		raw, err := json.Marshal(template)

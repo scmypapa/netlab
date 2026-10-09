@@ -145,6 +145,7 @@ type Node struct {
 	CapacityOverride []byte
 	State            string
 	ObservedAt       pgtype.Timestamptz
+	Retiring         bool
 }
 
 type NodeAssetReservation struct {

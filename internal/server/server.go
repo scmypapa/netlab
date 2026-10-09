@@ -57,8 +57,12 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
-		"GET /api/v1/environments/{id}/assets/{assetId}/migrations":  s.assetMigration,
-		"POST /api/v1/environments/{id}/assets/{assetId}/migrations": s.assetMigration,
+		"GET /api/v1/templates/{id}/cache":                                     s.templateCache,
+		"DELETE /api/v1/templates/{id}/cache":                                  s.templateCache,
+		"PUT /api/v1/identity/password":                                        s.changePassword,
+		"GET /api/v1/principals/{id}/grants":                                   s.principalGrants,
+		"GET /api/v1/environments/{id}/assets/{assetId}/migrations":            s.assetMigration,
+		"POST /api/v1/environments/{id}/assets/{assetId}/migrations":           s.assetMigration,
 		"GET /api/v1/volumes":                                                  s.listVolumes,
 		"GET /api/v1/volumes/{id}":                                             s.listVolumes,
 		"POST /api/v1/volumes":                                                 s.volumeAction,
@@ -149,6 +153,9 @@ func (s *Server) Handler() http.Handler {
 		"GET /api/v1/nodes":                                                    s.listNodes,
 		"GET /api/v1/nodes/{id}/interfaces":                                    s.nodeInterfaces,
 		"POST /api/v1/nodes":                                                   s.registerNode,
+		"GET /api/v1/nodes/{id}/retirement":                                    s.nodeRetirement,
+		"POST /api/v1/nodes/{id}/retirement":                                   s.nodeRetirement,
+		"DELETE /api/v1/nodes/{id}/retirement":                                 s.nodeRetirement,
 		"GET /api/v1/blueprints":                                               s.listBlueprints,
 		"GET /api/v1/blueprints/{id}":                                          s.getBlueprint,
 		"DELETE /api/v1/blueprints/{id}":                                       s.deleteBlueprint,

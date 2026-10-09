@@ -941,7 +941,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsPara
 }
 
 const listNodePage = `-- name: ListNodePage :many
-SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at, n.retiring,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 WHERE ($1::text='' OR n.id>$1)
@@ -963,6 +963,7 @@ type ListNodePageRow struct {
 	CapacityOverride []byte
 	State            string
 	ObservedAt       pgtype.Timestamptz
+	Retiring         bool
 	ReservedCpu      int64
 	ReservedMemory   int64
 	ReservedDisk     int64
@@ -985,6 +986,7 @@ func (q *Queries) ListNodePage(ctx context.Context, arg ListNodePageParams) ([]L
 			&i.CapacityOverride,
 			&i.State,
 			&i.ObservedAt,
+			&i.Retiring,
 			&i.ReservedCpu,
 			&i.ReservedMemory,
 			&i.ReservedDisk,
@@ -1000,7 +1002,7 @@ func (q *Queries) ListNodePage(ctx context.Context, arg ListNodePageParams) ([]L
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+SELECT n.id, n.name, n.endpoint, n.info, n.capacity_override, n.state, n.observed_at, n.retiring,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 GROUP BY n.id,v.disk_gib ORDER BY n.id
@@ -1014,6 +1016,7 @@ type ListNodesRow struct {
 	CapacityOverride []byte
 	State            string
 	ObservedAt       pgtype.Timestamptz
+	Retiring         bool
 	ReservedCpu      int64
 	ReservedMemory   int64
 	ReservedDisk     int64
@@ -1036,6 +1039,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]ListNodesRow, error) {
 			&i.CapacityOverride,
 			&i.State,
 			&i.ObservedAt,
+			&i.Retiring,
 			&i.ReservedCpu,
 			&i.ReservedMemory,
 			&i.ReservedDisk,
@@ -1313,7 +1317,7 @@ func (q *Queries) LockEnvironment(ctx context.Context, id string) (Environment, 
 }
 
 const lockNode = `-- name: LockNode :one
-SELECT id, name, endpoint, info, capacity_override, state, observed_at FROM nodes WHERE id=$1 FOR UPDATE
+SELECT id, name, endpoint, info, capacity_override, state, observed_at, retiring FROM nodes WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockNode(ctx context.Context, id string) (Node, error) {
@@ -1327,12 +1331,13 @@ func (q *Queries) LockNode(ctx context.Context, id string) (Node, error) {
 		&i.CapacityOverride,
 		&i.State,
 		&i.ObservedAt,
+		&i.Retiring,
 	)
 	return i, err
 }
 
 const lockNodes = `-- name: LockNodes :many
-SELECT id, name, endpoint, info, capacity_override, state, observed_at FROM nodes WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE
+SELECT id, name, endpoint, info, capacity_override, state, observed_at, retiring FROM nodes WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE
 `
 
 func (q *Queries) LockNodes(ctx context.Context, dollar_1 []string) ([]Node, error) {
@@ -1352,6 +1357,7 @@ func (q *Queries) LockNodes(ctx context.Context, dollar_1 []string) ([]Node, err
 			&i.CapacityOverride,
 			&i.State,
 			&i.ObservedAt,
+			&i.Retiring,
 		); err != nil {
 			return nil, err
 		}

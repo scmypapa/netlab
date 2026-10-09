@@ -231,6 +231,10 @@ func nodeRecord(row queries.ListNodePageRow) (api.Node, error) {
 		return api.Node{}, err
 	}
 	result := api.Node{Id: row.ID, Name: row.Name, Endpoint: row.Endpoint, Capacity: info.Capacity, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: int(row.ReservedCpu), MemoryMiB: row.ReservedMemory, DiskGiB: row.ReservedDisk}, State: &row.State, ObservedAt: row.ObservedAt.Time}
+	if row.Retiring && row.State == "ready" {
+		state := "draining"
+		result.State = &state
+	}
 	result.VmHardware = info.VmHardware
 	result.StorageDevice = info.StorageDevice
 	if len(row.CapacityOverride) > 0 {

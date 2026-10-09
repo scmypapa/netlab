@@ -193,6 +193,14 @@ function list<T>(
 }
 
 export const api = {
+  templateCache: (id: string) =>
+    request<Schema<"TemplateCache">[]>(`/templates/${id}/cache`),
+  trimTemplateCache: (id: string) =>
+    request<Operation>(`/templates/${id}/cache`, "DELETE"),
+  changePassword: (input: Schema<"ChangePassword">) =>
+    request<void>("/identity/password", "PUT", input),
+  principalGrants: (id: string) =>
+    request<Schema<"ScopeGrant">[]>(`/principals/${id}/grants`),
   nodeStorageDevices: (id: string) =>
     request<Schema<"NodeStorageDevices">>(`/nodes/${id}/storage-device`),
   configureNodeStorage: (id: string, device: string) =>
@@ -525,6 +533,7 @@ export const api = {
     request<Operation>(`/environments/${id}/changes`, "POST", body),
   operations: (environmentId: string, options?: ListOptions) =>
     list<Operation>("/operations", options, { environmentId }),
+  operation: (id: string) => request<Operation>(`/operations/${id}`),
   retryOperation: (id: string) =>
     request<Operation>(`/operations/${id}/retry`, "POST"),
   templates: (options?: ListOptions) => list<Template>("/templates", options),
@@ -542,4 +551,10 @@ export const api = {
     request<Schema<"ExternalInterface">[]>(`/nodes/${id}/interfaces`),
   registerNode: (body: Schema<"NodeRegistration">) =>
     request<Node>("/nodes", "POST", body),
+  nodeRetirement: (id: string) =>
+    request<Schema<"NodeRetirement">>(`/nodes/${id}/retirement`),
+  retireNode: (id: string) =>
+    request<Operation>(`/nodes/${id}/retirement`, "POST"),
+  resumeNodeScheduling: (id: string) =>
+    request<void>(`/nodes/${id}/retirement`, "DELETE"),
 };

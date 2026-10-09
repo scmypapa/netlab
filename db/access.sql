@@ -14,7 +14,9 @@ ORDER BY p.id LIMIT sqlc.arg(page_limit);
 -- name: ListSharingSubjects :many
 SELECT id,name,kind,administrator,disabled,created_at FROM principals ORDER BY name,id;
 -- name: UpdateUser :exec
-UPDATE principals SET name=$2,password_hash=COALESCE($3,password_hash),disabled=$4 WHERE id=$1;
+UPDATE principals SET name=$2,password_hash=COALESCE($3,password_hash),disabled=$4,administrator=COALESCE(sqlc.narg(administrator)::boolean,administrator) WHERE id=$1;
+-- name: ActiveAdministrators :one
+SELECT count(*) FROM principals WHERE kind='user' AND administrator AND NOT disabled;
 -- name: DeletePrincipalCredentials :exec
 DELETE FROM credentials WHERE principal_id=$1;
 -- name: DeletePrincipalGrants :exec

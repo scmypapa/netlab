@@ -64,7 +64,7 @@ func (s *Server) configureNodeStorage(w http.ResponseWriter, r *http.Request, id
 	if err != nil {
 		return err
 	}
-	if node.State != "ready" {
+	if node.State != "ready" || node.Retiring {
 		return environment.Invalid("节点当前离线")
 	}
 	latest, err := q.NodeStorageOperation(r.Context(), node.ID)

@@ -37,14 +37,16 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 		return nil, err
 	}
 	endpoints := map[string]string{}
+	available := map[string]bool{}
 	candidates := []storageCandidate{}
 	for _, node := range nodes {
 		endpoints[node.ID] = node.Endpoint
-		candidates = append(candidates, storageCandidate{id: defaultStorage(node.ID), node: node.ID, ready: node.State == "ready"})
+		available[node.ID] = node.State == "ready" && !node.Retiring
+		candidates = append(candidates, storageCandidate{id: defaultStorage(node.ID), node: node.ID, ready: available[node.ID]})
 	}
 	for _, row := range rows {
 		for _, node := range row.NodeIds {
-			candidates = append(candidates, storageCandidate{id: row.ID, node: node, directory: row.Directory, ready: row.State == "ready"})
+			candidates = append(candidates, storageCandidate{id: row.ID, node: node, directory: row.Directory, ready: row.State == "ready" && available[node]})
 		}
 	}
 	var wg sync.WaitGroup

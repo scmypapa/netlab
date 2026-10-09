@@ -113,6 +113,24 @@ func run() error {
 	}
 	defer executor.Close()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /node/v1/templates/{id}/versions/{version}/cache", func(w http.ResponseWriter, r *http.Request) {
+		version, err := strconv.Atoi(r.PathValue("version"))
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		result, err := executor.TemplateCache(r.Context(), r.PathValue("id"), version)
+		respond(w, result, err)
+	})
+	mux.HandleFunc("DELETE /node/v1/template-cache", func(w http.ResponseWriter, r *http.Request) {
+		var input api.TemplateCacheRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		result, err := executor.TrimTemplateCache(r.Context(), input)
+		respond(w, result, err)
+	})
 	mux.HandleFunc("GET /node/v1/storage-device", func(w http.ResponseWriter, r *http.Request) {
 		result, err := executor.StorageDevices(r.Context())
 		respond(w, result, err)
@@ -125,6 +143,47 @@ func run() error {
 		}
 		result, err := executor.ConfigureStorageDevice(r.Context(), input)
 		respond(w, result, err)
+	})
+	mux.HandleFunc("GET /node/v1/ceph/{id}/admin", func(w http.ResponseWriter, r *http.Request) {
+		result, err := executor.CephAdmin(r.Context(), r.PathValue("id"))
+		respond(w, result, err)
+	})
+	mux.HandleFunc("PUT /node/v1/ceph/{id}/admin", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeCephAdmin
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		respond(w, nil, executor.ImportCephAdmin(r.PathValue("id"), input))
+	})
+	mux.HandleFunc("POST /node/v1/ceph/{id}/departure", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeCephDeparture
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		respond(w, nil, executor.DepartCeph(r.Context(), r.PathValue("id"), input))
+	})
+	mux.HandleFunc("DELETE /node/v1/storage/{id}/registration", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, nil, executor.DetachStorage(r.Context(), r.PathValue("id")))
+	})
+	mux.HandleFunc("GET /node/v1/environments/{id}/access-key", func(w http.ResponseWriter, r *http.Request) {
+		key, err := executor.AccessKey(r.PathValue("id"))
+		respond(w, map[string]string{"privateKey": key}, err)
+	})
+	mux.HandleFunc("PUT /node/v1/environments/{id}/access-key", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			PrivateKey string              `json:"privateKey"`
+			Spec       api.EnvironmentSpec `json:"spec"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		respond(w, nil, executor.SeedAccess(api.NodePlan{EnvironmentId: r.PathValue("id"), Spec: input.Spec}, input.PrivateKey))
+	})
+	mux.HandleFunc("DELETE /node/v1/environments/{id}/local-access", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, nil, executor.RemoveLocalAccess(r.Context(), r.PathValue("id")))
 	})
 	mux.HandleFunc("GET /node/v1/ceph/{id}", func(w http.ResponseWriter, r *http.Request) {
 		result, err := executor.CephStatus(r.Context(), r.PathValue("id"))
@@ -438,6 +497,14 @@ func run() error {
 		value, err := executor.Inventory(r.Context(), r.URL.Query().Get("environmentId"))
 		respond(w, value, err)
 	})
+	mux.HandleFunc("POST /node/v1/templates/transfer", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeTemplatePreparation
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		respond(w, nil, executor.TransferTemplate(r.Context(), input))
+	})
 	mux.HandleFunc("POST /node/v1/templates/prepare", func(w http.ResponseWriter, r *http.Request) {
 		var request api.NodeTemplatePreparation
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request); err != nil {
@@ -491,7 +558,7 @@ func run() error {
 			http.Error(w, "invalid template identity", http.StatusBadRequest)
 			return
 		}
-		reader, length, err := executor.OpenTemplateArtifact(r.PathValue("id"), version, r.URL.Query().Get("runtimeOnly") == "true")
+		reader, length, err := executor.OpenTemplateArtifact(r.Context(), r.PathValue("id"), version, r.URL.Query().Get("runtimeOnly") == "true")
 		if err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, os.ErrNotExist) {
@@ -534,6 +601,13 @@ func run() error {
 		if _, err = io.Copy(w, reader); err != nil {
 			slog.Warn("recovery transfer interrupted", "error", err)
 		}
+	})
+	mux.HandleFunc("DELETE /node/v1/retirement", func(w http.ResponseWriter, r *http.Request) {
+		if err := executor.CleanRetiredNode(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /node/v1/templates/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !pathID(r.PathValue("id")) {

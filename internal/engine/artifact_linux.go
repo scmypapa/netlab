@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"netlab.local/core/api"
 )
@@ -26,23 +27,54 @@ func templateRuntimeDirectory(data, id string, version int) string {
 	return filepath.Join(data, "template-runtime", id, strconv.Itoa(version))
 }
 
-func (e *Engine) OpenTemplateArtifact(id string, version int, runtimeOnly bool) (io.ReadCloser, int64, error) {
+type artifactReader struct {
+	io.ReadCloser
+	once   sync.Once
+	unlock func()
+}
+
+func (e *Engine) TransferTemplate(ctx context.Context, request api.NodeTemplatePreparation) error {
+	unlock := e.lock("template:" + request.Template.Id)
+	defer unlock()
+	if request.ArtifactEndpoint == nil {
+		return errors.New("缺少模板源节点")
+	}
+	return e.fetchTemplateArtifact(ctx, request.Template, *request.ArtifactEndpoint, false)
+}
+
+func (r *artifactReader) Close() error { err := r.ReadCloser.Close(); r.once.Do(r.unlock); return err }
+
+func (e *Engine) OpenTemplateArtifact(ctx context.Context, id string, version int, runtimeOnly bool) (io.ReadCloser, int64, error) {
+	unlock := e.lock(fmt.Sprintf("template-reader:%s:%d", id, version))
+	handed := false
+	defer func() {
+		if !handed {
+			unlock()
+		}
+	}()
 	directory := templateDirectory(e.cfg.DataDir, id, version)
 	if _, err := os.Stat(filepath.Join(directory, "template.json")); err != nil {
 		return nil, 0, err
 	}
-	if runtimeOnly {
-		raw, err := os.ReadFile(filepath.Join(directory, "template.json"))
-		if err != nil {
-			return nil, 0, err
-		}
-		var template api.Template
-		if err = json.Unmarshal(raw, &template); err != nil {
-			return nil, 0, err
-		}
-		return openArtifactFiles(directory, templateArtifactFiles(template, true))
+	raw, err := os.ReadFile(filepath.Join(directory, "template.json"))
+	if err != nil {
+		return nil, 0, err
 	}
-	return openDirectoryArtifact(directory)
+	var template api.Template
+	if err = json.Unmarshal(raw, &template); err != nil {
+		return nil, 0, err
+	}
+	if !runtimeOnly {
+		if err = e.hydrateTemplate(ctx, template); err != nil {
+			return nil, 0, err
+		}
+	}
+	reader, size, err := openArtifactFiles(directory, templateArtifactFiles(template, runtimeOnly))
+	if err != nil {
+		return nil, 0, err
+	}
+	handed = true
+	return &artifactReader{ReadCloser: reader, unlock: unlock}, size, nil
 }
 
 func openDirectoryArtifact(directory string) (io.ReadCloser, int64, error) {
@@ -107,16 +139,22 @@ func openArtifactFiles(directory string, files []string) (io.ReadCloser, int64, 
 }
 
 func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endpoint string, shared bool) error {
-	if t.ArtifactNodeId == nil || *t.ArtifactNodeId == e.cfg.ID && !shared {
+	if t.ArtifactNodeId == nil {
 		return nil
 	}
 	unlock := e.lock(fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
 	defer unlock()
+	if *t.ArtifactNodeId == e.cfg.ID && !shared {
+		return e.hydrateTemplate(ctx, t)
+	}
 	directory := templateDirectory(e.cfg.DataDir, t.Id, t.Version)
 	if shared {
 		directory = templateRuntimeDirectory(e.cfg.DataDir, t.Id, t.Version)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "template.json")); err == nil {
+		if !shared {
+			return e.hydrateTemplate(ctx, t)
+		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -131,7 +169,7 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 
 func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, endpoint string, shared bool) (io.ReadCloser, int64, error) {
 	if node == e.cfg.ID {
-		return e.OpenTemplateArtifact(t.Id, t.Version, shared)
+		return e.OpenTemplateArtifact(ctx, t.Id, t.Version, shared)
 	}
 	if endpoint == "" || e.cfg.ArtifactHTTP == nil {
 		return nil, 0, errors.New("template artifact node transport is not configured")

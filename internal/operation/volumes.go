@@ -25,7 +25,7 @@ func (w Worker) SubmitVolume(ctx context.Context, id, kind string, input api.Cre
 	var selected storageCandidate
 	for _, node := range nodes {
 		pool := storage[storageKey(node.ID, input.StoragePoolId)]
-		if pool.ready && pool.err == nil && (input.Kind == api.Vm || pool.info.Rbd == nil) {
+		if (pool.ready || kind == "delete-volume" && pool.id != "") && pool.err == nil && (input.Kind == api.Vm || pool.info.Rbd == nil) {
 			selected = pool
 			break
 		}
@@ -43,8 +43,16 @@ func (w Worker) SubmitVolume(ctx context.Context, id, kind string, input api.Cre
 	for _, node := range nodes {
 		ids = append(ids, node.ID)
 	}
-	if _, err = q.LockNodes(ctx, ids); err != nil {
+	locked, err := q.LockNodes(ctx, ids)
+	if err != nil {
 		return api.Operation{}, err
+	}
+	if kind != "delete-volume" {
+		for _, node := range locked {
+			if node.ID == selected.node && (node.Retiring || node.State != "ready") {
+				return api.Operation{}, environment.ErrConflict
+			}
+		}
 	}
 	if !strings.HasPrefix(selected.id, "default:") {
 		pools, err := q.LockStoragePools(ctx, []string{selected.id})

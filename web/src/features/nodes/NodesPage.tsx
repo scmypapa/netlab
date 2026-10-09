@@ -8,6 +8,7 @@ import { api, type Node } from "../../api/client";
 import { NodeStorageSummary, StoragePanel } from "./StoragePanel";
 import { VolumePanel } from "./VolumePanel";
 import { BackupRepositoryPanel } from "./BackupRepositoryPanel";
+import { RetirementPanel } from "./RetirementPanel";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime, memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
@@ -190,6 +191,7 @@ export function NodesPage() {
               <Tabs.Tab value="storage">存储池</Tabs.Tab>
               <Tabs.Tab value="volumes">数据卷</Tabs.Tab>
               <Tabs.Tab value="backups">备份仓库</Tabs.Tab>
+              <Tabs.Tab value="retirement">退出节点</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="storage">
               <NodeStorageSummary node={selected} />
@@ -199,6 +201,12 @@ export function NodesPage() {
             </Tabs.Panel>
             <Tabs.Panel value="volumes">
               <VolumePanel node={selected} />
+            </Tabs.Panel>
+            <Tabs.Panel value="retirement">
+              <RetirementPanel
+                node={selected}
+                onRemoved={() => setSelected(undefined)}
+              />
             </Tabs.Panel>
           </Tabs>
         )}

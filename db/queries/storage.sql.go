@@ -407,3 +407,30 @@ func (q *Queries) StorageReservations(ctx context.Context, dollar_1 []string) ([
 	}
 	return items, nil
 }
+
+const templateLocalReferences = `-- name: TemplateLocalReferences :many
+SELECT DISTINCT node_id FROM (
+ SELECT node_id,execution FROM runtime_assets
+ UNION ALL SELECT a->>'nodeId',a->'execution' FROM recovery_points p CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a
+) refs WHERE execution->'template'->>'id'=$1::text AND execution->'rbd' IS NULL
+`
+
+func (q *Queries) TemplateLocalReferences(ctx context.Context, templateID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, templateLocalReferences, templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var node_id string
+		if err := rows.Scan(&node_id); err != nil {
+			return nil, err
+		}
+		items = append(items, node_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

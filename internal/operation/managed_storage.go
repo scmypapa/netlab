@@ -33,6 +33,12 @@ func (s Service) ConfigureManagedStorage(ctx context.Context, replicas *int) err
 	ids, owner := []string{}, ""
 	devices := map[string]string{}
 	for _, node := range nodes {
+		if node.Retiring {
+			if replicas != nil {
+				return environment.ErrConflict
+			}
+			return nil
+		}
 		var info api.NodeInfo
 		if err = json.Unmarshal(node.Info, &info); err != nil {
 			return err

@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activeAdministrators = `-- name: ActiveAdministrators :one
+SELECT count(*) FROM principals WHERE kind='user' AND administrator AND NOT disabled
+`
+
+func (q *Queries) ActiveAdministrators(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, activeAdministrators)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteEnvironmentGrants = `-- name: DeleteEnvironmentGrants :exec
 DELETE FROM grants WHERE (scope_kind='environment' AND scope_id=$1) OR (scope_kind='asset' AND scope_id LIKE $1||'/%')
 `
@@ -311,14 +322,15 @@ func (q *Queries) ProjectExists(ctx context.Context, id string) (bool, error) {
 }
 
 const updateUser = `-- name: UpdateUser :exec
-UPDATE principals SET name=$2,password_hash=COALESCE($3,password_hash),disabled=$4 WHERE id=$1
+UPDATE principals SET name=$2,password_hash=COALESCE($3,password_hash),disabled=$4,administrator=COALESCE($5::boolean,administrator) WHERE id=$1
 `
 
 type UpdateUserParams struct {
-	ID           string
-	Name         string
-	PasswordHash []byte
-	Disabled     bool
+	ID            string
+	Name          string
+	PasswordHash  []byte
+	Disabled      bool
+	Administrator *bool
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) error {
@@ -327,6 +339,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) error {
 		arg.Name,
 		arg.PasswordHash,
 		arg.Disabled,
+		arg.Administrator,
 	)
 	return err
 }

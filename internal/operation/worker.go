@@ -29,6 +29,8 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
+	RetirementChild     *string                    `json:"retirementChild,omitempty"`
+	NetworkSource       string                     `json:"networkSource,omitempty"`
 	Migration           *Migration                 `json:"migration,omitempty"`
 	Volume              *api.NodeVolume            `json:"volume,omitempty"`
 	VolumeNode          string                     `json:"volumeNode,omitempty"`
@@ -140,6 +142,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	if err == nil {
 		if op.Kind == "prepare-template" || op.Kind == "capture-template" {
 			err = w.prepareTemplate(ctx, &op, &payload)
+		} else if op.Kind == "trim-template-cache" {
+			err = w.trimTemplateCache(ctx, &op, &payload)
 		} else if op.Kind == "delete-template" {
 			err = w.deleteTemplate(ctx, &op, &payload)
 		} else if op.Kind == "delete-storage-pool" {
@@ -160,6 +164,10 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 		} else if op.Kind == "migrate" {
 			err = w.migration(ctx, &op, &payload)
 			results = payload.Results
+		} else if op.Kind == "retire-node" {
+			err = w.retireNode(ctx, &op, &payload)
+		} else if op.Kind == "move-network" {
+			err = w.moveNetwork(ctx, &op, &payload)
 		} else {
 			err = w.environment(ctx, &op, &payload)
 			results = payload.Results
@@ -168,7 +176,7 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	if ctx.Err() != nil || errors.Is(err, errPersistence) {
 		return
 	}
-	if err != nil && payload.Template != nil {
+	if err != nil && payload.Template != nil && op.Kind != "trim-template-cache" {
 		failed, message := api.TemplateStateFailed, err.Error()
 		if op.Kind == "delete-template" {
 			failed = api.TemplateStateDeleting
@@ -285,6 +293,12 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	if dbErr != nil || count != 1 {
 		slog.Error("operation completion", "error", dbErr)
 		return
+	}
+	if op.Kind == "retire-node" && err == nil {
+		if dbErr = q.DeleteRetiredNode(ctx, op.ScopeID); dbErr != nil {
+			slog.Error("node retirement completion", "error", dbErr)
+			return
+		}
 	}
 	if _, dbErr = q.AddEvent(ctx, queries.AddEventParams{EnvironmentID: op.EnvironmentID, Kind: "operation." + state, Payload: raw}); dbErr != nil {
 		slog.Error("operation event", "error", dbErr)

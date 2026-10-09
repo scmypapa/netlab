@@ -1,6 +1,6 @@
 import { Button, Drawer, Group, Modal } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Box, Monitor, RotateCw, Trash2 } from "lucide-react";
 import { api, type Template } from "../../api/client";
@@ -34,6 +34,31 @@ export function TemplateDetails({
     mutationFn: () => api.deleteTemplate(template.id),
     onSuccess: refresh,
   });
+  const cache = useQuery({
+    queryKey: ["template-cache", template.id],
+    queryFn: () => api.templateCache(template.id),
+    enabled: template.kind === "vm" && template.state === "ready",
+  });
+  const trim = useMutation({
+    mutationFn: () => api.trimTemplateCache(template.id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["templates"] }),
+  });
+  const trimming = useQuery({
+    queryKey: ["operation", trim.data?.id],
+    queryFn: () => api.operation(trim.data!.id),
+    enabled: Boolean(trim.data),
+    refetchInterval: (query) =>
+      query.state.data?.state === "queued" ||
+      query.state.data?.state === "running"
+        ? 1000
+        : false,
+  });
+  useEffect(() => {
+    if (trimming.data?.state === "succeeded")
+      void client.invalidateQueries({
+        queryKey: ["template-cache", template.id],
+      });
+  }, [trimming.data?.state, client, template.id]);
   const retry = useMutation({
     mutationFn: () => api.retryOperation(template.operationId!),
     onSuccess: refresh,
@@ -93,6 +118,36 @@ export function TemplateDetails({
       {template.error && (
         <div className="template-failure" role="alert">
           {template.error}
+        </div>
+      )}
+      {cache.data && cache.data.length > 0 && (
+        <div className="form-stack">
+          <strong>本地镜像缓存</strong>
+          {cache.data.map((item) => (
+            <div key={item.nodeId}>
+              {item.nodeName} · {(item.bytes / 2 ** 30).toFixed(2)} GiB
+              {!item.reclaimable && (
+                <span className="secondary-line">{item.reason}</span>
+              )}
+            </div>
+          ))}
+          <Button
+            variant="default"
+            disabled={!cache.data.some((item) => item.reclaimable)}
+            loading={
+              trim.isPending ||
+              trimming.data?.state === "queued" ||
+              trimming.data?.state === "running"
+            }
+            onClick={() => trim.mutate()}
+          >
+            释放闲置基础盘
+          </Button>
+          {trimming.data && <Status value={trimming.data.state} />}
+          <ErrorMessage error={trim.error ?? trimming.error} />
+          {trimming.data?.error && (
+            <ErrorMessage error={new Error(trimming.data.error)} />
+          )}
         </div>
       )}
       {template.format === "iso" && template.state === "ready" && (

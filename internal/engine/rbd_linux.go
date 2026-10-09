@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -108,7 +109,86 @@ func (e *Engine) registerRBD(ctx context.Context, id, root string, input api.Cep
 	if err = secret.SetValue(key, 0); err != nil {
 		return info, err
 	}
-	return info, nil
+	return info, e.vm.refreshStorageMonitors(ctx, storage)
+}
+
+// Updating persistent disk sources leaves live QEMU clients connected to their current MON map.
+func (v *VirtualMachines) refreshStorageMonitors(ctx context.Context, storage api.RbdStorage) error {
+	domains, err := v.conn.ListAllDomains(0)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for i := range domains {
+			domains[i].Free()
+		}
+	}()
+	for _, domain := range domains {
+		text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
+		if err != nil {
+			return err
+		}
+		var config libvirtxml.Domain
+		if err = config.Unmarshal(text); err != nil {
+			return err
+		}
+		var owner Ownership
+		if config.Metadata == nil || !strings.Contains(config.Metadata.XML, "urn:netlab:instance") {
+			continue
+		}
+		if err = xml.Unmarshal([]byte(config.Metadata.XML), &owner); err != nil {
+			return err
+		}
+		var a api.AssetExecution
+		if err = json.Unmarshal([]byte(owner.Execution), &a); err != nil {
+			return err
+		}
+		changed := false
+		refresh := func(rbd *api.RbdStorage) {
+			if rbd != nil && rbd.SecretId == storage.SecretId {
+				rbd.Monitors = storage.Monitors
+				changed = true
+			}
+		}
+		refresh(a.Rbd)
+		for _, volume := range a.VolumeSources {
+			refresh(volume.Storage.Rbd)
+		}
+		if !changed {
+			continue
+		}
+		for i := range config.Devices.Disks {
+			disk := &config.Devices.Disks[i]
+			if disk.Auth == nil || disk.Auth.Secret == nil || disk.Auth.Secret.UUID != storage.SecretId {
+				continue
+			}
+			source, _, err := (vmDisk{rbd: &storage}).source()
+			if err != nil {
+				return err
+			}
+			disk.Source.Network.Hosts = source.Network.Hosts
+		}
+		raw, err := json.Marshal(a)
+		if err != nil {
+			return err
+		}
+		owner.Execution = string(raw)
+		metadata, err := xml.Marshal(owner)
+		if err != nil {
+			return err
+		}
+		config.Metadata.XML = string(metadata)
+		text, err = config.Marshal()
+		if err != nil {
+			return err
+		}
+		updated, err := v.conn.DomainDefineXML(text)
+		if err != nil {
+			return err
+		}
+		updated.Free()
+	}
+	return nil
 }
 
 func (e *Engine) removeRBD(ctx context.Context, info api.StorageInfo) error {

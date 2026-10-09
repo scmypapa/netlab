@@ -12,17 +12,18 @@ import (
 )
 
 const commitAssetMigration = `-- name: CommitAssetMigration :execrows
-UPDATE runtime_assets SET node_id=$3,execution=$4,state=$5,error=NULL,observed_at=$6
+UPDATE runtime_assets SET node_id=$3,execution=$4,state=$5,error=NULL,observed_at=$6,instance_id=$7::text
 WHERE instance_id=$1 AND node_id=$2 AND current
 `
 
 type CommitAssetMigrationParams struct {
-	InstanceID string
-	NodeID     string
-	NodeID_2   string
-	Execution  []byte
-	State      string
-	ObservedAt pgtype.Timestamptz
+	InstanceID     string
+	NodeID         string
+	NodeID_2       string
+	Execution      []byte
+	State          string
+	ObservedAt     pgtype.Timestamptz
+	TargetInstance string
 }
 
 func (q *Queries) CommitAssetMigration(ctx context.Context, arg CommitAssetMigrationParams) (int64, error) {
@@ -33,6 +34,7 @@ func (q *Queries) CommitAssetMigration(ctx context.Context, arg CommitAssetMigra
 		arg.Execution,
 		arg.State,
 		arg.ObservedAt,
+		arg.TargetInstance,
 	)
 	if err != nil {
 		return 0, err

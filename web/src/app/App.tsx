@@ -19,12 +19,14 @@ import {
   Sun,
   UsersRound,
   Download,
+  KeyRound,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { ErrorMessage, Loading } from "../foundation/Feedback";
 import { EnvironmentsPage } from "../features/environments/EnvironmentsPage";
+import { PasswordDialog } from "../features/access/PasswordDialog";
 const TemplatesPage = lazy(() =>
   import("../features/templates/TemplatesPage").then((module) => ({
     default: module.TemplatesPage,
@@ -53,6 +55,7 @@ const UpdatePanel = lazy(() =>
 
 export function App() {
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
   const scheme = useComputedColorScheme("light");
   const { setColorScheme } = useMantineColorScheme();
@@ -127,6 +130,12 @@ export function App() {
               </button>
             </Menu.Target>
             <Menu.Dropdown>
+              <Menu.Item
+                leftSection={<KeyRound size={15} />}
+                onClick={() => setPasswordOpen(true)}
+              >
+                修改密码
+              </Menu.Item>
               {identity.data?.administrator && (
                 <Menu.Item
                   leftSection={<Download size={15} />}
@@ -155,6 +164,9 @@ export function App() {
         </div>
       </header>
       <Suspense fallback={null}>
+        {passwordOpen && (
+          <PasswordDialog onClose={() => setPasswordOpen(false)} />
+        )}
         {updatesOpen && <UpdatePanel onClose={() => setUpdatesOpen(false)} />}
       </Suspense>
       <Suspense fallback={<Loading />}>

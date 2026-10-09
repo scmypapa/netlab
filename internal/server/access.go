@@ -57,6 +57,41 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, identity acc
 	return nil
 }
 
+func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	var input api.ChangePassword
+	if err := decode(w, r, &input); err != nil {
+		return err
+	}
+	if err := s.Access.ChangePassword(r.Context(), identity, input); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) principalGrants(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	if !identity.Administrator() {
+		return access.ErrForbidden
+	}
+	id := r.PathValue("id")
+	if _, err := s.Queries.GetPrincipal(r.Context(), id); err != nil {
+		return err
+	}
+	rows, err := s.Queries.GetGrants(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	result := make([]api.ScopeGrant, 0, len(rows))
+	for _, g := range rows {
+		permissions := make([]api.Permission, len(g.Permissions))
+		for i, p := range g.Permissions {
+			permissions[i] = api.Permission(p)
+		}
+		result = append(result, api.ScopeGrant{ScopeKind: api.ScopeGrantScopeKind(g.ScopeKind), ScopeId: g.ScopeID, Permissions: permissions})
+	}
+	return writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	var input api.CreateServiceToken
 	if err := decode(w, r, &input); err != nil {
