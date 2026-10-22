@@ -182,7 +182,7 @@ func TestRealLocalToRBDRecoveryWithMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { domain.Undefine(); domain.Free() })
-	e := Engine{cfg: Config{ID: node, DataDir: v.data}, vm: v, locks: make(map[string]*objectLock)}
+	e := Engine{cfg: Config{ID: node, DataDir: v.data}, vm: v, locks: make(map[string]*objectLock), ioSlots: make(chan struct{}, 1)}
 	if _, err = e.captureRecovery(ctx, env, point, a, false, false); err != nil {
 		t.Fatal(err)
 	}

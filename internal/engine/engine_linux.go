@@ -298,6 +298,22 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				unlockTemplate := e.acquire("template:"+a.Template.Id, true)
 				defer unlockTemplate()
 			}
+			if plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery {
+				if err := e.validatePciBinding(a); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
+			if plan.Phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
+				endpoint := ""
+				if plan.ArtifactEndpoints != nil {
+					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
+				}
+				if err := e.fetchTemplateArtifact(ctx, a.Template, endpoint, a.Rbd != nil); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
 			select {
 			case e.slots <- struct{}{}:
 			case <-ctx.Done():
@@ -310,12 +326,6 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			var state string
 			var err error
 			phase := plan.Phase
-			if phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery {
-				if err = e.validatePciBinding(a); err != nil {
-					result.Results[i] = executionResult(a, "absent", err)
-					return
-				}
-			}
 			if phase == api.NodePlanPhaseMigrate {
 				destination, ok := plan.Migrations[a.Asset.Id]
 				if !ok || a.Template.Kind != api.Vm {
@@ -328,16 +338,6 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				}
 				result.Results[i] = observed
 				return
-			}
-			if phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
-				endpoint := ""
-				if plan.ArtifactEndpoints != nil {
-					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
-				}
-				if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint, a.Rbd != nil); err != nil {
-					result.Results[i] = executionResult(a, "absent", err)
-					return
-				}
 			}
 			if plan.Phase == api.NodePlanPhasePrepareRecovery || plan.Phase == api.NodePlanPhaseApplyRecovery || plan.Phase == api.NodePlanPhaseRollbackRecovery || plan.Phase == api.NodePlanPhaseCleanupRecovery {
 				switch plan.Phase {

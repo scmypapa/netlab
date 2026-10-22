@@ -87,7 +87,7 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock)}
+	target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock), ioSlots: make(chan struct{}, 1)}
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
@@ -143,7 +143,7 @@ func TestSharedTemplateTransfersOnlyRuntimeFiles(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	target := &Engine{cfg: Config{ID: "target", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock)}
+	target := &Engine{cfg: Config{ID: "target", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock), ioSlots: make(chan struct{}, 1)}
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
@@ -213,7 +213,7 @@ func TestTemplateArtifactRejectsInvalidTransfer(t *testing.T) {
 				w.Write(body)
 			}))
 			defer server.Close()
-			target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock)}
+			target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock), ioSlots: make(chan struct{}, 1)}
 			if err = target.fetchTemplateArtifact(context.Background(), template, server.URL, false); err == nil {
 				t.Fatal("invalid transfer was committed")
 			}
