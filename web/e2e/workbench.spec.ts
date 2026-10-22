@@ -458,6 +458,7 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
       lastSeen: now,
     },
   ];
+  let captureFlows = flows;
   await page.route("**/api/v1/environments/env/captures**", (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -485,7 +486,7 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
       status = "stopped";
       return route.fulfill({ json: segment() });
     }
-    return route.fulfill({ json: { segment: segment(), flows } });
+    return route.fulfill({ json: { segment: segment(), flows: captureFlows } });
   });
   let sampled = false;
   await page.route("**/api/v1/environments/env/traffic", (route) => {
@@ -538,6 +539,21 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await expect(page.getByText("抓包中", { exact: true })).toBeVisible();
   await expect(page.getByText("1 MiB · 1,000 包")).toBeVisible();
   await expect(page.getByLabel("接口流量历史")).toHaveCount(0);
+  captureFlows = Array.from({ length: 12 }, (_, index) => ({
+    ...flows[0],
+    sourcePort: 50000 + index,
+  }));
+  const records = page.getByLabel("可选择的通信连接").getByRole("button");
+  await expect(records).toHaveCount(12);
+  for (const width of [1366, 1920, 390]) {
+    await page.setViewportSize({ width, height: 600 });
+    const last = (await records.last().boundingBox())!;
+    const segments = (await page
+      .getByRole("heading", { name: "抓包分段" })
+      .boundingBox())!;
+    expect(segments.y).toBeGreaterThanOrEqual(last.y + last.height);
+  }
+  await page.setViewportSize({ width: 1366, height: 900 });
   await page.getByRole("button", { name: "停止此分段" }).click();
   await expect(
     page.getByRole("link", { name: "下载抓包文件" }).first(),

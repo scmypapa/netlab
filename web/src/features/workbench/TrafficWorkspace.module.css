@@ -424,7 +424,7 @@
 .records {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: none;
   min-height: 100px;
 }
 .assetLinks {
