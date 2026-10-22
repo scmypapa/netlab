@@ -183,6 +183,15 @@ func TestRealMetricsHistory(t *testing.T) {
 	if err := store.Import(ctx, &data); err != nil {
 		t.Fatal(err)
 	}
+	// Publish the complete fixture before checking historical query semantics.
+	flush, err := store.HTTP.Post(endpoint+"/internal/force_flush", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flush.Body.Close()
+	if flush.StatusCode != http.StatusOK {
+		t.Fatalf("fixture flush returned HTTP %d", flush.StatusCode)
+	}
 	read := func(filter Filter, start, end time.Time, step int) api.MetricHistory {
 		t.Helper()
 		history, err := store.History(ctx, filter, start, end, step)
@@ -203,19 +212,7 @@ func TestRealMetricsHistory(t *testing.T) {
 		}
 		return 0, false
 	}
-	// Imports may become searchable after their HTTP acknowledgement.
 	first := base.Add(600 * time.Second)
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		history := read(Filter{Environment: prefix, Asset: "burst"}, first, first, 600)
-		if _, found := value(history, "cpu", first); found {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("imported metrics did not become searchable at %s within ten seconds: %+v", first.Format(time.RFC3339), history)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
 	for asset, cumulative := range map[string]float64{"burst": 600, "reset": 540, "stopped": 120} {
 		t.Run(asset, func(t *testing.T) {
 			history := read(Filter{Environment: prefix, Asset: asset}, first, base.Add(1200*time.Second), 600)
