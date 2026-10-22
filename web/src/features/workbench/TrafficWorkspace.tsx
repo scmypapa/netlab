@@ -27,11 +27,17 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as echarts from "echarts/core";
+import { GraphChart } from "echarts/charts";
+import { TooltipComponent, AriaComponent } from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
 import { api, type Environment, type Schema } from "../../api/client";
 import { MetricChart } from "../../foundation/MetricChart";
 import { latestMetric } from "../../foundation/metrics";
 import { byteUnit, reading } from "../../foundation/format";
 import styles from "./TrafficWorkspace.module.css";
+
+echarts.use([GraphChart, TooltipComponent, AriaComponent, CanvasRenderer]);
 
 type Flow = Schema<"CaptureFlow">;
 type Segment = Schema<"CaptureSegment">;
@@ -89,44 +95,20 @@ function CommunicationGraph({
   onSelect: (selection: Selection) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const [ready, setReady] = useState(false);
-  const [failure, setFailure] = useState<Error>();
-  const chart = useRef<import("echarts/core").ECharts | undefined>(undefined);
+  const chart = useRef<echarts.EChartsType | null>(null);
   const theme = useComputedColorScheme();
   useEffect(() => {
-    let disposed = false;
-    let resize: ResizeObserver | undefined;
-    Promise.all([
-      import("echarts/core"),
-      import("echarts/charts"),
-      import("echarts/components"),
-      import("echarts/renderers"),
-    ])
-      .then(([echarts, charts, components, renderers]) => {
-        if (disposed) return;
-        echarts.use([
-          charts.GraphChart,
-          components.TooltipComponent,
-          components.AriaComponent,
-          renderers.CanvasRenderer,
-        ]);
-        chart.current = echarts.init(host.current!);
-        resize = new ResizeObserver(() => chart.current?.resize());
-        resize.observe(host.current!);
-        setReady(true);
-      })
-      .catch((error: Error) => {
-        if (!disposed) setFailure(error);
-      });
+    const current = echarts.init(host.current!);
+    chart.current = current;
+    const resize = new ResizeObserver(() => current.resize());
+    resize.observe(host.current!);
     return () => {
-      disposed = true;
-      resize?.disconnect();
-      chart.current?.dispose();
-      chart.current = undefined;
+      resize.disconnect();
+      current.dispose();
+      chart.current = null;
     };
   }, []);
   useEffect(() => {
-    if (!ready || !chart.current) return;
     const assets = environment.appliedSpec?.assets ?? environment.spec.assets;
     const nodes = new Map<string, { id: string; name: string; role: string }>();
     for (const asset of assets)
@@ -203,7 +185,7 @@ function CommunicationGraph({
           },
         };
       });
-    chart.current.setOption({
+    chart.current!.setOption({
       animation: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       aria: {
         enabled: true,
@@ -253,8 +235,8 @@ function CommunicationGraph({
         },
       ],
     });
-    chart.current.off("click");
-    chart.current.on("click", (event: unknown) => {
+    chart.current!.off("click");
+    chart.current!.on("click", (event: unknown) => {
       const item = event as {
         dataType: string;
         data: { id: string; source: string; target: string };
@@ -263,27 +245,14 @@ function CommunicationGraph({
         onSelect({ source: item.data.source, destination: item.data.target });
       else onSelect({ asset: item.data.id });
     });
-  }, [
-    ready,
-    environment,
-    flows,
-    groups,
-    colors,
-    selection,
-    role,
-    onSelect,
-    theme,
-  ]);
+  }, [environment, flows, groups, colors, selection, role, onSelect, theme]);
   return (
-    <>
-      <div
-        ref={host}
-        className={styles.graph}
-        role="img"
-        aria-label="资产通信图，连接明细可在右侧列表选择"
-      />
-      {failure && <div role="alert">{failure.message}</div>}
-    </>
+    <div
+      ref={host}
+      className={styles.graph}
+      role="img"
+      aria-label="资产通信图，连接明细可在右侧列表选择"
+    />
   );
 }
 
@@ -335,13 +304,15 @@ export default function TrafficWorkspace({
     queryKey: ["traffic-history", id, observedAsset, range],
     queryFn: ({ signal }) =>
       api.environmentMetrics(id, Number(range), signal, observedAsset),
-    refetchInterval: 10_000,
+    enabled: live,
+    refetchInterval: live ? 10_000 : false,
   });
   const current = useQuery({
     queryKey: ["traffic-current", id, observedAsset],
     queryFn: ({ signal }) =>
       api.environmentMetrics(id, 60, signal, observedAsset),
-    refetchInterval: 10_000,
+    enabled: live,
+    refetchInterval: live ? 10_000 : false,
   });
   const segments =
     captures.data?.segments.filter((segment) => segment.id === activeId) ?? [];
@@ -397,6 +368,18 @@ export default function TrafficWorkspace({
         .map((result) => String(result.reason));
       if (errors.length) throw new Error(errors.join("；"));
     },
+    onSuccess: (_, { segments: removed, remove }) => {
+      if (
+        remove &&
+        removed.some((item) => item.id === activeId) &&
+        segments.every((segment) =>
+          removed.some((item) => item.nodeId === segment.nodeId),
+        )
+      ) {
+        setCaptureId("live");
+        setSelection(undefined);
+      }
+    },
     onSettled: refresh,
   });
   const saveRole = useMutation({
@@ -432,7 +415,7 @@ export default function TrafficWorkspace({
   );
   const allFlows = (
     live
-      ? [...(traffic.data?.flows ?? [])]
+      ? [...(traffic.isError ? [] : (traffic.data?.flows ?? []))]
       : details.flatMap((query) => query.data?.flows ?? [])
   ).sort((a, b) => b.bytes - a.bytes);
   const flows = allFlows.filter(
@@ -504,8 +487,8 @@ export default function TrafficWorkspace({
   ];
   const errors = [
     live ? traffic.error : undefined,
-    history.error,
-    current.error,
+    live ? history.error : undefined,
+    live ? current.error : undefined,
     captures.error,
     action.error,
     saveRole.error,
@@ -607,44 +590,46 @@ export default function TrafficWorkspace({
       ))}
       <div className={styles.body}>
         <div className={styles.visual}>
-          <section className={styles.history} aria-label="接口流量历史">
-            <header className={styles.historyHeader}>
-              <strong>
-                {observedAsset ? name(observedAsset) : "环境接口"}
-              </strong>
-              <SegmentedControl
-                size="xs"
-                data={historyRanges}
-                value={range}
-                onChange={setRange}
-                aria-label="流量历史时间范围"
-              />
-            </header>
-            <div className={styles.rateStats}>
-              <span>
-                <ArrowDownLeft size={16} />
-                接收 <b>{latestRate("receive")}</b>
-              </span>
-              <span>
-                <ArrowUpRight size={16} />
-                发送 <b>{latestRate("transmit")}</b>
-              </span>
-            </div>
-            {history.data ? (
-              <MetricChart
-                history={history.data}
-                measures={trafficMeasures}
-                unit={historyUnit.unit + "/s"}
-                scale={historyUnit.scale}
-                seriesBy="metric"
-                colors={trafficColors}
-              />
-            ) : (
-              <div className={styles.historyEmpty}>
-                {history.isLoading ? "加载流量记录…" : "暂无接口记录"}
+          {live && (
+            <section className={styles.history} aria-label="接口流量历史">
+              <header className={styles.historyHeader}>
+                <strong>
+                  {observedAsset ? name(observedAsset) : "环境接口"}
+                </strong>
+                <SegmentedControl
+                  size="xs"
+                  data={historyRanges}
+                  value={range}
+                  onChange={setRange}
+                  aria-label="流量历史时间范围"
+                />
+              </header>
+              <div className={styles.rateStats}>
+                <span>
+                  <ArrowDownLeft size={16} />
+                  接收 <b>{latestRate("receive")}</b>
+                </span>
+                <span>
+                  <ArrowUpRight size={16} />
+                  发送 <b>{latestRate("transmit")}</b>
+                </span>
               </div>
-            )}
-          </section>
+              {history.data ? (
+                <MetricChart
+                  history={history.data}
+                  measures={trafficMeasures}
+                  unit={historyUnit.unit + "/s"}
+                  scale={historyUnit.scale}
+                  seriesBy="metric"
+                  colors={trafficColors}
+                />
+              ) : (
+                <div className={styles.historyEmpty}>
+                  {history.isLoading ? "加载流量记录…" : "暂无接口记录"}
+                </div>
+              )}
+            </section>
+          )}
           <div className={styles.filters}>
             <strong>通信图</strong>
             <Select
