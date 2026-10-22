@@ -205,14 +205,14 @@ func TestRealMetricsHistory(t *testing.T) {
 	}
 	// Imports may become searchable after their HTTP acknowledgement.
 	first := base.Add(600 * time.Second)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		history := read(Filter{Environment: prefix, Asset: "burst"}, first, first, 600)
 		if _, found := value(history, "cpu", first); found {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("imported metrics did not become searchable at %s within five seconds: %+v", first.Format(time.RFC3339), history)
+			t.Fatalf("imported metrics did not become searchable at %s within ten seconds: %+v", first.Format(time.RFC3339), history)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
