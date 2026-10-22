@@ -371,9 +371,16 @@ test("资产附加持久卷，容量取自目录并通过现有草稿提交", as
 test("通信图与抓包贯通，角色仅更新画布，分段失败可见", async ({ page }) => {
   const calls = await fixture(page);
   const histories: URL[] = [];
+  let currentFailed = false;
   await page.route("**/api/v1/environments/env/metrics**", (route) => {
     const url = new URL(route.request().url());
     histories.push(url);
+    const current = url.searchParams.get("range") === "60";
+    if (current && currentFailed)
+      return route.fulfill({
+        status: 502,
+        json: { detail: "节点指标暂不可读取" },
+      });
     const end = new Date();
     return route.fulfill({
       json: {
@@ -389,7 +396,7 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
           nodeId: "",
           points: [20, 10, 0].map((offset) => ({
             time: new Date(end.getTime() - offset * 1000).toISOString(),
-            value: 2 * 1048576,
+            value: (current ? 2 : 8) * 1048576,
           })),
         })),
       },
@@ -479,8 +486,15 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   expect(histories[0].searchParams.get("aggregate")).toBe("true");
   await page.getByText("7 天", { exact: true }).click();
   await expect
-    .poll(() => histories.at(-1)?.searchParams.get("range"))
-    .toBe("604800");
+    .poll(() =>
+      histories.some((url) => url.searchParams.get("range") === "604800"),
+    )
+    .toBe(true);
+  await expect(page.getByLabel("接口流量历史")).toContainText("2.0 MiB/s");
+  await expect(page.getByLabel("接口流量历史")).not.toContainText("8.0 MiB/s");
+  expect(histories.some((url) => url.searchParams.get("range") === "60")).toBe(
+    true,
+  );
   await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
   await page
     .getByRole("button", { name: "开始抓包", exact: true })
@@ -530,6 +544,14 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   }
   await page.getByRole("button", { name: "切换夜间主题" }).click();
   await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
+  currentFailed = true;
+  await page.clock.install();
+  await page.clock.fastForward(10_001);
+  await page.getByRole("button", { name: "查看全部通信", exact: true }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "节点指标暂不可读取" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("接口流量历史")).not.toContainText("2.0 MiB/s");
 });
 import type { Identity, Operation, Schema } from "../src/api/client";
 

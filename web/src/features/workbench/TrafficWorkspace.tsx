@@ -336,6 +336,12 @@ export default function TrafficWorkspace({
       api.environmentMetrics(id, Number(range), signal, observedAsset),
     refetchInterval: 10_000,
   });
+  const current = useQuery({
+    queryKey: ["traffic-current", id, observedAsset],
+    queryFn: ({ signal }) =>
+      api.environmentMetrics(id, 60, signal, observedAsset),
+    refetchInterval: 10_000,
+  });
   const segments =
     captures.data?.segments.filter((segment) => segment.id === activeId) ?? [];
   const details = useQueries({
@@ -464,7 +470,10 @@ export default function TrafficWorkspace({
     0,
   );
   const latestRate = (metric: "receive" | "transmit") => {
-    const latest = latestMetric(history.data, metric);
+    const latest = latestMetric(
+      current.isError ? undefined : current.data,
+      metric,
+    );
     return latest === undefined ? "—" : volume(latest) + "/s";
   };
   const protocols = [...new Set(allFlows.map((flow) => flow.protocol))].sort();
@@ -483,6 +492,7 @@ export default function TrafficWorkspace({
   const errors = [
     live ? traffic.error : undefined,
     history.error,
+    current.error,
     captures.error,
     action.error,
     saveRole.error,
@@ -556,9 +566,9 @@ export default function TrafficWorkspace({
           </Button>
         </div>
       </header>
-      {errors.map((error, index) => (
-        <div key={index} className={styles.error} role="alert">
-          {error.message}
+      {[...new Set(errors.map((error) => error.message))].map((message) => (
+        <div key={message} className={styles.error} role="alert">
+          {message}
         </div>
       ))}
       {Object.entries(captures.data?.errors ?? {}).map(([node, error]) => (
