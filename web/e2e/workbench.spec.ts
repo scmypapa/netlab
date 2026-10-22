@@ -1056,6 +1056,8 @@ test("连接报文分页、协议树与字节联动", async ({ page }) => {
     destinationAssetId: "windows",
     protocol: "TCP",
     appProtocol: "HTTP",
+    nodeId: "one",
+    interfaceIndex: 0,
     sourcePort: 50000,
     destinationPort: 80,
     bytes: 800,
@@ -1150,6 +1152,11 @@ test("连接报文分页、协议树与字节联动", async ({ page }) => {
       .find((url) => url.pathname.endsWith("/packets"))
       ?.searchParams.get("protocol"),
   ).toBe("TCP");
+  expect(
+    requests
+      .find((url) => url.pathname.endsWith("/packets"))
+      ?.searchParams.get("interfaceIndex"),
+  ).toBe("0");
   await page.getByRole("button", { name: "更多报文" }).click();
   await page.getByRole("row").filter({ hasText: "HTTP frame 3" }).click();
   await expect

@@ -1,5 +1,5 @@
 import { ActionIcon, Button, Select, SegmentedControl } from "@mantine/core";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, Network } from "lucide-react";
 import { useState } from "react";
 import { api, type Schema } from "../../api/client";
@@ -60,9 +60,14 @@ export default function PacketWorkspace({
   const [packetNumber, setPacketNumber] = useState<number>();
   const [field, setField] = useState<Field>();
   const [pane, setPane] = useState("protocol");
+  const [cursors, setCursors] = useState<(number | undefined)[]>([undefined]);
   const chosen =
     segments.find((item) => item.nodeId === node) ??
+    segments.find((item) => item.nodeId === flow.nodeId) ??
     segments.find((item) => item.assetIds.includes(flow.sourceAssetId ?? "")) ??
+    segments.find((item) =>
+      item.assetIds.includes(flow.destinationAssetId ?? ""),
+    ) ??
     segments[0];
   const live = chosen?.status === "running" || chosen?.status === "starting";
   const filters = {
@@ -70,33 +75,39 @@ export default function PacketWorkspace({
     destination: flow.destination,
     sourcePort: flow.sourcePort,
     destinationPort: flow.destinationPort,
+    interfaceIndex:
+      chosen?.nodeId === flow.nodeId ? flow.interfaceIndex : undefined,
     protocol: ["TCP", "UDP", "ICMPv4", "ICMPv6", "ARP"].includes(flow.protocol)
       ? flow.protocol
       : undefined,
   };
-  const packets = useInfiniteQuery({
-    queryKey: [
-      "capture-packets",
-      environmentId,
-      captureId,
-      chosen?.nodeId,
-      filters,
-    ],
-    initialPageParam: undefined as number | undefined,
-    queryFn: ({ pageParam, signal }) =>
-      api.capturePackets(
+  const pages = useQueries({
+    queries: cursors.map((after, index) => ({
+      queryKey: [
+        "capture-packets",
         environmentId,
-        chosen!.nodeId,
         captureId,
-        { ...filters, after: pageParam },
-        signal,
-      ),
-    getNextPageParam: (last) => last.nextCursor,
-    enabled: !!chosen,
-    refetchInterval: (query) =>
-      live && query.state.data?.pages.length === 1 ? 2000 : false,
+        chosen?.nodeId,
+        filters,
+        after,
+      ],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api.capturePackets(
+          environmentId,
+          chosen!.nodeId,
+          captureId,
+          { ...filters, after },
+          signal,
+        ),
+      enabled: !!chosen,
+      refetchInterval:
+        live && index === cursors.length - 1 ? 2000 : (false as const),
+      staleTime: Infinity,
+    })),
   });
-  const rows = packets.data?.pages.flatMap((page) => page.packets) ?? [];
+  const packets = pages[pages.length - 1];
+  const nextCursor = packets.data?.nextCursor;
+  const rows = pages.flatMap((page) => page.data?.packets ?? []);
   const selected = packetNumber ?? rows[0]?.number;
   const detail = useQuery({
     queryKey: [
@@ -123,7 +134,9 @@ export default function PacketWorkspace({
     field.length > 0 &&
     index >= field.offset &&
     index < field.offset + field.length;
-  const errors = [packets.error, detail.error].filter(Boolean);
+  const errors = [...pages.map((page) => page.error), detail.error].filter(
+    Boolean,
+  );
   return (
     <section className={styles.workspace} aria-label="连接报文">
       <header className={styles.heading}>
@@ -146,6 +159,7 @@ export default function PacketWorkspace({
               setNode(value);
               setPacketNumber(undefined);
               setField(undefined);
+              setCursors([undefined]);
             }}
           />
         )}
@@ -223,13 +237,13 @@ export default function PacketWorkspace({
                 : "没有匹配报文"}
           </div>
         )}
-        {packets.hasNextPage && (
+        {nextCursor !== undefined && (
           <Button
             variant="subtle"
             size="xs"
             rightSection={<ChevronDown size={13} />}
-            loading={packets.isFetchingNextPage}
-            onClick={() => void packets.fetchNextPage()}
+            loading={packets.isFetching}
+            onClick={() => setCursors((current) => [...current, nextCursor])}
           >
             更多报文
           </Button>

@@ -2863,6 +2863,10 @@ export interface components {
       flows: components["schemas"]["CaptureFlow"][];
     };
     CaptureFlow: {
+      /** @description Node that owns this observation. */
+      nodeId?: string;
+      /** @description Original PCAPNG interface index; present for captured conversations. */
+      interfaceIndex?: number;
       source: string;
       destination: string;
       sourceAssetId?: string;
@@ -3517,6 +3521,7 @@ export interface operations {
         destination?: string;
         sourcePort?: number;
         destinationPort?: number;
+        interfaceIndex?: number;
         protocol?: string;
       };
       header?: never;

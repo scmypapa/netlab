@@ -163,6 +163,7 @@ paths:
         - {name: destination, in: query, schema: {type: string}}
         - {name: sourcePort, in: query, schema: {type: integer, minimum: 0, maximum: 65535}}
         - {name: destinationPort, in: query, schema: {type: integer, minimum: 0, maximum: 65535}}
+        - {name: interfaceIndex, in: query, schema: {type: integer, minimum: 0}}
         - {name: protocol, in: query, schema: {type: string}}
       responses:
         '200': {description: Original captured packets; connection filter includes both directions. Cursor is the last returned frame number., content: {application/json: {schema: {$ref: '#/components/schemas/CapturePacketPage'}}}}
@@ -2249,6 +2250,8 @@ components:
       type: object
       required: [source, destination, protocol, sourcePort, destinationPort, bytes, packets, bytesPerSecond, firstSeen, lastSeen]
       properties:
+        nodeId: {type: string, description: Node that owns this observation.}
+        interfaceIndex: {type: integer, minimum: 0, description: Original PCAPNG interface index; present for captured conversations.}
         source: {type: string}
         destination: {type: string}
         sourceAssetId: {type: string}

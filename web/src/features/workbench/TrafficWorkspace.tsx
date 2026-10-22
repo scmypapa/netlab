@@ -162,7 +162,7 @@ export default function TrafficWorkspace({
   const [level, setLevel] = useState<string | null>(null);
   const [selection, setSelection] = useState<TrafficSelection>();
   const [selectedAlert, setSelectedAlert] = useState<Alert>();
-  const [selectedFlow, setSelectedFlow] = useState<Flow>();
+  const [flowSelection, setSelectedFlow] = useState<Flow>();
   const [recordLimit, setRecordLimit] = useState(100);
   const [protocol, setProtocol] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
@@ -190,6 +190,24 @@ export default function TrafficWorkspace({
     level: level ?? undefined,
     search: mode === "risk" ? search : undefined,
   });
+  const selectedFlow =
+    flowSelection &&
+    (data.flows.find((flow) =>
+      (
+        [
+          "source",
+          "destination",
+          "sourceAssetId",
+          "destinationAssetId",
+          "sourcePort",
+          "destinationPort",
+          "protocol",
+          "nodeId",
+          "interfaceIndex",
+        ] as const
+      ).every((key) => flow[key] === flowSelection[key]),
+    ) ??
+      flowSelection);
   const groups = useMemo(
     () =>
       new Map(
@@ -519,6 +537,8 @@ export default function TrafficWorkspace({
                 selectedFlow.sourcePort,
                 selectedFlow.destinationPort,
                 selectedFlow.protocol,
+                selectedFlow.nodeId,
+                selectedFlow.interfaceIndex,
               ].join("/")}
               environmentId={environment.id}
               captureId={captureId}

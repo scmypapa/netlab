@@ -53,9 +53,23 @@ func TestPacketReadAndConnectionFilter(t *testing.T) {
 	if packets[2].Number != 3 || packets[0].CapturedLength != packets[0].Length || packets[0].Protocol != "UDP" {
 		t.Fatal(packets)
 	}
-	for _, values := range []url.Values{{"after": {"-1"}}, {"limit": {"201"}}, {"sourcePort": {"65536"}}, {"destinationPort": {"text"}}} {
+	for _, values := range []url.Values{{"after": {"-1"}}, {"limit": {"201"}}, {"sourcePort": {"65536"}}, {"destinationPort": {"text"}}, {"interfaceIndex": {"-1"}}} {
 		if _, err := ParsePacketQuery(values); err == nil {
 			t.Fatal("invalid query accepted", values)
+		}
+	}
+}
+
+func TestPacketInterfaceSeparatesOverlappingAddresses(t *testing.T) {
+	q, err := ParsePacketQuery(url.Values{"source": {"192.0.2.1"}, "destination": {"192.0.2.2"}, "interfaceIndex": {"1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := sampleFrame(t)
+	for _, index := range []int{0, 1} {
+		packet := summarizePacket(1, frame, gopacket.CaptureInfo{InterfaceIndex: index}, layers.LinkTypeEthernet)
+		if q.matches(packet) != (index == 1) {
+			t.Fatal("identical addresses mixed between capture interfaces", packet)
 		}
 	}
 }

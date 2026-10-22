@@ -21,6 +21,7 @@ type PacketQuery struct {
 	Limit                         int
 	Source, Destination, Protocol string
 	SourcePort, DestinationPort   *int
+	InterfaceIndex                *int
 }
 
 func ParsePacketQuery(values url.Values) (PacketQuery, error) {
@@ -39,6 +40,13 @@ func ParsePacketQuery(values url.Values) (PacketQuery, error) {
 		}
 		q.Limit = n
 	}
+	if value := values.Get("interfaceIndex"); value != "" {
+		index, err := strconv.Atoi(value)
+		if err != nil || index < 0 {
+			return q, fmt.Errorf("interfaceIndex 应为非负接口编号")
+		}
+		q.InterfaceIndex = &index
+	}
 	for _, field := range []struct {
 		name   string
 		target **int
@@ -55,6 +63,9 @@ func ParsePacketQuery(values url.Values) (PacketQuery, error) {
 }
 
 func (q PacketQuery) matches(packet api.CapturePacket) bool {
+	if q.InterfaceIndex != nil && packet.InterfaceIndex != *q.InterfaceIndex {
+		return false
+	}
 	if q.Protocol != "" && !strings.EqualFold(q.Protocol, packet.Protocol) {
 		return false
 	}

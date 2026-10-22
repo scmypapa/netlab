@@ -574,13 +574,19 @@ type CaptureFlow struct {
 	DestinationAssetName *string   `json:"destinationAssetName,omitempty"`
 	DestinationPort      int       `json:"destinationPort"`
 	FirstSeen            time.Time `json:"firstSeen"`
-	LastSeen             time.Time `json:"lastSeen"`
-	Packets              int64     `json:"packets"`
-	Protocol             string    `json:"protocol"`
-	Source               string    `json:"source"`
-	SourceAssetId        *string   `json:"sourceAssetId,omitempty"`
-	SourceAssetName      *string   `json:"sourceAssetName,omitempty"`
-	SourcePort           int       `json:"sourcePort"`
+
+	// InterfaceIndex Original PCAPNG interface index; present for captured conversations.
+	InterfaceIndex *int      `json:"interfaceIndex,omitempty"`
+	LastSeen       time.Time `json:"lastSeen"`
+
+	// NodeId Node that owns this observation.
+	NodeId          *string `json:"nodeId,omitempty"`
+	Packets         int64   `json:"packets"`
+	Protocol        string  `json:"protocol"`
+	Source          string  `json:"source"`
+	SourceAssetId   *string `json:"sourceAssetId,omitempty"`
+	SourceAssetName *string `json:"sourceAssetName,omitempty"`
+	SourcePort      int     `json:"sourcePort"`
 }
 
 // CaptureInterface defines model for CaptureInterface.
@@ -2198,6 +2204,7 @@ type CapturePacketsParams struct {
 	Destination     *string `form:"destination,omitempty" json:"destination,omitempty"`
 	SourcePort      *int    `form:"sourcePort,omitempty" json:"sourcePort,omitempty"`
 	DestinationPort *int    `form:"destinationPort,omitempty" json:"destinationPort,omitempty"`
+	InterfaceIndex  *int    `form:"interfaceIndex,omitempty" json:"interfaceIndex,omitempty"`
 	Protocol        *string `form:"protocol,omitempty" json:"protocol,omitempty"`
 }
 

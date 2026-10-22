@@ -56,6 +56,7 @@ type Sample struct {
 	At, LastSeen                                             time.Time
 	Source, Destination, SourceMAC, DestinationMAC, Protocol string
 	AppProtocol                                              string
+	CaptureIndex                                             *int
 	SourcePort, DestinationPort                              int
 	PortName                                                 string
 	Bytes, Packets, Samples                                  int64
@@ -140,7 +141,7 @@ func (a *aggregate) add(line string) error {
 	}
 	a.addSample(Sample{At: time.Unix(0, int64(epoch*1e9)).UTC(), Bytes: size, Packets: 1, Samples: 1, PortName: a.capturePorts[index],
 		Source: first(f[4], f[6], f[2]), Destination: first(f[5], f[7], f[3]), SourceMAC: f[2], DestinationMAC: f[3],
-		SourcePort: port(first(f[8], f[10])), DestinationPort: port(first(f[9], f[11])), Protocol: protocol, AppProtocol: application})
+		SourcePort: port(first(f[8], f[10])), DestinationPort: port(first(f[9], f[11])), Protocol: protocol, AppProtocol: application, CaptureIndex: &index})
 	return nil
 }
 
@@ -181,6 +182,8 @@ func (a *aggregate) addSample(sample Sample) {
 	flow := &entry.flow
 	if !exists {
 		*flow = api.CaptureFlow{Source: source, Destination: destination, Protocol: sample.Protocol, SourcePort: sp, DestinationPort: dp, FirstSeen: at}
+		node := a.node
+		flow.NodeId, flow.InterfaceIndex = &node, sample.CaptureIndex
 		if srcKnown {
 			id := src.AssetId
 			flow.SourceAssetId = &id

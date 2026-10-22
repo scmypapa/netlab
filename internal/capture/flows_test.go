@@ -67,7 +67,7 @@ func TestApplicationAndTCPFramesShareConversation(t *testing.T) {
 		}
 	}
 	flows := a.snapshot()
-	if len(flows) != 1 || flows[0].Protocol != "TCP" || flows[0].AppProtocol == nil || *flows[0].AppProtocol != "HTTP" || flows[0].Packets != 2 {
+	if len(flows) != 1 || flows[0].Protocol != "TCP" || flows[0].AppProtocol == nil || *flows[0].AppProtocol != "HTTP" || flows[0].Packets != 2 || flows[0].NodeId == nil || *flows[0].NodeId != "one" || flows[0].InterfaceIndex == nil || *flows[0].InterfaceIndex != 0 {
 		t.Fatal(flows)
 	}
 }

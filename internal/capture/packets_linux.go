@@ -77,6 +77,9 @@ func (m *Manager) Packet(ctx context.Context, id, environment string, number int
 	}
 	data, err := command.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
 		if exit, ok := err.(*exec.ExitError); ok {
 			return result, fmt.Errorf("报文解析失败：%s", exit.Stderr)
 		}
