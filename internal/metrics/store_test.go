@@ -45,7 +45,7 @@ func TestMetricsStorage(t *testing.T) {
 	if !strings.Contains(imported, "asset=\"a\\\"b\"") || !strings.HasSuffix(imported, " 2 1700000000000\n") {
 		t.Fatal(imported)
 	}
-	history, err := store.History(context.Background(), "env", "a\"b", time.Unix(1700000000, 0), time.Unix(1700000030, 0), 10)
+	history, err := store.History(context.Background(), Filter{Environment: "env", Asset: "a\"b"}, time.Unix(1700000000, 0), time.Unix(1700000030, 0), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,34 @@ func TestMetricsStorageFailure(t *testing.T) {
 	if err := store.Import(context.Background(), strings.NewReader("")); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatal(err)
 	}
-	if _, err := store.History(context.Background(), "env", "", time.Now().Add(-time.Minute), time.Now(), 10); err == nil || !strings.Contains(err.Error(), "disk full") {
+	if _, err := store.History(context.Background(), Filter{Environment: "env"}, time.Now().Add(-time.Minute), time.Now(), 10); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatal(err)
+	}
+}
+
+func TestHistoryScopes(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		filter Filter
+		want   []string
+		absent []string
+	}{
+		{"environment", Filter{Environment: "lab", Aggregate: true}, []string{`sum(rate(netlab_cpu_seconds_total{environment="lab"}[1m])`, `sum(last_over_time(netlab_memory_bytes`}, []string{"cpu_capacity"}},
+		{"node", Filter{Node: "worker"}, []string{`environment="",node="worker"`, "netlab_memory_available_bytes", "netlab_disk_used_bytes", "netlab_cpu_capacity"}, []string{"sum("}},
+		{"cluster", Filter{Aggregate: true}, []string{`sum(rate(netlab_cpu_seconds_total{environment=""}[1m])`, `sum(last_over_time(netlab_cpu_capacity`}, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query := historyQuery(test.filter)
+			for _, term := range test.want {
+				if !strings.Contains(query, term) {
+					t.Errorf("missing %q in %s", term, query)
+				}
+			}
+			for _, term := range test.absent {
+				if strings.Contains(query, term) {
+					t.Errorf("unexpected %q in %s", term, query)
+				}
+			}
+		})
 	}
 }

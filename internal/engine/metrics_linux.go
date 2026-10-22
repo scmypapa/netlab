@@ -21,7 +21,10 @@ import (
 )
 
 func (e *Engine) Metrics(ctx context.Context) ([]metrics.Sample, error) {
-	samples := []metrics.Sample{}
+	samples, err := metrics.Host(e.cfg.ID, e.cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
 	if e.container != nil {
 		ctx = namespaces.WithNamespace(ctx, "netlab")
 		items, err := e.container.client.Containers(ctx, "labels.\""+assetLabel+"\"")
