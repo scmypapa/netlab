@@ -78,7 +78,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 * **免客户端运维**：网页原生集成终端（xterm.js）、VM VNC、串口（Serial）、SSH，以及由 Guacamole 驱动的 RDP（支持剪贴板与窗口缩放自适应）。
 * **接口抓包**：直接从虚拟网卡采集，保留真实网段与接口身份。支持 BPF 规则过滤，直出 PCAPNG 文件。
 * **流向可视化**：基于 sFlow（采样率 1/512）在画布上实时绘制通信拓扑箭头与连接明细。
-* **时序监控**：收集 CPU、内存（VM 采 QEMU 进程 RSS，容器采 cgroup）、磁盘 I/O、网卡速率与丢包计数，存入 VictoriaMetrics。
+* **时序监控**：提供环境、节点和集群性能视图；CPU、内存、磁盘 I/O、网卡速率与丢包计数每 10 秒采集，历史保留 30 天。VM 内存按 QEMU 进程 RSS 统计，容器按 cgroup 统计。
 
 ### 4. 存储、快照与灾备
 
@@ -118,7 +118,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.0.2/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.0.3/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
