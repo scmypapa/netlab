@@ -20,14 +20,14 @@ type samplePort struct {
 	ingress, egress uint32
 }
 
-func (port samplePort) resolve(interfaces map[uint32]string) string {
+func (port samplePort) resolve(interfaces map[uint32]string) (string, uint8) {
 	if port.name != "" {
-		return port.name
+		return port.name, 0
 	}
 	if name := interfaces[port.ingress]; name != "" {
-		return name
+		return name, sourcePortSide
 	}
-	return interfaces[port.egress]
+	return interfaces[port.egress], destinationPortSide
 }
 
 type sampleKey struct {
@@ -137,7 +137,7 @@ func (s *Sampler) ingest(data []byte, now time.Time) error {
 			if sample.Source == "" || sample.Destination == "" {
 				continue
 			}
-			port.name = port.resolve(s.interfaces)
+			port.name, sample.portSide = port.resolve(s.interfaces)
 			sample.PortName = port.name
 			s.add(sample, port)
 			break
@@ -242,7 +242,8 @@ func (s *Sampler) snapshot(interfaces []api.CaptureInterface, resolved map[uint3
 	for _, drop := range s.omitted {
 		if drop.second > now.Unix()-ObservationWindow {
 			for port, count := range drop.ports {
-				if ports[port.resolve(resolved)] {
+				name, _ := port.resolve(resolved)
+				if ports[name] {
 					omitted += count
 				}
 			}
@@ -251,7 +252,7 @@ func (s *Sampler) snapshot(interfaces []api.CaptureInterface, resolved map[uint3
 	for index := range s.samples {
 		observed := &s.samples[index]
 		if observed.PortName == "" {
-			observed.PortName = observed.key.port.resolve(resolved)
+			observed.PortName, observed.portSide = observed.key.port.resolve(resolved)
 		}
 		if ports[observed.PortName] && now.Sub(observed.LastSeen) <= ObservationWindow*time.Second {
 			samples = append(samples, observed.Sample)

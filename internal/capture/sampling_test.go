@@ -59,6 +59,21 @@ func fixtureSampler(node string, interfaces map[uint32]string) *Sampler {
 	return &Sampler{node: node, interfaces: interfaces, index: map[sampleKey]int{}}
 }
 
+func sampleARPFrame(t testing.TB, source string) []byte {
+	t.Helper()
+	mac, err := net.ParseMAC(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ether := &layers.Ethernet{SrcMAC: mac, DstMAC: net.HardwareAddr{255, 255, 255, 255, 255, 255}, EthernetType: layers.EthernetTypeARP}
+	arp := &layers.ARP{AddrType: layers.LinkTypeEthernet, Protocol: layers.EthernetTypeIPv4, HwAddressSize: 6, ProtAddressSize: 4, Operation: 1, SourceHwAddress: mac, SourceProtAddress: []byte{192, 0, 2, 1}, DstHwAddress: make([]byte, 6), DstProtAddress: []byte{192, 0, 2, 2}}
+	buffer := gopacket.NewSerializeBuffer()
+	if err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{FixLengths: true}, ether, arp); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
 func TestSampleWeightWindowIsolationAndOwnership(t *testing.T) {
 	now := time.Now().UTC()
 	resolved := map[uint32]string{7: "client-port", 8: "other-port"}
@@ -251,18 +266,52 @@ func TestSamplingBroadcastAndCrossNodeOwnership(t *testing.T) {
 	if len(second.Flows) != 1 || second.Flows[0].SourceAssetId != nil || *second.Flows[0].DestinationAssetId != "receiver" {
 		t.Fatal("external inbound lost", second)
 	}
-	ether := &layers.Ethernet{SrcMAC: net.HardwareAddr{2, 0, 0, 0, 0, 1}, DstMAC: net.HardwareAddr{255, 255, 255, 255, 255, 255}, EthernetType: layers.EthernetTypeARP}
-	arp := &layers.ARP{AddrType: layers.LinkTypeEthernet, Protocol: layers.EthernetTypeIPv4, HwAddressSize: 6, ProtAddressSize: 4, Operation: 1, SourceHwAddress: ether.SrcMAC, SourceProtAddress: []byte{192, 0, 2, 1}, DstHwAddress: make([]byte, 6), DstProtAddress: []byte{192, 0, 2, 2}}
-	buffer := gopacket.NewSerializeBuffer()
-	if err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{FixLengths: true}, ether, arp); err != nil {
-		t.Fatal(err)
-	}
-	if err := one.ingest(sampleDatagram(buffer.Bytes(), 7, 2<<30|2), now); err != nil {
+	frame := sampleARPFrame(t, "02:00:00:00:00:01")
+	if err := one.ingest(sampleDatagram(frame, 7, 2<<30|2), now); err != nil {
 		t.Fatal(err)
 	}
 	first, _ = one.snapshot(interfaces, one.interfaces, now)
 	if len(first.Flows) != 2 {
 		t.Fatal("broadcast with multiple output interfaces lost", first)
+	}
+	if err := two.ingest(sampleDatagram(frame, 999, 8), now); err != nil {
+		t.Fatal(err)
+	}
+	if value, _ := two.snapshot(interfaces, two.interfaces, now); len(value.Flows) != 1 {
+		t.Fatal("managed broadcast counted at both nodes", value)
+	}
+}
+
+func TestExternalL2FrameUsesObservedPortWithoutInventingAnEndpoint(t *testing.T) {
+	now := time.Now().UTC()
+	resolved := map[uint32]string{8: "receiver-port"}
+	s := fixtureSampler("one", nil)
+	interfaces := []api.CaptureInterface{{AssetId: "receiver", NodeId: "one", PortName: "receiver-port", Mac: "02:00:00:00:00:02", Address: "192.0.2.2"}}
+	frame := sampleARPFrame(t, "00:11:22:33:44:55")
+	if err := s.ingest(sampleDatagram(frame, 999, 8), now); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.snapshot(interfaces, resolved, now)
+	if err != nil || len(result.Flows) != 1 {
+		t.Fatalf("external ingress lost: %+v %v", result, err)
+	}
+	flow := result.Flows[0]
+	if flow.SourceAssetId != nil || flow.DestinationAssetId == nil || *flow.DestinationAssetId != "receiver" || flow.Source != "00:11:22:33:44:55" || flow.Destination != "ff:ff:ff:ff:ff:ff" || flow.Protocol != "ARP" {
+		t.Fatal("observed delivery changed packet identities", flow)
+	}
+	if err := s.ingest(sampleDatagram(frame, 999, 2<<30|4), now); err != nil {
+		t.Fatal(err)
+	}
+	result, _ = s.snapshot(interfaces, resolved, now)
+	if len(result.Flows) != 1 || result.Flows[0].Packets != SamplingRate {
+		t.Fatal("unknown multicast outputs falsely assigned to asset", result)
+	}
+	if err := s.ingest(sampleDatagram(frame, 8), now); err != nil {
+		t.Fatal(err)
+	}
+	result, _ = s.snapshot(interfaces, resolved, now)
+	if len(result.Flows) != 2 {
+		t.Fatal("forwarded external L2 egress lost", result)
 	}
 }
 

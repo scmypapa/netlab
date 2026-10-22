@@ -46,6 +46,11 @@ type conversation struct {
 }
 type endpointKey struct{ network, value string }
 
+const (
+	sourcePortSide uint8 = iota + 1
+	destinationPortSide
+)
+
 // Sample is either one captured frame or a statistically weighted sFlow sample.
 type Sample struct {
 	At, LastSeen                                             time.Time
@@ -53,6 +58,7 @@ type Sample struct {
 	SourcePort, DestinationPort                              int
 	PortName                                                 string
 	Bytes, Packets, Samples                                  int64
+	portSide                                                 uint8
 }
 
 func (sample Sample) key() packetKey {
@@ -133,6 +139,15 @@ func (a *aggregate) addSample(sample Sample) {
 	network := a.ports[sample.PortName].NetworkId
 	src, srcKnown := a.endpoint(source, sample.SourceMAC, network)
 	dst, dstKnown := a.endpoint(destination, sample.DestinationMAC, network)
+	// The sampled attachment identifies the local endpoint even for external L2 broadcasts.
+	if local := a.ports[sample.PortName]; local.AssetId != "" {
+		if !srcKnown && sample.portSide == sourcePortSide {
+			src, srcKnown = local, true
+		}
+		if !dstKnown && sample.portSide == destinationPortSide {
+			dst, dstKnown = local, true
+		}
+	}
 	// A cross-node packet contributes once: selected sender first, otherwise selected receiver.
 	owner := api.CaptureInterface{}
 	if srcKnown && a.selected[src.AssetId] {
