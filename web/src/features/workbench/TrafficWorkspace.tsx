@@ -29,6 +29,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Environment, type Schema } from "../../api/client";
 import { MetricChart, latestMetric } from "../../foundation/MetricChart";
+import { byteUnit, reading } from "../../foundation/format";
 import styles from "./TrafficWorkspace.module.css";
 
 type Flow = Schema<"CaptureFlow">;
@@ -57,12 +58,11 @@ const trafficMeasures: Schema<"MetricSeries">["metric"][] = [
 const endpoint = (flow: Flow, side: "source" | "destination") =>
   flow[side === "source" ? "sourceAssetId" : "destinationAssetId"] ??
   flow[side];
-const volume = (bytes: number) =>
-  bytes >= 1048576
-    ? (bytes / 1048576).toFixed(1) + " MiB"
-    : bytes >= 1024
-      ? (bytes / 1024).toFixed(1) + " KiB"
-      : bytes + " B";
+const volume = (bytes: number) => {
+  const { scale, unit } = byteUnit(bytes);
+  return reading(bytes, scale) + " " + unit;
+};
+const trafficColors = ["#3975d8", "#1ba790"];
 const stateTitle = {
   starting: "等待流量",
   running: "抓包中",
@@ -476,6 +476,18 @@ export default function TrafficWorkspace({
     );
     return latest === undefined ? "—" : volume(latest) + "/s";
   };
+  const historyUnit = byteUnit(
+    history.data?.series.reduce(
+      (peak, series) =>
+        trafficMeasures.includes(series.metric)
+          ? series.points.reduce(
+              (max, point) => Math.max(max, point.value),
+              peak,
+            )
+          : peak,
+      0,
+    ) ?? 0,
+  );
   const protocols = [...new Set(allFlows.map((flow) => flow.protocol))].sort();
   const sessions = [
     { value: "live", label: "实时通信" },
@@ -621,9 +633,10 @@ export default function TrafficWorkspace({
               <MetricChart
                 history={history.data}
                 measures={trafficMeasures}
-                unit="MiB/s"
-                scale={2 ** 20}
+                unit={historyUnit.unit + "/s"}
+                scale={historyUnit.scale}
                 seriesBy="metric"
+                colors={trafficColors}
               />
             ) : (
               <div className={styles.historyEmpty}>

@@ -7,6 +7,8 @@ import {
   LegendComponent,
   TooltipComponent,
   AriaComponent,
+  AxisPointerComponent,
+  DataZoomInsideComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { Schema } from "../api/client";
@@ -18,6 +20,8 @@ echarts.use([
   LegendComponent,
   TooltipComponent,
   AriaComponent,
+  AxisPointerComponent,
+  DataZoomInsideComponent,
   CanvasRenderer,
 ]);
 export type History = Schema<"MetricHistory">;
@@ -66,6 +70,9 @@ export function latestMetric(
     0,
   );
 }
+const metricNumber = (value: number, digits = 4) =>
+  value.toLocaleString("zh-CN", { maximumSignificantDigits: digits });
+
 export function MetricChart({
   history,
   measures,
@@ -73,6 +80,8 @@ export function MetricChart({
   scale = 1,
   names = emptyNames,
   seriesBy = "interface",
+  colors,
+  group,
 }: {
   history: History;
   measures: Metric[];
@@ -80,6 +89,8 @@ export function MetricChart({
   scale?: number;
   names?: ReadonlyMap<string, string>;
   seriesBy?: "metric" | "asset" | "node" | "interface";
+  colors?: string[];
+  group?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.EChartsType>(null);
@@ -87,6 +98,10 @@ export function MetricChart({
   useEffect(() => {
     const current = echarts.init(host.current!);
     chart.current = current;
+    if (group) {
+      current.group = group;
+      echarts.connect(group);
+    }
     const observer = new ResizeObserver(() => current.resize());
     observer.observe(host.current!);
     return () => {
@@ -94,15 +109,25 @@ export function MetricChart({
       current.dispose();
       chart.current = null;
     };
-  }, [theme]);
+  }, [theme, group]);
   useEffect(() => {
     const css = getComputedStyle(host.current!);
     const muted = css.getPropertyValue("--muted").trim();
     const line = css.getPropertyValue("--line").trim();
+    const text = css.getPropertyValue("--text").trim();
+    const surface = css.getPropertyValue("--surface").trim();
+    const palette = colors ?? [
+      css.getPropertyValue("--accent").trim(),
+      theme === "dark" ? "#7eabf1" : "#3975d8",
+      "#dc8b39",
+      "#9861c7",
+      "#d25e77",
+      "#5b95a7",
+    ];
     const readings: string[] = [];
     const series = history.series
       .filter((item) => measures.includes(item.metric))
-      .map((item) => {
+      .map((item, index) => {
         const points: [number, number | null][] = [];
         const step = history.stepSeconds * 1000;
         let previous = Date.parse(history.start);
@@ -133,9 +158,7 @@ export function MetricChart({
           readings.push(
             name +
               " " +
-              (latest.value / scale).toLocaleString(undefined, {
-                maximumFractionDigits: 3,
-              }) +
+              metricNumber(latest.value / scale, 5) +
               " " +
               unit +
               "，" +
@@ -148,7 +171,26 @@ export function MetricChart({
           showSymbol: false,
           sampling: "lttb" as const,
           connectNulls: false,
-          lineStyle: { width: 1.8 },
+          lineStyle: { width: 2 },
+          symbolSize: 5,
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              {
+                offset: 0,
+                color: echarts.color.modifyAlpha(
+                  palette[index % palette.length],
+                  theme === "dark" ? 0.22 : 0.14,
+                ),
+              },
+              {
+                offset: 1,
+                color: echarts.color.modifyAlpha(
+                  palette[index % palette.length],
+                  0.01,
+                ),
+              },
+            ]),
+          },
           emphasis: { focus: "series" as const },
         };
       });
@@ -166,31 +208,47 @@ export function MetricChart({
                 : "暂无记录"),
           },
         },
-        color: [
-          "#3975d8",
-          "#1ba790",
-          "#dc8b39",
-          "#9861c7",
-          "#d25e77",
-          "#5b95a7",
-        ],
-        grid: { left: 46, right: 16, top: 12, bottom: 42 },
+        color: palette,
+        grid: { left: 12, right: 18, top: 30, bottom: 36, containLabel: true },
         tooltip: {
           trigger: "axis",
           confine: true,
-          valueFormatter: (value: number) =>
-            Number(value).toLocaleString(undefined, {
-              maximumFractionDigits: 3,
-            }) +
-            " " +
-            unit,
+          renderMode: "richText",
+          backgroundColor: surface,
+          borderColor: line,
+          padding: [10, 14],
+          textStyle: { color: text, fontSize: 12 },
+          order: "valueDesc",
+          axisPointer: {
+            type: "cross",
+            animation: false,
+            lineStyle: { color: muted, type: "dashed", opacity: 0.5 },
+            crossStyle: { color: muted, type: "dashed", opacity: 0.5 },
+            label: {
+              backgroundColor: surface,
+              borderColor: line,
+              borderWidth: 1,
+              color: text,
+              formatter: (point: { axisDimension: string; value: number }) =>
+                point.axisDimension === "x"
+                  ? new Date(point.value).toLocaleString()
+                  : metricNumber(Number(point.value)) + " " + unit,
+            },
+          },
+          valueFormatter: (value: number | null) =>
+            value === null ? "—" : metricNumber(Number(value), 5) + " " + unit,
         },
         xAxis: {
           type: "time",
           min: Date.parse(history.start),
           max: Date.parse(history.end),
           axisLine: { lineStyle: { color: line } },
-          axisLabel: { color: muted, hideOverlap: true },
+          axisLabel: {
+            color: muted,
+            hideOverlap: true,
+            fontSize: 10,
+            margin: 12,
+          },
           axisTick: { show: false },
           splitLine: { show: false },
         },
@@ -198,23 +256,49 @@ export function MetricChart({
           type: "value",
           min: 0,
           splitNumber: 3,
-          axisLabel: { color: muted },
-          splitLine: { lineStyle: { color: line, type: "dashed" } },
+          name: unit,
+          nameTextStyle: {
+            color: muted,
+            align: "left",
+            fontSize: 10,
+            padding: [0, 0, 2, 0],
+          },
+          axisLabel: {
+            color: muted,
+            fontSize: 10,
+            formatter: (value: number) => metricNumber(value, 3),
+          },
+          splitLine: {
+            lineStyle: { color: line, type: "dashed", opacity: 0.7 },
+          },
         },
         legend: {
           show: measures.length > 1 || series.length > 1,
           bottom: 0,
+          left: 12,
           type: "scroll",
-          textStyle: { color: muted },
+          textStyle: { color: muted, fontSize: 11 },
           icon: "roundRect",
           itemWidth: 12,
           itemHeight: 3,
         },
+        dataZoom: [
+          {
+            id: "time-window",
+            type: "inside",
+            xAxisIndex: 0,
+            filterMode: "none",
+            zoomOnMouseWheel: "ctrl",
+            moveOnMouseWheel: false,
+            moveOnMouseMove: false,
+            preventDefaultMouseMove: false,
+          },
+        ],
         series,
       },
       { replaceMerge: ["series"] },
     );
-  }, [history, measures, unit, scale, names, seriesBy, theme]);
+  }, [history, measures, unit, scale, names, seriesBy, theme, colors, group]);
   return (
     <div
       ref={host}
