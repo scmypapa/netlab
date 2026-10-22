@@ -4,8 +4,10 @@ import {
   Modal,
   MultiSelect,
   NumberInput,
+  SegmentedControl,
   Select,
   TextInput,
+  useComputedColorScheme,
 } from "@mantine/core";
 import {
   useMutation,
@@ -16,6 +18,8 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowDownLeft,
+  ArrowUpRight,
   Download,
   Pause,
   Radio,
@@ -24,6 +28,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Environment, type Schema } from "../../api/client";
+import { MetricChart, latestMetric } from "../../foundation/MetricChart";
 import styles from "./TrafficWorkspace.module.css";
 
 type Flow = Schema<"CaptureFlow">;
@@ -38,6 +43,16 @@ const palette = [
   "#e7a148",
   "#dd7295",
   "#63aaa8",
+];
+const historyRanges = [
+  { label: "15 分钟", value: "900" },
+  { label: "1 小时", value: "3600" },
+  { label: "24 小时", value: "86400" },
+  { label: "7 天", value: "604800" },
+];
+const trafficMeasures: Schema<"MetricSeries">["metric"][] = [
+  "receive",
+  "transmit",
 ];
 const endpoint = (flow: Flow, side: "source" | "destination") =>
   flow[side === "source" ? "sourceAssetId" : "destinationAssetId"] ??
@@ -60,18 +75,23 @@ function CommunicationGraph({
   flows,
   groups,
   colors,
+  selection,
+  role,
   onSelect,
 }: {
   environment: Environment;
   flows: Flow[];
   groups: Map<string, string>;
   colors: Map<string, string>;
+  selection?: Selection;
+  role: string | null;
   onSelect: (selection: Selection) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   const [failure, setFailure] = useState<Error>();
   const chart = useRef<import("echarts/core").ECharts | undefined>(undefined);
+  const theme = useComputedColorScheme();
   useEffect(() => {
     let disposed = false;
     let resize: ResizeObserver | undefined;
@@ -153,7 +173,11 @@ function CommunicationGraph({
       getComputedStyle(host.current!).getPropertyValue("--text").trim() ||
       "#b7c1cc";
     const data = [...nodes.values()]
-      .filter((node) => visibleNodes.has(node.id))
+      .filter(
+        (node) =>
+          visibleNodes.has(node.id) ||
+          (groups.has(node.id) && (!role || node.role === role)),
+      )
       .map((node) => {
         const row = rows.get(node.role) ?? 0;
         rows.set(node.role, row + 1);
@@ -162,7 +186,14 @@ function CommunicationGraph({
           x: roles.indexOf(node.role) * 250,
           y: row * 95,
           symbolSize: node.role === "外部" ? 24 : 36,
-          itemStyle: { color: colors.get(node.role) ?? "#8b94a6" },
+          itemStyle: {
+            color: colors.get(node.role) ?? "#8b94a6",
+            borderWidth:
+              selection && "asset" in selection && selection.asset === node.id
+                ? 3
+                : 0,
+            borderColor: textColor,
+          },
           label: {
             show: true,
             position: "bottom",
@@ -199,7 +230,18 @@ function CommunicationGraph({
             lineStyle: {
               color: colors.get(groups.get(link.source) ?? "外部") ?? "#8b94a6",
               width: 1 + Math.min(7, Math.log10(1 + link.rate / 1024)),
-              opacity: 0.7,
+              opacity:
+                selection && "source" in selection
+                  ? link.source === selection.source &&
+                    link.target === selection.destination
+                    ? 1
+                    : 0.15
+                  : selection && "asset" in selection
+                    ? link.source === selection.asset ||
+                      link.target === selection.asset
+                      ? 0.9
+                      : 0.15
+                    : 0.65,
               curveness: 0.12,
             },
           })),
@@ -220,7 +262,17 @@ function CommunicationGraph({
         onSelect({ source: item.data.source, destination: item.data.target });
       else onSelect({ asset: item.data.id });
     });
-  }, [ready, environment, flows, groups, colors, onSelect]);
+  }, [
+    ready,
+    environment,
+    flows,
+    groups,
+    colors,
+    selection,
+    role,
+    onSelect,
+    theme,
+  ]);
   return (
     <>
       <div
@@ -249,6 +301,7 @@ export default function TrafficWorkspace({
   const [selection, setSelection] = useState<Selection>();
   const [protocol, setProtocol] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [range, setRange] = useState("3600");
   const [creating, setCreating] = useState(false);
   const spec = environment.appliedSpec ?? environment.spec;
   const [assetIds, setAssetIds] = useState<string[]>(
@@ -260,7 +313,8 @@ export default function TrafficWorkspace({
   const captures = useQuery({
     queryKey: ["captures", id],
     queryFn: ({ signal }) => api.captures(id, signal),
-    refetchInterval: 3000,
+    refetchInterval: (query) =>
+      query.state.data?.segments.some(activeCapture) ? 3000 : false,
   });
   const activeId = captureId;
   const live = activeId === "live";
@@ -268,7 +322,19 @@ export default function TrafficWorkspace({
     queryKey: ["traffic", id],
     queryFn: ({ signal }) => api.traffic(id, signal),
     enabled: live,
-    refetchInterval: live ? 2000 : false,
+    refetchInterval: live ? 5000 : false,
+  });
+  const observedAsset =
+    selection &&
+    "asset" in selection &&
+    spec.assets.some((asset) => asset.id === selection.asset)
+      ? selection.asset
+      : "";
+  const history = useQuery({
+    queryKey: ["traffic-history", id, observedAsset, range],
+    queryFn: ({ signal }) =>
+      api.environmentMetrics(id, Number(range), signal, observedAsset),
+    refetchInterval: 10_000,
   });
   const segments =
     captures.data?.segments.filter((segment) => segment.id === activeId) ?? [];
@@ -397,9 +463,13 @@ export default function TrafficWorkspace({
     (sum, flow) => sum + flow.bytesPerSecond,
     0,
   );
+  const latestRate = (metric: "receive" | "transmit") => {
+    const latest = latestMetric(history.data, metric);
+    return latest === undefined ? "—" : volume(latest) + "/s";
+  };
   const protocols = [...new Set(allFlows.map((flow) => flow.protocol))].sort();
   const sessions = [
-    { value: "live", label: "实时流量" },
+    { value: "live", label: "实时通信" },
     ...new Map(
       (captures.data?.segments ?? []).map((segment) => [
         segment.id,
@@ -412,6 +482,7 @@ export default function TrafficWorkspace({
   ];
   const errors = [
     live ? traffic.error : undefined,
+    history.error,
     captures.error,
     action.error,
     saveRole.error,
@@ -438,7 +509,7 @@ export default function TrafficWorkspace({
             }
           >
             {live
-              ? "采样估算 1/512"
+              ? "实时"
               : segments.some((segment) => activeCapture(segment))
                 ? "抓包实测"
                 : "抓包记录"}
@@ -513,7 +584,45 @@ export default function TrafficWorkspace({
       ))}
       <div className={styles.body}>
         <div className={styles.visual}>
+          <section className={styles.history} aria-label="接口流量历史">
+            <header className={styles.historyHeader}>
+              <strong>
+                {observedAsset ? name(observedAsset) : "环境接口"}
+              </strong>
+              <SegmentedControl
+                size="xs"
+                data={historyRanges}
+                value={range}
+                onChange={setRange}
+                aria-label="流量历史时间范围"
+              />
+            </header>
+            <div className={styles.rateStats}>
+              <span>
+                <ArrowDownLeft size={16} />
+                接收 <b>{latestRate("receive")}</b>
+              </span>
+              <span>
+                <ArrowUpRight size={16} />
+                发送 <b>{latestRate("transmit")}</b>
+              </span>
+            </div>
+            {history.data ? (
+              <MetricChart
+                history={history.data}
+                measures={trafficMeasures}
+                unit="MiB/s"
+                scale={2 ** 20}
+                seriesBy="metric"
+              />
+            ) : (
+              <div className={styles.historyEmpty}>
+                {history.isLoading ? "加载流量记录…" : "暂无接口记录"}
+              </div>
+            )}
+          </section>
           <div className={styles.filters}>
+            <strong>通信图</strong>
             <Select
               aria-label="流量协议"
               placeholder="全部协议"
@@ -535,7 +644,9 @@ export default function TrafficWorkspace({
               w={140}
             />
             <span>
-              {volume(total)} · {volume(totalRate)}/s
+              {live
+                ? `近 ${traffic.data?.windowSeconds ?? 60} 秒 · 1/${traffic.data?.samplingRate ?? 512} 采样`
+                : `${volume(total)} · ${volume(totalRate)}/s`}
             </span>
           </div>
           <CommunicationGraph
@@ -543,6 +654,8 @@ export default function TrafficWorkspace({
             flows={flows}
             groups={groups}
             colors={colors}
+            selection={selection}
+            role={role}
             onSelect={setSelection}
           />
           <div className={styles.legend}>
@@ -665,80 +778,86 @@ export default function TrafficWorkspace({
               </span>
             )}
           </div>
-          <div className={styles.segments}>
-            <h3>抓包分段</h3>
-            {segments.map((segment) => (
-              <div key={segment.nodeId}>
-                <div className={styles.segmentTitle}>
-                  <strong>{segment.nodeName ?? "运行节点"}</strong>
-                  <span
-                    className={
-                      segment.status === "failed"
-                        ? styles.failed
-                        : activeCapture(segment)
-                          ? styles.live
-                          : styles.muted
-                    }
-                  >
-                    {stateTitle[segment.status]}
-                  </span>
-                </div>
-                <div className={styles.segmentActions}>
-                  <span>
-                    {volume(segment.bytes)} · {segment.packets.toLocaleString()}{" "}
-                    包
-                  </span>
-                  {activeCapture(segment) ? (
-                    <ActionIcon
-                      variant="subtle"
-                      aria-label="停止此分段"
-                      disabled={action.isPending}
-                      onClick={() =>
-                        action.mutate({ segments: [segment], remove: false })
+          {!live && (
+            <div className={styles.segments}>
+              <h3>抓包分段</h3>
+              {segments.map((segment) => (
+                <div key={segment.nodeId}>
+                  <div className={styles.segmentTitle}>
+                    <strong>{segment.nodeName ?? "运行节点"}</strong>
+                    <span
+                      className={
+                        segment.status === "failed"
+                          ? styles.failed
+                          : activeCapture(segment)
+                            ? styles.live
+                            : styles.muted
                       }
                     >
-                      <Pause size={15} />
-                    </ActionIcon>
-                  ) : (
-                    <ActionIcon
-                      component="a"
-                      href={api.captureDownload(id, segment.nodeId, segment.id)}
-                      variant="subtle"
-                      aria-label="下载抓包文件"
-                      disabled={!segment.packets}
-                    >
-                      <Download size={15} />
-                    </ActionIcon>
-                  )}
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    aria-label="删除此分段"
-                    disabled={action.isPending || activeCapture(segment)}
-                    onClick={() =>
-                      action.mutate({ segments: [segment], remove: true })
-                    }
-                  >
-                    <Trash2 size={14} />
-                  </ActionIcon>
-                </div>
-                {segment.error && (
-                  <div className={styles.error}>{segment.error}</div>
-                )}
-                {segment.kernelDroppedPackets !== undefined && (
-                  <span className="traffic-budget">
-                    内核丢包 {segment.kernelDroppedPackets.toLocaleString()}
-                  </span>
-                )}
-                {segment.omittedFlows > 0 && (
-                  <div className={styles.error}>
-                    在线汇总未纳入 {segment.omittedFlows.toLocaleString()}{" "}
-                    个包；PCAP 保留原始记录
+                      {stateTitle[segment.status]}
+                    </span>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
+                  <div className={styles.segmentActions}>
+                    <span>
+                      {volume(segment.bytes)} ·{" "}
+                      {segment.packets.toLocaleString()} 包
+                    </span>
+                    {activeCapture(segment) ? (
+                      <ActionIcon
+                        variant="subtle"
+                        aria-label="停止此分段"
+                        disabled={action.isPending}
+                        onClick={() =>
+                          action.mutate({ segments: [segment], remove: false })
+                        }
+                      >
+                        <Pause size={15} />
+                      </ActionIcon>
+                    ) : (
+                      <ActionIcon
+                        component="a"
+                        href={api.captureDownload(
+                          id,
+                          segment.nodeId,
+                          segment.id,
+                        )}
+                        variant="subtle"
+                        aria-label="下载抓包文件"
+                        disabled={!segment.packets}
+                      >
+                        <Download size={15} />
+                      </ActionIcon>
+                    )}
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      aria-label="删除此分段"
+                      disabled={action.isPending || activeCapture(segment)}
+                      onClick={() =>
+                        action.mutate({ segments: [segment], remove: true })
+                      }
+                    >
+                      <Trash2 size={14} />
+                    </ActionIcon>
+                  </div>
+                  {segment.error && (
+                    <div className={styles.error}>{segment.error}</div>
+                  )}
+                  {segment.kernelDroppedPackets !== undefined && (
+                    <span className="traffic-budget">
+                      内核丢包 {segment.kernelDroppedPackets.toLocaleString()}
+                    </span>
+                  )}
+                  {segment.omittedFlows > 0 && (
+                    <div className={styles.error}>
+                      在线汇总未纳入 {segment.omittedFlows.toLocaleString()}{" "}
+                      个包；PCAP 保留原始记录
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </aside>
       </div>
       <Modal

@@ -134,3 +134,13 @@ func flowNode(id string) string {
 	}
 	return "two"
 }
+
+func BenchmarkConversationSamples(b *testing.B) {
+	a := fixtureAggregate("one", "client", "server")
+	sample := Sample{At: time.Now(), Source: "192.0.2.1", Destination: "192.0.2.2", SourceMAC: "02:00:00:00:00:01", DestinationMAC: "02:00:00:00:00:02", Protocol: "TCP", Bytes: 51200, Packets: 512, DestinationPort: 443}
+	b.ReportAllocs()
+	for index := 0; index < b.N; index++ {
+		sample.SourcePort = index % flowLimit
+		a.addSample(sample)
+	}
+}

@@ -370,6 +370,31 @@ test("资产附加持久卷，容量取自目录并通过现有草稿提交", as
 
 test("通信图与抓包贯通，角色仅更新画布，分段失败可见", async ({ page }) => {
   const calls = await fixture(page);
+  const histories: URL[] = [];
+  await page.route("**/api/v1/environments/env/metrics**", (route) => {
+    const url = new URL(route.request().url());
+    histories.push(url);
+    const end = new Date();
+    return route.fulfill({
+      json: {
+        start: new Date(
+          end.getTime() - Number(url.searchParams.get("range")) * 1000,
+        ).toISOString(),
+        end: end.toISOString(),
+        stepSeconds: 10,
+        series: ["receive", "transmit"].map((metric) => ({
+          metric,
+          assetId: url.searchParams.get("assetId") ?? "",
+          instanceId: "",
+          nodeId: "",
+          points: [20, 10, 0].map((offset) => ({
+            time: new Date(end.getTime() - offset * 1000).toISOString(),
+            value: 2 * 1048576,
+          })),
+        })),
+      },
+    });
+  });
   const capture = "cd3aa501-fda4-4b61-9d68-7337f896ad80";
   const now = new Date().toISOString();
   let active = false;
@@ -447,7 +472,15 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "流量视图" }).click();
   await expect.poll(() => sampled).toBe(true);
-  await expect(page.getByText("采样估算 1/512", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("近 60 秒 · 1/512 采样", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("接口流量历史")).toContainText("2.0 MiB/s");
+  expect(histories[0].searchParams.get("aggregate")).toBe("true");
+  await page.getByText("7 天", { exact: true }).click();
+  await expect
+    .poll(() => histories.at(-1)?.searchParams.get("range"))
+    .toBe("604800");
   await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
   await page
     .getByRole("button", { name: "开始抓包", exact: true })
@@ -463,6 +496,9 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await expect(page.getByText("1.0 MiB · 16.0 KiB/s")).toBeVisible();
   await page.getByRole("button", { name: /web-01.*windows-01/ }).click();
   await page.getByRole("button", { name: "查看 web-01", exact: true }).click();
+  await expect
+    .poll(() => histories.at(-1)?.searchParams.get("assetId"))
+    .toBe("web");
   await page.getByRole("textbox", { name: "角色", exact: true }).fill("客户端");
   await page.getByRole("textbox", { name: "角色", exact: true }).press("Tab");
   await expect
@@ -483,15 +519,17 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     "href",
     "/api/v1/environments/env/captures/one/" + capture + "/file",
   );
-  for (const width of [390, 1366]) {
+  for (const width of [390, 1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: "../data/traffic-" + width + ".png" });
+    await page.screenshot({ path: "test-results/traffic-" + width + ".png" });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
   }
+  await page.getByRole("button", { name: "切换夜间主题" }).click();
+  await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
 });
 import type { Identity, Operation, Schema } from "../src/api/client";
 

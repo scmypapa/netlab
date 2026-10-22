@@ -19,19 +19,27 @@ const ObservationWindow = 60
 // Capture and sFlow decoders share identity correlation and conversation aggregation.
 type aggregate struct {
 	started                 time.Time
-	window                  map[string][10]secondBucket
 	node                    string
 	selected                map[string]bool
 	ports                   map[string]api.CaptureInterface
 	capturePorts            []string
 	addresses               map[endpointKey]api.CaptureInterface
 	macs                    map[endpointKey]api.CaptureInterface
-	flows                   map[string]api.CaptureFlow
+	flows                   map[flowKey]conversation
 	packets, bytes, omitted int64
 }
 type secondBucket struct {
 	second int64
 	bytes  int64
+}
+type flowKey struct {
+	sourceNetwork, destinationNetwork, sourceAsset, destinationAsset string
+	source, destination, sourceMAC, destinationMAC, protocol         string
+	sourcePort, destinationPort                                      int
+}
+type conversation struct {
+	flow   api.CaptureFlow
+	window [10]secondBucket
 }
 type endpointKey struct{ network, value string }
 
@@ -60,7 +68,7 @@ func Summarize(node string, interfaces []api.CaptureInterface, samples []Sample,
 }
 
 func newAggregate(node string, request api.NodeCaptureRequest) *aggregate {
-	a := &aggregate{started: time.Now(), window: map[string][10]secondBucket{}, node: node, selected: map[string]bool{}, ports: map[string]api.CaptureInterface{}, addresses: map[endpointKey]api.CaptureInterface{}, macs: map[endpointKey]api.CaptureInterface{}, flows: map[string]api.CaptureFlow{}}
+	a := &aggregate{started: time.Now(), node: node, selected: map[string]bool{}, ports: map[string]api.CaptureInterface{}, addresses: map[endpointKey]api.CaptureInterface{}, macs: map[endpointKey]api.CaptureInterface{}, flows: map[flowKey]conversation{}}
 	for _, id := range request.Settings.AssetIds {
 		a.selected[id] = true
 	}
@@ -131,25 +139,30 @@ func (a *aggregate) addSample(sample Sample) {
 	a.packets += sample.Packets
 	a.bytes += sample.Bytes
 	sp, dp := sample.SourcePort, sample.DestinationPort
-	key := strings.Join([]string{src.NetworkId, dst.NetworkId, src.AssetId, dst.AssetId, source, destination, sample.SourceMAC, sample.DestinationMAC, sample.Protocol, strconv.Itoa(sp), strconv.Itoa(dp)}, "\x00")
-	flow, exists := a.flows[key]
+	key := flowKey{src.NetworkId, dst.NetworkId, src.AssetId, dst.AssetId, source, destination, sample.SourceMAC, sample.DestinationMAC, sample.Protocol, sp, dp}
+	entry, exists := a.flows[key]
 	if !exists && len(a.flows) >= flowLimit {
 		a.omitted++
 		return
 	}
 	at := sample.At
+	flow := &entry.flow
 	if !exists {
-		flow = api.CaptureFlow{Source: source, Destination: destination, Protocol: sample.Protocol, SourcePort: sp, DestinationPort: dp, FirstSeen: at}
+		*flow = api.CaptureFlow{Source: source, Destination: destination, Protocol: sample.Protocol, SourcePort: sp, DestinationPort: dp, FirstSeen: at}
 		if srcKnown {
-			flow.SourceAssetId = &src.AssetId
+			id := src.AssetId
+			flow.SourceAssetId = &id
 			if src.AssetName != "" {
-				flow.SourceAssetName = &src.AssetName
+				name := src.AssetName
+				flow.SourceAssetName = &name
 			}
 		}
 		if dstKnown {
-			flow.DestinationAssetId = &dst.AssetId
+			id := dst.AssetId
+			flow.DestinationAssetId = &id
 			if dst.AssetName != "" {
-				flow.DestinationAssetName = &dst.AssetName
+				name := dst.AssetName
+				flow.DestinationAssetName = &name
 			}
 		}
 	}
@@ -161,17 +174,15 @@ func (a *aggregate) addSample(sample Sample) {
 	if at.After(flow.LastSeen) {
 		flow.LastSeen = at
 	}
-	a.flows[key] = flow
-	buckets := a.window[key]
 	second := at.Unix()
 	index := (second%10 + 10) % 10
-	if buckets[index].second < second {
-		buckets[index] = secondBucket{second: second}
+	if entry.window[index].second < second {
+		entry.window[index] = secondBucket{second: second}
 	}
-	if buckets[index].second == second {
-		buckets[index].bytes += sample.Bytes
+	if entry.window[index].second == second {
+		entry.window[index].bytes += sample.Bytes
 	}
-	a.window[key] = buckets
+	a.flows[key] = entry
 }
 
 func (a *aggregate) snapshot() []api.CaptureFlow {
@@ -183,9 +194,10 @@ func (a *aggregate) snapshotAt(now time.Time) []api.CaptureFlow {
 	if a.started.After(start) {
 		start = a.started
 	}
-	for key, flow := range a.flows {
+	for _, entry := range a.flows {
+		flow := entry.flow
 		var bytes int64
-		for _, bucket := range a.window[key] {
+		for _, bucket := range entry.window {
 			if bucket.second >= start.Unix() && bucket.second <= now.Unix() {
 				bytes += bucket.bytes
 			}
