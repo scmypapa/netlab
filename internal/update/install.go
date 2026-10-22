@@ -68,6 +68,18 @@ func Execute(ctx context.Context, cfg Config, listen string, client *http.Client
 	if err := validate(destination, request.Version); err != nil {
 		return err
 	}
+	if cfg.Role == "node" {
+		script := filepath.Join(destination, "scripts", "install-security.sh")
+		if _, err := os.Stat(script); err == nil {
+			command := exec.CommandContext(ctx, "bash", script)
+			command.Stdout, command.Stderr = os.Stdout, os.Stderr
+			if err = command.Run(); err != nil {
+				return fmt.Errorf("准备节点检测组件：%w", err)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	if beforeSwitch != nil {
 		release, err := beforeSwitch(ctx, request.Version)
 		if err != nil {

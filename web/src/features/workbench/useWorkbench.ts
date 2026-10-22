@@ -100,6 +100,9 @@ export function useWorkbench(id: string) {
       refreshState();
     };
     events.addEventListener("runtime.changed", refreshState);
+    events.addEventListener("security.changed", () => {
+      void client.invalidateQueries({ queryKey: ["security", id] });
+    });
     for (const kind of [
       "operation.progress",
       "operation.succeeded",

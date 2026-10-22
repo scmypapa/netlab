@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Netlab Suricata detection rules
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/suricata-update --no-reload
+UMask=0022

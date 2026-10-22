@@ -283,6 +283,15 @@ const (
 	ScopeGrantScopeKindProject     ScopeGrantScopeKind = "project"
 )
 
+// Defines values for SecuritySensorStatus.
+const (
+	SecuritySensorStatusFailed      SecuritySensorStatus = "failed"
+	SecuritySensorStatusIdle        SecuritySensorStatus = "idle"
+	SecuritySensorStatusLoading     SecuritySensorStatus = "loading"
+	SecuritySensorStatusReady       SecuritySensorStatus = "ready"
+	SecuritySensorStatusUnavailable SecuritySensorStatus = "unavailable"
+)
+
 // Defines values for ServiceProtocol.
 const (
 	Tcp ServiceProtocol = "tcp"
@@ -345,14 +354,14 @@ const (
 
 // Defines values for UpdateActivityPhase.
 const (
-	UpdateActivityPhaseDownloading       UpdateActivityPhase = "downloading"
-	UpdateActivityPhaseFailed            UpdateActivityPhase = "failed"
-	UpdateActivityPhaseInstalling        UpdateActivityPhase = "installing"
-	UpdateActivityPhaseQueued            UpdateActivityPhase = "queued"
-	UpdateActivityPhaseRestarting        UpdateActivityPhase = "restarting"
-	UpdateActivityPhaseSucceeded         UpdateActivityPhase = "succeeded"
-	UpdateActivityPhaseUpdatingNodes     UpdateActivityPhase = "updating_nodes"
-	UpdateActivityPhaseWaitingOperations UpdateActivityPhase = "waiting_operations"
+	Downloading       UpdateActivityPhase = "downloading"
+	Failed            UpdateActivityPhase = "failed"
+	Installing        UpdateActivityPhase = "installing"
+	Queued            UpdateActivityPhase = "queued"
+	Restarting        UpdateActivityPhase = "restarting"
+	Succeeded         UpdateActivityPhase = "succeeded"
+	UpdatingNodes     UpdateActivityPhase = "updating_nodes"
+	WaitingOperations UpdateActivityPhase = "waiting_operations"
 )
 
 // Defines values for VPNAccessState.
@@ -374,6 +383,13 @@ const (
 	AssetLogsParamsStreamAll    AssetLogsParamsStream = "all"
 	AssetLogsParamsStreamStderr AssetLogsParamsStream = "stderr"
 	AssetLogsParamsStreamStdout AssetLogsParamsStream = "stdout"
+)
+
+// Defines values for EnvironmentSecurityParamsLevel.
+const (
+	High   EnvironmentSecurityParamsLevel = "high"
+	Low    EnvironmentSecurityParamsLevel = "low"
+	Medium EnvironmentSecurityParamsLevel = "medium"
 )
 
 // Defines values for ListPrincipalsParamsKind.
@@ -1314,6 +1330,22 @@ type NodeSSH struct {
 	Settings SSHSettings `json:"settings"`
 }
 
+// NodeSecurityObservation defines model for NodeSecurityObservation.
+type NodeSecurityObservation struct {
+	Alerts     []SecurityAlert `json:"alerts"`
+	Coverage   map[string]int  `json:"coverage"`
+	Cursor     string          `json:"cursor"`
+	HasMore    bool            `json:"hasMore"`
+	HistoryGap bool            `json:"historyGap"`
+	Sensor     SecuritySensor  `json:"sensor"`
+}
+
+// NodeSecurityRequest defines model for NodeSecurityRequest.
+type NodeSecurityRequest struct {
+	Cursor     string              `json:"cursor"`
+	Interfaces []SecurityInterface `json:"interfaces"`
+}
+
 // NodeServiceBinding defines model for NodeServiceBinding.
 type NodeServiceBinding struct {
 	AssetId       string          `json:"assetId"`
@@ -1629,6 +1661,73 @@ type ScopeGrant struct {
 
 // ScopeGrantScopeKind defines model for ScopeGrant.ScopeKind.
 type ScopeGrantScopeKind string
+
+// SecurityAlert defines model for SecurityAlert.
+type SecurityAlert struct {
+	AppProtocol          string    `json:"appProtocol"`
+	Category             string    `json:"category"`
+	Count                int64     `json:"count"`
+	Destination          string    `json:"destination"`
+	DestinationAssetId   string    `json:"destinationAssetId"`
+	DestinationAssetName string    `json:"destinationAssetName"`
+	DestinationPort      int       `json:"destinationPort"`
+	EnvironmentId        string    `json:"environmentId"`
+	FirstSeen            time.Time `json:"firstSeen"`
+	GeneratorId          int64     `json:"generatorId"`
+	Id                   int64     `json:"id"`
+	InterfaceId          string    `json:"interfaceId"`
+	LastSeen             time.Time `json:"lastSeen"`
+	NetworkId            string    `json:"networkId"`
+	NodeId               string    `json:"nodeId"`
+	Protocol             string    `json:"protocol"`
+	Revision             int       `json:"revision"`
+
+	// Severity Native Suricata priority; 1 high, 2 medium, 3–255 low.
+	Severity        int    `json:"severity"`
+	Signature       string `json:"signature"`
+	SignatureId     int64  `json:"signatureId"`
+	Source          string `json:"source"`
+	SourceAssetId   string `json:"sourceAssetId"`
+	SourceAssetName string `json:"sourceAssetName"`
+	SourcePort      int    `json:"sourcePort"`
+}
+
+// SecurityInterface defines model for SecurityInterface.
+type SecurityInterface struct {
+	EnvironmentId string           `json:"environmentId"`
+	Interface     CaptureInterface `json:"interface"`
+}
+
+// SecurityOverview defines model for SecurityOverview.
+type SecurityOverview struct {
+	Alerts []SecurityAlert `json:"alerts"`
+	Counts struct {
+		High   int64 `json:"high"`
+		Low    int64 `json:"low"`
+		Medium int64 `json:"medium"`
+	} `json:"counts"`
+	End        time.Time        `json:"end"`
+	NextCursor *int64           `json:"nextCursor,omitempty"`
+	Sensors    []SecuritySensor `json:"sensors"`
+	Start      time.Time        `json:"start"`
+}
+
+// SecuritySensor defines model for SecuritySensor.
+type SecuritySensor struct {
+	CheckedAt      time.Time            `json:"checkedAt"`
+	DroppedPackets int64                `json:"droppedPackets"`
+	Error          *string              `json:"error,omitempty"`
+	Interfaces     int                  `json:"interfaces"`
+	NodeId         string               `json:"nodeId"`
+	NodeName       *string              `json:"nodeName,omitempty"`
+	Packets        int64                `json:"packets"`
+	RulesUpdatedAt *time.Time           `json:"rulesUpdatedAt,omitempty"`
+	StartedAt      *time.Time           `json:"startedAt,omitempty"`
+	Status         SecuritySensorStatus `json:"status"`
+}
+
+// SecuritySensorStatus defines model for SecuritySensor.Status.
+type SecuritySensorStatus string
 
 // ServiceEndpoint defines model for ServiceEndpoint.
 type ServiceEndpoint struct {
@@ -2079,6 +2178,19 @@ type ListRecoveryPointsParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// EnvironmentSecurityParams defines parameters for EnvironmentSecurity.
+type EnvironmentSecurityParams struct {
+	Range    *int                            `form:"range,omitempty" json:"range,omitempty"`
+	Level    *EnvironmentSecurityParamsLevel `form:"level,omitempty" json:"level,omitempty"`
+	AssetId  *string                         `form:"assetId,omitempty" json:"assetId,omitempty"`
+	Protocol *string                         `form:"protocol,omitempty" json:"protocol,omitempty"`
+	Search   *string                         `form:"search,omitempty" json:"search,omitempty"`
+	Before   *int64                          `form:"before,omitempty" json:"before,omitempty"`
+}
+
+// EnvironmentSecurityParamsLevel defines parameters for EnvironmentSecurity.
+type EnvironmentSecurityParamsLevel string
 
 // RevokeServiceParams defines parameters for RevokeService.
 type RevokeServiceParams struct {

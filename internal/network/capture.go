@@ -8,6 +8,22 @@ import (
 
 // Capture devices follow the same logical port identity as VM taps and container veths.
 func (n *OVS) CaptureDevices(ctx context.Context, logicalPorts []string) ([]string, error) {
+	devices, err := n.CaptureAttachments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(logicalPorts))
+	for _, port := range logicalPorts {
+		device := devices[port]
+		if device == "" {
+			return nil, fmt.Errorf("抓包接口未接入运行节点：%s", port)
+		}
+		result = append(result, device)
+	}
+	return result, nil
+}
+
+func (n *OVS) CaptureAttachments(ctx context.Context) (map[string]string, error) {
 	bridge := &Bridge{Name: n.bridge}
 	if err := n.client.Get(ctx, bridge); err != nil {
 		return nil, err
@@ -34,13 +50,5 @@ func (n *OVS) CaptureDevices(ctx context.Context, logicalPorts []string) ([]stri
 			devices[iface.ExternalIDs["iface-id"]] = iface.Name
 		}
 	}
-	result := make([]string, 0, len(logicalPorts))
-	for _, port := range logicalPorts {
-		device := devices[port]
-		if device == "" {
-			return nil, fmt.Errorf("抓包接口未接入运行节点：%s", port)
-		}
-		result = append(result, device)
-	}
-	return result, nil
+	return devices, nil
 }

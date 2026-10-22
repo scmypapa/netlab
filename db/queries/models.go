@@ -229,6 +229,34 @@ type RuntimeAsset struct {
 	ObservedAt    pgtype.Timestamptz
 }
 
+type SecurityAlert struct {
+	ID              int64
+	EnvironmentID   string
+	NodeID          string
+	Bucket          pgtype.Timestamptz
+	NetworkID       string
+	InterfaceID     string
+	GeneratorID     int64
+	SignatureID     int64
+	Source          string
+	Destination     string
+	SourcePort      int32
+	DestinationPort int32
+	Protocol        string
+	Severity        int32
+	Count           int64
+	FirstSeen       pgtype.Timestamptz
+	LastSeen        pgtype.Timestamptz
+	Detail          []byte
+}
+
+type SecuritySensor struct {
+	NodeID      string
+	Cursor      string
+	Observation []byte
+	CheckedAt   pgtype.Timestamptz
+}
+
 type ServicePort struct {
 	ID            int64
 	NodeID        string

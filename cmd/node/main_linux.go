@@ -60,6 +60,7 @@ func run() error {
 	flag.StringVar(&cfg.ProviderCIDR, "service-network", "100.127.0.0/16", "reserved IPv4 service provider network")
 	flag.StringVar(&cfg.AdvertiseAddress, "advertise-address", "", "client access address; defaults to the default-route source")
 	flag.StringVar(&cfg.GuacdAddress, "guacd", "127.0.0.1:4822", "local Guacamole daemon")
+	flag.StringVar(&cfg.SuricataConfig, "suricata-config", "/etc/suricata/suricata.yaml", "Suricata base configuration")
 	flag.StringVar(&address, "listen", ":9443", "mTLS listen address")
 	flag.StringVar(&certificate, "cert", "/etc/netlab/node.crt", "node certificate")
 	flag.StringVar(&key, "key", "/etc/netlab/node.key", "node private key")
@@ -243,6 +244,7 @@ func run() error {
 		w.WriteHeader(http.StatusAccepted)
 	})
 	mux.HandleFunc("POST /node/v1/traffic", executor.Traffic)
+	mux.HandleFunc("POST /node/v1/security", executor.Security)
 	for _, pattern := range []string{
 		"GET /node/v1/environments/{environmentId}/captures", "POST /node/v1/environments/{environmentId}/captures", "DELETE /node/v1/environments/{environmentId}/captures",
 		"GET /node/v1/environments/{environmentId}/captures/{captureId}", "POST /node/v1/environments/{environmentId}/captures/{captureId}", "DELETE /node/v1/environments/{environmentId}/captures/{captureId}",

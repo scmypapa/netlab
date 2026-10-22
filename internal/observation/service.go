@@ -67,6 +67,8 @@ func (s Service) lead(ctx context.Context) error {
 	defer func() { cancel(); waiting.Wait() }()
 	waiting.Add(1)
 	go func() { defer waiting.Done(); s.collectMetrics(ctx) }()
+	waiting.Add(1)
+	go func() { defer waiting.Done(); s.collectSecurity(ctx) }()
 	type subscription struct {
 		endpoint string
 		cancel   context.CancelFunc

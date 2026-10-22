@@ -99,6 +99,19 @@ paths:
       operationId: observeTraffic
       responses:
         '200': {description: Rolling sampled conversations; counters are statistical estimates, content: {application/json: {schema: {$ref: '#/components/schemas/TrafficObservation'}}}}
+  /environments/{id}/security:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: environmentSecurity
+      parameters:
+        - {name: range, in: query, schema: {type: integer, minimum: 10, maximum: 2592000, default: 3600}}
+        - {name: level, in: query, schema: {type: string, enum: [high, medium, low]}}
+        - {name: assetId, in: query, schema: {type: string}}
+        - {name: protocol, in: query, schema: {type: string, maxLength: 32}}
+        - {name: search, in: query, schema: {type: string, maxLength: 200}}
+        - {name: before, in: query, schema: {type: integer, format: int64, minimum: 1}}
+      responses:
+        '200': {description: Suricata detections grouped by minute, rule and conversation; no detection does not imply safe traffic, content: {application/json: {schema: {$ref: '#/components/schemas/SecurityOverview'}}}}
   /environments/{id}/captures:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -2058,6 +2071,86 @@ components:
         status: {type: integer}
         title: {type: string}
         detail: {type: string}
+    SecurityInterface:
+      type: object
+      required: [environmentId, interface]
+      properties:
+        environmentId: {type: string}
+        interface: {$ref: '#/components/schemas/CaptureInterface'}
+    SecurityAlert:
+      type: object
+      required: [id, environmentId, nodeId, networkId, interfaceId, source, sourcePort, destination, destinationPort, sourceAssetId, sourceAssetName, destinationAssetId, destinationAssetName, protocol, appProtocol, generatorId, signatureId, revision, severity, category, signature, count, firstSeen, lastSeen]
+      properties:
+        id: {type: integer, format: int64}
+        environmentId: {type: string}
+        nodeId: {type: string}
+        networkId: {type: string}
+        interfaceId: {type: string}
+        source: {type: string}
+        sourcePort: {type: integer}
+        destination: {type: string}
+        destinationPort: {type: integer}
+        sourceAssetId: {type: string}
+        sourceAssetName: {type: string}
+        destinationAssetId: {type: string}
+        destinationAssetName: {type: string}
+        protocol: {type: string}
+        appProtocol: {type: string}
+        generatorId: {type: integer, format: int64}
+        signatureId: {type: integer, format: int64}
+        revision: {type: integer}
+        severity: {type: integer, minimum: 1, maximum: 255, description: 'Native Suricata priority; 1 high, 2 medium, 3–255 low.'}
+        category: {type: string}
+        signature: {type: string}
+        count: {type: integer, format: int64}
+        firstSeen: {type: string, format: date-time}
+        lastSeen: {type: string, format: date-time}
+    SecuritySensor:
+      type: object
+      required: [nodeId, status, interfaces, packets, droppedPackets, checkedAt]
+      properties:
+        nodeId: {type: string}
+        nodeName: {type: string}
+        status: {type: string, enum: [idle, loading, ready, unavailable, failed]}
+        interfaces: {type: integer}
+        packets: {type: integer, format: int64}
+        droppedPackets: {type: integer, format: int64}
+        checkedAt: {type: string, format: date-time}
+        startedAt: {type: string, format: date-time}
+        rulesUpdatedAt: {type: string, format: date-time}
+        error: {type: string}
+    NodeSecurityRequest:
+      type: object
+      required: [cursor, interfaces]
+      properties:
+        cursor: {type: string}
+        interfaces: {type: array, items: {$ref: '#/components/schemas/SecurityInterface'}}
+    NodeSecurityObservation:
+      type: object
+      required: [cursor, alerts, sensor, coverage, historyGap, hasMore]
+      properties:
+        cursor: {type: string}
+        alerts: {type: array, items: {$ref: '#/components/schemas/SecurityAlert'}}
+        sensor: {$ref: '#/components/schemas/SecuritySensor'}
+        coverage: {type: object, additionalProperties: {type: integer}}
+        historyGap: {type: boolean}
+        hasMore: {type: boolean}
+    SecurityOverview:
+      type: object
+      required: [alerts, sensors, counts, start, end]
+      properties:
+        alerts: {type: array, items: {$ref: '#/components/schemas/SecurityAlert'}}
+        sensors: {type: array, items: {$ref: '#/components/schemas/SecuritySensor'}}
+        counts:
+          type: object
+          required: [high, medium, low]
+          properties:
+            high: {type: integer, format: int64}
+            medium: {type: integer, format: int64}
+            low: {type: integer, format: int64}
+        nextCursor: {type: integer, format: int64}
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
     TrafficObservation:
       type: object
       required: [flows, errors, observedAt, samplingRate, windowSeconds, omittedSamples]

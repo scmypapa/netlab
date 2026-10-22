@@ -8,6 +8,16 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: netlab-ci
+          POSTGRES_DB: netlab
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      NETLAB_DATABASE_URL: postgres://postgres:netlab-ci@localhost:5432/netlab?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -16,14 +26,16 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvirt-dev openvswitch-switch ovn-central
+          sudo apt-get install -y libvirt-dev openvswitch-switch ovn-central suricata
       - name: Verify resource, networking and execution changes
         run: |
-          go test ./internal/metrics ./internal/capture ./internal/network ./internal/observation ./internal/server ./internal/update -count=1
+          go test ./internal/security ./internal/metrics ./internal/capture ./internal/network ./internal/observation ./internal/server ./internal/update -count=1
           go test -tags libvirt_dlopen ./internal/engine -run 'TestParallelTemplatePreparationAndTrim|TestColdTemplateSourceDoesNotOccupyComputeSlot|TestMetricsRetainHostWhenContainerdUnavailable' -count=1
           NETLAB_REAL_NETWORK=1 go test ./internal/network -run TestRealOVNMutualTLS -count=1
           go test -race -c -o "$RUNNER_TEMP/netlab-capture.test" ./internal/capture
           sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run TestRealContinuousOVSSampling -test.v -test.timeout=60s
+          go test -race -c -o "$RUNNER_TEMP/netlab-security.test" ./internal/security
+          sudo env NETLAB_REAL_SECURITY=1 "$RUNNER_TEMP/netlab-security.test" -test.run 'TestRealSuricata|TestEVEReader' -test.v -test.timeout=60s
           go build -trimpath ./cmd/controller
           go build -trimpath -tags libvirt_dlopen ./cmd/node
   package:
@@ -65,7 +77,7 @@ jobs:
           go build -trimpath -tags libvirt_dlopen -ldflags "$flags" -o package/netlab-node ./cmd/node
           cp -a web/dist/. package/web/
           cp -a deploy/systemd deploy/sudoers package/deploy/
-          cp scripts/install-{common,controller,node,storage}.sh scripts/issue-node-certificate.sh package/scripts/
+          cp scripts/install-{common,controller,node,storage,security}.sh scripts/issue-node-certificate.sh package/scripts/
           bash scripts/build-guacd.sh "$RUNNER_TEMP/guacamole-source" "$PWD/package/guacamole"
           curl -fL https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.126.0/victoria-metrics-linux-amd64-v1.126.0.tar.gz | tar -xz -C package victoria-metrics-prod
           curl -fL https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2 | bunzip2 > package/restic

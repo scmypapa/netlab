@@ -224,6 +224,28 @@ export const api = {
       undefined,
       signal,
     ),
+  security: (
+    id: string,
+    options: {
+      range: number;
+      level?: string;
+      assetId?: string;
+      protocol?: string;
+      search?: string;
+      before?: number;
+    },
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(options))
+      if (value !== undefined && value !== "") query.set(key, String(value));
+    return request<Schema<"SecurityOverview">>(
+      `/environments/${id}/security?${query}`,
+      "GET",
+      undefined,
+      signal,
+    );
+  },
   captures: (id: string, signal?: AbortSignal) =>
     request<Schema<"CaptureList">>(
       "/environments/" + id + "/captures",

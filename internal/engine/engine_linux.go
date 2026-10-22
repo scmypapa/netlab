@@ -22,6 +22,7 @@ import (
 	"netlab.local/core/internal/buildinfo"
 	"netlab.local/core/internal/capture"
 	"netlab.local/core/internal/network"
+	"netlab.local/core/internal/security"
 )
 
 type Config struct {
@@ -30,6 +31,7 @@ type Config struct {
 	AdvertiseAddress                                                                  string
 	GuacdAddress                                                                      string
 	StorageDevice                                                                     string
+	SuricataConfig                                                                    string
 	ArtifactHTTP                                                                      *http.Client
 	OVNTLS                                                                            *tls.Config
 }
@@ -50,6 +52,8 @@ type Engine struct {
 	captureError  error
 	sampler       *capture.Sampler
 	samplingError error
+	security      *security.Manager
+	securityError error
 }
 type objectLock struct {
 	mu   sync.RWMutex
@@ -112,12 +116,16 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 	e.captures, e.captureError = capture.New(ctx, e.ovs, cfg.DataDir, cfg.ID)
 	e.sampler, e.samplingError = capture.NewSampler(ctx, e.ovs, cfg.ID)
+	e.security, e.securityError = security.New(ctx, e.ovs, cfg.DataDir, cfg.ID, cfg.SuricataConfig)
 	if e.samplingError != nil {
 		slog.Error("traffic sampling unavailable", "error", e.samplingError)
 	}
 	return e, nil
 }
 func (e *Engine) Close() {
+	if e.security != nil {
+		e.security.Close()
+	}
 	if e.sampler != nil {
 		if err := e.sampler.Close(); err != nil {
 			slog.Error("traffic sampling cleanup", "error", err)

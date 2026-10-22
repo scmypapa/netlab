@@ -7,6 +7,7 @@ certificates=${2:?提供节点证书目录}
 address=$(ip -4 route get "$controller" | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
 apt-get update
 apt-get install -y ca-certificates jq containerd runc qemu-system-x86 qemu-utils qemu-block-extra ceph-common libvirt-daemon-system libvirt-clients ovmf swtpm swtpm-tools numad openvswitch-switch ovn-host genisoimage nftables iproute2 tshark e2fsprogs util-linux libfreerdp3-3 libfreerdp-client3-3 libwinpr3-3 libcairo2 libjpeg-turbo8 libpng16-16t64 libpango-1.0-0 libpangoft2-1.0-0 libwebp7 libssl3t64 libuuid1
+bash "$package/scripts/install-security.sh"
 source "$package/scripts/install-storage.sh"
 select_storage "${3:-/var/lib/netlab-node}" "${4:-auto}"
 install -d -m 0700 /etc/netlab-node "$data/update"

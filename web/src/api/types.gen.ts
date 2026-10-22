@@ -181,6 +181,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/security": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["environmentSecurity"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/captures": {
     parameters: {
       query?: never;
@@ -2638,6 +2656,93 @@ export interface components {
       title: string;
       detail: string;
     };
+    SecurityInterface: {
+      environmentId: string;
+      interface: components["schemas"]["CaptureInterface"];
+    };
+    SecurityAlert: {
+      /** Format: int64 */
+      id: number;
+      environmentId: string;
+      nodeId: string;
+      networkId: string;
+      interfaceId: string;
+      source: string;
+      sourcePort: number;
+      destination: string;
+      destinationPort: number;
+      sourceAssetId: string;
+      sourceAssetName: string;
+      destinationAssetId: string;
+      destinationAssetName: string;
+      protocol: string;
+      appProtocol: string;
+      /** Format: int64 */
+      generatorId: number;
+      /** Format: int64 */
+      signatureId: number;
+      revision: number;
+      /** @description Native Suricata priority; 1 high, 2 medium, 3–255 low. */
+      severity: number;
+      category: string;
+      signature: string;
+      /** Format: int64 */
+      count: number;
+      /** Format: date-time */
+      firstSeen: string;
+      /** Format: date-time */
+      lastSeen: string;
+    };
+    SecuritySensor: {
+      nodeId: string;
+      nodeName?: string;
+      /** @enum {string} */
+      status: "idle" | "loading" | "ready" | "unavailable" | "failed";
+      interfaces: number;
+      /** Format: int64 */
+      packets: number;
+      /** Format: int64 */
+      droppedPackets: number;
+      /** Format: date-time */
+      checkedAt: string;
+      /** Format: date-time */
+      startedAt?: string;
+      /** Format: date-time */
+      rulesUpdatedAt?: string;
+      error?: string;
+    };
+    NodeSecurityRequest: {
+      cursor: string;
+      interfaces: components["schemas"]["SecurityInterface"][];
+    };
+    NodeSecurityObservation: {
+      cursor: string;
+      alerts: components["schemas"]["SecurityAlert"][];
+      sensor: components["schemas"]["SecuritySensor"];
+      coverage: {
+        [key: string]: number;
+      };
+      historyGap: boolean;
+      hasMore: boolean;
+    };
+    SecurityOverview: {
+      alerts: components["schemas"]["SecurityAlert"][];
+      sensors: components["schemas"]["SecuritySensor"][];
+      counts: {
+        /** Format: int64 */
+        high: number;
+        /** Format: int64 */
+        medium: number;
+        /** Format: int64 */
+        low: number;
+      };
+      /** Format: int64 */
+      nextCursor?: number;
+      /** Format: date-time */
+      start: string;
+      /** Format: date-time */
+      end: string;
+    };
     TrafficObservation: {
       flows: components["schemas"]["CaptureFlow"][];
       errors: {
@@ -3151,6 +3256,35 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["TrafficObservation"];
+        };
+      };
+    };
+  };
+  environmentSecurity: {
+    parameters: {
+      query?: {
+        range?: number;
+        level?: "high" | "medium" | "low";
+        assetId?: string;
+        protocol?: string;
+        search?: string;
+        before?: number;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Suricata detections grouped by minute */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecurityOverview"];
         };
       };
     };
