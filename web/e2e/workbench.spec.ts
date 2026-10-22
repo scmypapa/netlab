@@ -510,7 +510,9 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "流量视图" }).click();
   await expect.poll(() => sampled).toBe(true);
-  await expect(page.getByText("采样通信", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("IPFIX · 最近 1 分钟", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByLabel("接口流量历史")).toContainText("2 MiB/s");
   expect(histories[0].searchParams.get("aggregate")).toBe("true");
   await page.getByText("7 天", { exact: true }).click();
@@ -569,7 +571,7 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     .getByRole("button", { name: /web-01.*windows-01/ })
     .click();
   lowTraffic = true;
-  await page.getByRole("button", { name: "查看 web-01", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
   await expect
     .poll(() => histories.at(-1)?.searchParams.get("assetId"))
     .toBe("web");
@@ -1027,6 +1029,164 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
   await expect(
     page.getByRole("button", { name: "资产视图", exact: true }),
   ).toBeVisible();
+});
+
+test("连接报文分页、协议树与字节联动", async ({ page }) => {
+  await fixture(page);
+  const capture = "cd3aa501-fda4-4b61-9d68-7337f896ad80";
+  const now = new Date().toISOString();
+  const segment = {
+    id: capture,
+    nodeId: "one",
+    nodeName: "节点一",
+    environmentId: "env",
+    assetIds: ["web", "windows"],
+    status: "stopped",
+    startedAt: now,
+    bytes: 800,
+    packets: 3,
+    omittedFlows: 0,
+  };
+  const flow = {
+    source: "10.10.0.10",
+    destination: "10.10.0.11",
+    sourceAssetId: "web",
+    destinationAssetId: "windows",
+    protocol: "TCP",
+    appProtocol: "HTTP",
+    sourcePort: 50000,
+    destinationPort: 80,
+    bytes: 800,
+    bytesPerSecond: 0,
+    packets: 3,
+    firstSeen: now,
+    lastSeen: now,
+  };
+  const packet = (number: number) => ({
+    number,
+    time: now,
+    length: 64,
+    capturedLength: 64,
+    interfaceIndex: 0,
+    source: flow.source,
+    destination: flow.destination,
+    protocol: "TCP",
+    sourcePort: 50000,
+    destinationPort: 80,
+    summary: `HTTP frame ${number}`,
+  });
+  const requests: URL[] = [];
+  await page.route("**/api/v1/environments/env/captures**", (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    const path = url.pathname;
+    if (path.endsWith("/captures"))
+      return route.fulfill({ json: { segments: [segment], errors: {} } });
+    if (path.endsWith("/packets"))
+      return route.fulfill({
+        json: url.searchParams.has("after")
+          ? { packets: [packet(3)] }
+          : { packets: [packet(1)], nextCursor: 1 },
+      });
+    if (/\/packets\/\d+$/.test(path))
+      return route.fulfill({
+        json: {
+          packet: packet(Number(path.split("/").at(-1))),
+          hex: "00112233445566778899aabbccddeeff",
+          layers: [
+            {
+              name: "eth",
+              label: "Ethernet II",
+              offset: 0,
+              length: 14,
+              children: [
+                {
+                  name: "eth.dst",
+                  label: "Destination: 00:11:22:33:44:55",
+                  offset: 0,
+                  length: 6,
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      });
+    return route.fulfill({ json: { segment, flows: [flow] } });
+  });
+  await page.route("**/api/v1/environments/env/traffic", (route) =>
+    route.fulfill({
+      json: {
+        flows: [flow],
+        errors: {},
+        samplingRate: 1,
+        windowSeconds: 60,
+        observedAt: now,
+        omittedSamples: 0,
+      },
+    }),
+  );
+  await page.route("**/api/v1/environments/env/metrics?**", (route) =>
+    route.fulfill({
+      json: { start: now, end: now, stepSeconds: 10, series: [] },
+    }),
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "流量视图", exact: true }).click();
+  await page.getByRole("textbox", { name: "流量来源", exact: true }).click();
+  await page.getByRole("option").filter({ hasNotText: "实时流量" }).click();
+  await expect(page.getByRole("region", { name: "资产通信图" })).toContainText(
+    "800 B",
+  );
+  await expect(
+    page.getByRole("region", { name: "资产通信图" }),
+  ).not.toContainText("B/s");
+  await page.getByLabel("可选择的通信连接").getByRole("button").click();
+  await expect(page.getByLabel("报文列表")).toContainText("HTTP frame 1");
+  expect(
+    requests
+      .find((url) => url.pathname.endsWith("/packets"))
+      ?.searchParams.get("protocol"),
+  ).toBe("TCP");
+  await page.getByRole("button", { name: "更多报文" }).click();
+  await page.getByRole("row").filter({ hasText: "HTTP frame 3" }).click();
+  await expect
+    .poll(() => requests.some((url) => url.pathname.endsWith("/packets/3")))
+    .toBe(true);
+  await page
+    .getByRole("button", {
+      name: "Destination: 00:11:22:33:44:55",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByLabel("报文字节").locator('code span[data-selected="true"]'),
+  ).toHaveCount(12);
+  await page.getByRole("button", { name: "查看第 1 帧" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("row").filter({ hasText: "HTTP frame 1" }),
+  ).toHaveAttribute("data-selected", "true");
+  for (const width of [1366, 1920, 2560, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    if (width <= 1250)
+      await page
+        .locator("label")
+        .filter({ hasText: /^字节$/ })
+        .click();
+    await page.screenshot({
+      path: `test-results/traffic-packets-${width}.png`,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await page.getByRole("button", { name: "切换夜间主题" }).click();
+  await page.screenshot({ path: "test-results/traffic-packets-dark.png" });
+  await page.getByRole("button", { name: "返回通信图" }).click();
+  await expect(page.getByRole("region", { name: "资产通信图" })).toBeVisible();
 });
 
 // API fixtures verify browser interaction. Runtime acceptance uses the real node separately.

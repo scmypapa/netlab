@@ -72,6 +72,16 @@ func TestApplicationAndTCPFramesShareConversation(t *testing.T) {
 	}
 }
 
+func TestFlowCounterRateUsesLastPacketTime(t *testing.T) {
+	now := time.Now().UTC()
+	a := fixtureAggregate("one", "client")
+	a.started = now.Add(-time.Minute)
+	a.addSample(Sample{At: now.Add(-12 * time.Second), LastSeen: now.Add(-5 * time.Second), Source: "192.0.2.1", Destination: "192.0.2.2", Protocol: "UDP", Packets: 10, Bytes: 1000})
+	if flow := a.snapshotAt(now)[0]; flow.BytesPerSecond == 0 || flow.Bytes != 1000 || !flow.FirstSeen.Equal(now.Add(-12*time.Second)) {
+		t.Fatal(flow)
+	}
+}
+
 func TestAggregationBudgetDoesNotAlterPacketCounters(t *testing.T) {
 	a := fixtureAggregate("one", "client")
 	for index := range flowLimit + 2 {

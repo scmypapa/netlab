@@ -257,6 +257,47 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/captures/{nodeId}/{captureId}/packets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["capturePackets"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/captures/{nodeId}/{captureId}/packets/{packetNumber}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+        packetNumber: number;
+      };
+      cookie?: never;
+    };
+    get: operations["capturePacket"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/system/update": {
     parameters: {
       query?: never;
@@ -2750,7 +2791,7 @@ export interface components {
       };
       /** Format: date-time */
       observedAt: string;
-      /** @description Sampling denominator; flow bytes and packets are statistical estimates. */
+      /** @description IPFIX export denominator; 1 means every packet contributes to the flow counters. */
       samplingRate: number;
       /** @description Rolling retention window for observed samples. */
       windowSeconds: number;
@@ -2829,6 +2870,8 @@ export interface components {
       sourceAssetName?: string;
       destinationAssetName?: string;
       protocol: string;
+      /** @description Application protocol identified by TShark when capture data is available. */
+      appProtocol?: string;
       sourcePort: number;
       destinationPort: number;
       /**
@@ -2844,6 +2887,40 @@ export interface components {
       firstSeen: string;
       /** Format: date-time */
       lastSeen: string;
+    };
+    CapturePacket: {
+      /** Format: int64 */
+      number: number;
+      /** Format: date-time */
+      time: string;
+      length: number;
+      capturedLength: number;
+      interfaceIndex: number;
+      source: string;
+      destination: string;
+      sourcePort: number;
+      destinationPort: number;
+      protocol: string;
+      summary: string;
+    };
+    CapturePacketPage: {
+      packets: components["schemas"]["CapturePacket"][];
+      /** Format: int64 */
+      nextCursor?: number;
+    };
+    PacketField: {
+      name: string;
+      label: string;
+      value?: string;
+      offset: number;
+      length: number;
+      children: components["schemas"]["PacketField"][];
+    };
+    CapturePacketDetail: {
+      packet: components["schemas"]["CapturePacket"];
+      /** @description Complete captured frame bytes as hexadecimal. */
+      hex: string;
+      layers: components["schemas"]["PacketField"][];
     };
   };
   responses: {
@@ -3427,6 +3504,63 @@ export interface operations {
         };
         content: {
           "application/octet-stream": string;
+        };
+      };
+    };
+  };
+  capturePackets: {
+    parameters: {
+      query?: {
+        after?: number;
+        limit?: number;
+        source?: string;
+        destination?: string;
+        sourcePort?: number;
+        destinationPort?: number;
+        protocol?: string;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Original captured packets; connection filter includes both directions. Cursor is the last returned frame number. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CapturePacketPage"];
+        };
+      };
+    };
+  };
+  capturePacket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        nodeId: string;
+        captureId: string;
+        packetNumber: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Original frame bytes and protocol fields decoded by TShark; observe permission required. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CapturePacketDetail"];
         };
       };
     };

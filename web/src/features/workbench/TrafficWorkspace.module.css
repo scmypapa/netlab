@@ -212,29 +212,46 @@
   opacity: 0;
 }
 .assetNode {
-  width: 184px;
-  height: 104px;
-  padding: 16px 12px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  box-shadow: 0 2px 6px #122c3608;
+  width: 144px;
+  height: 116px;
+  text-align: center;
 }
-.assetNode[data-selected="true"] {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+.assetNode[data-selected="true"] .assetNodeHeader > span {
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--node-color) 14%, transparent),
+    0 5px 20px #122c3614;
+  border-color: var(--node-color);
+}
+.assetNode :global(.react-flow__handle) {
+  top: 30px;
+}
+.assetNode :global(.react-flow__handle-left) {
+  left: 42px;
+}
+.assetNode :global(.react-flow__handle-right) {
+  right: 42px;
 }
 .assetNodeHeader {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 9px;
-  margin-bottom: 7px;
+  gap: 12px;
+  margin-bottom: 5px;
 }
 .assetNodeHeader > span {
-  display: flex;
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  color: var(--node-color);
+  background: color-mix(in srgb, var(--node-color) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--node-color) 30%, var(--line));
+  border-radius: 50%;
+  box-shadow: 0 5px 18px #122c3609;
   flex-shrink: 0;
 }
 .assetNodeHeader strong {
+  max-width: 100%;
   font-size: 13px;
   font-weight: 600;
   overflow: hidden;
@@ -244,24 +261,14 @@
 .assetNodeAddress {
   font-size: 11px;
   color: var(--muted);
-  padding-left: 26px;
+  overflow-wrap: anywhere;
 }
-.assetNodeRole {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 9px;
-  padding-left: 26px;
-  font-size: 10px;
+.graphLimit {
+  position: absolute;
+  top: 68px;
+  left: 26px;
+  font-size: 11px;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-}
-.assetNodeRole i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 .bandwidth {
   display: flex;
@@ -564,6 +571,13 @@
   align-items: flex-start;
   gap: 16px;
   font-size: 12px;
+}
+.connectionDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 .alertDetail h3 {
   font-size: 17px;

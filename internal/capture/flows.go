@@ -214,7 +214,7 @@ func (a *aggregate) addSample(sample Sample) {
 	if last.After(flow.LastSeen) {
 		flow.LastSeen = last
 	}
-	second := at.Unix()
+	second := last.Unix()
 	index := (second%10 + 10) % 10
 	if entry.window[index].second < second {
 		entry.window[index] = secondBucket{second: second}

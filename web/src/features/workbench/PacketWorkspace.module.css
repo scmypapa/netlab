@@ -1,0 +1,205 @@
+.workspace {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.heading strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.heading > span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.count {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.count i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.error {
+  padding: 8px 16px;
+  color: var(--negative);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.packetList {
+  height: 38%;
+  min-height: 150px;
+  overflow: auto;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.packetList table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.packetList th {
+  position: sticky;
+  top: 0;
+  background: var(--canvas);
+  color: var(--muted);
+  font-weight: 500;
+  z-index: 1;
+}
+.packetList th,
+.packetList td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+.packetList td:last-child {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.packetList tr:hover {
+  background: var(--surface-hover);
+}
+.packetList tr[data-selected="true"] {
+  background: var(--accent-soft);
+}
+.packetList td:first-child {
+  padding: 0;
+}
+.packetList td button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.analysis {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(420px, 1.15fr);
+}
+.protocols,
+.hex {
+  overflow: auto;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.protocols {
+  border-right: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.65;
+}
+.protocol {
+  margin: 0 0 5px;
+}
+.protocol > summary {
+  cursor: pointer;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+  padding: 3px 0;
+}
+.protocol > div {
+  padding-left: 15px;
+  border-left: 1px solid var(--line);
+  margin-left: 4px;
+}
+.field {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--text);
+  padding: 2px 4px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.field:hover {
+  background: var(--accent-soft);
+}
+.hexRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  line-height: 1.9;
+  font-size: 11px;
+  white-space: pre;
+  font-family: Consolas, "SFMono-Regular", monospace;
+}
+.hexRow > span {
+  color: var(--muted);
+}
+.hexRow > code {
+  font: inherit;
+  min-width: 317px;
+}
+.hexRow > .ascii {
+  min-width: 0;
+  color: var(--muted);
+}
+.hexRow code span[data-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.empty {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.paneTabs {
+  display: none;
+}
+@media (max-width: 1250px) {
+  .analysis {
+    display: block;
+  }
+  .paneTabs {
+    display: flex;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .protocols,
+  .hex {
+    height: 100%;
+    border: 0;
+  }
+  .analysis[data-pane="protocol"] .hex,
+  .analysis[data-pane="bytes"] .protocols {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .heading {
+    padding: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .packetList {
+    min-height: 180px;
+  }
+  .hexRow {
+    gap: 8px;
+  }
+}

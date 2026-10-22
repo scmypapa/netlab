@@ -1,5 +1,5 @@
 import { useComputedColorScheme } from "@mantine/core";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import dagre from "@dagrejs/dagre";
 import {
   Background,
@@ -29,6 +29,7 @@ export type TrafficLink = {
   targetName: string;
   value: number;
   label: string;
+  measure?: "rate" | "bytes";
   severity?: number;
 };
 export const riskLevels = [
@@ -53,19 +54,19 @@ type AssetNode = Node<
 function TrafficAsset({ data, selected }: NodeProps<AssetNode>) {
   const Icon = data.external ? Globe2 : Server;
   return (
-    <div className={styles.assetNode} data-selected={selected}>
+    <div
+      className={styles.assetNode}
+      data-selected={selected}
+      style={{ "--node-color": data.color } as CSSProperties}
+    >
       <Handle type="target" position={Position.Left} />
       <div className={styles.assetNodeHeader}>
-        <span style={{ color: data.color }}>
-          <Icon size={17} strokeWidth={1.7} />
+        <span>
+          <Icon size={24} strokeWidth={1.5} />
         </span>
         <strong title={data.name}>{data.name}</strong>
       </div>
       <div className={styles.assetNodeAddress}>{data.address || "—"}</div>
-      <div className={styles.assetNodeRole}>
-        <i style={{ background: data.color }} />
-        {data.role}
-      </div>
       <Handle type="source" position={Position.Right} />
     </div>
   );
@@ -78,7 +79,7 @@ function FitGraph({ layoutKey }: { layoutKey: string }) {
   const width = useStore((state) => state.width);
   const height = useStore((state) => state.height);
   useEffect(() => {
-    if (initialized) void fitView({ padding: 0.25, maxZoom: 1 });
+    if (initialized) void fitView({ padding: 0.1, maxZoom: 1.1 });
   }, [initialized, layoutKey, fitView, width, height]);
   return null;
 }
@@ -101,49 +102,74 @@ export function TrafficGraph({
   const theme = useComputedColorScheme();
   const spec = environment.appliedSpec ?? environment.spec;
   const merged = useMemo(() => {
-    const connections = new Map<string, TrafficLink>();
+    const connections = new Map<
+      string,
+      TrafficLink & { forward: boolean; reverse: boolean }
+    >();
     for (const link of links) {
-      const key = JSON.stringify([link.source, link.target]);
+      const [source, target] = [link.source, link.target].sort();
+      const forward = source === link.source;
+      const key = JSON.stringify([source, target]);
       const previous = connections.get(key);
       if (previous) {
         previous.value += link.value;
+        previous.forward ||= forward;
+        previous.reverse ||= !forward;
         if (link.severity !== undefined)
           previous.severity = Math.min(previous.severity ?? 255, link.severity);
         const unit = byteUnit(previous.value);
         previous.label =
           previous.severity !== undefined
             ? `${previous.value.toLocaleString()} 次命中`
-            : `${reading(previous.value, unit.scale)} ${unit.unit}/s`;
-      } else connections.set(key, { ...link });
+            : `${reading(previous.value, unit.scale)} ${unit.unit}${previous.measure === "bytes" ? "" : "/s"}`;
+      } else
+        connections.set(key, {
+          ...link,
+          source,
+          target,
+          sourceName: forward ? link.sourceName : link.targetName,
+          targetName: forward ? link.targetName : link.sourceName,
+          forward,
+          reverse: !forward,
+        });
     }
-    return [...connections.values()]
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 300);
+    return [...connections.values()].sort((a, b) => b.value - a.value);
   }, [links]);
+  const displayed = merged.slice(0, 300);
   // Counts change every collection; only connectivity changes the layout.
   const layoutKey = JSON.stringify(
-    merged.map((link) => [link.source, link.target]).sort(),
+    displayed.map((link) => [link.source, link.target]).sort(),
   );
   const positions = useMemo(() => {
     const graph = new dagre.graphlib.Graph()
-      .setGraph({ rankdir: "LR", ranksep: 170, nodesep: 48 })
+      .setGraph({ rankdir: "LR", ranksep: 160, nodesep: 64 })
       .setDefaultEdgeLabel(() => ({}));
-    for (const asset of spec.assets)
-      graph.setNode(asset.id, { width: 184, height: 102 });
     for (const [source, target] of JSON.parse(layoutKey) as string[][]) {
       for (const id of [source, target])
-        if (!graph.hasNode(id)) graph.setNode(id, { width: 184, height: 102 });
+        if (!graph.hasNode(id)) graph.setNode(id, { width: 144, height: 116 });
       graph.setEdge(source, target);
     }
     dagre.layout(graph);
-    return new Map(
+    const positions = new Map(
       graph
         .nodes()
         .map((id) => [
           id,
-          { x: graph.node(id).x - 92, y: graph.node(id).y - 51 },
+          { x: graph.node(id).x - 72, y: graph.node(id).y - 58 },
         ]),
     );
+    const bottom = graph.nodeCount()
+      ? Math.max(...[...positions.values()].map((position) => position.y)) + 200
+      : 0;
+    spec.assets
+      .filter((asset) => !positions.has(asset.id))
+      .forEach((asset, index) => {
+        positions.set(asset.id, {
+          x: (index % 5) * 200,
+          y: bottom + Math.floor(index / 5) * 160,
+        });
+      });
+    return positions;
   }, [spec.assets, layoutKey]);
   const nodes = useMemo(() => {
     const nodes = new Map<string, AssetNode>();
@@ -185,7 +211,7 @@ export function TrafficGraph({
         },
       });
     }
-    for (const link of merged)
+    for (const link of merged.slice(0, 300))
       for (const [id, name] of [
         [link.source, link.sourceName],
         [link.target, link.targetName],
@@ -220,13 +246,15 @@ export function TrafficGraph({
       }));
     });
   }, [nodes, setNodes]);
-  const edges = merged.map((link) => {
+  const edges = displayed.map((link) => {
     const active =
       !selection ||
       ("asset" in selection
         ? link.source === selection.asset || link.target === selection.asset
-        : link.source === selection.source &&
-          link.target === selection.destination);
+        : (link.source === selection.source &&
+            link.target === selection.destination) ||
+          (link.target === selection.source &&
+            link.source === selection.destination));
     const color =
       link.severity !== undefined
         ? riskLevel(link.severity).color
@@ -239,17 +267,24 @@ export function TrafficGraph({
       selected: Boolean(selection && "source" in selection && active),
       label:
         active && (merged.length <= 12 || selection) ? link.label : undefined,
-      markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+      markerEnd: link.forward
+        ? { type: MarkerType.ArrowClosed, color, width: 16, height: 16 }
+        : undefined,
+      markerStart: link.reverse
+        ? { type: MarkerType.ArrowClosed, color, width: 16, height: 16 }
+        : undefined,
       style: {
         stroke: color,
-        strokeWidth: active ? 1.8 : 1,
+        strokeWidth: active
+          ? Math.min(4, 1.5 + Math.log10(1 + link.value) / 4)
+          : 1,
         opacity: active ? 0.85 : 0.18,
       },
       labelStyle: { fill: color, fontSize: 11, fontWeight: 500 },
       labelBgStyle: { fill: "var(--surface)" },
       labelBgPadding: [7, 5] as [number, number],
       labelBgBorderRadius: 5,
-      ariaLabel: `${link.sourceName} → ${link.targetName}，${link.label}`,
+      ariaLabel: `${link.sourceName} ${link.reverse ? (link.forward ? "↔" : "←") : "→"} ${link.targetName}，${link.label}`,
     };
   });
   return (
@@ -283,7 +318,7 @@ export function TrafficGraph({
         nodesConnectable={false}
         deleteKeyCode={null}
         fitView
-        fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
+        fitViewOptions={{ padding: 0.1, maxZoom: 1.1 }}
         minZoom={0.15}
         maxZoom={1.6}
         colorMode={theme}
@@ -298,6 +333,11 @@ export function TrafficGraph({
         <Controls showInteractive={false} position="bottom-right" />
         <FitGraph layoutKey={layoutKey} />
       </ReactFlow>
+      {merged.length > displayed.length && (
+        <div className={styles.graphLimit}>
+          显示 {displayed.length} / {merged.length} 组关系
+        </div>
+      )}
     </div>
   );
 }

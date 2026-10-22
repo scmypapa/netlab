@@ -46,7 +46,9 @@ import {
   endpoint,
   activeCapture,
   type Alert,
+  type Flow,
 } from "./useTrafficObservation";
+import PacketWorkspace from "./PacketWorkspace";
 import styles from "./TrafficWorkspace.module.css";
 
 const ranges = [
@@ -160,6 +162,8 @@ export default function TrafficWorkspace({
   const [level, setLevel] = useState<string | null>(null);
   const [selection, setSelection] = useState<TrafficSelection>();
   const [selectedAlert, setSelectedAlert] = useState<Alert>();
+  const [selectedFlow, setSelectedFlow] = useState<Flow>();
+  const [recordLimit, setRecordLimit] = useState(100);
   const [protocol, setProtocol] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
@@ -250,8 +254,10 @@ export default function TrafficWorkspace({
       ? [endpoint(item, "source"), endpoint(item, "destination")].includes(
           selection.asset,
         )
-      : endpoint(item, "source") === selection.source &&
-        endpoint(item, "destination") === selection.destination);
+      : (endpoint(item, "source") === selection.source &&
+          endpoint(item, "destination") === selection.destination) ||
+        (endpoint(item, "destination") === selection.source &&
+          endpoint(item, "source") === selection.destination));
   const visibleFlows = flows.filter(selected),
     visibleAlerts = alerts.filter(selected);
   const links =
@@ -270,8 +276,11 @@ export default function TrafficWorkspace({
           target: endpoint(flow, "destination"),
           sourceName: name(endpoint(flow, "source")),
           targetName: name(endpoint(flow, "destination")),
-          value: flow.bytesPerSecond,
-          label: `${volume(flow.bytes)} · ${volume(flow.bytesPerSecond)}/s`,
+          value: data.live ? flow.bytesPerSecond : flow.bytes,
+          measure: data.live ? ("rate" as const) : ("bytes" as const),
+          label: data.live
+            ? `${volume(flow.bytesPerSecond)}/s`
+            : volume(flow.bytes),
         }));
   const peak =
     data.history.data?.series.reduce(
@@ -300,13 +309,55 @@ export default function TrafficWorkspace({
     setCaptureId(id);
     setSelection(undefined);
     setSelectedAlert(undefined);
+    setSelectedFlow(undefined);
+    setRecordLimit(100);
     if (id !== "live") setMode("traffic");
   };
   const select = (value?: TrafficSelection) => {
     setSelection(value);
     setSelectedAlert(undefined);
+    setSelectedFlow(undefined);
   };
   const allSegments = data.captures.data?.segments ?? [];
+  const running = allSegments.filter(activeCapture);
+  const relatedCapture =
+    selectedFlow &&
+    allSegments.find(
+      (segment) =>
+        activeCapture(segment) &&
+        segment.assetIds.some(
+          (id) =>
+            id === selectedFlow.sourceAssetId ||
+            id === selectedFlow.destinationAssetId,
+        ),
+    );
+  const inspectFlow = () => {
+    if (!selectedFlow) return;
+    if (relatedCapture) {
+      setCaptureId(relatedCapture.id);
+      return;
+    }
+    if (running.length) {
+      data.action.mutate({ segments: running, remove: false });
+      return;
+    }
+    const host = (address: string) =>
+      /^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(address)
+        ? `ether host ${address}`
+        : `host ${address}`;
+    data.start.mutate({
+      assetIds: [
+        ...new Set(
+          [selectedFlow.sourceAssetId, selectedFlow.destinationAssetId].filter(
+            (id): id is string => !!id,
+          ),
+        ),
+      ],
+      durationSeconds: 300,
+      fileSizeMiB: 64,
+      filter: `${host(selectedFlow.source)} and ${host(selectedFlow.destination)}`,
+    });
+  };
   const sessions = [
     { value: "live", label: "实时流量" },
     ...new Map(
@@ -316,7 +367,6 @@ export default function TrafficWorkspace({
       ]),
     ).values(),
   ];
-  const running = allSegments.filter(activeCapture);
   const errors = [
     ...data.errors,
     ...(roleError ? [roleError] : []),
@@ -340,6 +390,7 @@ export default function TrafficWorkspace({
               onClick={() => {
                 setMode("traffic");
                 setSelectedAlert(undefined);
+                setSelectedFlow(undefined);
               }}
             >
               <Network size={16} />
@@ -351,6 +402,7 @@ export default function TrafficWorkspace({
               onClick={() => {
                 setMode("risk");
                 setSelectedAlert(undefined);
+                setSelectedFlow(undefined);
               }}
             >
               <ShieldAlert size={16} />
@@ -458,103 +510,129 @@ export default function TrafficWorkspace({
       )}
       <div className={styles.body}>
         <section className={styles.visual}>
-          <div className={styles.graphArea}>
-            <header className={styles.graphHeader}>
-              <div>
-                <strong>{mode === "risk" ? "风险关系" : "通信关系"}</strong>
-                <span>
-                  {mode === "risk"
-                    ? `${alerts.length} 组告警`
-                    : `${flows.length} 条连接`}
-                </span>
-              </div>
-              <div className={styles.legend}>
-                {(mode === "risk"
-                  ? riskLevels.map((risk) => [risk.label, risk.color] as const)
-                  : [...colors]
-                ).map(([label, color]) => (
-                  <span key={label}>
-                    <i style={{ background: color }} />
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </header>
-            <TrafficGraph
-              environment={environment}
-              links={links}
-              groups={groups}
-              colors={colors}
-              selection={selection}
-              onSelect={select}
+          {selectedFlow && !data.live ? (
+            <PacketWorkspace
+              key={[
+                captureId,
+                selectedFlow.source,
+                selectedFlow.destination,
+                selectedFlow.sourcePort,
+                selectedFlow.destinationPort,
+                selectedFlow.protocol,
+              ].join("/")}
+              environmentId={environment.id}
+              captureId={captureId}
+              segments={data.segments}
+              flow={selectedFlow}
+              onClose={() => setSelectedFlow(undefined)}
             />
-            {data.live && mode === "traffic" && (
-              <Tooltip
-                label={`近 ${data.traffic.data?.windowSeconds ?? 60} 秒 · 1/${data.traffic.data?.samplingRate ?? 512} 采样${data.traffic.data?.omittedSamples ? ` · 裁剪 ${data.traffic.data.omittedSamples} 条记录` : ""}`}
-              >
-                <span className={styles.graphCaption}>采样通信</span>
-              </Tooltip>
-            )}
-          </div>
-          {data.live && (
-            <section
-              className={styles.bandwidth}
-              aria-label="接口流量历史"
-              data-open={timelineOpen}
-            >
-              <header>
-                <button
-                  className={styles.timelineToggle}
-                  onClick={() => setTimelineOpen(!timelineOpen)}
-                  aria-expanded={timelineOpen}
-                  aria-label={timelineOpen ? "收起流量趋势" : "展开流量趋势"}
-                >
-                  {timelineOpen ? (
-                    <ChevronDown size={15} />
-                  ) : (
-                    <ChevronUp size={15} />
-                  )}
-                  {observedAsset ? name(observedAsset) : "环境带宽"}
-                </button>
-                <div className={styles.rates}>
-                  <span>
-                    <ArrowDownLeft size={14} />
-                    接收<b>{rate("receive")}</b>
-                  </span>
-                  <span>
-                    <ArrowUpRight size={14} />
-                    发送<b>{rate("transmit")}</b>
-                  </span>
-                </div>
-                <SegmentedControl
-                  aria-label="流量时间范围"
-                  size="xs"
-                  data={ranges}
-                  value={range}
-                  onChange={setRange}
-                />
-              </header>
-              {timelineOpen &&
-                (data.history.data?.series.some(
-                  (series) =>
-                    measures.includes(series.metric) &&
-                    series.points.length > 0,
-                ) && !data.history.isError ? (
-                  <MetricChart
-                    history={data.history.data}
-                    measures={measures}
-                    unit={unit.unit + "/s"}
-                    scale={unit.scale}
-                    seriesBy="metric"
-                    colors={["#547dc4", "#279c8c"]}
-                    compact
-                  />
-                ) : (
-                  <div className={styles.chartEmpty}>
-                    {data.history.isLoading ? "读取流量…" : "暂无接口记录"}
+          ) : (
+            <>
+              <div className={styles.graphArea}>
+                <header className={styles.graphHeader}>
+                  <div>
+                    <strong>{mode === "risk" ? "风险关系" : "通信关系"}</strong>
+                    <span>
+                      {mode === "risk"
+                        ? `${alerts.length} 组告警`
+                        : `${flows.length}${flows.length !== data.flows.length ? ` / ${data.flows.length}` : ""} 条通信记录`}
+                    </span>
                   </div>
-                ))}
-            </section>
+                  <div className={styles.legend}>
+                    {(mode === "risk"
+                      ? riskLevels.map(
+                          (risk) => [risk.label, risk.color] as const,
+                        )
+                      : [...colors]
+                    ).map(([label, color]) => (
+                      <span key={label}>
+                        <i style={{ background: color }} />
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </header>
+                <TrafficGraph
+                  environment={environment}
+                  links={links}
+                  groups={groups}
+                  colors={colors}
+                  selection={selection}
+                  onSelect={select}
+                />
+                {data.live && mode === "traffic" && (
+                  <Tooltip
+                    label={`近 ${data.traffic.data?.windowSeconds ?? 60} 秒${data.traffic.data?.omittedSamples ? ` · 容量外 ${data.traffic.data.omittedSamples} 条记录` : ""}`}
+                  >
+                    <span className={styles.graphCaption}>
+                      IPFIX · 最近 1 分钟
+                    </span>
+                  </Tooltip>
+                )}
+              </div>
+              {data.live && (
+                <section
+                  className={styles.bandwidth}
+                  aria-label="接口流量历史"
+                  data-open={timelineOpen}
+                >
+                  <header>
+                    <button
+                      className={styles.timelineToggle}
+                      onClick={() => setTimelineOpen(!timelineOpen)}
+                      aria-expanded={timelineOpen}
+                      aria-label={
+                        timelineOpen ? "收起流量趋势" : "展开流量趋势"
+                      }
+                    >
+                      {timelineOpen ? (
+                        <ChevronDown size={15} />
+                      ) : (
+                        <ChevronUp size={15} />
+                      )}
+                      {observedAsset ? name(observedAsset) : "环境带宽"}
+                    </button>
+                    <div className={styles.rates}>
+                      <span>
+                        <ArrowDownLeft size={14} />
+                        接收<b>{rate("receive")}</b>
+                      </span>
+                      <span>
+                        <ArrowUpRight size={14} />
+                        发送<b>{rate("transmit")}</b>
+                      </span>
+                    </div>
+                    <SegmentedControl
+                      aria-label="流量时间范围"
+                      size="xs"
+                      data={ranges}
+                      value={range}
+                      onChange={setRange}
+                    />
+                  </header>
+                  {timelineOpen &&
+                    (data.history.data?.series.some(
+                      (series) =>
+                        measures.includes(series.metric) &&
+                        series.points.length > 0,
+                    ) && !data.history.isError ? (
+                      <MetricChart
+                        history={data.history.data}
+                        measures={measures}
+                        unit={unit.unit + "/s"}
+                        scale={unit.scale}
+                        seriesBy="metric"
+                        colors={["#547dc4", "#279c8c"]}
+                        compact
+                      />
+                    ) : (
+                      <div className={styles.chartEmpty}>
+                        {data.history.isLoading ? "读取流量…" : "暂无接口记录"}
+                      </div>
+                    ))}
+                </section>
+              )}
+            </>
           )}
         </section>
         <aside className={styles.inspector}>
@@ -570,6 +648,7 @@ export default function TrafficWorkspace({
                       setMode("risk");
                       setLevel(level === risk.value ? null : risk.value);
                       setSelectedAlert(undefined);
+                      setSelectedFlow(undefined);
                     }}
                   >
                     <i />
@@ -627,15 +706,17 @@ export default function TrafficWorkspace({
             <header>
               <div>
                 <strong>
-                  {selectedAlert
-                    ? "告警详情"
-                    : selection
-                      ? "asset" in selection
-                        ? name(selection.asset)
-                        : "选中连接"
-                      : mode === "risk"
-                        ? "风险记录"
-                        : "通信记录"}
+                  {selectedFlow
+                    ? "连接详情"
+                    : selectedAlert
+                      ? "告警详情"
+                      : selection
+                        ? "asset" in selection
+                          ? name(selection.asset)
+                          : "选中连接"
+                        : mode === "risk"
+                          ? "风险记录"
+                          : "通信记录"}
                 </strong>
                 {selection && !selectedAlert && (
                   <span>
@@ -644,30 +725,47 @@ export default function TrafficWorkspace({
                       : groups.get(selection.asset)}
                   </span>
                 )}
-                {selection && "source" in selection && !selectedAlert && (
-                  <div className={styles.assetLinks}>
-                    <button onClick={() => select({ asset: selection.source })}>
-                      查看 {name(selection.source)}
-                    </button>
-                    <button
-                      onClick={() => select({ asset: selection.destination })}
-                    >
-                      查看 {name(selection.destination)}
-                    </button>
-                  </div>
-                )}
+                {selection &&
+                  "source" in selection &&
+                  !selectedAlert &&
+                  !selectedFlow && (
+                    <div className={styles.assetLinks}>
+                      <button
+                        onClick={() => select({ asset: selection.source })}
+                      >
+                        查看 {name(selection.source)}
+                      </button>
+                      <button
+                        onClick={() => select({ asset: selection.destination })}
+                      >
+                        查看 {name(selection.destination)}
+                      </button>
+                    </div>
+                  )}
               </div>
-              {(selection || selectedAlert) && (
+              {(selection || selectedAlert || selectedFlow) && (
                 <ActionIcon
                   variant="subtle"
-                  aria-label={selectedAlert ? "返回风险记录" : "清除选择"}
+                  aria-label={
+                    selectedFlow
+                      ? "返回通信记录"
+                      : selectedAlert
+                        ? "返回风险记录"
+                        : "清除选择"
+                  }
                   onClick={() =>
-                    selectedAlert
-                      ? setSelectedAlert(undefined)
-                      : setSelection(undefined)
+                    selectedFlow
+                      ? setSelectedFlow(undefined)
+                      : selectedAlert
+                        ? setSelectedAlert(undefined)
+                        : setSelection(undefined)
                   }
                 >
-                  {selectedAlert ? <ArrowLeft size={16} /> : <X size={16} />}
+                  {selectedAlert || selectedFlow ? (
+                    <ArrowLeft size={16} />
+                  ) : (
+                    <X size={16} />
+                  )}
                 </ActionIcon>
               )}
             </header>
@@ -677,6 +775,69 @@ export default function TrafficWorkspace({
                 onSelect={select}
                 name={name}
               />
+            ) : selectedFlow ? (
+              <div className={styles.connectionDetail}>
+                <div className={styles.alertRoute}>
+                  {(["source", "destination"] as const).map((side) => (
+                    <div key={side}>
+                      <span>{side === "source" ? "来源" : "目标"}</span>
+                      <button
+                        onClick={() =>
+                          select({ asset: endpoint(selectedFlow, side) })
+                        }
+                      >
+                        {name(endpoint(selectedFlow, side))}
+                      </button>
+                      <code>
+                        {selectedFlow[side]}
+                        {selectedFlow[`${side}Port`]
+                          ? `:${selectedFlow[`${side}Port`]}`
+                          : ""}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+                <dl className={styles.detailList}>
+                  <div>
+                    <dt>协议</dt>
+                    <dd>
+                      {[selectedFlow.protocol, selectedFlow.appProtocol]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>传输</dt>
+                    <dd>
+                      {volume(selectedFlow.bytes)} ·{" "}
+                      {selectedFlow.packets.toLocaleString()} 包
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>首次出现</dt>
+                    <dd>{dateTime(selectedFlow.firstSeen)}</dd>
+                  </div>
+                  <div>
+                    <dt>最近出现</dt>
+                    <dd>{dateTime(selectedFlow.lastSeen)}</dd>
+                  </div>
+                </dl>
+                {data.live && (
+                  <Button
+                    size="xs"
+                    variant="light"
+                    leftSection={<Radio size={14} />}
+                    loading={data.start.isPending || data.action.isPending}
+                    onClick={inspectFlow}
+                  >
+                    {relatedCapture
+                      ? "查看当前抓包"
+                      : running.length
+                        ? "结束当前抓包"
+                        : "抓取此连接"}
+                  </Button>
+                )}
+              </div>
             ) : (
               <>
                 {observedAsset && onView && (
@@ -750,7 +911,7 @@ export default function TrafficWorkspace({
                           </footer>
                         </button>
                       ))
-                    : visibleFlows.slice(0, 300).map((flow, index) => (
+                    : visibleFlows.slice(0, recordLimit).map((flow, index) => (
                         <button
                           key={[
                             flow.source,
@@ -762,12 +923,13 @@ export default function TrafficWorkspace({
                           ].join("/")}
                           className={styles.flowRow}
                           data-selected={Boolean(selection && selected(flow))}
-                          onClick={() =>
+                          onClick={() => {
                             select({
                               source: endpoint(flow, "source"),
                               destination: endpoint(flow, "destination"),
-                            })
-                          }
+                            });
+                            setSelectedFlow(flow);
+                          }}
                         >
                           <div>
                             <strong>{name(endpoint(flow, "source"))}</strong>
@@ -778,7 +940,8 @@ export default function TrafficWorkspace({
                           </div>
                           <footer>
                             <span>
-                              {flow.protocol} · {flow.sourcePort || "—"} →{" "}
+                              {flow.appProtocol || flow.protocol} ·{" "}
+                              {flow.sourcePort || "—"} →{" "}
                               {flow.destinationPort || "—"}
                             </span>
                             <b>
@@ -821,6 +984,15 @@ export default function TrafficWorkspace({
                       onClick={() => void data.security.fetchNextPage()}
                     >
                       加载更多
+                    </Button>
+                  )}
+                  {mode === "traffic" && visibleFlows.length > recordLimit && (
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      onClick={() => setRecordLimit((value) => value + 100)}
+                    >
+                      更多连接
                     </Button>
                   )}
                 </div>

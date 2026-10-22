@@ -289,6 +289,23 @@ export const api = {
     "/" +
     capture +
     "/file",
+  capturePackets: (
+    id: string,
+    node: string,
+    capture: string,
+    filters: {after?: number; source?: string; destination?: string; sourcePort?: number; destinationPort?: number; protocol?: string},
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters))
+      if (value !== undefined) query.set(key, String(value));
+    return request<Schema<"CapturePacketPage">>(
+      `/environments/${id}/captures/${node}/${capture}/packets?${query}`,
+      "GET", undefined, signal,
+    );
+  },
+  capturePacket: (id: string, node: string, capture: string, number: number, signal?: AbortSignal) =>
+    request<Schema<"CapturePacketDetail">>(`/environments/${id}/captures/${node}/${capture}/packets/${number}`, "GET", undefined, signal),
   updateStatus: () => request<Schema<"SystemUpdate">>("/system/update"),
   checkUpdate: () =>
     request<Schema<"SystemUpdate">>("/system/update/check", "POST"),
