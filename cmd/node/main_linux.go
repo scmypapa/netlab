@@ -441,9 +441,12 @@ func run() error {
 	mux.HandleFunc("GET /node/v1/metrics", func(w http.ResponseWriter, r *http.Request) {
 		observed := time.Now().UTC()
 		samples, err := executor.Metrics(r.Context())
-		if err != nil {
+		if err != nil && len(samples) == 0 {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if err != nil {
+			w.Header().Set(metrics.CollectionErrorHeader, strconv.QuoteToASCII(err.Error()))
 		}
 		var data bytes.Buffer
 		if err = metrics.Write(&data, samples, observed); err != nil {

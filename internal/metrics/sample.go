@@ -12,6 +12,8 @@ type Sample struct {
 	Value                                               float64
 }
 
+const CollectionErrorHeader = "X-Netlab-Metrics-Error"
+
 func Write(w io.Writer, samples []Sample, observed time.Time) error {
 	for _, sample := range samples {
 		labels := "environment=" + strconv.Quote(sample.Environment) + ",asset=" + strconv.Quote(sample.Asset) + ",instance=" + strconv.Quote(sample.Instance) + ",node=" + strconv.Quote(sample.Node)

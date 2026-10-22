@@ -6,10 +6,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/metrics"
 )
 
 // Metric storage is independent from runtime observations and never marks a node offline.
@@ -81,5 +83,15 @@ func (s Service) nodeMetrics(ctx context.Context, endpoint string) error {
 		}
 		return fmt.Errorf("node metrics returned %d: %s", response.StatusCode, detail)
 	}
-	return s.Metrics.Import(ctx, response.Body)
+	if err = s.Metrics.Import(ctx, response.Body); err != nil {
+		return err
+	}
+	if warning := response.Header.Get(metrics.CollectionErrorHeader); warning != "" {
+		message, err := strconv.Unquote(warning)
+		if err != nil {
+			return fmt.Errorf("invalid node metrics error: %w", err)
+		}
+		return fmt.Errorf("node metrics incomplete: %s", message)
+	}
+	return nil
 }
