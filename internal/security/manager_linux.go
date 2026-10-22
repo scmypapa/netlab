@@ -243,7 +243,13 @@ func (m *Manager) start(ctx context.Context, run *sensorRun) error {
 	if !ok {
 		return fmt.Errorf("Suricata 配置缺少地址变量")
 	}
-	addresses["HOME_NET"], addresses["EXTERNAL_NET"] = "any", "any"
+	homes := make([]string, 0, len(run.Peers))
+	for _, peer := range run.Peers {
+		homes = append(homes, peer.Interface.Address)
+	}
+	slices.Sort(homes)
+	homes = slices.Compact(homes)
+	addresses["HOME_NET"], addresses["EXTERNAL_NET"] = "["+strings.Join(homes, ",")+"]", "any"
 	config["rule-files"] = []string{m.rules}
 	config["outputs"] = []any{map[string]any{"eve-log": map[string]any{"enabled": true, "filetype": "regular", "filename": "eve-%Y%m%d%H.json", "rotate-interval": "1h", "ethernet": true,
 		"types": []any{map[string]any{"alert": map[string]any{"metadata": false, "payload": false, "packet": false}}, map[string]any{"stats": map[string]any{"totals": true, "threads": false}}}}}}

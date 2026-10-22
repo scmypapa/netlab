@@ -26,7 +26,7 @@ func TestRealSuricataOverlappingEnvironments(t *testing.T) {
 	if os.Getenv("NETLAB_REAL_SECURITY") != "1" {
 		t.Skip("set NETLAB_REAL_SECURITY=1 for native OVS/Suricata verification")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
 	bridge := "ni" + suffix
@@ -71,7 +71,12 @@ func TestRealSuricataOverlappingEnvironments(t *testing.T) {
 	}
 	directory := t.TempDir()
 	rules := filepath.Join(directory, "verification.rules")
-	if err = os.WriteFile(rules, []byte(`alert udp any any -> any any (msg:"Netlab live verification"; content:"netlab-suricata-verification"; sid:1000001; rev:1; priority:1;)`), 0600); err != nil {
+	fullRules, err := os.ReadFile("/var/lib/suricata/rules/suricata.rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullRules = append(fullRules, []byte("\n"+`alert udp any any -> any any (msg:"Netlab live verification"; content:"netlab-suricata-verification"; sid:1000001; rev:1; priority:1;)`+"\n")...)
+	if err = os.WriteFile(rules, fullRules, 0600); err != nil {
 		t.Fatal(err)
 	}
 	m, err := New(ctx, ovs, directory, "one", "/etc/suricata/suricata.yaml")
@@ -110,7 +115,10 @@ func TestRealSuricataOverlappingEnvironments(t *testing.T) {
 			t.Fatalf("sensor: %+v", result.Sensor)
 		}
 		for _, alert := range result.Alerts {
-			if alert.SignatureId != 1000001 || alert.SourceAssetId != "web" || alert.Severity != 1 {
+			if alert.SignatureId != 1000001 {
+				continue
+			}
+			if alert.SourceAssetId != "web" || alert.Severity != 1 {
 				t.Fatalf("wrong native alert: %+v", alert)
 			}
 			seen[alert.EnvironmentId] = true
