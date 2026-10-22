@@ -56,6 +56,7 @@ export function MetricChart({
   seriesBy = "interface",
   colors,
   group,
+  compact = false,
 }: {
   history: History;
   measures: Metric[];
@@ -65,6 +66,7 @@ export function MetricChart({
   seriesBy?: "metric" | "asset" | "node" | "interface";
   colors?: string[];
   group?: string;
+  compact?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.EChartsType>(null);
@@ -183,7 +185,13 @@ export function MetricChart({
           },
         },
         color: palette,
-        grid: { left: 12, right: 18, top: 30, bottom: 36, containLabel: true },
+        grid: {
+          left: 12,
+          right: 18,
+          top: compact ? 25 : 30,
+          bottom: compact ? 12 : 36,
+          containLabel: true,
+        },
         tooltip: {
           trigger: "axis",
           confine: true,
@@ -247,7 +255,7 @@ export function MetricChart({
           },
         },
         legend: {
-          show: measures.length > 1 || series.length > 1,
+          show: !compact && (measures.length > 1 || series.length > 1),
           bottom: 0,
           left: 12,
           type: "scroll",
@@ -272,7 +280,18 @@ export function MetricChart({
       },
       { replaceMerge: ["series"] },
     );
-  }, [history, measures, unit, scale, names, seriesBy, theme, colors, group]);
+  }, [
+    history,
+    measures,
+    unit,
+    scale,
+    names,
+    seriesBy,
+    theme,
+    colors,
+    group,
+    compact,
+  ]);
   return (
     <div
       ref={host}

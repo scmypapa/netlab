@@ -509,9 +509,7 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "流量视图" }).click();
   await expect.poll(() => sampled).toBe(true);
-  await expect(
-    page.getByText("近 60 秒 · 1/512 采样", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("采样通信", { exact: true })).toBeVisible();
   await expect(page.getByLabel("接口流量历史")).toContainText("2 MiB/s");
   expect(histories[0].searchParams.get("aggregate")).toBe("true");
   await page.getByText("7 天", { exact: true }).click();
@@ -525,19 +523,20 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   expect(histories.some((url) => url.searchParams.get("range") === "60")).toBe(
     true,
   );
-  await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "资产通信图" })).toBeVisible();
+  await page.getByRole("button", { name: "抓包", exact: true }).click();
   await page
-    .getByRole("button", { name: "开始抓包", exact: true })
+    .getByRole("menuitem", { name: "开始抓包", exact: true })
     .first()
     .click();
   await page
     .getByRole("dialog", { name: "开始抓包" })
     .getByRole("button", { name: "开始", exact: true })
     .click();
-  await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "资产通信图" })).toBeVisible();
   await expect(page.getByText("抓包进程未能启动")).toBeVisible();
-  await expect(page.getByText("抓包实测", { exact: true })).toBeVisible();
-  await expect(page.getByText("1 MiB · 16 KiB/s")).toBeVisible();
+  await expect(page.getByText("抓包中", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 MiB · 1,000 包")).toBeVisible();
   await expect(page.getByLabel("接口流量历史")).toHaveCount(0);
   await page.getByRole("button", { name: "停止此分段" }).click();
   await expect(
@@ -547,9 +546,12 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     "/api/v1/environments/env/captures/one/" + capture + "/file",
   );
   await page.getByRole("textbox", { name: "流量来源", exact: true }).click();
-  await page.getByRole("option", { name: "实时通信", exact: true }).click();
+  await page.getByRole("option", { name: "实时流量", exact: true }).click();
   await expect(page.getByLabel("接口流量历史")).toBeVisible();
-  await page.getByRole("button", { name: /web-01.*windows-01/ }).click();
+  await page
+    .getByLabel("可选择的通信连接")
+    .getByRole("button", { name: /web-01.*windows-01/ })
+    .click();
   lowTraffic = true;
   await page.getByRole("button", { name: "查看 web-01", exact: true }).click();
   await expect
@@ -579,9 +581,9 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     ).toBe(true);
   }
   await page.getByRole("button", { name: "切换夜间主题" }).click();
-  await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "资产通信图" })).toBeVisible();
   await page.getByRole("textbox", { name: "流量来源", exact: true }).click();
-  await page.getByRole("option").filter({ hasNotText: "实时通信" }).click();
+  await page.getByRole("option").filter({ hasNotText: "实时流量" }).click();
   await expect(page.getByLabel("接口流量历史")).toHaveCount(0);
   await page
     .getByRole("button", { name: "删除此分段", exact: true })
@@ -594,7 +596,7 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await expect(page.getByLabel("接口流量历史")).toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "流量来源", exact: true }),
-  ).toHaveValue("实时通信");
+  ).toHaveValue("实时流量");
   currentFailed = true;
   sampleFailed = true;
   await expect(
@@ -608,6 +610,241 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     page.getByLabel("可选择的通信连接").getByRole("button"),
   ).toHaveCount(0);
 });
+test("流量页贯通风险分级、接口筛选和告警详情", async ({ page }) => {
+  await fixture(page);
+  const now = new Date().toISOString();
+  await page.route("**/environments/env/captures", (route) =>
+    route.fulfill({ json: { segments: [], errors: {} } }),
+  );
+  await page.route("**/environments/env/metrics?**", (route) => {
+    const range = Number(
+      new URL(route.request().url()).searchParams.get("range"),
+    );
+    const end = Date.now();
+    const step = range / 60;
+    return route.fulfill({
+      json: {
+        start: new Date(end - range * 1000).toISOString(),
+        end: new Date(end).toISOString(),
+        stepSeconds: step,
+        series: ["receive", "transmit"].map((metric, direction) => ({
+          metric,
+          assetId: "",
+          instanceId: "",
+          nodeId: "",
+          points: Array.from({ length: 61 }, (_, i) => ({
+            time: new Date(end - range * 1000 + i * step * 1000).toISOString(),
+            value:
+              (direction ? 0.4 : 1) *
+              (2 + 3 * Math.sin(i / 8) ** 2 + (i > 36 && i < 42 ? 5 : 0)) *
+              1048576,
+          })),
+        })),
+      },
+    });
+  });
+  await page.route("**/environments/env/traffic", (route) =>
+    route.fulfill({
+      json: {
+        flows: [],
+        errors: {},
+        samplingRate: 512,
+        windowSeconds: 60,
+        omittedSamples: 0,
+        observedAt: now,
+      },
+    }),
+  );
+  const requests: URL[] = [];
+  const alert = {
+    id: 1,
+    environmentId: "env",
+    nodeId: "node",
+    networkId: "lan",
+    interfaceId: "eth-web",
+    generatorId: 1,
+    signatureId: 2000001,
+    revision: 1,
+    severity: 1,
+    category: "Web Application Attack",
+    signature: "ET WEB_SERVER SQL injection attempt",
+    source: "10.10.0.10",
+    destination: "10.10.0.11",
+    sourcePort: 50000,
+    destinationPort: 80,
+    sourceAssetId: "web",
+    sourceAssetName: "web-01",
+    destinationAssetId: "windows",
+    destinationAssetName: "windows-01",
+    protocol: "TCP",
+    appProtocol: "http",
+    count: 4,
+    firstSeen: now,
+    lastSeen: now,
+  };
+  await page.route("**/environments/env/security?**", (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    return route.fulfill({
+      json: {
+        alerts: url.searchParams.get("level") === "low" ? [] : [alert],
+        counts: { high: 4, medium: 0, low: 0 },
+        sensors: [
+          {
+            nodeId: "node",
+            nodeName: "计算节点",
+            status: "ready",
+            interfaces: 2,
+            packets: 120,
+            droppedPackets: 0,
+            checkedAt: now,
+            rulesUpdatedAt: now,
+          },
+        ],
+        start: now,
+        end: now,
+      },
+    });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "流量视图", exact: true }).click();
+  await expect(page.getByLabel("风险概览")).toContainText("4");
+  await page.getByRole("button", { name: "高风险 4", exact: true }).click();
+  await expect
+    .poll(() => requests.at(-1)?.searchParams.get("level"))
+    .toBe("high");
+  await page
+    .getByLabel("可选择的风险记录")
+    .getByRole("button", { name: /SQL injection attempt/ })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: alert.signature, exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("10.10.0.11:80", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "返回风险记录", exact: true }).click();
+  await page.getByRole("button", { name: "清除选择", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "筛选流量记录", exact: true })
+    .fill("SQL");
+  await expect
+    .poll(() => requests.at(-1)?.searchParams.get("search"))
+    .toBe("SQL");
+  for (const width of [1366, 1920, 2560, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await page.screenshot({ path: `test-results/suricata-${width}.png` });
+  }
+  await page.getByRole("button", { name: "切换夜间主题", exact: true }).click();
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.screenshot({ path: "test-results/suricata-dark.png" });
+  await page.getByRole("button", { name: /Suricata 1\/1/ }).click();
+  await expect(page.getByText("检测中", { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("通信工作区多资产布局、键盘选择和趋势收纳", async ({ page }) => {
+  await fixture(page, {
+    additionalAssets: ["dc-01", "database-01", "client-01", "app-01"],
+  });
+  const now = new Date().toISOString();
+  await page.route("**/environments/env/captures", (route) =>
+    route.fulfill({ json: { segments: [], errors: {} } }),
+  );
+  await page.route("**/environments/env/metrics?**", (route) =>
+    route.fulfill({
+      json: { start: now, end: now, stepSeconds: 10, series: [] },
+    }),
+  );
+  const pairs = [
+    ["client-01", "web"],
+    ["web", "app-01"],
+    ["app-01", "database-01"],
+    ["client-01", "dc-01"],
+    ["windows", "dc-01"],
+  ];
+  await page.route("**/environments/env/traffic", (route) =>
+    route.fulfill({
+      json: {
+        flows: pairs.map(([sourceAssetId, destinationAssetId], index) => ({
+          source: `10.10.0.${10 + index}`,
+          destination: `10.10.0.${20 + index}`,
+          sourceAssetId,
+          destinationAssetId,
+          protocol: "TCP",
+          sourcePort: 40000 + index,
+          destinationPort: [443, 8080, 5432, 389, 88][index],
+          bytes: 1048576 * (index + 1),
+          bytesPerSecond: 16384 * (index + 1),
+          packets: 1000,
+          firstSeen: now,
+          lastSeen: now,
+        })),
+        errors: {},
+        samplingRate: 512,
+        windowSeconds: 60,
+        omittedSamples: 0,
+        observedAt: now,
+      },
+    }),
+  );
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "流量视图", exact: true }).click();
+  const graph = page.getByRole("region", { name: "资产通信图" });
+  await expect(graph.locator(".react-flow__node")).toHaveCount(6);
+  for (const width of [1366, 1920, 2560, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect
+      .poll(async () => {
+        const area = await graph.boundingBox();
+        const nodes = await graph
+          .locator(".react-flow__node")
+          .evaluateAll((items) =>
+            items.map((item) => {
+              const r = item.getBoundingClientRect();
+              return { x: r.x, y: r.y, width: r.width, height: r.height };
+            }),
+          );
+        const centerX =
+          (Math.min(...nodes.map((n) => n.x)) +
+            Math.max(...nodes.map((n) => n.x + n.width))) /
+          2;
+        const centerY =
+          (Math.min(...nodes.map((n) => n.y)) +
+            Math.max(...nodes.map((n) => n.y + n.height))) /
+          2;
+        return (
+          Math.abs(centerX - area!.x - area!.width / 2) +
+          Math.abs(centerY - area!.y - area!.height / 2)
+        );
+      })
+      .toBeLessThan(8);
+    await page.screenshot({ path: `test-results/traffic-map-${width}.png` });
+  }
+  await page.setViewportSize({ width: 1366, height: 900 });
+  const node = graph.getByRole("group", { name: "资产 web-01", exact: true });
+  await node.focus();
+  await node.press("Enter");
+  await expect(page.getByLabel("接口流量历史")).toContainText("web-01");
+  const before = (await graph.boundingBox())!.height;
+  await page.getByRole("button", { name: "收起流量趋势" }).click();
+  await expect
+    .poll(async () => (await graph.boundingBox())!.height)
+    .toBeGreaterThan(before);
+  await page.getByRole("button", { name: "展开流量趋势" }).click();
+  await page.getByRole("button", { name: "切换夜间主题" }).click();
+  await page.screenshot({ path: "test-results/traffic-map-dark.png" });
+  expect(errors).toEqual([]);
+});
+
 import type { Identity, Operation, Schema } from "../src/api/client";
 
 test("系统更新展示正式发布日志并提交指定版本", async ({ page }) => {
@@ -785,6 +1022,7 @@ async function fixture(
     identity?: Identity;
     operation?: Operation;
     status?: string;
+    additionalAssets?: string[];
   } = {},
 ) {
   const calls: { method: string; path: string; body: unknown }[] = [];
@@ -830,6 +1068,21 @@ async function fixture(
       },
     ],
   };
+  for (const [index, name] of (options.additionalAssets ?? []).entries()) {
+    spec.assets.push({
+      ...spec.assets[0],
+      id: name,
+      name,
+      interfaces: [
+        {
+          ...spec.assets[0].interfaces[0],
+          id: `eth-${name}`,
+          address: `10.10.0.${20 + index}`,
+          mac: `02:00:00:00:00:${20 + index}`,
+        },
+      ],
+    });
+  }
   const environment = {
     id: "env",
     projectId: "lab-project",
@@ -979,6 +1232,14 @@ async function fixture(
           observedAt: environment.updatedAt,
         })),
         updatedAt: environment.updatedAt,
+      };
+    else if (path === "/environments/env/security")
+      response = {
+        alerts: [],
+        counts: { high: 0, medium: 0, low: 0 },
+        sensors: [],
+        start: new Date().toISOString(),
+        end: new Date().toISOString(),
       };
     else if (path.endsWith("/services")) response = [];
     else if (path === "/templates") response = templates;

@@ -19,6 +19,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   ChevronDown,
+  ChevronUp,
   Download,
   Network,
   Pause,
@@ -84,9 +85,11 @@ const segmentTitles = {
 function AlertDetail({
   alert,
   onSelect,
+  name,
 }: {
   alert: Alert;
   onSelect: (selection: TrafficSelection) => void;
+  name: (id: string) => string;
 }) {
   const risk = riskLevel(alert.severity);
   return (
@@ -102,7 +105,7 @@ function AlertDetail({
             {index === 1 && <ArrowDownLeft size={17} />}
             <span>{side === "source" ? "来源" : "目标"}</span>
             <button onClick={() => onSelect({ asset: endpoint(alert, side) })}>
-              {alert[`${side}AssetName`] || alert[side]}
+              {name(endpoint(alert, side))}
             </button>
             <code>
               {alert[side]}
@@ -152,6 +155,7 @@ export default function TrafficWorkspace({
 }) {
   const [captureId, setCaptureId] = useState("live");
   const [mode, setMode] = useState("traffic");
+  const [timelineOpen, setTimelineOpen] = useState(true);
   const [range, setRange] = useState("3600");
   const [level, setLevel] = useState<string | null>(null);
   const [selection, setSelection] = useState<TrafficSelection>();
@@ -205,15 +209,12 @@ export default function TrafficWorkspace({
       ),
     [groups],
   );
-  const name = (id: string) =>
-    spec.assets.find((asset) => asset.id === id)?.name ??
-    [...data.flows, ...data.alerts]
-      .flatMap((item) => [
-        [item.sourceAssetId, item.sourceAssetName],
-        [item.destinationAssetId, item.destinationAssetName],
-      ])
-      .find(([key]) => key === id)?.[1] ??
-    id;
+  const names = new Map<string, string>();
+  for (const item of [...data.flows, ...data.alerts])
+    for (const side of ["source", "destination"] as const)
+      names.set(endpoint(item, side), item[`${side}AssetName`] || item[side]);
+  for (const asset of spec.assets) names.set(asset.id, asset.name);
+  const name = (id: string) => names.get(id) ?? id;
   const matches = (item: {
     source: string;
     destination: string;
@@ -234,8 +235,8 @@ export default function TrafficWorkspace({
         [
           flow.source,
           flow.destination,
-          flow.sourceAssetName,
-          flow.destinationAssetName,
+          name(endpoint(flow, "source")),
+          name(endpoint(flow, "destination")),
           flow.protocol,
         ]
           .join(" ")
@@ -258,8 +259,8 @@ export default function TrafficWorkspace({
       ? alerts.map((alert) => ({
           source: endpoint(alert, "source"),
           target: endpoint(alert, "destination"),
-          sourceName: alert.sourceAssetName || alert.source,
-          targetName: alert.destinationAssetName || alert.destination,
+          sourceName: name(endpoint(alert, "source")),
+          targetName: name(endpoint(alert, "destination")),
           value: alert.count,
           label: `${alert.count.toLocaleString()} 次命中`,
           severity: alert.severity,
@@ -267,8 +268,8 @@ export default function TrafficWorkspace({
       : flows.map((flow) => ({
           source: endpoint(flow, "source"),
           target: endpoint(flow, "destination"),
-          sourceName: flow.sourceAssetName || flow.source,
-          targetName: flow.destinationAssetName || flow.destination,
+          sourceName: name(endpoint(flow, "source")),
+          targetName: name(endpoint(flow, "destination")),
           value: flow.bytesPerSecond,
           label: `${volume(flow.bytes)} · ${volume(flow.bytesPerSecond)}/s`,
         }));
@@ -301,7 +302,7 @@ export default function TrafficWorkspace({
     setSelectedAlert(undefined);
     if (id !== "live") setMode("traffic");
   };
-  const select = (value: TrafficSelection) => {
+  const select = (value?: TrafficSelection) => {
     setSelection(value);
     setSelectedAlert(undefined);
   };
@@ -329,24 +330,80 @@ export default function TrafficWorkspace({
   return (
     <section className={styles.workspace} aria-label="流量观测">
       <header className={styles.toolbar}>
-        <div className={styles.title}>
+        <div className={styles.navigation}>
           <ActionIcon variant="subtle" aria-label="返回画布" onClick={onClose}>
-            <ArrowLeft size={18} />
+            <ArrowLeft size={17} />
           </ActionIcon>
-          <div>
-            <strong>流量观测</strong>
-            <span>{environment.name}</span>
-          </div>
+          <nav className={styles.viewTabs} aria-label="流量视图">
+            <button
+              aria-pressed={mode === "traffic"}
+              onClick={() => {
+                setMode("traffic");
+                setSelectedAlert(undefined);
+              }}
+            >
+              <Network size={16} />
+              通信分析
+            </button>
+            <button
+              aria-pressed={mode === "risk"}
+              disabled={!data.live}
+              onClick={() => {
+                setMode("risk");
+                setSelectedAlert(undefined);
+              }}
+            >
+              <ShieldAlert size={16} />
+              风险检测
+              {data.live && totalAlerts > 0 && (
+                <span>{totalAlerts.toLocaleString()}</span>
+              )}
+            </button>
+          </nav>
         </div>
         <div className={styles.controls}>
           {data.live && (
-            <SegmentedControl
-              aria-label="流量时间范围"
-              size="xs"
-              data={ranges}
-              value={range}
-              onChange={setRange}
-            />
+            <Popover position="bottom-end" width={340} shadow="md">
+              <Popover.Target>
+                <button
+                  className={styles.sensorButton}
+                  data-ready={sensors.length > 0 && ready === sensors.length}
+                >
+                  <Shield size={14} />
+                  Suricata{" "}
+                  <span>
+                    {ready}/{sensors.length}
+                  </span>
+                  <ChevronDown size={12} />
+                </button>
+              </Popover.Target>
+              <Popover.Dropdown>
+                <div className={styles.sensors}>
+                  {sensors.length === 0 && <span>暂无检测节点</span>}
+                  {sensors.map((sensor) => (
+                    <section key={sensor.nodeId}>
+                      <header>
+                        <strong>{sensor.nodeName ?? "运行节点"}</strong>
+                        <Badge
+                          size="xs"
+                          color={sensor.status === "ready" ? "teal" : "gray"}
+                        >
+                          {sensorTitles[sensor.status]}
+                        </Badge>
+                      </header>
+                      <span>
+                        {sensor.interfaces} 个接口 ·{" "}
+                        {sensor.droppedPackets.toLocaleString()} 丢包
+                      </span>
+                      {sensor.rulesUpdatedAt && (
+                        <span>规则更新 {dateTime(sensor.rulesUpdatedAt)}</span>
+                      )}
+                      {sensor.error && <p role="alert">{sensor.error}</p>}
+                    </section>
+                  ))}
+                </div>
+              </Popover.Dropdown>
+            </Popover>
           )}
           <Select
             aria-label="流量来源"
@@ -399,156 +456,145 @@ export default function TrafficWorkspace({
           ))}
         </div>
       )}
-      {data.live && (
-        <div className={styles.overview}>
-          <section className={styles.bandwidth} aria-label="接口流量历史">
-            <header>
-              <span className={styles.eyebrow}>
-                {observedAsset ? name(observedAsset) : "环境带宽"}
-              </span>
-              <div className={styles.rates}>
-                <span>
-                  <ArrowDownLeft size={14} />
-                  <b>{rate("receive")}</b>
-                </span>
-                <span>
-                  <ArrowUpRight size={14} />
-                  <b>{rate("transmit")}</b>
-                </span>
-              </div>
-            </header>
-            {data.history.data && !data.history.isError ? (
-              <MetricChart
-                history={data.history.data}
-                measures={measures}
-                unit={unit.unit + "/s"}
-                scale={unit.scale}
-                seriesBy="metric"
-                colors={["#5b86d1", "#35a69b"]}
-              />
-            ) : (
-              <div className={styles.chartEmpty}>
-                {data.history.isLoading ? "读取流量…" : "暂无接口记录"}
-              </div>
-            )}
-          </section>
-          <section className={styles.riskSummary} aria-label="风险概览">
-            <header>
-              <span className={styles.eyebrow}>风险命中</span>
-              <Popover position="bottom-end" width={340} shadow="md">
-                <Popover.Target>
-                  <button
-                    className={styles.sensorButton}
-                    data-ready={sensors.length > 0 && ready === sensors.length}
-                  >
-                    <Shield size={14} />
-                    Suricata{" "}
-                    <span>
-                      {ready}/{sensors.length}
-                    </span>
-                    <ChevronDown size={12} />
-                  </button>
-                </Popover.Target>
-                <Popover.Dropdown>
-                  <div className={styles.sensors}>
-                    {sensors.length === 0 && <span>暂无检测节点</span>}
-                    {sensors.map((sensor) => (
-                      <section key={sensor.nodeId}>
-                        <header>
-                          <strong>{sensor.nodeName ?? "运行节点"}</strong>
-                          <Badge
-                            size="xs"
-                            color={sensor.status === "ready" ? "teal" : "gray"}
-                          >
-                            {sensorTitles[sensor.status]}
-                          </Badge>
-                        </header>
-                        <span>
-                          {sensor.interfaces} 个接口 ·{" "}
-                          {sensor.droppedPackets.toLocaleString()} 丢包
-                        </span>
-                        {sensor.rulesUpdatedAt && (
-                          <span>
-                            规则更新 {dateTime(sensor.rulesUpdatedAt)}
-                          </span>
-                        )}
-                        {sensor.error && <p role="alert">{sensor.error}</p>}
-                      </section>
-                    ))}
-                  </div>
-                </Popover.Dropdown>
-              </Popover>
-            </header>
-            <div className={styles.riskNumbers}>
-              {riskLevels.map((risk) => (
-                <button
-                  key={risk.value}
-                  style={{ "--risk": risk.color } as CSSProperties}
-                  data-selected={mode === "risk" && level === risk.value}
-                  onClick={() => {
-                    setMode("risk");
-                    setLevel(level === risk.value ? null : risk.value);
-                    setSelectedAlert(undefined);
-                  }}
-                  aria-pressed={mode === "risk" && level === risk.value}
-                >
-                  <span>{risk.label}</span>
-                  <strong>
-                    {counts && !data.security.isError
-                      ? counts[risk.value].toLocaleString()
-                      : "—"}
-                  </strong>
-                </button>
-              ))}
-            </div>
-            <div className={styles.riskTrack} aria-hidden="true">
-              {riskLevels.map((risk) => (
-                <span
-                  key={risk.value}
-                  style={{
-                    background: risk.color,
-                    flex: counts && totalAlerts ? counts[risk.value] : 0,
-                  }}
-                />
-              ))}
-            </div>
-          </section>
-        </div>
-      )}
       <div className={styles.body}>
         <section className={styles.visual}>
-          <div className={styles.graphToolbar}>
-            <SegmentedControl
-              aria-label="流量视图"
-              value={mode}
-              onChange={(value) => {
-                setMode(value);
-                setSelectedAlert(undefined);
-              }}
-              size="xs"
-              data={[
-                {
-                  label: (
-                    <span>
-                      <Network size={14} />
-                      通信
-                    </span>
-                  ),
-                  value: "traffic",
-                },
-                {
-                  label: (
-                    <span>
-                      <ShieldAlert size={14} />
-                      风险
-                    </span>
-                  ),
-                  value: "risk",
-                  disabled: !data.live,
-                },
-              ]}
+          <div className={styles.graphArea}>
+            <header className={styles.graphHeader}>
+              <div>
+                <strong>{mode === "risk" ? "风险关系" : "通信关系"}</strong>
+                <span>
+                  {mode === "risk"
+                    ? `${alerts.length} 组告警`
+                    : `${flows.length} 条连接`}
+                </span>
+              </div>
+              <div className={styles.legend}>
+                {(mode === "risk"
+                  ? riskLevels.map((risk) => [risk.label, risk.color] as const)
+                  : [...colors]
+                ).map(([label, color]) => (
+                  <span key={label}>
+                    <i style={{ background: color }} />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </header>
+            <TrafficGraph
+              environment={environment}
+              links={links}
+              groups={groups}
+              colors={colors}
+              selection={selection}
+              onSelect={select}
             />
+            {data.live && mode === "traffic" && (
+              <Tooltip
+                label={`近 ${data.traffic.data?.windowSeconds ?? 60} 秒 · 1/${data.traffic.data?.samplingRate ?? 512} 采样${data.traffic.data?.omittedSamples ? ` · 裁剪 ${data.traffic.data.omittedSamples} 条记录` : ""}`}
+              >
+                <span className={styles.graphCaption}>采样通信</span>
+              </Tooltip>
+            )}
+          </div>
+          {data.live && (
+            <section
+              className={styles.bandwidth}
+              aria-label="接口流量历史"
+              data-open={timelineOpen}
+            >
+              <header>
+                <button
+                  className={styles.timelineToggle}
+                  onClick={() => setTimelineOpen(!timelineOpen)}
+                  aria-expanded={timelineOpen}
+                  aria-label={timelineOpen ? "收起流量趋势" : "展开流量趋势"}
+                >
+                  {timelineOpen ? (
+                    <ChevronDown size={15} />
+                  ) : (
+                    <ChevronUp size={15} />
+                  )}
+                  {observedAsset ? name(observedAsset) : "环境带宽"}
+                </button>
+                <div className={styles.rates}>
+                  <span>
+                    <ArrowDownLeft size={14} />
+                    接收<b>{rate("receive")}</b>
+                  </span>
+                  <span>
+                    <ArrowUpRight size={14} />
+                    发送<b>{rate("transmit")}</b>
+                  </span>
+                </div>
+                <SegmentedControl
+                  aria-label="流量时间范围"
+                  size="xs"
+                  data={ranges}
+                  value={range}
+                  onChange={setRange}
+                />
+              </header>
+              {timelineOpen &&
+                (data.history.data?.series.some(
+                  (series) =>
+                    measures.includes(series.metric) &&
+                    series.points.length > 0,
+                ) && !data.history.isError ? (
+                  <MetricChart
+                    history={data.history.data}
+                    measures={measures}
+                    unit={unit.unit + "/s"}
+                    scale={unit.scale}
+                    seriesBy="metric"
+                    colors={["#547dc4", "#279c8c"]}
+                    compact
+                  />
+                ) : (
+                  <div className={styles.chartEmpty}>
+                    {data.history.isLoading ? "读取流量…" : "暂无接口记录"}
+                  </div>
+                ))}
+            </section>
+          )}
+        </section>
+        <aside className={styles.inspector}>
+          <div className={styles.inspectorTools}>
+            {data.live && (
+              <div className={styles.riskNumbers} aria-label="风险概览">
+                {riskLevels.map((risk) => (
+                  <button
+                    key={risk.value}
+                    style={{ "--risk": risk.color } as CSSProperties}
+                    aria-pressed={mode === "risk" && level === risk.value}
+                    onClick={() => {
+                      setMode("risk");
+                      setLevel(level === risk.value ? null : risk.value);
+                      setSelectedAlert(undefined);
+                    }}
+                  >
+                    <i />
+                    <span>{risk.label}</span>
+                    <strong>
+                      {counts && !data.security.isError
+                        ? counts[risk.value].toLocaleString()
+                        : "—"}
+                    </strong>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className={styles.filters}>
+              <TextInput
+                aria-label="筛选流量记录"
+                placeholder={
+                  mode === "risk" ? "搜索规则、分类、地址" : "搜索资产或地址"
+                }
+                leftSection={<Search size={15} />}
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.currentTarget.value)}
+                size="xs"
+                className={styles.search}
+              />
               <Select
                 aria-label="流量协议"
                 placeholder="全部协议"
@@ -575,340 +621,287 @@ export default function TrafficWorkspace({
                 size="xs"
                 w={125}
               />
-              {mode === "risk" && level && (
-                <Badge
-                  color={riskLevels.find((risk) => risk.value === level)!.color}
-                  variant="light"
-                  rightSection={
-                    <ActionIcon
-                      size={14}
-                      variant="transparent"
-                      aria-label="清除风险筛选"
-                      onClick={() => setLevel(null)}
+            </div>
+          </div>
+          <div className={styles.inspectorContent}>
+            <header>
+              <div>
+                <strong>
+                  {selectedAlert
+                    ? "告警详情"
+                    : selection
+                      ? "asset" in selection
+                        ? name(selection.asset)
+                        : "选中连接"
+                      : mode === "risk"
+                        ? "风险记录"
+                        : "通信记录"}
+                </strong>
+                {selection && !selectedAlert && (
+                  <span>
+                    {"source" in selection
+                      ? `${name(selection.source)} → ${name(selection.destination)}`
+                      : groups.get(selection.asset)}
+                  </span>
+                )}
+                {selection && "source" in selection && !selectedAlert && (
+                  <div className={styles.assetLinks}>
+                    <button onClick={() => select({ asset: selection.source })}>
+                      查看 {name(selection.source)}
+                    </button>
+                    <button
+                      onClick={() => select({ asset: selection.destination })}
                     >
-                      <X size={11} />
-                    </ActionIcon>
-                  }
-                >
-                  {riskLevels.find((risk) => risk.value === level)!.label}
-                </Badge>
-              )}
-            </div>
-          </div>
-          <div className={styles.graphArea}>
-            <TrafficGraph
-              environment={environment}
-              links={links}
-              groups={groups}
-              colors={colors}
-              selection={selection}
-              onSelect={select}
-            />
-            <div className={styles.graphCaption}>
-              <span>
-                {mode === "risk"
-                  ? `${alerts.length} 组告警`
-                  : `${flows.length} 条连接`}
-              </span>
-              {data.live && mode === "traffic" && (
-                <Tooltip
-                  label={`近 ${data.traffic.data?.windowSeconds ?? 60} 秒 · 1/${data.traffic.data?.samplingRate ?? 512} 采样${data.traffic.data?.omittedSamples ? ` · 裁剪 ${data.traffic.data.omittedSamples} 条记录` : ""}`}
-                >
-                  <span>采样通信</span>
-                </Tooltip>
-              )}
-            </div>
-          </div>
-          <footer className={styles.legend}>
-            {(mode === "risk"
-              ? riskLevels.map((risk) => [risk.label, risk.color] as const)
-              : [...colors]
-            ).map(([label, color]) => (
-              <span key={label}>
-                <i style={{ background: color }} />
-                {label}
-              </span>
-            ))}
-            <span className={styles.legendHint}>拖动画布 · 滚轮缩放</span>
-          </footer>
-        </section>
-        <aside className={styles.inspector}>
-          <header>
-            <div>
-              <strong>
-                {selectedAlert
-                  ? "告警详情"
-                  : selection
-                    ? "asset" in selection
-                      ? name(selection.asset)
-                      : "选中连接"
-                    : mode === "risk"
-                      ? "风险记录"
-                      : "通信记录"}
-              </strong>
-              {selection && !selectedAlert && (
-                <span>
-                  {"source" in selection
-                    ? `${name(selection.source)} → ${name(selection.destination)}`
-                    : groups.get(selection.asset)}
-                </span>
-              )}
-              {selection && "source" in selection && !selectedAlert && (
-                <div className={styles.assetLinks}>
-                  <button onClick={() => select({ asset: selection.source })}>
-                    查看 {name(selection.source)}
-                  </button>
-                  <button
-                    onClick={() => select({ asset: selection.destination })}
-                  >
-                    查看 {name(selection.destination)}
-                  </button>
-                </div>
-              )}
-            </div>
-            {(selection || selectedAlert) && (
-              <ActionIcon
-                variant="subtle"
-                aria-label={selectedAlert ? "返回风险记录" : "清除选择"}
-                onClick={() =>
-                  selectedAlert
-                    ? setSelectedAlert(undefined)
-                    : setSelection(undefined)
-                }
-              >
-                {selectedAlert ? <ArrowLeft size={16} /> : <X size={16} />}
-              </ActionIcon>
-            )}
-          </header>
-          {selectedAlert ? (
-            <AlertDetail alert={selectedAlert} onSelect={select} />
-          ) : (
-            <>
-              <TextInput
-                aria-label="筛选流量记录"
-                placeholder={
-                  mode === "risk"
-                    ? "搜索规则、分类、地址"
-                    : "搜索资产、协议、地址"
-                }
-                leftSection={<Search size={14} />}
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.currentTarget.value)}
-                size="xs"
-              />
-              {observedAsset && onView && (
-                <TextInput
-                  key={
-                    observedAsset +
-                    (environment.view.roles?.[observedAsset] ?? "")
-                  }
-                  aria-label="角色"
-                  placeholder="角色名称"
-                  defaultValue={environment.view.roles?.[observedAsset] ?? ""}
-                  size="xs"
-                  onBlur={async (event) => {
-                    const value = event.currentTarget.value.trim();
-                    if (
-                      value === (environment.view.roles?.[observedAsset] ?? "")
-                    )
-                      return;
-                    const roles = { ...environment.view.roles };
-                    if (value) roles[observedAsset] = value;
-                    else delete roles[observedAsset];
-                    try {
-                      await onView({ ...environment.view, roles });
-                      setRoleError(undefined);
-                    } catch (error) {
-                      setRoleError(String(error));
-                    }
-                  }}
-                />
-              )}
-              <div
-                className={styles.records}
-                aria-label={
-                  mode === "risk" ? "可选择的风险记录" : "可选择的通信连接"
-                }
-              >
-                {mode === "risk"
-                  ? visibleAlerts.map((alert) => (
-                      <button
-                        key={alert.id}
-                        className={styles.alertRow}
-                        onClick={() => {
-                          setSelectedAlert(alert);
-                          setSelection({
-                            source: endpoint(alert, "source"),
-                            destination: endpoint(alert, "destination"),
-                          });
-                        }}
-                      >
-                        <div>
-                          <i
-                            style={{
-                              background: riskLevel(alert.severity).color,
-                            }}
-                          />
-                          <strong>{alert.signature}</strong>
-                          <span>×{alert.count.toLocaleString()}</span>
-                        </div>
-                        <p>
-                          {alert.sourceAssetName || alert.source}
-                          <ArrowRight size={12} />
-                          {alert.destinationAssetName || alert.destination}
-                        </p>
-                        <footer>
-                          <span>
-                            {alert.appProtocol || alert.protocol} ·{" "}
-                            {alert.category}
-                          </span>
-                          <time>{dateTime(alert.lastSeen)}</time>
-                        </footer>
-                      </button>
-                    ))
-                  : visibleFlows.slice(0, 300).map((flow, index) => (
-                      <button
-                        key={[
-                          flow.source,
-                          flow.destination,
-                          flow.sourcePort,
-                          flow.destinationPort,
-                          flow.protocol,
-                          index,
-                        ].join("/")}
-                        className={styles.flowRow}
-                        onClick={() =>
-                          select({
-                            source: endpoint(flow, "source"),
-                            destination: endpoint(flow, "destination"),
-                          })
-                        }
-                      >
-                        <div>
-                          <strong>{flow.sourceAssetName || flow.source}</strong>
-                          <ArrowRight size={13} />
-                          <strong>
-                            {flow.destinationAssetName || flow.destination}
-                          </strong>
-                        </div>
-                        <footer>
-                          <span>
-                            {flow.protocol} · {flow.sourcePort || "—"} →{" "}
-                            {flow.destinationPort || "—"}
-                          </span>
-                          <b>{volume(flow.bytes)}</b>
-                        </footer>
-                        {selection && (
-                          <p>
-                            {flow.source} → {flow.destination}
-                          </p>
-                        )}
-                      </button>
-                    ))}
-                {(mode === "risk"
-                  ? visibleAlerts.length === 0
-                  : visibleFlows.length === 0) && (
-                  <div className={styles.empty}>
-                    {mode === "risk" ? (
-                      <Shield size={30} />
-                    ) : (
-                      <Network size={30} />
-                    )}
-                    <strong>
-                      {mode === "risk"
-                        ? sensors.length > 0 && ready === sensors.length
-                          ? "暂无匹配告警"
-                          : "检测尚未就绪"
-                        : "暂无匹配通信"}
-                    </strong>
+                      查看 {name(selection.destination)}
+                    </button>
                   </div>
                 )}
-                {mode === "risk" && data.security.hasNextPage && (
-                  <Button
-                    variant="subtle"
-                    size="xs"
-                    loading={data.security.isFetchingNextPage}
-                    onClick={() => void data.security.fetchNextPage()}
-                  >
-                    加载更多
-                  </Button>
-                )}
               </div>
-            </>
-          )}
-          {!data.live && (
-            <section className={styles.segments}>
-              <h3>抓包分段</h3>
-              {data.segments.map((segment) => (
-                <div key={segment.nodeId}>
-                  <header>
-                    <strong>{segment.nodeName ?? "运行节点"}</strong>
-                    <span>{segmentTitles[segment.status]}</span>
-                  </header>
-                  <footer>
-                    <span>
-                      {volume(segment.bytes)} ·{" "}
-                      {segment.packets.toLocaleString()} 包
-                    </span>
-                    {activeCapture(segment) ? (
+              {(selection || selectedAlert) && (
+                <ActionIcon
+                  variant="subtle"
+                  aria-label={selectedAlert ? "返回风险记录" : "清除选择"}
+                  onClick={() =>
+                    selectedAlert
+                      ? setSelectedAlert(undefined)
+                      : setSelection(undefined)
+                  }
+                >
+                  {selectedAlert ? <ArrowLeft size={16} /> : <X size={16} />}
+                </ActionIcon>
+              )}
+            </header>
+            {selectedAlert ? (
+              <AlertDetail
+                alert={selectedAlert}
+                onSelect={select}
+                name={name}
+              />
+            ) : (
+              <>
+                {observedAsset && onView && (
+                  <TextInput
+                    key={
+                      observedAsset +
+                      (environment.view.roles?.[observedAsset] ?? "")
+                    }
+                    aria-label="角色"
+                    placeholder="角色名称"
+                    defaultValue={environment.view.roles?.[observedAsset] ?? ""}
+                    size="xs"
+                    onBlur={async (event) => {
+                      const value = event.currentTarget.value.trim();
+                      if (
+                        value ===
+                        (environment.view.roles?.[observedAsset] ?? "")
+                      )
+                        return;
+                      const roles = { ...environment.view.roles };
+                      if (value) roles[observedAsset] = value;
+                      else delete roles[observedAsset];
+                      try {
+                        await onView({ ...environment.view, roles });
+                        setRoleError(undefined);
+                      } catch (error) {
+                        setRoleError(String(error));
+                      }
+                    }}
+                  />
+                )}
+                <div
+                  className={styles.records}
+                  aria-label={
+                    mode === "risk" ? "可选择的风险记录" : "可选择的通信连接"
+                  }
+                >
+                  {mode === "risk"
+                    ? visibleAlerts.map((alert) => (
+                        <button
+                          key={alert.id}
+                          className={styles.alertRow}
+                          onClick={() => {
+                            setSelectedAlert(alert);
+                            setSelection({
+                              source: endpoint(alert, "source"),
+                              destination: endpoint(alert, "destination"),
+                            });
+                          }}
+                        >
+                          <div>
+                            <i
+                              style={{
+                                background: riskLevel(alert.severity).color,
+                              }}
+                            />
+                            <strong>{alert.signature}</strong>
+                            <span>×{alert.count.toLocaleString()}</span>
+                          </div>
+                          <p>
+                            {name(endpoint(alert, "source"))}
+                            <ArrowRight size={12} />
+                            {name(endpoint(alert, "destination"))}
+                          </p>
+                          <footer>
+                            <span>
+                              {alert.appProtocol || alert.protocol} ·{" "}
+                              {alert.category}
+                            </span>
+                            <time>{dateTime(alert.lastSeen)}</time>
+                          </footer>
+                        </button>
+                      ))
+                    : visibleFlows.slice(0, 300).map((flow, index) => (
+                        <button
+                          key={[
+                            flow.source,
+                            flow.destination,
+                            flow.sourcePort,
+                            flow.destinationPort,
+                            flow.protocol,
+                            index,
+                          ].join("/")}
+                          className={styles.flowRow}
+                          data-selected={Boolean(selection && selected(flow))}
+                          onClick={() =>
+                            select({
+                              source: endpoint(flow, "source"),
+                              destination: endpoint(flow, "destination"),
+                            })
+                          }
+                        >
+                          <div>
+                            <strong>{name(endpoint(flow, "source"))}</strong>
+                            <ArrowRight size={13} />
+                            <strong>
+                              {name(endpoint(flow, "destination"))}
+                            </strong>
+                          </div>
+                          <footer>
+                            <span>
+                              {flow.protocol} · {flow.sourcePort || "—"} →{" "}
+                              {flow.destinationPort || "—"}
+                            </span>
+                            <b>
+                              {volume(
+                                data.live ? flow.bytesPerSecond : flow.bytes,
+                              )}
+                              {data.live ? "/s" : ""}
+                            </b>
+                          </footer>
+                          {selection && (
+                            <p>
+                              {flow.source} → {flow.destination}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                  {(mode === "risk"
+                    ? visibleAlerts.length === 0
+                    : visibleFlows.length === 0) && (
+                    <div className={styles.empty}>
+                      {mode === "risk" ? (
+                        <Shield size={30} />
+                      ) : (
+                        <Network size={30} />
+                      )}
+                      <strong>
+                        {mode === "risk"
+                          ? sensors.length > 0 && ready === sensors.length
+                            ? "暂无匹配告警"
+                            : "检测尚未就绪"
+                          : "暂无匹配通信"}
+                      </strong>
+                    </div>
+                  )}
+                  {mode === "risk" && data.security.hasNextPage && (
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      loading={data.security.isFetchingNextPage}
+                      onClick={() => void data.security.fetchNextPage()}
+                    >
+                      加载更多
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
+            {!data.live && (
+              <section className={styles.segments}>
+                <h3>抓包分段</h3>
+                {data.segments.map((segment) => (
+                  <div key={segment.nodeId}>
+                    <header>
+                      <strong>{segment.nodeName ?? "运行节点"}</strong>
+                      <span>{segmentTitles[segment.status]}</span>
+                    </header>
+                    <footer>
+                      <span>
+                        {volume(segment.bytes)} ·{" "}
+                        {segment.packets.toLocaleString()} 包
+                      </span>
+                      {activeCapture(segment) ? (
+                        <ActionIcon
+                          variant="subtle"
+                          aria-label="停止此分段"
+                          loading={data.action.isPending}
+                          onClick={() =>
+                            data.action.mutate({
+                              segments: [segment],
+                              remove: false,
+                            })
+                          }
+                        >
+                          <Pause size={14} />
+                        </ActionIcon>
+                      ) : (
+                        <ActionIcon
+                          component="a"
+                          href={api.captureDownload(
+                            environment.id,
+                            segment.nodeId,
+                            segment.id,
+                          )}
+                          variant="subtle"
+                          aria-label="下载抓包文件"
+                          disabled={!segment.packets}
+                        >
+                          <Download size={14} />
+                        </ActionIcon>
+                      )}
                       <ActionIcon
                         variant="subtle"
-                        aria-label="停止此分段"
-                        loading={data.action.isPending}
+                        color="gray"
+                        aria-label="删除此分段"
+                        disabled={
+                          activeCapture(segment) || data.action.isPending
+                        }
                         onClick={() =>
                           data.action.mutate({
                             segments: [segment],
-                            remove: false,
+                            remove: true,
                           })
                         }
                       >
-                        <Pause size={14} />
+                        <Trash2 size={14} />
                       </ActionIcon>
-                    ) : (
-                      <ActionIcon
-                        component="a"
-                        href={api.captureDownload(
-                          environment.id,
-                          segment.nodeId,
-                          segment.id,
-                        )}
-                        variant="subtle"
-                        aria-label="下载抓包文件"
-                        disabled={!segment.packets}
-                      >
-                        <Download size={14} />
-                      </ActionIcon>
+                    </footer>
+                    {segment.error && <p role="alert">{segment.error}</p>}
+                    {!!segment.kernelDroppedPackets && (
+                      <p>
+                        内核丢包 {segment.kernelDroppedPackets.toLocaleString()}
+                      </p>
                     )}
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      aria-label="删除此分段"
-                      disabled={activeCapture(segment) || data.action.isPending}
-                      onClick={() =>
-                        data.action.mutate({
-                          segments: [segment],
-                          remove: true,
-                        })
-                      }
-                    >
-                      <Trash2 size={14} />
-                    </ActionIcon>
-                  </footer>
-                  {segment.error && <p role="alert">{segment.error}</p>}
-                  {!!segment.kernelDroppedPackets && (
-                    <p>
-                      内核丢包 {segment.kernelDroppedPackets.toLocaleString()}
-                    </p>
-                  )}
-                  {segment.omittedFlows > 0 && (
-                    <p>
-                      在线汇总裁剪 {segment.omittedFlows.toLocaleString()} 条
-                    </p>
-                  )}
-                </div>
-              ))}
-            </section>
-          )}
+                    {segment.omittedFlows > 0 && (
+                      <p>
+                        在线汇总裁剪 {segment.omittedFlows.toLocaleString()} 条
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
         </aside>
       </div>
       <Modal

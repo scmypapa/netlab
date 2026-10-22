@@ -32,7 +32,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```text
   浏览器工作台 / 外部业务平台
               │
-          /api/v1 (REST / WebSocket)
+          /api/v1 (REST / SSE / WebSocket)
               │
    ┌──────────▼──────────┐
    │  Netlab Controller  │  (Go 1.26 + pgx / sqlc)
@@ -78,6 +78,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 * **免客户端运维**：网页原生集成终端（xterm.js）、VM VNC、串口（Serial）、SSH，以及由 Guacamole 驱动的 RDP（支持剪贴板与窗口缩放自适应）。
 * **接口抓包**：直接从虚拟网卡采集，保留真实网段与接口身份。支持 BPF 规则过滤，直出 PCAPNG 文件。
 * **流向可视化**：基于 sFlow（采样率 1/512）在画布上实时绘制通信拓扑箭头与连接明细。
+* **风险检测**：Suricata 使用 ET Open 规则被动检测 VM 与容器接口，按高、中、低风险筛选告警；通信图联动告警详情，历史告警保留 30 天。
 * **时序监控**：提供环境、节点和集群性能视图；CPU、内存、磁盘 I/O、网卡速率与丢包计数每 10 秒采集，历史保留 30 天。VM 内存按 QEMU 进程 RSS 统计，容器按 cgroup 统计。
 
 ### 4. 存储、快照与灾备
@@ -118,7 +119,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.0.3/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.0.4/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -237,6 +238,8 @@ cd web && pnpm test
 
 所有异步操作均返回一个统一的 `Operation ID`，通过轮询该任务可获得阶段明细与错误回溯。
 
+环境事件通过 `GET /api/v1/environments/{id}/events` 的 SSE 推送，外部调用方和工作台共用此入口。风险查询使用 `GET /api/v1/environments/{id}/security`；收到 `security.changed` 通知后查询最新告警和检测状态。检测结果由后台每 5 秒采集，页面关闭后继续运行。
+
 ```bash
 # 外部系统通过 Service Token 鉴权
 curl -H "Authorization: Bearer <Your-Token>" \
@@ -259,7 +262,7 @@ curl -H "Authorization: Bearer <Your-Token>" \
 ## 许可证与第三方组件
 
 - 本项目代码许可证待定，当前源码及发布包保留所有权利。
-- 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow。
+- 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、Suricata。
 
 ## 文档
 

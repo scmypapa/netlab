@@ -79,10 +79,13 @@ func (m *Manager) Poll(ctx context.Context, request api.NodeSecurityRequest) (ap
 		return api.NodeSecurityObservation{}, err
 	}
 	desired := &sensorRun{Peers: request.Interfaces, Devices: []attachment{}}
+	missing := 0
 	for _, target := range request.Interfaces {
 		if target.Interface.NodeId == m.node {
 			if device := ports[target.Interface.PortName]; device != "" {
 				desired.Devices = append(desired.Devices, attachment{Device: device, SecurityInterface: target})
+			} else {
+				missing++
 			}
 		}
 	}
@@ -123,6 +126,10 @@ func (m *Manager) Poll(ctx context.Context, request api.NodeSecurityRequest) (ap
 			m.sensor.Status, m.sensor.Packets, m.sensor.DroppedPackets = "ready", observation.Sensor.Packets, observation.Sensor.DroppedPackets
 		}
 		m.mu.Unlock()
+	}
+	if missing > 0 && observation.Sensor.Status != "failed" && observation.Sensor.Status != "unavailable" {
+		message := fmt.Sprintf("%d 个资产接口尚未接入检测", missing)
+		observation.Sensor.Status, observation.Sensor.Error = "loading", &message
 	}
 	if time.Since(m.pruned) >= time.Hour {
 		if err = m.prune(active); err != nil {
@@ -314,6 +321,7 @@ func (m *Manager) read(ctx context.Context, cursor string, active *sensorRun, re
 		if err = json.Unmarshal(raw, &run); err != nil {
 			return err
 		}
+		decoder := newEVEDecoder(m.node, run.Devices, run.Peers)
 		files, err := filepath.Glob(filepath.Join(directory, "eve-*.json"))
 		if err != nil {
 			return err
@@ -350,7 +358,7 @@ func (m *Manager) read(ctx context.Context, cursor string, active *sensorRun, re
 					file.Close()
 					return readErr
 				}
-				event, alert, err := decodeEVE(line, m.node, run.Devices, run.Peers)
+				event, alert, err := decoder.decode(line)
 				if err != nil {
 					file.Close()
 					return fmt.Errorf("EVE %s:%d: %w", entry.Name(), offset, err)

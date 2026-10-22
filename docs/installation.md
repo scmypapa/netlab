@@ -32,7 +32,9 @@ sudo bash /opt/netlab/current/scripts/issue-node-certificate.sh 10.0.0.11 /root/
 sudo bash netlab-release/scripts/install-node.sh 10.0.0.10 /root/netlab-node-certs
 ```
 
-节点目录为 `/opt/netlab-node`，资产及缓存保存在 `/var/lib/netlab-node`。安装器配置 containerd、libvirt、OVN/OVS、虚拟机固件、TPM、抓包和远程桌面依赖；发布包包含 Restic 0.18.1，节点服务优先使用包内版本。节点使用主站 CA 接入 OVN NB/SB，不开放明文管理数据库。
+节点目录为 `/opt/netlab-node`，资产及缓存保存在 `/var/lib/netlab-node`。安装器配置 containerd、libvirt、OVN/OVS、虚拟机固件、TPM、抓包、Suricata 和远程桌面依赖；发布包包含 Restic 0.18.1，节点服务优先使用包内版本。节点使用主站 CA 接入 OVN NB/SB，不开放明文管理数据库。
+
+Suricata 使用 ET Open 规则，被动读取运行资产的真实接口。规则通过 `netlab-suricata-rules.timer` 每日更新；检测状态与风险记录在环境的「流量」中查看，告警保留 30 天。
 
 安装时可直接接受默认数据目录。共享存储盘默认推荐容量最大的独立空盘；确认后交由 Ceph 管理。填写 `none` 使用本地存储。批量安装通过第三、四个参数指定数据目录及专用盘，例如：
 
@@ -66,6 +68,8 @@ PostgreSQL、VictoriaMetrics 与 guacd 默认只供本机或本机服务使用�
 主站配置为 `/etc/netlab/controller.env`，节点配置为 `/etc/netlab-node/node.env`。默认发布仓库为 `scmypapa/netlab`；私有仓库在两类配置文件中填写 `NETLAB_GITHUB_TOKEN`，自定义仓库使用 `NETLAB_RELEASE_REPOSITORY`。修改配置后重启相应服务。
 
 从账号菜单打开「系统更新」，查看正式发布日志并选择更新。流程为：下载主站发布包 → 暂停新任务领取 → 等现有任务完成 → 逐节点更新并核对版本 → 切换主站 → 核对主站版本。任一节点失败即停止，面板显示节点与错误。
+
+从 v1.0.3 及更早版本首次升级至 v1.0.4 时，先在各执行节点解压 v1.0.4 发布包，执行 `sudo bash netlab-release/scripts/install-security.sh` 准备检测依赖，再从面板更新。后续版本由更新器自动执行该步骤。
 
 程序保存在 `releases/<version>`，`current` 原子切换；`previous` 保留上一个程序目录。新服务启动失败时恢复程序链接；数据库迁移保持前向。节点与主站的安装目录分离，同机部署互不提前切换。
 

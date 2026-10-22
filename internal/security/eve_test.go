@@ -18,8 +18,9 @@ func eve(device, source, destination string) []byte {
 func TestEVEOverlappingEnvironmentsUseCaptureDevice(t *testing.T) {
 	blue, red := peer("blue", "web", "tap-blue", "one"), peer("red", "web", "tap-red", "one")
 	devices := []attachment{{Device: "tap-blue", SecurityInterface: blue}, {Device: "tap-red", SecurityInterface: red}}
+	decoder := newEVEDecoder("one", devices, []api.SecurityInterface{blue, red})
 	for _, device := range devices {
-		_, alert, err := decodeEVE(eve(device.Device, "10.0.0.2", "10.0.0.3"), "one", devices, []api.SecurityInterface{blue, red})
+		_, alert, err := decoder.decode(eve(device.Device, "10.0.0.2", "10.0.0.3"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,7 +44,7 @@ func TestEVEDuplicateEndpointsAndExternalIngress(t *testing.T) {
 	}
 	devices := []attachment{{Device: "client-tap", SecurityInterface: source}, {Device: "server-tap", SecurityInterface: target}}
 	for _, test := range cases {
-		_, alert, err := decodeEVE(eve(test.device, test.src, test.dst), test.node, devices, peers)
+		_, alert, err := newEVEDecoder(test.node, devices, peers).decode(eve(test.device, test.src, test.dst))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,11 +55,12 @@ func TestEVEDuplicateEndpointsAndExternalIngress(t *testing.T) {
 }
 
 func TestEVEStatsAndUnknownDevice(t *testing.T) {
-	event, alert, err := decodeEVE([]byte(`{"event_type":"stats","stats":{"capture":{"kernel_packets":120,"kernel_drops":3}}}`), "one", nil, nil)
+	decoder := newEVEDecoder("one", nil, nil)
+	event, alert, err := decoder.decode([]byte(`{"event_type":"stats","stats":{"capture":{"kernel_packets":120,"kernel_drops":3}}}`))
 	if err != nil || alert != nil || event.Stats.Capture.Packets != 120 || event.Stats.Capture.Drops != 3 {
 		t.Fatalf("%+v %v", event, err)
 	}
-	if _, _, err = decodeEVE(eve("unknown", "10.0.0.2", "10.0.0.3"), "one", nil, nil); err == nil {
+	if _, _, err = decoder.decode(eve("unknown", "10.0.0.2", "10.0.0.3")); err == nil {
 		t.Fatal("unknown interface was accepted")
 	}
 }

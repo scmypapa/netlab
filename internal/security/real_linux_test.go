@@ -116,6 +116,15 @@ func TestRealSuricataOverlappingEnvironments(t *testing.T) {
 			seen[alert.EnvironmentId] = true
 		}
 		if seen["blue"] && seen["red"] && result.Sensor.Status == "ready" {
+			request.Interfaces = append(request.Interfaces, peer("blue", "missing", "missing-port", "one"))
+			partial, err := m.Poll(ctx, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if partial.Sensor.Status != "loading" || partial.Sensor.Error == nil || !strings.Contains(*partial.Sensor.Error, "1 个资产接口") {
+				t.Fatalf("partial coverage reported ready: %+v", partial.Sensor)
+			}
+			request.Cursor = partial.Cursor
 			request.Interfaces = nil
 			for stop := time.Now().Add(5 * time.Second); time.Now().Before(stop); {
 				result, err = m.Poll(ctx, request)

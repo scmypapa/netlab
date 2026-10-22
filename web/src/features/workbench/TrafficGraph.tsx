@@ -1,14 +1,24 @@
 import { useComputedColorScheme } from "@mantine/core";
-import { useEffect, useRef } from "react";
-import * as echarts from "echarts/core";
-import { GraphChart } from "echarts/charts";
-import { TooltipComponent, AriaComponent } from "echarts/components";
-import { CanvasRenderer } from "echarts/renderers";
+import { useEffect, useMemo } from "react";
+import dagre from "@dagrejs/dagre";
+import {
+  Background,
+  Controls,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  useNodesInitialized,
+  useNodesState,
+  useReactFlow,
+  useStore,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
+import { Globe2, Server } from "lucide-react";
 import type { Environment } from "../../api/client";
 import { byteUnit, reading } from "../../foundation/format";
 import styles from "./TrafficWorkspace.module.css";
-
-echarts.use([GraphChart, TooltipComponent, AriaComponent, CanvasRenderer]);
 
 export type TrafficSelection =
   { asset: string } | { source: string; destination: string };
@@ -22,12 +32,56 @@ export type TrafficLink = {
   severity?: number;
 };
 export const riskLevels = [
-  { value: "high", label: "高风险", color: "#d95565" },
-  { value: "medium", label: "中风险", color: "#d59639" },
-  { value: "low", label: "低风险", color: "#557fd2" },
+  { value: "high", label: "高风险", color: "#cf4c62" },
+  { value: "medium", label: "中风险", color: "#c1872e" },
+  { value: "low", label: "低风险", color: "#547dc4" },
 ] as const;
 export const riskLevel = (severity: number) =>
   riskLevels[severity === 1 ? 0 : severity === 2 ? 1 : 2];
+
+type AssetNode = Node<
+  {
+    name: string;
+    role: string;
+    address: string;
+    color: string;
+    external: boolean;
+  },
+  "trafficAsset"
+>;
+
+function TrafficAsset({ data, selected }: NodeProps<AssetNode>) {
+  const Icon = data.external ? Globe2 : Server;
+  return (
+    <div className={styles.assetNode} data-selected={selected}>
+      <Handle type="target" position={Position.Left} />
+      <div className={styles.assetNodeHeader}>
+        <span style={{ color: data.color }}>
+          <Icon size={17} strokeWidth={1.7} />
+        </span>
+        <strong title={data.name}>{data.name}</strong>
+      </div>
+      <div className={styles.assetNodeAddress}>{data.address || "—"}</div>
+      <div className={styles.assetNodeRole}>
+        <i style={{ background: data.color }} />
+        {data.role}
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+const nodeTypes = { trafficAsset: TrafficAsset };
+
+function FitGraph({ layoutKey }: { layoutKey: string }) {
+  const initialized = useNodesInitialized();
+  const { fitView } = useReactFlow();
+  const width = useStore((state) => state.width);
+  const height = useStore((state) => state.height);
+  useEffect(() => {
+    if (initialized) void fitView({ padding: 0.25, maxZoom: 1 });
+  }, [initialized, layoutKey, fitView, width, height]);
+  return null;
+}
 
 export function TrafficGraph({
   environment,
@@ -42,179 +96,208 @@ export function TrafficGraph({
   groups: Map<string, string>;
   colors: Map<string, string>;
   selection?: TrafficSelection;
-  onSelect: (selection: TrafficSelection) => void;
+  onSelect: (selection?: TrafficSelection) => void;
 }) {
-  const host = useRef<HTMLDivElement>(null);
-  const chart = useRef<echarts.EChartsType>(null);
   const theme = useComputedColorScheme();
-  useEffect(() => {
-    const instance = echarts.init(host.current!);
-    chart.current = instance;
-    const observer = new ResizeObserver(() => instance.resize());
-    observer.observe(host.current!);
-    return () => {
-      observer.disconnect();
-      instance.dispose();
-      chart.current = null;
-    };
-  }, []);
-  useEffect(() => {
-    const css = getComputedStyle(host.current!);
-    const text = css.getPropertyValue("--text").trim();
-    const muted = css.getPropertyValue("--muted").trim();
-    const surface = css.getPropertyValue("--surface").trim();
-    const nodes = new Map<string, { id: string; name: string; role: string }>();
-    const spec = environment.appliedSpec ?? environment.spec;
+  const spec = environment.appliedSpec ?? environment.spec;
+  const merged = useMemo(() => {
+    const connections = new Map<string, TrafficLink>();
+    for (const link of links) {
+      const key = JSON.stringify([link.source, link.target]);
+      const previous = connections.get(key);
+      if (previous) {
+        previous.value += link.value;
+        if (link.severity !== undefined)
+          previous.severity = Math.min(previous.severity ?? 255, link.severity);
+        const unit = byteUnit(previous.value);
+        previous.label =
+          previous.severity !== undefined
+            ? `${previous.value.toLocaleString()} 次命中`
+            : `${reading(previous.value, unit.scale)} ${unit.unit}/s`;
+      } else connections.set(key, { ...link });
+    }
+    return [...connections.values()]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 300);
+  }, [links]);
+  // Counts change every collection; only connectivity changes the layout.
+  const layoutKey = JSON.stringify(
+    merged.map((link) => [link.source, link.target]).sort(),
+  );
+  const positions = useMemo(() => {
+    const graph = new dagre.graphlib.Graph()
+      .setGraph({ rankdir: "LR", ranksep: 170, nodesep: 48 })
+      .setDefaultEdgeLabel(() => ({}));
     for (const asset of spec.assets)
+      graph.setNode(asset.id, { width: 184, height: 102 });
+    for (const [source, target] of JSON.parse(layoutKey) as string[][]) {
+      for (const id of [source, target])
+        if (!graph.hasNode(id)) graph.setNode(id, { width: 184, height: 102 });
+      graph.setEdge(source, target);
+    }
+    dagre.layout(graph);
+    return new Map(
+      graph
+        .nodes()
+        .map((id) => [
+          id,
+          { x: graph.node(id).x - 92, y: graph.node(id).y - 51 },
+        ]),
+    );
+  }, [spec.assets, layoutKey]);
+  const nodes = useMemo(() => {
+    const nodes = new Map<string, AssetNode>();
+    const neighbors = new Set<string>();
+    if (selection && "asset" in selection)
+      for (const link of merged)
+        if (
+          link.source === selection.asset ||
+          link.target === selection.asset
+        ) {
+          neighbors.add(link.source);
+          neighbors.add(link.target);
+        }
+    const involved = (id: string) =>
+      !selection ||
+      ("asset" in selection
+        ? selection.asset === id
+        : selection.source === id || selection.destination === id);
+    for (const asset of spec.assets) {
+      const role = groups.get(asset.id) ?? "未分组";
       nodes.set(asset.id, {
         id: asset.id,
-        name: asset.name,
-        role: groups.get(asset.id)!,
+        type: "trafficAsset",
+        position: positions.get(asset.id)!,
+        selected: Boolean(selection && involved(asset.id)),
+        style: {
+          opacity: involved(asset.id) || neighbors.has(asset.id) ? 1 : 0.3,
+        },
+        ariaLabel: `资产 ${asset.name}`,
+        data: {
+          name: asset.name,
+          role,
+          color: colors.get(role) ?? "#75828f",
+          external: false,
+          address:
+            asset.interfaces.find((item) => item.primary)?.address ??
+            asset.interfaces[0]?.address ??
+            "",
+        },
       });
-    const merged = new Map<string, TrafficLink>();
-    for (const link of links) {
+    }
+    for (const link of merged)
       for (const [id, name] of [
         [link.source, link.sourceName],
         [link.target, link.targetName],
       ])
         if (!nodes.has(id))
-          nodes.set(id, { id, name, role: groups.get(id) ?? "外部" });
-      const key = link.source + "\0" + link.target;
-      const previous = merged.get(key);
-      if (previous) {
-        previous.value += link.value;
-        const unit = byteUnit(previous.value);
-        previous.label =
-          link.severity !== undefined
-            ? `${previous.value.toLocaleString()} 次命中`
-            : `${reading(previous.value, unit.scale)} ${unit.unit}/s`;
-        if (link.severity !== undefined)
-          previous.severity = Math.min(previous.severity ?? 255, link.severity);
-      } else merged.set(key, { ...link });
-    }
-    const edges = [...merged.values()]
-      .sort((a, b) =>
-        a.value === b.value
-          ? a.source.localeCompare(b.source)
-          : b.value - a.value,
-      )
-      .slice(0, 300);
-    const visible = new Set(
-      edges.flatMap((link) => [link.source, link.target]),
-    );
-    const roles = [...new Set([...nodes.values()].map((node) => node.role))];
-    const rows = new Map<string, number>();
-    const selected = (link: TrafficLink) =>
+          nodes.set(id, {
+            id,
+            type: "trafficAsset",
+            position: positions.get(id)!,
+            selected: Boolean(selection && involved(id)),
+            style: { opacity: involved(id) || neighbors.has(id) ? 1 : 0.3 },
+            ariaLabel: `地址 ${name}`,
+            data: {
+              name,
+              role: "外部",
+              address: id,
+              color: "#75828f",
+              external: true,
+            },
+          });
+    return [...nodes.values()];
+  }, [spec.assets, positions, groups, colors, merged, selection]);
+  const [renderedNodes, setNodes, onNodesChange] = useNodesState(nodes);
+  useEffect(() => {
+    setNodes((current) => {
+      const dimensions = new Map(
+        current.map((node) => [node.id, node.measured]),
+      );
+      return nodes.map((node) => ({
+        ...node,
+        measured: dimensions.get(node.id),
+      }));
+    });
+  }, [nodes, setNodes]);
+  const edges = merged.map((link) => {
+    const active =
       !selection ||
       ("asset" in selection
         ? link.source === selection.asset || link.target === selection.asset
         : link.source === selection.source &&
           link.target === selection.destination);
-    chart.current!.setOption(
-      {
-        animation: !window.matchMedia("(prefers-reduced-motion: reduce)")
-          .matches,
-        aria: {
-          enabled: true,
-          label: { description: "资产通信关系，可在右侧记录中选择相同连接" },
-        },
-        tooltip: {
-          trigger: "item",
-          renderMode: "richText",
-          backgroundColor: surface,
-          borderColor: css.getPropertyValue("--line").trim(),
-          textStyle: { color: text },
-          formatter: (item: {
-            dataType: string;
-            data: {
-              name?: string;
-              label?: string;
-              sourceName?: string;
-              targetName?: string;
-            };
-          }) =>
-            item.dataType === "edge"
-              ? `${item.data.sourceName} → ${item.data.targetName}\n${item.data.label}`
-              : item.data.name,
-        },
-        series: [
-          {
-            type: "graph",
-            layout: "none",
-            roam: true,
-            scaleLimit: { min: 0.25, max: 5 },
-            data: [...nodes.values()]
-              .filter((node) => visible.has(node.id) || groups.has(node.id))
-              .map((node) => {
-                const row = rows.get(node.role) ?? 0;
-                rows.set(node.role, row + 1);
-                const involved =
-                  !selection ||
-                  ("asset" in selection
-                    ? selection.asset === node.id
-                    : [selection.source, selection.destination].includes(
-                        node.id,
-                      ));
-                return {
-                  ...node,
-                  x: roles.indexOf(node.role) * 230,
-                  y: row * 95,
-                  symbolSize: node.role === "外部" ? 23 : 37,
-                  itemStyle: {
-                    color: colors.get(node.role) ?? muted,
-                    opacity: involved ? 1 : 0.45,
-                    borderWidth: 5,
-                    borderColor: surface,
-                  },
-                  label: {
-                    show: true,
-                    position: "bottom",
-                    color: text,
-                    fontSize: 12,
-                    width: 160,
-                    overflow: "truncate",
-                    padding: [7, 0, 0, 0],
-                  },
-                };
-              }),
-            edges: edges.map((link) => ({
-              ...link,
-              lineStyle: {
-                color: link.severity
-                  ? riskLevel(link.severity).color
-                  : (colors.get(groups.get(link.source) ?? "") ?? muted),
-                width: 1.5 + Math.min(5, Math.log10(1 + link.value)),
-                opacity: selected(link) ? 0.78 : 0.12,
-                curveness: 0.12,
-              },
-            })),
-            edgeSymbol: ["none", "arrow"],
-            edgeSymbolSize: [0, 8],
-            emphasis: { focus: "adjacency" },
-          },
-        ],
+    const color =
+      link.severity !== undefined
+        ? riskLevel(link.severity).color
+        : (colors.get(groups.get(link.source) ?? "") ?? "#75828f");
+    return {
+      id: JSON.stringify([link.source, link.target]),
+      source: link.source,
+      target: link.target,
+      type: "default",
+      selected: Boolean(selection && "source" in selection && active),
+      label:
+        active && (merged.length <= 12 || selection) ? link.label : undefined,
+      markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+      style: {
+        stroke: color,
+        strokeWidth: active ? 1.8 : 1,
+        opacity: active ? 0.85 : 0.18,
       },
-      { replaceMerge: ["series"] },
-    );
-    chart.current!.off("click");
-    chart.current!.on("click", (event: unknown) => {
-      const item = event as {
-        dataType: string;
-        data: { id: string; source: string; target: string };
-      };
-      onSelect(
-        item.dataType === "edge"
-          ? { source: item.data.source, destination: item.data.target }
-          : { asset: item.data.id },
-      );
-    });
-  }, [environment, links, groups, colors, selection, onSelect, theme]);
+      labelStyle: { fill: color, fontSize: 11, fontWeight: 500 },
+      labelBgStyle: { fill: "var(--surface)" },
+      labelBgPadding: [7, 5] as [number, number],
+      labelBgBorderRadius: 5,
+      ariaLabel: `${link.sourceName} → ${link.targetName}，${link.label}`,
+    };
+  });
   return (
     <div
       className={styles.graph}
-      ref={host}
-      role="img"
+      role="region"
       aria-label="资产通信图"
-    />
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onSelect(undefined);
+      }}
+    >
+      <ReactFlow<AssetNode>
+        nodes={renderedNodes}
+        onNodesChange={(changes) => {
+          onNodesChange(changes);
+          for (const change of changes)
+            if (change.type === "select" && change.selected)
+              onSelect({ asset: change.id });
+        }}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onEdgesChange={(changes) => {
+          for (const change of changes) {
+            if (change.type !== "select" || !change.selected) continue;
+            const edge = edges.find((edge) => edge.id === change.id)!;
+            onSelect({ source: edge.source, destination: edge.target });
+          }
+        }}
+        onPaneClick={() => onSelect(undefined)}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        deleteKeyCode={null}
+        fitView
+        fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
+        minZoom={0.15}
+        maxZoom={1.6}
+        colorMode={theme}
+        proOptions={{ hideAttribution: true }}
+        ariaLabelConfig={{
+          "controls.zoomIn.ariaLabel": "放大通信图",
+          "controls.zoomOut.ariaLabel": "缩小通信图",
+          "controls.fitView.ariaLabel": "适应画布",
+        }}
+      >
+        <Background color="var(--line)" gap={24} size={1} />
+        <Controls showInteractive={false} position="bottom-right" />
+        <FitGraph layoutKey={layoutKey} />
+      </ReactFlow>
+    </div>
   );
 }
