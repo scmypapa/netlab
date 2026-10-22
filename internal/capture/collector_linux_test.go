@@ -81,50 +81,40 @@ func TestRealContinuousOVSFlows(t *testing.T) {
 	output, _ := netlink.LinkByName(peer)
 	address := &unix.SockaddrLinklayer{Ifindex: output.Attrs().Index, Protocol: htons(unix.ETH_P_ALL)}
 	frame := sampleFrame(t)
-	if err := unix.Sendto(fd, frame, 0, address); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	var observation api.TrafficObservation
-	for time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
-		observation, err = collector.Snapshot(ctx, interfaces, time.Now().UTC())
-		if err != nil {
+	for attempt := range 2 {
+		if err := unix.Sendto(fd, frame, 0, address); err != nil {
 			t.Fatal(err)
 		}
-		if len(observation.Flows) > 0 {
-			break
+		deadline := time.Now().Add(10 * time.Second)
+		var observed *api.CaptureFlow
+		for time.Now().Before(deadline) && observed == nil {
+			time.Sleep(100 * time.Millisecond)
+			observation, err := collector.Snapshot(ctx, interfaces, time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, flow := range observation.Flows {
+				if flow.Protocol == "UDP" && flow.SourcePort == 50000 && flow.DestinationPort == 502 {
+					observed = &flow
+					break
+				}
+			}
 		}
-	}
-	if len(observation.Flows) != 1 || observation.Flows[0].Bytes < int64(len(frame)) || observation.Flows[0].Protocol != "UDP" || observation.Flows[0].Packets != 1 {
-		t.Fatal("IPFIX did not observe the single-packet connection", observation)
-	}
-	if err := collector.Close(); err != nil {
-		t.Fatal(err)
-	}
-	collector = nil
-	if output, err := exec.CommandContext(ctx, "ovs-vsctl", "get", "Bridge", bridge, "ipfix").CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "[]" {
-		t.Fatalf("IPFIX collector retained: %s %v", output, err)
-	}
-	collector, err = NewCollector(ctx, ovs, "sample-node")
-	if err != nil {
-		t.Fatal("collector restart", err)
-	}
-	if err := unix.Sendto(fd, frame, 0, address); err != nil {
-		t.Fatal(err)
-	}
-	deadline = time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
-		observation, err = collector.Snapshot(ctx, interfaces, time.Now().UTC())
-		if err != nil {
+		if observed == nil || observed.Packets != 1 || observed.Bytes < int64(len(frame)) {
+			t.Fatalf("single packet on collector start %d: %+v", attempt, observed)
+		}
+		if err := collector.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if len(observation.Flows) > 0 {
-			break
+		collector = nil
+		if output, err := exec.CommandContext(ctx, "ovs-vsctl", "get", "Bridge", bridge, "ipfix").CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "[]" {
+			t.Fatalf("IPFIX collector retained: %s %v", output, err)
 		}
-	}
-	if len(observation.Flows) != 1 || observation.Flows[0].Packets != 1 {
-		t.Fatal("flow export did not resume after restart", observation)
+		if attempt == 0 {
+			collector, err = NewCollector(ctx, ovs, "sample-node")
+			if err != nil {
+				t.Fatal("collector restart", err)
+			}
+		}
 	}
 }
