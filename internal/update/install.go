@@ -154,9 +154,6 @@ func prepare(ctx context.Context, cfg Config, directory, destination string) err
 	if err := validate(staging, version); err != nil {
 		return err
 	}
-	if err := os.Chmod(staging, 0755); err != nil {
-		return err
-	}
 	return os.Rename(staging, destination)
 }
 
@@ -272,7 +269,15 @@ func extract(archive, destination string) error {
 	for {
 		h, err := reader.Next()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return filepath.Walk(destination, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if info.IsDir() {
+					return os.Chmod(path, 0755)
+				}
+				return nil
+			})
 		}
 		if err != nil {
 			return err
@@ -304,7 +309,7 @@ func extract(archive, destination string) error {
 				return err
 			}
 			_, copyErr := io.Copy(output, reader)
-			if err := errors.Join(copyErr, output.Close()); err != nil {
+			if err := errors.Join(copyErr, output.Chmod(mode), output.Close()); err != nil {
 				return err
 			}
 		default:
