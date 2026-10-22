@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"os"
@@ -17,6 +18,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ovn-org/libovsdb/client"
+	"netlab.local/core/api"
 )
 
 func TestRealOVNMutualTLS(t *testing.T) {
@@ -56,13 +60,17 @@ func TestRealOVNMutualTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer logFile.Close()
-	server := exec.Command("ovsdb-server", "--remote=pssl:"+port+":127.0.0.1", "--private-key="+keyPath, "--certificate="+certPath, "--ca-cert="+certPath, "--pidfile="+filepath.Join(directory, "server.pid"), "--unixctl=none", "--no-chdir", database)
-	server.Stdout, server.Stderr = logFile, logFile
-	if err := server.Start(); err != nil {
-		t.Fatal(err)
+	start := func() *exec.Cmd {
+		server := exec.Command("ovsdb-server", "--remote=pssl:"+port+":127.0.0.1", "--private-key="+keyPath, "--certificate="+certPath, "--ca-cert="+certPath, "--pidfile="+filepath.Join(directory, "server.pid"), "--unixctl=none", "--no-chdir", database)
+		server.Stdout, server.Stderr = logFile, logFile
+		if err := server.Start(); err != nil {
+			t.Fatal(err)
+		}
+		return server
 	}
+	server := start()
 	defer func() { server.Process.Kill(); server.Wait() }()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	for {
 		connection, err := net.DialTimeout("tcp", address, 50*time.Millisecond)
@@ -95,5 +103,50 @@ func TestRealOVNMutualTLS(t *testing.T) {
 	var switches []Switch
 	if err := ovn.client.List(ctx, &switches); err != nil {
 		t.Fatal(err)
+	}
+	plan := api.NodePlan{EnvironmentId: "reconnect", Spec: api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "10.10.0.0/24"}}}}
+	if err := ovn.Apply(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	waitSwitch := func(previousUUID string) string {
+		for {
+			var current []Switch
+			if err := ovn.client.List(ctx, &current); err != nil {
+				t.Fatal(err)
+			}
+			if len(current) == 1 && current[0].Name == objectName("ls", plan.EnvironmentId, "lan") && current[0].UUID != previousUUID {
+				return current[0].UUID
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("monitor did not refresh after reconnect")
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
+	previousUUID := waitSwitch("")
+	for range 2 {
+		if err := server.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		server.Wait()
+		for !errors.Is(ovn.client.Echo(ctx), client.ErrNotConnected) {
+			select {
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		attempt, done := context.WithTimeout(ctx, 100*time.Millisecond)
+		err := ovn.Remove(attempt, plan.EnvironmentId)
+		done()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("disconnected transaction must honor its deadline, got %v", err)
+		}
+		server = start()
+		if err := ovn.Apply(ctx, plan); err != nil {
+			t.Fatalf("apply after server restart: %v", err)
+		}
+		previousUUID = waitSwitch(previousUUID)
 	}
 }
