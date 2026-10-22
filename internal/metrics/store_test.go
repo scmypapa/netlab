@@ -121,7 +121,7 @@ func TestRealMetricsHistory(t *testing.T) {
 	}
 	ctx := context.Background()
 	prefix := fmt.Sprintf("metrics-test-%d", time.Now().UnixNano())
-	base := time.Now().UTC().Truncate(time.Minute).Add(-time.Hour)
+	base := time.Now().UTC().Truncate(10 * time.Minute).Add(-time.Hour)
 	var data bytes.Buffer
 	write := func(sample Sample, seconds int) {
 		t.Helper()
@@ -212,7 +212,7 @@ func TestRealMetricsHistory(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("imported metrics did not become searchable within five seconds")
+			t.Fatalf("imported metrics did not become searchable at %s within five seconds: %+v", first.Format(time.RFC3339), history)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
