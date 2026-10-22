@@ -56,13 +56,15 @@ export function latestMetric(
     .map((series) => series.points.at(-1))
     .filter(
       (point) =>
-        point &&
-        Date.parse(history!.end) - Date.parse(point.time) <=
-          Math.max(20, history!.stepSeconds * 1.5) * 1000,
+        point && Date.parse(history!.end) - Date.parse(point.time) <= 20_000,
     );
-  return points?.length
-    ? points.reduce((total, point) => total + point!.value, 0)
-    : undefined;
+  if (!points?.length) return undefined;
+  const time = Math.max(...points.map((point) => Date.parse(point!.time)));
+  return points.reduce(
+    (total, point) =>
+      total + (Date.parse(point!.time) === time ? point!.value : 0),
+    0,
+  );
 }
 export function MetricChart({
   history,

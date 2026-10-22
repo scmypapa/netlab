@@ -1,3 +1,23 @@
+export function reading(value: number | undefined, scale = 1) {
+  if (value === undefined) return "—";
+  const scaled = value / scale;
+  return scaled.toLocaleString(
+    "zh-CN",
+    Math.abs(scaled) > 0 && Math.abs(scaled) < 1
+      ? { maximumSignificantDigits: 3 }
+      : { maximumFractionDigits: 2 },
+  );
+}
+
+export function byteUnit(value: number, rate = false) {
+  const index =
+    value >= 2 ** 30 ? 3 : value >= 2 ** 20 ? 2 : value >= 2 ** 10 ? 1 : 0;
+  return {
+    scale: 2 ** (index * 10),
+    unit: ["B", "KiB", "MiB", "GiB"][index] + (rate ? "/s" : ""),
+  };
+}
+
 export function memory(mib: number) {
   return `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(mib / 1024)} GiB`;
 }
