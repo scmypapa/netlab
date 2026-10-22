@@ -19,3 +19,7 @@ CFLAGS="-O2 -Wno-error=deprecated-declarations" ./configure \
 make -j"$(nproc)"
 make DESTDIR="$staging" install
 cp -a -- "$staging$prefix/." "$destination/"
+runtime_libdir=$(pkg-config --variable=libdir freerdp-client3)
+cp -L -- "$runtime_libdir"/libfreerdp-client3.so.3 "$runtime_libdir"/libfreerdp3.so.3 "$runtime_libdir"/libwinpr3.so.3 "$destination/lib/"
+LD_LIBRARY_PATH="$destination/lib" ldd "$destination/lib/libguac-client-rdp.so" |
+  awk '/not found/{missing=1} {print} END{exit missing}'
