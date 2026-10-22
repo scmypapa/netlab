@@ -16,7 +16,7 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvirt-dev openvswitch-switch ovn-common
+          sudo apt-get install -y libvirt-dev openvswitch-switch ovn-central
       - name: Verify resource, networking and execution changes
         run: |
           go test ./internal/metrics ./internal/capture ./internal/network ./internal/observation ./internal/server ./internal/update -count=1
