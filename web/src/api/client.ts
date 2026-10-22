@@ -272,6 +272,25 @@ export const api = {
     request<Schema<"SystemUpdate">>("/system/update/check", "POST"),
   applyUpdate: (version: string) =>
     request<Schema<"SystemUpdate">>("/system/update", "POST", { version }),
+  environmentMetrics: (
+    id: string,
+    range: number,
+    signal?: AbortSignal,
+    assetId?: string,
+  ) =>
+    request<Schema<"MetricHistory">>(
+      `/environments/${id}/metrics?${new URLSearchParams({ range: String(range), aggregate: "true", ...(assetId ? { assetId } : {}) })}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+  nodeMetrics: (range: number, nodeId?: string, signal?: AbortSignal) =>
+    request<Schema<"MetricHistory">>(
+      `/nodes/metrics?${new URLSearchParams({ range: String(range), ...(nodeId ? { nodeId } : {}) })}`,
+      "GET",
+      undefined,
+      signal,
+    ),
   metrics: (id: string, assetId: string, range: number, signal?: AbortSignal) =>
     request<Schema<"MetricHistory">>(
       "/environments/" +

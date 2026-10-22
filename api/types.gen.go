@@ -147,9 +147,14 @@ const (
 // Defines values for MetricSeriesMetric.
 const (
 	Cpu             MetricSeriesMetric = "cpu"
+	CpuCapacity     MetricSeriesMetric = "cpu_capacity"
+	DiskCapacity    MetricSeriesMetric = "disk_capacity"
 	DiskRead        MetricSeriesMetric = "disk_read"
+	DiskUsed        MetricSeriesMetric = "disk_used"
 	DiskWrite       MetricSeriesMetric = "disk_write"
 	Memory          MetricSeriesMetric = "memory"
+	MemoryAvailable MetricSeriesMetric = "memory_available"
+	MemoryCapacity  MetricSeriesMetric = "memory_capacity"
 	Receive         MetricSeriesMetric = "receive"
 	ReceiveDrops    MetricSeriesMetric = "receive_drops"
 	ReceivePackets  MetricSeriesMetric = "receive_packets"
@@ -2057,6 +2062,9 @@ type ReplaceEnvironmentGrantsJSONBody = []EnvironmentGrant
 type GetEnvironmentMetricsParams struct {
 	AssetId *string `form:"assetId,omitempty" json:"assetId,omitempty"`
 
+	// Aggregate Sum measured asset resource usage across the environment; network values are asset interface totals
+	Aggregate *bool `form:"aggregate,omitempty" json:"aggregate,omitempty"`
+
 	// Range Relative time window in seconds; start overrides this window
 	Range *int       `form:"range,omitempty" json:"range,omitempty"`
 	Start *time.Time `form:"start,omitempty" json:"start,omitempty"`
@@ -2089,6 +2097,16 @@ type ListNodesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 	Search *Search `form:"search,omitempty" json:"search,omitempty"`
+}
+
+// GetNodeMetricsParams defines parameters for GetNodeMetrics.
+type GetNodeMetricsParams struct {
+	NodeId    *string    `form:"nodeId,omitempty" json:"nodeId,omitempty"`
+	Aggregate *bool      `form:"aggregate,omitempty" json:"aggregate,omitempty"`
+	Range     *int       `form:"range,omitempty" json:"range,omitempty"`
+	Start     *time.Time `form:"start,omitempty" json:"start,omitempty"`
+	End       *time.Time `form:"end,omitempty" json:"end,omitempty"`
+	Step      *int       `form:"step,omitempty" json:"step,omitempty"`
 }
 
 // ListOperationsParams defines parameters for ListOperations.
