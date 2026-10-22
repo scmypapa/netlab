@@ -27,18 +27,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libvirt-dev openvswitch-switch ovn-central suricata suricata-update tshark
-          sudo suricata-update --no-test --no-reload
       - name: Verify resource, networking and execution changes
         run: |
           go test ./internal/security ./internal/metrics ./internal/capture ./internal/network ./internal/observation ./internal/server ./internal/update -count=1
           go test -tags libvirt_dlopen ./internal/engine -run 'TestParallelTemplatePreparationAndTrim|TestColdTemplateSourceDoesNotOccupyComputeSlot|TestMetricsRetainHostWhenContainerdUnavailable' -count=1
           NETLAB_REAL_NETWORK=1 go test ./internal/network -run TestRealOVNMutualTLS -count=1
-          go test -race -c -o "$RUNNER_TEMP/netlab-capture.test" ./internal/capture
-          sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run 'TestRealContinuousOVSFlows|TestRealPacketDecoding' -test.v -test.timeout=60s
-          go test -race -c -o "$RUNNER_TEMP/netlab-security.test" ./internal/security
-          sudo env NETLAB_REAL_SECURITY=1 "$RUNNER_TEMP/netlab-security.test" -test.run 'TestRealSuricata|TestEVEReader' -test.v -test.timeout=120s
           go build -trimpath ./cmd/controller
           go build -trimpath -tags libvirt_dlopen ./cmd/node
+      - name: Verify native IPFIX and packet analysis
+        run: |
+          go test -race -c -o "$RUNNER_TEMP/netlab-capture.test" ./internal/capture
+          sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run 'TestRealContinuousOVSFlows|TestRealPacketDecoding' -test.v -test.timeout=60s
+      - name: Verify full Suricata rules
+        run: |
+          sudo suricata-update --no-test --no-reload
+          go test -race -c -o "$RUNNER_TEMP/netlab-security.test" ./internal/security
+          sudo env NETLAB_REAL_SECURITY=1 "$RUNNER_TEMP/netlab-security.test" -test.run 'TestRealSuricata|TestEVEReader' -test.v -test.timeout=120s
   package:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: verify

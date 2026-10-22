@@ -463,10 +463,6 @@
 .records > button:hover {
   background: var(--surface-hover);
 }
-.records > button[data-selected="true"] {
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 15%, var(--line));
-}
 .flowRow > div,
 .flowRow footer,
 .alertRow > div,

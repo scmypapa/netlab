@@ -258,7 +258,9 @@ export function TrafficGraph({
     const color =
       link.severity !== undefined
         ? riskLevel(link.severity).color
-        : (colors.get(groups.get(link.source) ?? "") ?? "#75828f");
+        : (colors.get(
+            groups.get(link.forward ? link.source : link.target) ?? "",
+          ) ?? "#75828f");
     return {
       id: JSON.stringify([link.source, link.target]),
       source: link.source,

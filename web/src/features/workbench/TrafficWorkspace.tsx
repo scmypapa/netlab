@@ -537,6 +537,14 @@ export default function TrafficWorkspace({
                         ? `${alerts.length} 组告警`
                         : `${flows.length}${flows.length !== data.flows.length ? ` / ${data.flows.length}` : ""} 条通信记录`}
                     </span>
+                    {data.live &&
+                      mode === "traffic" &&
+                      !!data.traffic.data?.omittedSamples && (
+                        <Badge color="orange" size="xs" variant="light">
+                          记录裁剪{" "}
+                          {data.traffic.data.omittedSamples.toLocaleString()}
+                        </Badge>
+                      )}
                   </div>
                   <div className={styles.legend}>
                     {(mode === "risk"
@@ -922,7 +930,6 @@ export default function TrafficWorkspace({
                             index,
                           ].join("/")}
                           className={styles.flowRow}
-                          data-selected={Boolean(selection && selected(flow))}
                           onClick={() => {
                             select({
                               source: endpoint(flow, "source"),
@@ -1099,6 +1106,8 @@ export default function TrafficWorkspace({
                     setCreating(false);
                     setMode("traffic");
                     setSelection(undefined);
+                    setSelectedAlert(undefined);
+                    setSelectedFlow(undefined);
                   }
                 },
               },

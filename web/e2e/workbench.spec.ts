@@ -785,6 +785,7 @@ test("通信工作区多资产布局、键盘选择和趋势收纳", async ({ pa
     ["app-01", "database-01"],
     ["client-01", "dc-01"],
     ["windows", "dc-01"],
+    ["web", "client-01"],
   ];
   await page.route("**/environments/env/traffic", (route) =>
     route.fulfill({
@@ -818,6 +819,7 @@ test("通信工作区多资产布局、键盘选择和趋势收纳", async ({ pa
   await page.getByRole("button", { name: "流量视图", exact: true }).click();
   const graph = page.getByRole("region", { name: "资产通信图" });
   await expect(graph.locator(".react-flow__node")).toHaveCount(6);
+  await expect(graph.locator(".react-flow__edge")).toHaveCount(5);
   for (const width of [1366, 1920, 2560, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await expect
