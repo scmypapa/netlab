@@ -34,8 +34,11 @@ type secondBucket struct {
 }
 type flowKey struct {
 	sourceNetwork, destinationNetwork, sourceAsset, destinationAsset string
-	source, destination, sourceMAC, destinationMAC, protocol         string
-	sourcePort, destinationPort                                      int
+	packetKey
+}
+type packetKey struct {
+	source, destination, sourceMAC, destinationMAC, protocol string
+	sourcePort, destinationPort                              int
 }
 type conversation struct {
 	flow   api.CaptureFlow
@@ -45,11 +48,15 @@ type endpointKey struct{ network, value string }
 
 // Sample is either one captured frame or a statistically weighted sFlow sample.
 type Sample struct {
-	At                                                       time.Time
+	At, LastSeen                                             time.Time
 	Source, Destination, SourceMAC, DestinationMAC, Protocol string
 	SourcePort, DestinationPort                              int
 	PortName                                                 string
-	Bytes, Packets                                           int64
+	Bytes, Packets, Samples                                  int64
+}
+
+func (sample Sample) key() packetKey {
+	return packetKey{sample.Source, sample.Destination, sample.SourceMAC, sample.DestinationMAC, sample.Protocol, sample.SourcePort, sample.DestinationPort}
 }
 
 func Summarize(node string, interfaces []api.CaptureInterface, samples []Sample, now time.Time) ([]api.CaptureFlow, int64) {
@@ -115,7 +122,7 @@ func (a *aggregate) add(line string) error {
 	if err != nil || index < 0 || index >= len(a.capturePorts) {
 		return fmt.Errorf("无效抓包接口序号 %q", f[13])
 	}
-	a.addSample(Sample{At: time.Unix(0, int64(epoch*1e9)).UTC(), Bytes: size, Packets: 1, PortName: a.capturePorts[index],
+	a.addSample(Sample{At: time.Unix(0, int64(epoch*1e9)).UTC(), Bytes: size, Packets: 1, Samples: 1, PortName: a.capturePorts[index],
 		Source: first(f[4], f[6], f[2]), Destination: first(f[5], f[7], f[3]), SourceMAC: f[2], DestinationMAC: f[3],
 		SourcePort: port(first(f[8], f[10])), DestinationPort: port(first(f[9], f[11])), Protocol: f[12]})
 	return nil
@@ -139,10 +146,10 @@ func (a *aggregate) addSample(sample Sample) {
 	a.packets += sample.Packets
 	a.bytes += sample.Bytes
 	sp, dp := sample.SourcePort, sample.DestinationPort
-	key := flowKey{src.NetworkId, dst.NetworkId, src.AssetId, dst.AssetId, source, destination, sample.SourceMAC, sample.DestinationMAC, sample.Protocol, sp, dp}
+	key := flowKey{src.NetworkId, dst.NetworkId, src.AssetId, dst.AssetId, sample.key()}
 	entry, exists := a.flows[key]
 	if !exists && len(a.flows) >= flowLimit {
-		a.omitted++
+		a.omitted += sample.Samples
 		return
 	}
 	at := sample.At
@@ -171,8 +178,12 @@ func (a *aggregate) addSample(sample Sample) {
 	if at.Before(flow.FirstSeen) {
 		flow.FirstSeen = at
 	}
-	if at.After(flow.LastSeen) {
-		flow.LastSeen = at
+	last := sample.LastSeen
+	if last.IsZero() {
+		last = at
+	}
+	if last.After(flow.LastSeen) {
+		flow.LastSeen = last
 	}
 	second := at.Unix()
 	index := (second%10 + 10) % 10
