@@ -708,6 +708,7 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "资源曲线", exact: true }).click();
   await expect(page.getByRole("img", { name: /历史曲线/ })).toHaveCount(4);
+  await expect(page.getByLabel("网络指标").getByText("B/s", { exact: true })).toBeVisible();
   await expect(
     page
       .getByRole("table")
@@ -728,7 +729,7 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
   }
   await page.getByRole("button", { name: "切换夜间主题" }).click();
   await expect(page.getByRole("img", { name: /历史曲线/ })).toHaveCount(4);
-  await page.getByRole("button", { name: "返回拓扑", exact: true }).click();
+  await page.getByRole("button", { name: "返回资产列表", exact: true }).click();
   await expect(page.getByLabel("资源观察")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "资产视图", exact: true }),

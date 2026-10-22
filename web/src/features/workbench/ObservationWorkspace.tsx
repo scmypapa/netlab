@@ -2,19 +2,17 @@ import { MetricChart } from "../../foundation/MetricChart";
 import { ActionIcon, SegmentedControl, Switch } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Activity, RefreshCw } from "lucide-react";
-import { useState } from "react";
 import { api, type Asset, type Network, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
+import { latestMetric } from "../../foundation/metrics";
+import { byteUnit, reading } from "../../foundation/format";
+import {
+  metricRanges,
+  useMetricWindow,
+} from "../../foundation/useMetricWindow";
 import styles from "./ObservationWorkspace.module.css";
 
 type Metric = Schema<"MetricSeries">["metric"];
-const ranges = [
-  { label: "15 分钟", value: "900" },
-  { label: "1 小时", value: "3600" },
-  { label: "6 小时", value: "21600" },
-  { label: "24 小时", value: "86400" },
-];
-
 const plots = [
   { title: "CPU", unit: "核", measures: ["cpu"], scale: 1 },
   { title: "内存", unit: "GiB", measures: ["memory"], scale: 2 ** 30 },
@@ -42,14 +40,15 @@ export default function ObservationWorkspace({
   asset,
   networks,
   onClose,
+  backLabel = "返回拓扑",
 }: {
   environmentId: string;
   asset: Asset;
   networks: Network[];
   onClose: () => void;
+  backLabel?: string;
 }) {
-  const [range, setRange] = useState("900");
-  const [live, setLive] = useState(true);
+  const { range, setRange, live, setLive } = useMetricWindow();
   const query = useQuery({
     queryKey: ["metrics", environmentId, asset.id, range],
     queryFn: ({ signal }) =>
@@ -57,6 +56,13 @@ export default function ObservationWorkspace({
     refetchInterval: live ? 10_000 : false,
     refetchOnWindowFocus: live,
   });
+  const snapshot = useQuery({
+    queryKey: ["metrics", environmentId, asset.id, "60"],
+    queryFn: ({ signal }) => api.metrics(environmentId, asset.id, 60, signal),
+    refetchInterval: live ? 10_000 : false,
+    refetchOnWindowFocus: live,
+  });
+  const current = snapshot.isError ? undefined : snapshot.data;
   const interfaces = new Map(
     asset.interfaces.map((iface, index) => [
       iface.id,
@@ -74,7 +80,7 @@ export default function ObservationWorkspace({
           <ActionIcon
             variant="subtle"
             color="gray"
-            aria-label="返回拓扑"
+            aria-label={backLabel}
             onClick={onClose}
           >
             <ArrowLeft size={18} />
@@ -87,12 +93,13 @@ export default function ObservationWorkspace({
             size="xs"
             value={range}
             onChange={setRange}
-            data={ranges}
+            data={metricRanges}
             aria-label="时间范围"
           />
           <Switch
             size="xs"
             label="实时"
+            aria-label="实时刷新"
             checked={live}
             onChange={(event) => setLive(event.currentTarget.checked)}
           />
@@ -100,14 +107,17 @@ export default function ObservationWorkspace({
             variant="subtle"
             color="gray"
             aria-label="刷新资源数据"
-            loading={query.isFetching}
-            onClick={() => void query.refetch()}
+            loading={query.isFetching || snapshot.isFetching}
+            onClick={() => {
+              void query.refetch();
+              void snapshot.refetch();
+            }}
           >
             <RefreshCw size={16} />
           </ActionIcon>
         </div>
       </header>
-      <ErrorMessage error={query.error} />
+      <ErrorMessage error={query.error ?? snapshot.error} />
       {query.isLoading ? (
         <Loading />
       ) : (
@@ -116,25 +126,37 @@ export default function ObservationWorkspace({
         (history.series.some((item) => item.points.length) ? (
           <>
             <div className={styles.grid}>
-              {plots.map((plot) => (
-                <section
-                  key={plot.title}
-                  className={styles.plot}
-                  aria-label={plot.title + "指标"}
-                >
-                  <h3>
-                    {plot.title}
-                    <span>{plot.unit}</span>
-                  </h3>
-                  <MetricChart
-                    history={history}
-                    measures={plot.measures}
-                    unit={plot.unit}
-                    scale={plot.scale}
-                    names={interfaces}
-                  />
-                </section>
-              ))}
+              {plots.map((plot) => {
+                let peak = 0;
+                for (const series of history.series)
+                  if ((plot.measures as Metric[]).includes(series.metric))
+                    for (const point of series.points)
+                      peak = Math.max(peak, point.value);
+                const unit =
+                  plot.unit === "MiB/s" ? byteUnit(peak, true) : plot;
+                return (
+                  <section
+                    key={plot.title}
+                    className={styles.plot}
+                    aria-label={plot.title + "指标"}
+                  >
+                    <h3>
+                      {plot.title}
+                      <span>{unit.unit}</span>
+                    </h3>
+                    <MetricChart
+                      history={history}
+                      measures={plot.measures}
+                      unit={unit.unit}
+                      scale={unit.scale}
+                      names={interfaces}
+                      group={
+                        "asset-performance-" + environmentId + "-" + asset.id
+                      }
+                    />
+                  </section>
+                );
+              })}
             </div>
             <div className={styles.interfaceStats}>
               <table>
@@ -150,25 +172,14 @@ export default function ObservationWorkspace({
                 </thead>
                 <tbody>
                   {asset.interfaces.map((iface) => {
-                    const value = (metric: Metric) => {
-                      const latest = history.series
-                        .filter(
-                          (item) =>
-                            item.interfaceId === iface.id &&
-                            item.metric === metric,
-                        )
-                        .flatMap((item) => item.points)
-                        .sort(
-                          (a, b) => Date.parse(b.time) - Date.parse(a.time),
-                        )[0];
-                      return latest &&
-                        Date.parse(history.end) - Date.parse(latest.time) <
-                          20_000
-                        ? latest.value.toLocaleString(undefined, {
-                            maximumFractionDigits: 2,
-                          })
-                        : "—";
+                    const detail = current && {
+                      ...current,
+                      series: current.series.filter(
+                        (item) => item.interfaceId === iface.id,
+                      ),
                     };
+                    const value = (metric: Metric) =>
+                      reading(latestMetric(detail, metric));
                     return (
                       <tr key={iface.id}>
                         <td>{interfaces.get(iface.id)}</td>

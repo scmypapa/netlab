@@ -284,9 +284,14 @@ export const api = {
       undefined,
       signal,
     ),
-  nodeMetrics: (range: number, nodeId?: string, signal?: AbortSignal) =>
+  nodeMetrics: (
+    range: number,
+    nodeId?: string,
+    signal?: AbortSignal,
+    aggregate = false,
+  ) =>
     request<Schema<"MetricHistory">>(
-      `/nodes/metrics?${new URLSearchParams({ range: String(range), ...(nodeId ? { nodeId } : {}) })}`,
+      `/nodes/metrics?${new URLSearchParams({ range: String(range), ...(nodeId ? { nodeId } : {}), aggregate: String(aggregate) })}`,
       "GET",
       undefined,
       signal,

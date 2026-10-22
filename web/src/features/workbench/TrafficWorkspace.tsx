@@ -28,7 +28,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Environment, type Schema } from "../../api/client";
-import { MetricChart, latestMetric } from "../../foundation/MetricChart";
+import { MetricChart } from "../../foundation/MetricChart";
+import { latestMetric } from "../../foundation/metrics";
 import { byteUnit, reading } from "../../foundation/format";
 import styles from "./TrafficWorkspace.module.css";
 

@@ -11,7 +11,7 @@ import {
   DataZoomInsideComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import type { Schema } from "../api/client";
+import type { History, Metric } from "./metrics";
 import styles from "./MetricChart.module.css";
 
 echarts.use([
@@ -24,8 +24,6 @@ echarts.use([
   DataZoomInsideComponent,
   CanvasRenderer,
 ]);
-export type History = Schema<"MetricHistory">;
-export type Metric = Schema<"MetricSeries">["metric"];
 export const metricTitles: Partial<Record<Metric, string>> = {
   cpu: "CPU",
   memory: "内存",
@@ -46,30 +44,6 @@ export const metricTitles: Partial<Record<Metric, string>> = {
 const titles = metricTitles;
 const emptyNames = new Map<string, string>();
 
-export function latestMetric(
-  history: History | undefined,
-  metric: Metric,
-  nodeId?: string,
-): number | undefined {
-  const points = history?.series
-    .filter(
-      (series) =>
-        series.metric === metric &&
-        (nodeId === undefined || series.nodeId === nodeId),
-    )
-    .map((series) => series.points.at(-1))
-    .filter(
-      (point) =>
-        point && Date.parse(history!.end) - Date.parse(point.time) <= 20_000,
-    );
-  if (!points?.length) return undefined;
-  const time = Math.max(...points.map((point) => Date.parse(point!.time)));
-  return points.reduce(
-    (total, point) =>
-      total + (Date.parse(point!.time) === time ? point!.value : 0),
-    0,
-  );
-}
 const metricNumber = (value: number, digits = 4) =>
   value.toLocaleString("zh-CN", { maximumSignificantDigits: digits });
 
