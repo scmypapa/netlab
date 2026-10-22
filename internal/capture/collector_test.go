@@ -9,6 +9,7 @@ import (
 
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/layers"
+	"github.com/netsampler/goflow2/v2/decoders/netflow"
 	"netlab.local/core/api"
 )
 
@@ -34,29 +35,68 @@ func sampleFrameFrom(t testing.TB, mac, address string) []byte {
 }
 
 func sampleDatagram(frame []byte, ingress uint32, egress ...uint32) []byte {
-	var raw, record, sample, datagram bytes.Buffer
-	write := func(buffer *bytes.Buffer, values ...uint32) { binary.Write(buffer, binary.BigEndian, values) }
-	header := frame[:min(len(frame), 128)]
-	write(&raw, 1, uint32(len(frame)), 0, uint32(len(header)))
-	raw.Write(header)
-	for raw.Len()%4 != 0 {
-		raw.WriteByte(0)
+	packet := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.Default)
+	type field struct {
+		id    uint16
+		value []byte
 	}
-	write(&record, 1, uint32(raw.Len()))
-	record.Write(raw.Bytes())
-	var output uint32
-	if len(egress) > 0 {
-		output = egress[0]
+	fields := []field{}
+	add := func(id uint16, value []byte) { fields = append(fields, field{id, value}) }
+	number := func(id uint16, value uint64, length int) {
+		var data [8]byte
+		binary.BigEndian.PutUint64(data[:], value)
+		add(id, data[8-length:])
 	}
-	write(&sample, 1, ingress, SamplingRate, SamplingRate, 0, ingress, output, 1)
-	sample.Write(record.Bytes())
-	write(&datagram, 5, 1, 0x7f000001, 0, 1, 1000, 1, 1, uint32(sample.Len()))
-	datagram.Write(sample.Bytes())
+	eth := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet)
+	add(56, eth.SrcMAC)
+	add(80, eth.DstMAC)
+	number(256, uint64(eth.EthernetType), 2)
+	if layer := packet.Layer(layers.LayerTypeIPv4); layer != nil {
+		ip := layer.(*layers.IPv4)
+		add(8, ip.SrcIP)
+		add(12, ip.DstIP)
+		number(4, uint64(ip.Protocol), 1)
+	}
+	if layer := packet.Layer(layers.LayerTypeUDP); layer != nil {
+		udp := layer.(*layers.UDP)
+		number(7, uint64(udp.SrcPort), 2)
+		number(11, uint64(udp.DstPort), 2)
+	}
+	number(10, uint64(ingress), 4)
+	if len(egress) > 0 && ingress == 999 {
+		number(14, uint64(egress[0]), 4)
+		number(61, 1, 1)
+	} else {
+		number(61, 0, 1)
+	}
+	number(352, uint64(len(frame)), 8)
+	number(2, 1, 8)
+	var template, records, datagram bytes.Buffer
+	binary.Write(&template, binary.BigEndian, []uint16{256, uint16(len(fields))})
+	for _, field := range fields {
+		binary.Write(&template, binary.BigEndian, []uint16{field.id, uint16(len(field.value))})
+		records.Write(field.value)
+	}
+	binary.Write(&datagram, binary.BigEndian, []uint16{10, uint16(16 + 4 + template.Len() + 4 + records.Len())})
+	binary.Write(&datagram, binary.BigEndian, []uint32{uint32(time.Now().Unix()), 1, 1})
+	binary.Write(&datagram, binary.BigEndian, []uint16{2, uint16(4 + template.Len())})
+	datagram.Write(template.Bytes())
+	binary.Write(&datagram, binary.BigEndian, []uint16{256, uint16(4 + records.Len())})
+	datagram.Write(records.Bytes())
 	return datagram.Bytes()
 }
 
-func fixtureSampler(node string, interfaces map[uint32]string) *Sampler {
-	return &Sampler{node: node, interfaces: interfaces, index: map[sampleKey]int{}}
+func fixtureCollector(node string, interfaces map[uint32]string) *Collector {
+	return &Collector{node: node, interfaces: interfaces, index: map[sampleKey]int{}, templates: netflow.CreateTemplateSystem()}
+}
+
+func TestCollectorRejectsOtherProtocols(t *testing.T) {
+	s := fixtureCollector("one", nil)
+	for _, data := range [][]byte{nil, {0, 9, 0, 0}, {0, 10, 0}} {
+		if err := s.ingest(data, time.Now()); err == nil {
+			t.Fatal("invalid datagram accepted", data)
+		}
+	}
 }
 
 func sampleARPFrame(t testing.TB, source string) []byte {
@@ -77,7 +117,7 @@ func sampleARPFrame(t testing.TB, source string) []byte {
 func TestSampleWeightWindowIsolationAndOwnership(t *testing.T) {
 	now := time.Now().UTC()
 	resolved := map[uint32]string{7: "client-port", 8: "other-port"}
-	s := fixtureSampler("one", resolved)
+	s := fixtureCollector("one", resolved)
 	frame := sampleFrame(t)
 	for _, index := range []uint32{7, 8} {
 		if err := s.ingest(sampleDatagram(frame, index), now.Add(-time.Second)); err != nil {
@@ -115,7 +155,7 @@ func TestSampleWeightWindowIsolationAndOwnership(t *testing.T) {
 
 func TestNewVMTapAndContainerVethRecoverSamplesWithoutPolling(t *testing.T) {
 	now := time.Now().UTC()
-	s := fixtureSampler("one", map[uint32]string{})
+	s := fixtureCollector("one", map[uint32]string{})
 	for _, index := range []uint32{7, 8} {
 		if err := s.ingest(sampleDatagram(sampleFrame(t), index), now.Add(-time.Second)); err != nil {
 			t.Fatal(err)
@@ -148,7 +188,7 @@ func TestNewVMTapAndContainerVethRecoverSamplesWithoutPolling(t *testing.T) {
 func TestFlowSecondAggregationPreservesQuietEnvironmentAndTimes(t *testing.T) {
 	base := time.Now().UTC().Truncate(time.Second)
 	resolved := map[uint32]string{7: "busy", 8: "quiet"}
-	s := fixtureSampler("one", resolved)
+	s := fixtureCollector("one", resolved)
 	if err := s.ingest(sampleDatagram(sampleFrame(t), 8), base.Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +219,7 @@ func TestFlowSecondAggregationPreservesQuietEnvironmentAndTimes(t *testing.T) {
 
 func TestSamplingBudgetIndexExpiryAndOutOfOrderTimes(t *testing.T) {
 	now := time.Now().UTC()
-	s := fixtureSampler("one", map[uint32]string{7: "client"})
+	s := fixtureCollector("one", map[uint32]string{7: "client"})
 	sample := Sample{At: now, LastSeen: now, Source: "192.0.2.1", Destination: "192.0.2.2", SourceMAC: "02:00:00:00:00:01", Protocol: "UDP", Bytes: 100, Packets: 1, Samples: 1, PortName: "client"}
 	port := samplePort{name: "client", ingress: 7}
 	s.add(sample, port)
@@ -205,7 +245,7 @@ func TestSamplingBudgetIndexExpiryAndOutOfOrderTimes(t *testing.T) {
 	if result, _ := s.snapshot([]api.CaptureInterface{{AssetId: "client", NodeId: "one", Mac: "02:00:00:00:00:01", PortName: "client"}}, s.interfaces, now.Add(61*time.Second)); len(result.Flows) != 0 || result.OmittedSamples != 0 {
 		t.Fatal("expired samples or omitted records survived", result)
 	}
-	s = fixtureSampler("one", map[uint32]string{7: "client"})
+	s = fixtureCollector("one", map[uint32]string{7: "client"})
 	sample.At, sample.LastSeen = now, now
 	s.add(sample, port)
 	sample.At, sample.LastSeen = now.Add(-time.Nanosecond), now.Add(-time.Nanosecond)
@@ -217,7 +257,7 @@ func TestSamplingBudgetIndexExpiryAndOutOfOrderTimes(t *testing.T) {
 
 func TestFlowSecondWindowKeepsItsLatestSampleAndOmissionWeight(t *testing.T) {
 	base := time.Now().UTC().Truncate(time.Second)
-	s := fixtureSampler("one", map[uint32]string{7: "client"})
+	s := fixtureCollector("one", map[uint32]string{7: "client"})
 	port := samplePort{name: "client", ingress: 7}
 	sample := Sample{At: base.Add(100 * time.Millisecond), LastSeen: base.Add(100 * time.Millisecond), Source: "192.0.2.1", Destination: "192.0.2.2", SourceMAC: "02:00:00:00:00:01", Protocol: "UDP", Bytes: 51200, Packets: 512, Samples: 1, PortName: "client"}
 	s.add(sample, port)
@@ -246,8 +286,8 @@ func TestFlowSecondWindowKeepsItsLatestSampleAndOmissionWeight(t *testing.T) {
 func TestSamplingBroadcastAndCrossNodeOwnership(t *testing.T) {
 	now := time.Now().UTC()
 	interfaces := []api.CaptureInterface{{AssetId: "sender", NodeId: "one", PortName: "sender-port", Mac: "02:00:00:00:00:01", Address: "192.0.2.1"}, {AssetId: "receiver", NodeId: "two", PortName: "receiver-port", Mac: "02:00:00:00:00:02", Address: "192.0.2.2"}}
-	one := fixtureSampler("one", map[uint32]string{7: "sender-port"})
-	two := fixtureSampler("two", map[uint32]string{8: "receiver-port"})
+	one := fixtureCollector("one", map[uint32]string{7: "sender-port"})
+	two := fixtureCollector("two", map[uint32]string{8: "receiver-port"})
 	if err := one.ingest(sampleDatagram(sampleFrame(t), 7), now); err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +325,7 @@ func TestSamplingBroadcastAndCrossNodeOwnership(t *testing.T) {
 func TestExternalL2FrameUsesObservedPortWithoutInventingAnEndpoint(t *testing.T) {
 	now := time.Now().UTC()
 	resolved := map[uint32]string{8: "receiver-port"}
-	s := fixtureSampler("one", nil)
+	s := fixtureCollector("one", nil)
 	interfaces := []api.CaptureInterface{{AssetId: "receiver", NodeId: "one", PortName: "receiver-port", Mac: "02:00:00:00:00:02", Address: "192.0.2.2"}}
 	frame := sampleARPFrame(t, "00:11:22:33:44:55")
 	if err := s.ingest(sampleDatagram(frame, 999, 8), now); err != nil {
@@ -315,8 +355,8 @@ func TestExternalL2FrameUsesObservedPortWithoutInventingAnEndpoint(t *testing.T)
 	}
 }
 
-func BenchmarkSamplerRepeatedFlow(b *testing.B) {
-	s := fixtureSampler("one", nil)
+func BenchmarkCollectorRepeatedFlow(b *testing.B) {
+	s := fixtureCollector("one", nil)
 	port := samplePort{name: "port", ingress: 7}
 	now := time.Now()
 	sample := Sample{At: now, LastSeen: now, Source: "192.0.2.1", Destination: "192.0.2.2", Protocol: "UDP", Bytes: 51200, Packets: 512, Samples: 1, PortName: "port"}
@@ -327,8 +367,8 @@ func BenchmarkSamplerRepeatedFlow(b *testing.B) {
 	b.ReportMetric(float64(len(s.samples)), "slots")
 }
 
-func BenchmarkSamplerIngestRepeatedFlow(b *testing.B) {
-	s := fixtureSampler("one", map[uint32]string{7: "port"})
+func BenchmarkCollectorIngestRepeatedFlow(b *testing.B) {
+	s := fixtureCollector("one", map[uint32]string{7: "port"})
 	packet := sampleDatagram(sampleFrame(b), 7)
 	now := time.Now().UTC()
 	b.ReportAllocs()
@@ -341,8 +381,8 @@ func BenchmarkSamplerIngestRepeatedFlow(b *testing.B) {
 	b.ReportMetric(float64(len(s.samples)), "slots")
 }
 
-func BenchmarkSamplerDistinctFlows(b *testing.B) {
-	s := fixtureSampler("one", nil)
+func BenchmarkCollectorDistinctFlows(b *testing.B) {
+	s := fixtureCollector("one", nil)
 	port := samplePort{name: "port", ingress: 7}
 	now := time.Now().Truncate(time.Second)
 	sample := Sample{Source: "192.0.2.1", Destination: "192.0.2.2", Protocol: "UDP", Bytes: 51200, Packets: 512, Samples: 1, PortName: "port"}

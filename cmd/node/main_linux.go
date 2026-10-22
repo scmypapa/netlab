@@ -249,6 +249,7 @@ func run() error {
 		"GET /node/v1/environments/{environmentId}/captures", "POST /node/v1/environments/{environmentId}/captures", "DELETE /node/v1/environments/{environmentId}/captures",
 		"GET /node/v1/environments/{environmentId}/captures/{captureId}", "POST /node/v1/environments/{environmentId}/captures/{captureId}", "DELETE /node/v1/environments/{environmentId}/captures/{captureId}",
 		"GET /node/v1/environments/{environmentId}/captures/{captureId}/{file}",
+		"GET /node/v1/environments/{environmentId}/captures/{captureId}/{file}/{packetNumber}",
 	} {
 		mux.HandleFunc(pattern, executor.Capture)
 	}

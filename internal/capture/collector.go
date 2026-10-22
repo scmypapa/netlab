@@ -1,14 +1,17 @@
 package capture
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
 
-	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/layers"
+	"github.com/netsampler/goflow2/v2/decoders/netflow"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/network"
 )
@@ -43,7 +46,7 @@ type sampleDrop struct {
 	second int64
 	ports  map[samplePort]int64
 }
-type Sampler struct {
+type Collector struct {
 	ovs        *network.OVS
 	node       string
 	conn       *net.UDPConn
@@ -55,37 +58,38 @@ type Sampler struct {
 	next       int
 	omitted    [ObservationWindow]sampleDrop
 	err        error
+	templates  netflow.NetFlowTemplateSystem
 }
 
-func NewSampler(ctx context.Context, ovs *network.OVS, node string) (*Sampler, error) {
+func NewCollector(ctx context.Context, ovs *network.OVS, node string) (*Collector, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		return nil, err
 	}
-	interfaces, err := ovs.SamplingInterfaces(ctx)
+	interfaces, err := ovs.FlowInterfaces(ctx)
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
-	if err = ovs.SetSampling(ctx, node, conn.LocalAddr().String(), SamplingRate); err != nil {
+	if err = ovs.SetFlowExport(ctx, node, conn.LocalAddr().String()); err != nil {
 		conn.Close()
 		return nil, err
 	}
-	s := &Sampler{ovs: ovs, node: node, conn: conn, interfaces: interfaces, index: map[sampleKey]int{}}
+	s := &Collector{ovs: ovs, node: node, conn: conn, interfaces: interfaces, index: map[sampleKey]int{}, templates: netflow.CreateTemplateSystem()}
 	s.workers.Add(1)
 	go func() { defer s.workers.Done(); s.receive() }()
 	return s, nil
 }
 
-func (s *Sampler) Close() error {
+func (s *Collector) Close() error {
 	s.conn.Close()
 	s.workers.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return s.ovs.SetSampling(ctx, s.node, "", SamplingRate)
+	return s.ovs.SetFlowExport(ctx, s.node, "")
 }
 
-func (s *Sampler) receive() {
+func (s *Collector) receive() {
 	data := make([]byte, 65535)
 	for {
 		n, _, err := s.conn.ReadFromUDP(data)
@@ -105,49 +109,37 @@ func (s *Sampler) receive() {
 	}
 }
 
-func (s *Sampler) ingest(data []byte, now time.Time) error {
-	packet := gopacket.NewPacket(data, layers.LayerTypeSFlow, gopacket.Default)
-	if failure := packet.ErrorLayer(); failure != nil {
-		return failure.Error()
+func (s *Collector) ingest(data []byte, now time.Time) error {
+	if len(data) < 2 || binary.BigEndian.Uint16(data) != 10 {
+		return fmt.Errorf("expected IPFIX version 10")
 	}
-	datagram, ok := packet.Layer(layers.LayerTypeSFlow).(*layers.SFlowDatagram)
-	if !ok {
-		return errors.New("invalid sFlow datagram")
+	var datagram netflow.IPFIXPacket
+	if err := netflow.DecodeMessageVersion(bytes.NewBuffer(data), s.templates, nil, &datagram); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.err = nil
-	for _, flow := range datagram.FlowSamples {
-		port := samplePort{}
-		if flow.InputInterfaceFormat == 0 {
-			port.ingress = flow.InputInterface
-		}
-		if flow.OutputInterfaceFormat == 0 {
-			port.egress = flow.OutputInterface
-		}
-		if port.ingress == 0 && port.egress == 0 || flow.SamplingRate == 0 {
+	for _, set := range datagram.FlowSets {
+		flow, ok := set.(netflow.DataFlowSet)
+		if !ok {
 			continue
 		}
 		for _, record := range flow.Records {
-			header, ok := record.(layers.SFlowRawPacketFlowRecord)
-			if !ok {
-				continue
-			}
-			sample := decodeSample(header, flow.SamplingRate, now)
-			if sample.Source == "" || sample.Destination == "" {
+			sample, port := decodeFlow(record, time.Unix(int64(datagram.ExportTime), 0).UTC())
+			if sample.Packets == 0 {
 				continue
 			}
 			port.name, sample.portSide = port.resolve(s.interfaces)
 			sample.PortName = port.name
 			s.add(sample, port)
-			break
 		}
 	}
 	return nil
 }
 
 // Keep one record per flow-second, so a busy flow cannot evict an entire node's observations by packet count.
-func (s *Sampler) add(sample Sample, port samplePort) {
+func (s *Collector) add(sample Sample, port samplePort) {
 	key := sampleKey{sample.key(), port, sample.At.Unix()}
 	if index, exists := s.index[key]; exists {
 		entry := &s.samples[index]
@@ -157,8 +149,8 @@ func (s *Sampler) add(sample Sample, port samplePort) {
 		if sample.At.Before(entry.At) {
 			entry.At = sample.At
 		}
-		if sample.At.After(entry.LastSeen) {
-			entry.LastSeen = sample.At
+		if sample.LastSeen.After(entry.LastSeen) {
+			entry.LastSeen = sample.LastSeen
 		}
 		return
 	}
@@ -186,34 +178,66 @@ func (s *Sampler) add(sample Sample, port samplePort) {
 	s.index[key] = index
 }
 
-func decodeSample(record layers.SFlowRawPacketFlowRecord, rate uint32, now time.Time) Sample {
-	sample := Sample{At: now, LastSeen: now, Bytes: int64(record.FrameLength) * int64(rate), Packets: int64(rate), Samples: 1}
-	if layer := record.Header.Layer(layers.LayerTypeEthernet); layer != nil {
-		frame := layer.(*layers.Ethernet)
-		sample.SourceMAC, sample.DestinationMAC = frame.SrcMAC.String(), frame.DstMAC.String()
-		sample.Source, sample.Destination, sample.Protocol = sample.SourceMAC, sample.DestinationMAC, frame.EthernetType.String()
+func decodeFlow(record netflow.DataRecord, exported time.Time) (Sample, samplePort) {
+	sample := Sample{At: exported, LastSeen: exported, Samples: 1}
+	var ingress, egress uint32
+	var direction uint64
+	for _, field := range record.Values {
+		if field.PenProvided {
+			continue
+		}
+		value := field.Value.([]byte)
+		number := func() uint64 {
+			var result uint64
+			for _, b := range value {
+				result = result<<8 | uint64(b)
+			}
+			return result
+		}
+		switch field.Type {
+		case netflow.IPFIX_FIELD_sourceMacAddress:
+			sample.SourceMAC = net.HardwareAddr(value).String()
+		case netflow.IPFIX_FIELD_destinationMacAddress:
+			sample.DestinationMAC = net.HardwareAddr(value).String()
+		case netflow.IPFIX_FIELD_sourceIPv4Address, netflow.IPFIX_FIELD_sourceIPv6Address:
+			sample.Source = net.IP(value).String()
+		case netflow.IPFIX_FIELD_destinationIPv4Address, netflow.IPFIX_FIELD_destinationIPv6Address:
+			sample.Destination = net.IP(value).String()
+		case netflow.IPFIX_FIELD_protocolIdentifier:
+			sample.Protocol = layers.IPProtocol(number()).String()
+		case netflow.IPFIX_FIELD_ethernetType:
+			if sample.Protocol == "" {
+				sample.Protocol = layers.EthernetType(number()).String()
+			}
+		case netflow.IPFIX_FIELD_sourceTransportPort:
+			sample.SourcePort = int(number())
+		case netflow.IPFIX_FIELD_destinationTransportPort:
+			sample.DestinationPort = int(number())
+		case netflow.IPFIX_FIELD_ingressInterface:
+			ingress = uint32(number())
+		case netflow.IPFIX_FIELD_egressInterface:
+			egress = uint32(number())
+		case netflow.IPFIX_FIELD_flowDirection:
+			direction = number()
+		case netflow.IPFIX_FIELD_packetDeltaCount:
+			sample.Packets = int64(number())
+		case netflow.IPFIX_FIELD_layer2OctetDeltaCount:
+			sample.Bytes = int64(number())
+		case netflow.IPFIX_FIELD_flowStartDeltaMicroseconds:
+			sample.At = exported.Add(-time.Duration(number()) * time.Microsecond)
+		case netflow.IPFIX_FIELD_flowEndDeltaMicroseconds:
+			sample.LastSeen = exported.Add(-time.Duration(number()) * time.Microsecond)
+		}
 	}
-	if layer := record.Header.Layer(layers.LayerTypeIPv4); layer != nil {
-		ip := layer.(*layers.IPv4)
-		sample.Source, sample.Destination, sample.Protocol = ip.SrcIP.String(), ip.DstIP.String(), ip.Protocol.String()
+	sample.Source, sample.Destination = first(sample.Source, sample.SourceMAC), first(sample.Destination, sample.DestinationMAC)
+	if direction == 1 {
+		return sample, samplePort{egress: egress}
 	}
-	if layer := record.Header.Layer(layers.LayerTypeIPv6); layer != nil {
-		ip := layer.(*layers.IPv6)
-		sample.Source, sample.Destination, sample.Protocol = ip.SrcIP.String(), ip.DstIP.String(), ip.NextHeader.String()
-	}
-	if layer := record.Header.Layer(layers.LayerTypeTCP); layer != nil {
-		tcp := layer.(*layers.TCP)
-		sample.Protocol, sample.SourcePort, sample.DestinationPort = "TCP", int(tcp.SrcPort), int(tcp.DstPort)
-	}
-	if layer := record.Header.Layer(layers.LayerTypeUDP); layer != nil {
-		udp := layer.(*layers.UDP)
-		sample.Protocol, sample.SourcePort, sample.DestinationPort = "UDP", int(udp.SrcPort), int(udp.DstPort)
-	}
-	return sample
+	return sample, samplePort{ingress: ingress}
 }
 
-func (s *Sampler) Snapshot(ctx context.Context, interfaces []api.CaptureInterface, now time.Time) (api.TrafficObservation, error) {
-	ports, err := s.ovs.SamplingInterfaces(ctx)
+func (s *Collector) Snapshot(ctx context.Context, interfaces []api.CaptureInterface, now time.Time) (api.TrafficObservation, error) {
+	ports, err := s.ovs.FlowInterfaces(ctx)
 	if err == nil {
 		err = ctx.Err()
 	}
@@ -223,7 +247,7 @@ func (s *Sampler) Snapshot(ctx context.Context, interfaces []api.CaptureInterfac
 	return s.snapshot(interfaces, ports, now)
 }
 
-func (s *Sampler) snapshot(interfaces []api.CaptureInterface, resolved map[uint32]string, now time.Time) (api.TrafficObservation, error) {
+func (s *Collector) snapshot(interfaces []api.CaptureInterface, resolved map[uint32]string, now time.Time) (api.TrafficObservation, error) {
 	ports := map[string]bool{}
 	for _, iface := range interfaces {
 		if iface.NodeId == s.node {

@@ -149,6 +149,33 @@ paths:
       operationId: downloadCapture
       responses:
         '200': {description: Completed PCAPNG stream, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
+  /environments/{id}/captures/{nodeId}/{captureId}/packets:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: nodeId, in: path, required: true, schema: {type: string}}
+      - {name: captureId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: capturePackets
+      parameters:
+        - {name: after, in: query, schema: {type: integer, format: int64, minimum: 0, default: 0}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+        - {name: source, in: query, schema: {type: string}}
+        - {name: destination, in: query, schema: {type: string}}
+        - {name: sourcePort, in: query, schema: {type: integer, minimum: 0, maximum: 65535}}
+        - {name: destinationPort, in: query, schema: {type: integer, minimum: 0, maximum: 65535}}
+        - {name: protocol, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Original captured packets; connection filter includes both directions. Cursor is the last returned frame number., content: {application/json: {schema: {$ref: '#/components/schemas/CapturePacketPage'}}}}
+  /environments/{id}/captures/{nodeId}/{captureId}/packets/{packetNumber}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: nodeId, in: path, required: true, schema: {type: string}}
+      - {name: captureId, in: path, required: true, schema: {type: string}}
+      - {name: packetNumber, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+    get:
+      operationId: capturePacket
+      responses:
+        '200': {description: Original frame bytes and protocol fields decoded by TShark; observe permission required., content: {application/json: {schema: {$ref: '#/components/schemas/CapturePacketDetail'}}}}
   /system/update:
     get:
       operationId: systemUpdate
@@ -2158,7 +2185,7 @@ components:
         flows: {type: array, items: {$ref: '#/components/schemas/CaptureFlow'}}
         errors: {type: object, additionalProperties: {type: string}}
         observedAt: {type: string, format: date-time}
-        samplingRate: {type: integer, description: Sampling denominator; flow bytes and packets are statistical estimates.}
+        samplingRate: {type: integer, description: IPFIX export denominator; 1 means every packet contributes to the flow counters.}
         windowSeconds: {type: integer, description: Rolling retention window for observed samples.}
         omittedSamples: {type: integer, format: int64, description: Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.}
     CreateCapture:
@@ -2229,6 +2256,7 @@ components:
         sourceAssetName: {type: string}
         destinationAssetName: {type: string}
         protocol: {type: string}
+        appProtocol: {type: string, description: Application protocol identified by TShark when capture data is available.}
         sourcePort: {type: integer}
         destinationPort: {type: integer}
         bytesPerSecond: {type: number, format: double, description: Mean bytes per second over the most recent up-to-ten seconds of this capture.}
@@ -2236,3 +2264,41 @@ components:
         packets: {type: integer, format: int64}
         firstSeen: {type: string, format: date-time}
         lastSeen: {type: string, format: date-time}
+    CapturePacket:
+      type: object
+      required: [number, time, length, capturedLength, interfaceIndex, source, destination, sourcePort, destinationPort, protocol, summary]
+      properties:
+        number: {type: integer, format: int64}
+        time: {type: string, format: date-time}
+        length: {type: integer}
+        capturedLength: {type: integer}
+        interfaceIndex: {type: integer}
+        source: {type: string}
+        destination: {type: string}
+        sourcePort: {type: integer}
+        destinationPort: {type: integer}
+        protocol: {type: string}
+        summary: {type: string}
+    CapturePacketPage:
+      type: object
+      required: [packets]
+      properties:
+        packets: {type: array, items: {$ref: '#/components/schemas/CapturePacket'}}
+        nextCursor: {type: integer, format: int64}
+    PacketField:
+      type: object
+      required: [name, label, offset, length, children]
+      properties:
+        name: {type: string}
+        label: {type: string}
+        value: {type: string}
+        offset: {type: integer}
+        length: {type: integer}
+        children: {type: array, items: {$ref: '#/components/schemas/PacketField'}}
+    CapturePacketDetail:
+      type: object
+      required: [packet, hex, layers]
+      properties:
+        packet: {$ref: '#/components/schemas/CapturePacket'}
+        hex: {type: string, description: Complete captured frame bytes as hexadecimal.}
+        layers: {type: array, items: {$ref: '#/components/schemas/PacketField'}}

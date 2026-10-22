@@ -216,3 +216,37 @@ func (s *Server) captureFile(w http.ResponseWriter, r *http.Request, identity ac
 	}
 	return nil
 }
+
+func (s *Server) capturePackets(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	endpoint, path, err := s.captureTarget(r, identity)
+	if err != nil {
+		return err
+	}
+	path += "/packets"
+	if number := r.PathValue("packetNumber"); number != "" {
+		path += "/" + url.PathEscape(number)
+	}
+	if r.URL.RawQuery != "" {
+		path += "?" + r.URL.RawQuery
+	}
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, endpoint+path, nil)
+	if err != nil {
+		return err
+	}
+	response, err := s.Nodes.HTTP.Do(request)
+	if err != nil {
+		return httpError{http.StatusBadGateway, err.Error()}
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(io.LimitReader(response.Body, 16384))
+		if err != nil {
+			return err
+		}
+		return httpError{response.StatusCode, string(body)}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_, err = io.Copy(w, response.Body)
+	return err
+}

@@ -13,10 +13,10 @@ import (
 )
 
 const flowLimit = 4000
-const SamplingRate = 512
+const SamplingRate = 1
 const ObservationWindow = 60
 
-// Capture and sFlow decoders share identity correlation and conversation aggregation.
+// Capture and IPFIX decoders share identity correlation and conversation aggregation.
 type aggregate struct {
 	started                 time.Time
 	node                    string
@@ -51,10 +51,11 @@ const (
 	destinationPortSide
 )
 
-// Sample is either one captured frame or a statistically weighted sFlow sample.
+// Sample is one captured frame or an exported IPFIX flow record.
 type Sample struct {
 	At, LastSeen                                             time.Time
 	Source, Destination, SourceMAC, DestinationMAC, Protocol string
+	AppProtocol                                              string
 	SourcePort, DestinationPort                              int
 	PortName                                                 string
 	Bytes, Packets, Samples                                  int64
@@ -128,9 +129,18 @@ func (a *aggregate) add(line string) error {
 	if err != nil || index < 0 || index >= len(a.capturePorts) {
 		return fmt.Errorf("无效抓包接口序号 %q", f[13])
 	}
+	protocol, application := f[12], ""
+	if f[8] != "" || f[9] != "" {
+		protocol = "TCP"
+	} else if f[10] != "" || f[11] != "" {
+		protocol = "UDP"
+	}
+	if protocol != f[12] {
+		application = f[12]
+	}
 	a.addSample(Sample{At: time.Unix(0, int64(epoch*1e9)).UTC(), Bytes: size, Packets: 1, Samples: 1, PortName: a.capturePorts[index],
 		Source: first(f[4], f[6], f[2]), Destination: first(f[5], f[7], f[3]), SourceMAC: f[2], DestinationMAC: f[3],
-		SourcePort: port(first(f[8], f[10])), DestinationPort: port(first(f[9], f[11])), Protocol: f[12]})
+		SourcePort: port(first(f[8], f[10])), DestinationPort: port(first(f[9], f[11])), Protocol: protocol, AppProtocol: application})
 	return nil
 }
 
@@ -189,6 +199,10 @@ func (a *aggregate) addSample(sample Sample) {
 		}
 	}
 	flow.Bytes += sample.Bytes
+	if sample.AppProtocol != "" {
+		application := sample.AppProtocol
+		flow.AppProtocol = &application
+	}
 	flow.Packets += sample.Packets
 	if at.Before(flow.FirstSeen) {
 		flow.FirstSeen = at

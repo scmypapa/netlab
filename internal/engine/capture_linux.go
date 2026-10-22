@@ -7,8 +7,10 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strconv"
 
 	"netlab.local/core/api"
+	"netlab.local/core/internal/capture"
 )
 
 func (e *Engine) Capture(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +38,23 @@ func (e *Engine) Capture(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			value, err = e.captures.Start(r.Context(), request)
 		}
-	case r.Method == http.MethodGet && r.PathValue("file") != "":
+	case r.Method == http.MethodGet && r.PathValue("file") == "packets":
+		if number := r.PathValue("packetNumber"); number != "" {
+			frame, parseErr := strconv.ParseInt(number, 10, 64)
+			if parseErr != nil || frame < 1 {
+				http.Error(w, "无效帧编号", http.StatusBadRequest)
+				return
+			}
+			value, err = e.captures.Packet(r.Context(), id, environment, frame)
+		} else {
+			query, parseErr := capture.ParsePacketQuery(r.URL.Query())
+			if parseErr != nil {
+				http.Error(w, parseErr.Error(), http.StatusBadRequest)
+				return
+			}
+			value, err = e.captures.Packets(r.Context(), id, environment, query)
+		}
+	case r.Method == http.MethodGet && r.PathValue("file") == "file":
 		err = e.captures.File(w, r, id, environment)
 		if err == nil {
 			return

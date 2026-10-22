@@ -50,8 +50,8 @@ type Engine struct {
 	locks         map[string]*objectLock
 	captures      *capture.Manager
 	captureError  error
-	sampler       *capture.Sampler
-	samplingError error
+	collector     *capture.Collector
+	trafficError  error
 	security      *security.Manager
 	securityError error
 }
@@ -115,10 +115,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		}
 	}
 	e.captures, e.captureError = capture.New(ctx, e.ovs, cfg.DataDir, cfg.ID)
-	e.sampler, e.samplingError = capture.NewSampler(ctx, e.ovs, cfg.ID)
+	e.collector, e.trafficError = capture.NewCollector(ctx, e.ovs, cfg.ID)
 	e.security, e.securityError = security.New(ctx, e.ovs, cfg.DataDir, cfg.ID, cfg.SuricataConfig)
-	if e.samplingError != nil {
-		slog.Error("traffic sampling unavailable", "error", e.samplingError)
+	if e.trafficError != nil {
+		slog.Error("traffic collection unavailable", "error", e.trafficError)
 	}
 	return e, nil
 }
@@ -126,9 +126,9 @@ func (e *Engine) Close() {
 	if e.security != nil {
 		e.security.Close()
 	}
-	if e.sampler != nil {
-		if err := e.sampler.Close(); err != nil {
-			slog.Error("traffic sampling cleanup", "error", err)
+	if e.collector != nil {
+		if err := e.collector.Close(); err != nil {
+			slog.Error("traffic collection cleanup", "error", err)
 		}
 	}
 	if e.captures != nil {

@@ -58,6 +58,20 @@ func TestExternalAndIPv6Packets(t *testing.T) {
 	}
 }
 
+func TestApplicationAndTCPFramesShareConversation(t *testing.T) {
+	a := fixtureAggregate("one", "client")
+	for _, protocol := range []string{"HTTP", "TCP"} {
+		line := strings.Join([]string{"1791115200", "100", "02:00:00:00:00:01", "02:00:00:00:00:02", "192.0.2.1", "192.0.2.2", "", "", "50000", "80", "", "", protocol, "0"}, "\t")
+		if err := a.add(line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	flows := a.snapshot()
+	if len(flows) != 1 || flows[0].Protocol != "TCP" || flows[0].AppProtocol == nil || *flows[0].AppProtocol != "HTTP" || flows[0].Packets != 2 {
+		t.Fatal(flows)
+	}
+}
+
 func TestAggregationBudgetDoesNotAlterPacketCounters(t *testing.T) {
 	a := fixtureAggregate("one", "client")
 	for index := range flowLimit + 2 {

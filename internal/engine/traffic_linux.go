@@ -11,8 +11,8 @@ import (
 )
 
 func (e *Engine) Traffic(w http.ResponseWriter, r *http.Request) {
-	if e.samplingError != nil {
-		http.Error(w, e.samplingError.Error(), http.StatusServiceUnavailable)
+	if e.trafficError != nil {
+		http.Error(w, e.trafficError.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	var interfaces []api.CaptureInterface
@@ -20,7 +20,7 @@ func (e *Engine) Traffic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	value, err := e.sampler.Snapshot(r.Context(), interfaces, time.Now().UTC())
+	value, err := e.collector.Snapshot(r.Context(), interfaces, time.Now().UTC())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return

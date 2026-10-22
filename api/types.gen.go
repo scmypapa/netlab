@@ -563,7 +563,9 @@ type CaptureDetail struct {
 
 // CaptureFlow defines model for CaptureFlow.
 type CaptureFlow struct {
-	Bytes int64 `json:"bytes"`
+	// AppProtocol Application protocol identified by TShark when capture data is available.
+	AppProtocol *string `json:"appProtocol,omitempty"`
+	Bytes       int64   `json:"bytes"`
 
 	// BytesPerSecond Mean bytes per second over the most recent up-to-ten seconds of this capture.
 	BytesPerSecond       float64   `json:"bytesPerSecond"`
@@ -597,6 +599,35 @@ type CaptureInterface struct {
 type CaptureList struct {
 	Errors   map[string]string `json:"errors"`
 	Segments []CaptureSegment  `json:"segments"`
+}
+
+// CapturePacket defines model for CapturePacket.
+type CapturePacket struct {
+	CapturedLength  int       `json:"capturedLength"`
+	Destination     string    `json:"destination"`
+	DestinationPort int       `json:"destinationPort"`
+	InterfaceIndex  int       `json:"interfaceIndex"`
+	Length          int       `json:"length"`
+	Number          int64     `json:"number"`
+	Protocol        string    `json:"protocol"`
+	Source          string    `json:"source"`
+	SourcePort      int       `json:"sourcePort"`
+	Summary         string    `json:"summary"`
+	Time            time.Time `json:"time"`
+}
+
+// CapturePacketDetail defines model for CapturePacketDetail.
+type CapturePacketDetail struct {
+	// Hex Complete captured frame bytes as hexadecimal.
+	Hex    string        `json:"hex"`
+	Layers []PacketField `json:"layers"`
+	Packet CapturePacket `json:"packet"`
+}
+
+// CapturePacketPage defines model for CapturePacketPage.
+type CapturePacketPage struct {
+	NextCursor *int64          `json:"nextCursor,omitempty"`
+	Packets    []CapturePacket `json:"packets"`
 }
 
 // CaptureRecoveryPoint defines model for CaptureRecoveryPoint.
@@ -1429,6 +1460,16 @@ type Operation struct {
 // OperationState defines model for Operation.State.
 type OperationState string
 
+// PacketField defines model for PacketField.
+type PacketField struct {
+	Children []PacketField `json:"children"`
+	Label    string        `json:"label"`
+	Length   int           `json:"length"`
+	Name     string        `json:"name"`
+	Offset   int           `json:"offset"`
+	Value    *string       `json:"value,omitempty"`
+}
+
 // PciBinding defines model for PciBinding.
 type PciBinding struct {
 	GroupIds []string `json:"groupIds"`
@@ -1946,7 +1987,7 @@ type TrafficObservation struct {
 	// OmittedSamples Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.
 	OmittedSamples int64 `json:"omittedSamples"`
 
-	// SamplingRate Sampling denominator; flow bytes and packets are statistical estimates.
+	// SamplingRate IPFIX export denominator; 1 means every packet contributes to the flow counters.
 	SamplingRate int `json:"samplingRate"`
 
 	// WindowSeconds Rolling retention window for observed samples.
@@ -2147,6 +2188,17 @@ type AssetLogsParamsStream string
 type ListBackupsParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CapturePacketsParams defines parameters for CapturePackets.
+type CapturePacketsParams struct {
+	After           *int64  `form:"after,omitempty" json:"after,omitempty"`
+	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Source          *string `form:"source,omitempty" json:"source,omitempty"`
+	Destination     *string `form:"destination,omitempty" json:"destination,omitempty"`
+	SourcePort      *int    `form:"sourcePort,omitempty" json:"sourcePort,omitempty"`
+	DestinationPort *int    `form:"destinationPort,omitempty" json:"destinationPort,omitempty"`
+	Protocol        *string `form:"protocol,omitempty" json:"protocol,omitempty"`
 }
 
 // EnvironmentEventsParams defines parameters for EnvironmentEvents.

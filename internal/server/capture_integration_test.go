@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -43,10 +44,10 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 				t.Error("traffic query did not use current environment interfaces", interfaces)
 			}
 			if trafficFailure {
-				http.Error(w, "sFlow unavailable", 503)
+				http.Error(w, "IPFIX unavailable", 503)
 				return
 			}
-			writeJSON(w, 200, api.TrafficObservation{Flows: []api.CaptureFlow{{Source: "10.0.0.1", Destination: "10.0.0.2", Protocol: "UDP", Bytes: 51200, Packets: 512}}, Errors: map[string]string{}, SamplingRate: 512, WindowSeconds: 60, ObservedAt: time.Now()})
+			writeJSON(w, 200, api.TrafficObservation{Flows: []api.CaptureFlow{{Source: "10.0.0.1", Destination: "10.0.0.2", Protocol: "UDP", Bytes: 51200, Packets: 512}}, Errors: map[string]string{}, SamplingRate: 1, WindowSeconds: 60, ObservedAt: time.Now()})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/node/v1/environments/"+env.Id+"/captures" {
@@ -56,6 +57,15 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 		}
 		segment := api.CaptureSegment{Id: request.Id, NodeId: nodeID, EnvironmentId: env.Id, AssetIds: []string{"one"}, StartedAt: time.Now(), Status: status}
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/packets"):
+			if r.URL.Query().Get("source") != "10.0.0.1" || r.URL.Query().Get("after") != "7" {
+				t.Error("packet query lost", r.URL)
+			}
+			writeJSON(w, 200, api.CapturePacketPage{Packets: []api.CapturePacket{{Number: 8, Protocol: "UDP"}}})
+		case strings.HasSuffix(r.URL.Path, "/packets/8"):
+			writeJSON(w, 200, api.CapturePacketDetail{Packet: api.CapturePacket{Number: 8}, Hex: "010203", Layers: []api.PacketField{}})
+		case strings.HasSuffix(r.URL.Path, "/packets/9"):
+			http.Error(w, "frame not found", http.StatusNotFound)
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(204)
 		case r.Method == http.MethodGet && r.URL.Path == "/node/v1/environments/"+env.Id+"/captures":
@@ -91,7 +101,7 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 	trafficPath := "/environments/" + env.Id + "/traffic"
 	call("GET", trafficPath, token.Token, nil, 403)
 	var observed api.TrafficObservation
-	if err := json.Unmarshal(call("GET", trafficPath, admin, nil, 200), &observed); err != nil || len(observed.Flows) != 1 || len(observed.Errors) != 0 || observed.SamplingRate != 512 {
+	if err := json.Unmarshal(call("GET", trafficPath, admin, nil, 200), &observed); err != nil || len(observed.Flows) != 1 || len(observed.Errors) != 0 || observed.SamplingRate != 1 {
 		t.Fatalf("traffic %+v %v", observed, err)
 	}
 	mutex.Lock()
@@ -116,6 +126,17 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 	}
 	segmentPath := path + "/" + nodeID + "/" + started.Segments[0].Id
 	call("GET", segmentPath, token.Token, nil, 403)
+	call("GET", segmentPath+"/packets?source=10.0.0.1&after=7", token.Token, nil, 403)
+	var packets api.CapturePacketPage
+	if err := json.Unmarshal(call("GET", segmentPath+"/packets?source=10.0.0.1&after=7", admin, nil, 200), &packets); err != nil || len(packets.Packets) != 1 || packets.Packets[0].Number != 8 {
+		t.Fatal(packets, err)
+	}
+	var packet api.CapturePacketDetail
+	if err := json.Unmarshal(call("GET", segmentPath+"/packets/8", admin, nil, 200), &packet); err != nil || packet.Packet.Number != 8 || packet.Hex != "010203" {
+		t.Fatal(packet, err)
+	}
+	call("GET", segmentPath+"/packets/9", admin, nil, 404)
+	call("GET", "/environments/env-b/captures/"+nodeID+"/"+started.Segments[0].Id+"/packets/8", admin, nil, 404)
 	call("GET", "/environments/env-b/captures/"+nodeID+"/"+started.Segments[0].Id, admin, nil, 404)
 	call("POST", segmentPath, admin, nil, 200)
 	call("DELETE", segmentPath, admin, nil, 204)
