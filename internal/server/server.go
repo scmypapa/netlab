@@ -151,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 		"DELETE /api/v1/templates/{id}":                                        s.deleteTemplate,
 		"POST /api/v1/environments/{id}/assets/{assetId}/templates":            s.captureTemplate,
 		"GET /api/v1/nodes":                                                    s.listNodes,
+		"GET /api/v1/nodes/metrics":                                            s.nodeMetrics,
 		"GET /api/v1/nodes/{id}/interfaces":                                    s.nodeInterfaces,
 		"POST /api/v1/nodes":                                                   s.registerNode,
 		"GET /api/v1/nodes/{id}/retirement":                                    s.nodeRetirement,

@@ -144,6 +144,12 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 	}
 	unlock := e.lock(fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
 	defer unlock()
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
 	if *t.ArtifactNodeId == e.cfg.ID && !shared {
 		return e.hydrateTemplate(ctx, t)
 	}

@@ -20,7 +20,7 @@ func (e *Engine) Traffic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	value, err := e.sampler.Snapshot(interfaces, time.Now().UTC())
+	value, err := e.sampler.Snapshot(r.Context(), interfaces, time.Now().UTC())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return

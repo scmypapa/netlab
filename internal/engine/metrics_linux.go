@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 
 	cgroupstats "github.com/containerd/cgroups/v3/cgroup2/stats"
@@ -21,96 +22,112 @@ import (
 )
 
 func (e *Engine) Metrics(ctx context.Context) ([]metrics.Sample, error) {
-	samples := []metrics.Sample{}
+	samples, err := metrics.Host(e.cfg.ID, e.cfg.DataDir)
 	if e.container != nil {
-		ctx = namespaces.WithNamespace(ctx, "netlab")
-		items, err := e.container.client.Containers(ctx, "labels.\""+assetLabel+"\"")
+		values, sourceErr := e.container.metrics(ctx)
+		samples = append(samples, values...)
+		err = errors.Join(err, sourceErr)
+	}
+	if e.vm != nil {
+		values, sourceErr := e.vm.metrics(e.cfg.ID)
+		samples = append(samples, values...)
+		err = errors.Join(err, sourceErr)
+	}
+	return samples, err
+}
+
+func (c *Containers) metrics(ctx context.Context) ([]metrics.Sample, error) {
+	samples := []metrics.Sample{}
+	ctx = namespaces.WithNamespace(ctx, "netlab")
+	items, err := c.client.Containers(ctx, "labels.\""+assetLabel+"\"")
+	if err != nil {
+		return nil, err
+	}
+	identities := make(map[string]map[string]string, len(items))
+	interfaces := map[string]api.AssetExecution{}
+	for _, item := range items {
+		info, err := item.Info(ctx, containerd.WithoutRefreshedMetadata)
 		if err != nil {
 			return nil, err
 		}
-		identities := make(map[string]map[string]string, len(items))
-		interfaces := map[string]api.AssetExecution{}
-		for _, item := range items {
-			info, err := item.Info(ctx, containerd.WithoutRefreshedMetadata)
-			if err != nil {
-				return nil, err
-			}
-			if !managedContainer(info.Labels, e.cfg.ID) {
-				continue
-			}
-			identities[item.ID()] = info.Labels
-			var execution api.AssetExecution
-			if err = json.Unmarshal([]byte(info.Labels[executionLabel]), &execution); err != nil {
-				return nil, err
-			}
-			interfaces[item.ID()] = execution
+		if !managedContainer(info.Labels, c.node) {
+			continue
 		}
-		batch, err := e.container.client.TaskService().Metrics(ctx, &tasksapi.MetricsRequest{})
+		identities[item.ID()] = info.Labels
+		var execution api.AssetExecution
+		if err = json.Unmarshal([]byte(info.Labels[executionLabel]), &execution); err != nil {
+			return nil, err
+		}
+		interfaces[item.ID()] = execution
+	}
+	batch, err := c.client.TaskService().Metrics(ctx, &tasksapi.MetricsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	links, err := netlink.LinkList()
+	if err != nil {
+		return nil, err
+	}
+	linkStats := map[string]*netlink.LinkStatistics{}
+	for _, link := range links {
+		linkStats[link.Attrs().Name] = link.Attrs().Statistics
+	}
+	for _, item := range batch.Metrics {
+		labels, owned := identities[item.ID]
+		if !owned {
+			continue
+		}
+		decoded, err := typeurl.UnmarshalAny(item.Data)
 		if err != nil {
 			return nil, err
 		}
-		links, err := netlink.LinkList()
-		if err != nil {
-			return nil, err
+		stats, supported := decoded.(*cgroupstats.Metrics)
+		if !supported {
+			return nil, fmt.Errorf("container metrics require cgroup v2, got %T", decoded)
 		}
-		linkStats := map[string]*netlink.LinkStatistics{}
-		for _, link := range links {
-			linkStats[link.Attrs().Name] = link.Attrs().Statistics
+		base := metrics.Sample{Environment: labels[environmentLabel], Asset: labels[assetLabel], Instance: item.ID, Node: c.node}
+		if stats.CPU != nil {
+			samples = append(samples, measurement(base, "cpu_seconds_total", float64(stats.CPU.UsageUsec)/1e6))
 		}
-		for _, item := range batch.Metrics {
-			labels, owned := identities[item.ID]
-			if !owned {
-				continue
+		if stats.Memory != nil {
+			samples = append(samples, measurement(base, "memory_bytes", float64(stats.Memory.Usage)))
+		}
+		if stats.Io != nil {
+			var read, written uint64
+			for _, usage := range stats.Io.Usage {
+				read += usage.Rbytes
+				written += usage.Wbytes
 			}
-			decoded, err := typeurl.UnmarshalAny(item.Data)
-			if err != nil {
-				return nil, err
-			}
-			stats, supported := decoded.(*cgroupstats.Metrics)
-			if !supported {
-				return nil, fmt.Errorf("container metrics require cgroup v2, got %T", decoded)
-			}
-			base := metrics.Sample{Environment: labels[environmentLabel], Asset: labels[assetLabel], Instance: item.ID, Node: e.cfg.ID}
-			if stats.CPU != nil {
-				samples = append(samples, measurement(base, "cpu_seconds_total", float64(stats.CPU.UsageUsec)/1e6))
-			}
-			if stats.Memory != nil {
-				samples = append(samples, measurement(base, "memory_bytes", float64(stats.Memory.Usage)))
-			}
-			if stats.Io != nil {
-				var read, written uint64
-				for _, usage := range stats.Io.Usage {
-					read += usage.Rbytes
-					written += usage.Wbytes
-				}
-				samples = append(samples, measurement(base, "disk_read_bytes_total", float64(read)), measurement(base, "disk_write_bytes_total", float64(written)))
-			}
-			for _, iface := range interfaces[item.ID].Interfaces {
-				if counters := linkStats[deviceName(iface.PortName)]; counters != nil {
-					base.Interface = iface.Id
-					// Host veth counters are the opposite direction of the guest interface.
-					samples = append(samples, interfaceMetrics(base, counters.TxBytes, counters.RxBytes, counters.TxPackets, counters.RxPackets, counters.TxDropped, counters.RxDropped)...)
-				}
+			samples = append(samples, measurement(base, "disk_read_bytes_total", float64(read)), measurement(base, "disk_write_bytes_total", float64(written)))
+		}
+		for _, iface := range interfaces[item.ID].Interfaces {
+			if counters := linkStats[deviceName(iface.PortName)]; counters != nil {
+				base.Interface = iface.Id
+				// Host veth counters are the opposite direction of the guest interface.
+				samples = append(samples, interfaceMetrics(base, counters.TxBytes, counters.RxBytes, counters.TxPackets, counters.RxPackets, counters.TxDropped, counters.RxDropped)...)
 			}
 		}
 	}
-	if e.vm != nil {
-		batch, err := e.vm.conn.GetAllDomainStats(nil, libvirt.DOMAIN_STATS_CPU_TOTAL|libvirt.DOMAIN_STATS_BALLOON|libvirt.DOMAIN_STATS_BLOCK|libvirt.DOMAIN_STATS_INTERFACE, libvirt.CONNECT_GET_ALL_DOMAINS_STATS_ACTIVE)
+	return samples, nil
+}
+
+func (v *VirtualMachines) metrics(node string) ([]metrics.Sample, error) {
+	samples := []metrics.Sample{}
+	batch, err := v.conn.GetAllDomainStats(nil, libvirt.DOMAIN_STATS_CPU_TOTAL|libvirt.DOMAIN_STATS_BALLOON|libvirt.DOMAIN_STATS_BLOCK|libvirt.DOMAIN_STATS_INTERFACE, libvirt.CONNECT_GET_ALL_DOMAINS_STATS_ACTIVE)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		for _, stats := range batch {
+			stats.Domain.Free()
+		}
+	}()
+	for _, stats := range batch {
+		values, err := v.domainMetrics(stats, node)
 		if err != nil {
 			return nil, err
 		}
-		defer func() {
-			for _, stats := range batch {
-				stats.Domain.Free()
-			}
-		}()
-		for _, stats := range batch {
-			values, err := e.vm.domainMetrics(stats, e.cfg.ID)
-			if err != nil {
-				return nil, err
-			}
-			samples = append(samples, values...)
-		}
+		samples = append(samples, values...)
 	}
 	return samples, nil
 }

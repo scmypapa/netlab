@@ -205,6 +205,10 @@ test("VPN uses environment-level access, not an asset grant", async ({
 test("VPN download waits for applied task and contains a matching private key and dual-stack routes", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "subtle", { value: undefined });
+    Object.defineProperty(crypto, "randomUUID", { value: undefined });
+  });
   const { calls, update } = await fixture(page);
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto("/environments/env");
@@ -293,6 +297,10 @@ test("existing VPN copies public connection data and revokes through an operatio
 }) => {
   const { calls, update } = await fixture(page, { existing: true });
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.addInitScript(() => {
+    Object.assign(window, { testClipboard: navigator.clipboard });
+    Object.defineProperty(navigator, "clipboard", { value: undefined });
+  });
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "VPN", exact: true }).click();
   await expect(
@@ -301,10 +309,20 @@ test("existing VPN copies public connection data and revokes through an operatio
   await page.getByRole("button", { name: "办公电脑 操作" }).click();
   await page.getByRole("menuitem", { name: "复制连接参数" }).click();
   await expect
-    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as { testClipboard: Clipboard }
+        ).testClipboard.readText(),
+      ),
+    )
     .toContain("Endpoint = lab.example.test:51820");
   expect(
-    await page.evaluate(() => navigator.clipboard.readText()),
+    await page.evaluate(() =>
+      (
+        window as unknown as { testClipboard: Clipboard }
+      ).testClipboard.readText(),
+    ),
   ).not.toContain("PrivateKey");
   await page.getByRole("button", { name: "办公电脑 操作" }).click();
   await page.getByRole("menuitem", { name: "撤销连接" }).click();

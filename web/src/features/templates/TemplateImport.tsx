@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import {
   Button,
   Collapse,
@@ -88,7 +89,7 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
   const create = useMutation({
     mutationFn: () => {
       const input: Schema<"TemplateImport"> = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         name,
         kind,
         os,

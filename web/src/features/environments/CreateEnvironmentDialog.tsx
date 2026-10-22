@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import { Button, Modal, Select, Switch, TextInput } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layers3 } from "lucide-react";
@@ -21,7 +22,7 @@ export function CreateEnvironmentDialog({
   const [blueprintId, setBlueprintId] = useState(blueprint?.id ?? "blank");
   const [selectedVersion, setSelectedVersion] = useState(versionId ?? "");
   const [run, setRun] = useState(true);
-  const [clientRequestId] = useState(() => crypto.randomUUID());
+  const [clientRequestId] = useState(() => randomUUID());
   const blueprints = useCursorList(["blueprints"], api.blueprints);
   const choices = [
     ...new Map(

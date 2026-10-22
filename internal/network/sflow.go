@@ -3,7 +3,6 @@ package network
 import (
 	"context"
 	"fmt"
-	"slices"
 )
 
 type SFlow struct {
@@ -84,9 +83,13 @@ func (n *OVS) SamplingInterfaces(ctx context.Context) (map[uint32]string, error)
 	for _, iface := range interfaces {
 		byID[iface.UUID] = iface
 	}
+	bridgePorts := make(map[string]bool, len(b.Ports))
+	for _, id := range b.Ports {
+		bridgePorts[id] = true
+	}
 	result := map[uint32]string{}
 	for _, port := range ports {
-		if !slices.Contains(b.Ports, port.UUID) {
+		if !bridgePorts[port.UUID] {
 			continue
 		}
 		for _, id := range port.Interfaces {

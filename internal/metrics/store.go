@@ -56,10 +56,17 @@ func responseError(response *http.Response) error {
 	return fmt.Errorf("metrics service returned %d: %s", response.StatusCode, strings.TrimSpace(string(detail)))
 }
 
-var measurements = []struct {
+type Filter struct {
+	Environment, Asset, Node string
+	Aggregate                bool
+}
+
+type measurement struct {
 	metric, source string
 	rate           bool
-}{
+}
+
+var measurements = []measurement{
 	{"cpu", "cpu_seconds_total", true},
 	{"memory", "memory_bytes", false},
 	{"disk_read", "disk_read_bytes_total", true},
@@ -72,29 +79,53 @@ var measurements = []struct {
 	{"transmit_drops", "interface_transmit_drops_total", true},
 }
 
-func historyQuery(environment, asset string) string {
-	filter := "environment=" + strconv.Quote(environment)
-	if asset != "" {
-		filter += ",asset=" + strconv.Quote(asset)
+var hostMeasurements = []measurement{
+	{"cpu_capacity", "cpu_capacity", false},
+	{"memory_capacity", "memory_capacity_bytes", false},
+	{"memory_available", "memory_available_bytes", false},
+	{"disk_used", "disk_used_bytes", false},
+	{"disk_capacity", "disk_capacity_bytes", false},
+}
+
+func historyQuery(scope Filter, step int) string {
+	filter := "environment=" + strconv.Quote(scope.Environment)
+	if scope.Asset != "" {
+		filter += ",asset=" + strconv.Quote(scope.Asset)
 	}
-	queries := make([]string, 0, len(measurements))
-	for _, measure := range measurements {
+	if scope.Node != "" {
+		filter += ",node=" + strconv.Quote(scope.Node)
+	}
+	measures := measurements
+	if scope.Environment == "" {
+		measures = append(append([]measurement{}, measurements...), hostMeasurements...)
+	}
+	queries := make([]string, 0, len(measures))
+	for _, measure := range measures {
 		expression := "netlab_" + measure.source + "{" + filter + "}"
-		if measure.rate {
-			expression = "rate(" + expression + "[1m])"
+		if measure.rate && step > 60 {
+			// Long-history buckets average the whole interval, including activity before an asset stopped.
+			window := strconv.Itoa(step)
+			expression = "increase(" + expression + "[" + window + "s]) / " + window
 		} else {
-			expression = "last_over_time(" + expression + "[15s])"
+			if measure.rate {
+				expression = "rate(" + expression + "[1m])"
+			} else {
+				expression = "last_over_time(" + expression + "[15s])"
+			}
+			// Stale counters must leave a gap, not become an apparent idle asset.
+			expression += " and (time() - timestamp(netlab_" + measure.source + "{" + filter + "}) < 15)"
 		}
-		// Stale counters must leave a gap, not become an apparent idle asset.
-		expression += " and (time() - timestamp(netlab_" + measure.source + "{" + filter + "}) < 15)"
+		if scope.Aggregate {
+			expression = "sum(" + expression + ")"
+		}
 		queries = append(queries, "label_replace(("+expression+"),\"metric\",\""+measure.metric+"\",\"\",\".*\")")
 	}
 	return strings.Join(queries, " or ")
 }
 
-func (s *Store) History(ctx context.Context, environment, asset string, start, end time.Time, step int) (api.MetricHistory, error) {
+func (s *Store) History(ctx context.Context, filter Filter, start, end time.Time, step int) (api.MetricHistory, error) {
 	result := api.MetricHistory{Start: start, End: end, StepSeconds: step, Series: []api.MetricSeries{}}
-	params := url.Values{"query": {historyQuery(environment, asset)}, "start": {strconv.FormatFloat(float64(start.UnixMilli())/1000, 'f', 3, 64)}, "end": {strconv.FormatFloat(float64(end.UnixMilli())/1000, 'f', 3, 64)}, "step": {strconv.Itoa(step)}, "nocache": {"1"}}
+	params := url.Values{"query": {historyQuery(filter, step)}, "start": {strconv.FormatFloat(float64(start.UnixMilli())/1000, 'f', 3, 64)}, "end": {strconv.FormatFloat(float64(end.UnixMilli())/1000, 'f', 3, 64)}, "step": {strconv.Itoa(step)}}
 	r, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL+"/api/v1/query_range?"+params.Encode(), nil)
 	if err != nil {
 		return result, err

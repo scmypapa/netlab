@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import { Button, Modal, Select } from "@mantine/core";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -39,7 +40,7 @@ export function MigrationDialog({
         expectedRevision: revision,
         targetNodeId: target ?? undefined,
         targetStoragePoolId: storage ?? undefined,
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: randomUUID(),
       }),
     onSuccess: () => {
       onSubmitted();

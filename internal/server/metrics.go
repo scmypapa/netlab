@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"netlab.local/core/internal/access"
+	"netlab.local/core/internal/metrics"
 )
 
 func metricRange(query url.Values, now time.Time) (time.Time, time.Time, int, error) {
@@ -53,11 +54,28 @@ func (s *Server) environmentMetrics(w http.ResponseWriter, r *http.Request, iden
 	if _, err := s.Environments.Authorized(r.Context(), identity, id, "observe", asset); err != nil {
 		return err
 	}
+	return s.resourceMetrics(w, r, metrics.Filter{Environment: id, Asset: asset})
+}
+
+func (s *Server) nodeMetrics(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	if err := requireAdministrator(identity); err != nil {
+		return err
+	}
+	return s.resourceMetrics(w, r, metrics.Filter{Node: r.URL.Query().Get("nodeId")})
+}
+
+func (s *Server) resourceMetrics(w http.ResponseWriter, r *http.Request, filter metrics.Filter) error {
 	start, end, step, err := metricRange(r.URL.Query(), time.Now())
 	if err != nil {
 		return httpError{http.StatusBadRequest, err.Error()}
 	}
-	result, err := s.Metrics.History(r.Context(), id, asset, start, end, step)
+	if value := r.URL.Query().Get("aggregate"); value != "" {
+		filter.Aggregate, err = strconv.ParseBool(value)
+		if err != nil {
+			return httpError{http.StatusBadRequest, "aggregate 应为 true 或 false"}
+		}
+	}
+	result, err := s.Metrics.History(r.Context(), filter, start, end, step)
 	if err != nil {
 		return httpError{http.StatusBadGateway, err.Error()}
 	}

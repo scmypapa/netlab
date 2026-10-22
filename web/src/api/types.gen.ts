@@ -1290,6 +1290,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/nodes/metrics": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getNodeMetrics"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/nodes": {
     parameters: {
       query?: never;
@@ -1975,7 +1991,12 @@ export interface components {
         | "receive_packets"
         | "transmit_packets"
         | "receive_drops"
-        | "transmit_drops";
+        | "transmit_drops"
+        | "cpu_capacity"
+        | "memory_capacity"
+        | "memory_available"
+        | "disk_used"
+        | "disk_capacity";
       assetId: string;
       instanceId: string;
       nodeId: string;
@@ -4091,6 +4112,8 @@ export interface operations {
     parameters: {
       query?: {
         assetId?: string;
+        /** @description Sum measured asset resource usage across the environment; network values are asset interface totals */
+        aggregate?: boolean;
         /** @description Relative time window in seconds; start overrides this window */
         range?: number;
         start?: string;
@@ -5143,6 +5166,54 @@ export interface operations {
         content: {
           "application/problem+json": components["schemas"]["Problem"];
         };
+      };
+    };
+  };
+  getNodeMetrics: {
+    parameters: {
+      query?: {
+        nodeId?: string;
+        aggregate?: boolean;
+        range?: number;
+        start?: string;
+        end?: string;
+        step?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Measured host resource history; no nodeId returns all nodes, aggregate sums the selected nodes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MetricHistory"];
+        };
+      };
+      /** @description Invalid range or step */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Administrator permission required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Metrics service unavailable */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

@@ -4,13 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/go-logr/logr"
 	"log/slog"
 	"net/netip"
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/go-logr/logr"
 	"github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
@@ -173,7 +175,10 @@ func NewOVS(ctx context.Context, endpoint, bridge string) (*OVS, error) {
 }
 func connect(ctx context.Context, endpoint string, db model.ClientDBModel, tables map[string]model.Model, tlsConfig *tls.Config) (client.Client, error) {
 	logger := logr.FromSlogHandler(slog.Default().Handler())
-	options := []client.Option{client.WithEndpoint(endpoint), client.WithLogger(&logger)}
+	options := []client.Option{
+		client.WithEndpoint(endpoint), client.WithLogger(&logger),
+		client.WithReconnect(5*time.Second, backoff.NewExponentialBackOff(backoff.WithMaxElapsedTime(0), backoff.WithMaxInterval(10*time.Second))),
+	}
 	if tlsConfig != nil {
 		options = append(options, client.WithTLSConfig(tlsConfig))
 	}

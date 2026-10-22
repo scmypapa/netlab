@@ -371,6 +371,7 @@ paths:
       operationId: getEnvironmentMetrics
       parameters:
         - {name: assetId, in: query, schema: {type: string}}
+        - {name: aggregate, in: query, schema: {type: boolean, default: false}, description: Sum measured asset resource usage across the environment; network values are asset interface totals}
         - {name: range, in: query, schema: {type: integer, minimum: 10, maximum: 2592000, default: 900}, description: Relative time window in seconds; start overrides this window}
         - {name: start, in: query, schema: {type: string, format: date-time}}
         - {name: end, in: query, schema: {type: string, format: date-time}}
@@ -673,6 +674,21 @@ paths:
       responses:
         '202': {$ref: '#/components/responses/Accepted'}
         '409': {description: Template is referenced or has an active operation, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+  /nodes/metrics:
+    get:
+      operationId: getNodeMetrics
+      parameters:
+        - {name: nodeId, in: query, schema: {type: string}}
+        - {name: aggregate, in: query, schema: {type: boolean, default: false}}
+        - {name: range, in: query, schema: {type: integer, minimum: 10, maximum: 2592000, default: 900}}
+        - {name: start, in: query, schema: {type: string, format: date-time}}
+        - {name: end, in: query, schema: {type: string, format: date-time}}
+        - {name: step, in: query, schema: {type: integer, minimum: 10}}
+      responses:
+        '200': {description: 'Measured host resource history; no nodeId returns all nodes, aggregate sums the selected nodes', content: {application/json: {schema: {$ref: '#/components/schemas/MetricHistory'}}}}
+        '400': {description: Invalid range or step}
+        '403': {description: Administrator permission required}
+        '502': {description: Metrics service unavailable}
   /nodes:
     get:
       operationId: listNodes
@@ -1382,7 +1398,7 @@ components:
       type: object
       required: [metric, assetId, instanceId, nodeId, points]
       properties:
-        metric: {type: string, enum: [cpu, memory, disk_read, disk_write, receive, transmit, receive_packets, transmit_packets, receive_drops, transmit_drops]}
+        metric: {type: string, enum: [cpu, memory, disk_read, disk_write, receive, transmit, receive_packets, transmit_packets, receive_drops, transmit_drops, cpu_capacity, memory_capacity, memory_available, disk_used, disk_capacity]}
         assetId: {type: string}
         instanceId: {type: string}
         nodeId: {type: string}

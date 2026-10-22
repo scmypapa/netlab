@@ -1,11 +1,34 @@
-name: Release
+name: Build and Release
 on:
   push:
+    branches: ['main', 'codex/**']
     tags: ['v*']
 permissions:
   contents: write
 jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvirt-dev openvswitch-switch ovn-central
+      - name: Verify resource, networking and execution changes
+        run: |
+          go test ./internal/metrics ./internal/capture ./internal/network ./internal/observation ./internal/server ./internal/update -count=1
+          go test -tags libvirt_dlopen ./internal/engine -run 'TestParallelTemplatePreparationAndTrim|TestColdTemplateSourceDoesNotOccupyComputeSlot|TestMetricsRetainHostWhenContainerdUnavailable' -count=1
+          NETLAB_REAL_NETWORK=1 go test ./internal/network -run TestRealOVNMutualTLS -count=1
+          go test -race -c -o "$RUNNER_TEMP/netlab-capture.test" ./internal/capture
+          sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run TestRealContinuousOVSSampling -test.v -test.timeout=60s
+          go build -trimpath ./cmd/controller
+          go build -trimpath -tags libvirt_dlopen ./cmd/node
   package:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

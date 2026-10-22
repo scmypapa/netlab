@@ -52,7 +52,7 @@ type Engine struct {
 	samplingError error
 }
 type objectLock struct {
-	mu   sync.Mutex
+	mu   sync.RWMutex
 	refs int
 }
 
@@ -143,6 +143,10 @@ func (e *Engine) Close() {
 	}
 }
 func (e *Engine) lock(id string) func() {
+	return e.acquire(id, false)
+}
+
+func (e *Engine) acquire(id string, shared bool) func() {
 	e.mu.Lock()
 	l := e.locks[id]
 	if l == nil {
@@ -151,9 +155,17 @@ func (e *Engine) lock(id string) func() {
 	}
 	l.refs++
 	e.mu.Unlock()
-	l.mu.Lock()
+	if shared {
+		l.mu.RLock()
+	} else {
+		l.mu.Lock()
+	}
 	return func() {
-		l.mu.Unlock()
+		if shared {
+			l.mu.RUnlock()
+		} else {
+			l.mu.Unlock()
+		}
 		e.mu.Lock()
 		l.refs--
 		if l.refs == 0 {
@@ -281,6 +293,27 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		wg.Add(1)
 		go func(i int, a api.AssetExecution) {
 			defer wg.Done()
+			if a.Template.Kind == api.Vm && (plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery) {
+				// Instances share template reads; cache trimming and deletion remain exclusive.
+				unlockTemplate := e.acquire("template:"+a.Template.Id, true)
+				defer unlockTemplate()
+			}
+			if plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery {
+				if err := e.validatePciBinding(a); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
+			if plan.Phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
+				endpoint := ""
+				if plan.ArtifactEndpoints != nil {
+					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
+				}
+				if err := e.fetchTemplateArtifact(ctx, a.Template, endpoint, a.Rbd != nil); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
 			select {
 			case e.slots <- struct{}{}:
 			case <-ctx.Done():
@@ -293,16 +326,6 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			var state string
 			var err error
 			phase := plan.Phase
-			if a.Template.Kind == api.Vm && (phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery) {
-				unlockTemplate := e.lock("template:" + a.Template.Id)
-				defer unlockTemplate()
-			}
-			if phase == api.NodePlanPhasePrepare || phase == api.NodePlanPhasePrepareRecovery {
-				if err = e.validatePciBinding(a); err != nil {
-					result.Results[i] = executionResult(a, "absent", err)
-					return
-				}
-			}
 			if phase == api.NodePlanPhaseMigrate {
 				destination, ok := plan.Migrations[a.Asset.Id]
 				if !ok || a.Template.Kind != api.Vm {
@@ -315,16 +338,6 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				}
 				result.Results[i] = observed
 				return
-			}
-			if phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
-				endpoint := ""
-				if plan.ArtifactEndpoints != nil {
-					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
-				}
-				if err = e.fetchTemplateArtifact(ctx, a.Template, endpoint, a.Rbd != nil); err != nil {
-					result.Results[i] = executionResult(a, "absent", err)
-					return
-				}
 			}
 			if plan.Phase == api.NodePlanPhasePrepareRecovery || plan.Phase == api.NodePlanPhaseApplyRecovery || plan.Phase == api.NodePlanPhaseRollbackRecovery || plan.Phase == api.NodePlanPhaseCleanupRecovery {
 				switch plan.Phase {

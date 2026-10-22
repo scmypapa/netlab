@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import { Button, Drawer, Group, Modal } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -65,7 +66,7 @@ export function TemplateDetails({
   });
   const install = useMutation({
     mutationFn: () => {
-      const networkId = crypto.randomUUID();
+      const networkId = randomUUID();
       return api.createEnvironment({
         name: `${template.name} · 安装`,
         run: true,
@@ -73,13 +74,13 @@ export function TemplateDetails({
           networks: [{ id: networkId, name: "安装网络", cidr: "10.0.0.0/24" }],
           assets: [
             {
-              id: crypto.randomUUID(),
+              id: randomUUID(),
               name: template.name,
               templateId: template.id,
               resources: template.resources,
               interfaces: [
                 {
-                  id: crypto.randomUUID(),
+                  id: randomUUID(),
                   networkId,
                   mac: "",
                   address: "",

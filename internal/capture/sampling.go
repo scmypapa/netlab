@@ -1,5 +1,3 @@
-//go:build linux
-
 package capture
 
 import (
@@ -17,18 +15,45 @@ import (
 
 const sampleBudget = 65536
 
-type sampleDrop struct{ second, count int64 }
+type samplePort struct {
+	name            string
+	ingress, egress uint32
+}
+
+func (port samplePort) resolve(interfaces map[uint32]string) (string, uint8) {
+	if port.name != "" {
+		return port.name, 0
+	}
+	if name := interfaces[port.ingress]; name != "" {
+		return name, sourcePortSide
+	}
+	return interfaces[port.egress], destinationPortSide
+}
+
+type sampleKey struct {
+	packetKey
+	port   samplePort
+	second int64
+}
+type sampled struct {
+	Sample
+	key sampleKey
+}
+type sampleDrop struct {
+	second int64
+	ports  map[samplePort]int64
+}
 type Sampler struct {
 	ovs        *network.OVS
 	node       string
 	conn       *net.UDPConn
-	cancel     context.CancelFunc
 	workers    sync.WaitGroup
 	mu         sync.Mutex
 	interfaces map[uint32]string
-	samples    []Sample
+	samples    []sampled
+	index      map[sampleKey]int
 	next       int
-	omitted    map[string][ObservationWindow]sampleDrop
+	omitted    [ObservationWindow]sampleDrop
 	err        error
 }
 
@@ -46,46 +71,18 @@ func NewSampler(ctx context.Context, ovs *network.OVS, node string) (*Sampler, e
 		conn.Close()
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	s := &Sampler{ovs: ovs, node: node, conn: conn, cancel: cancel, interfaces: interfaces, omitted: map[string][ObservationWindow]sampleDrop{}}
-	s.workers.Add(2)
+	s := &Sampler{ovs: ovs, node: node, conn: conn, interfaces: interfaces, index: map[sampleKey]int{}}
+	s.workers.Add(1)
 	go func() { defer s.workers.Done(); s.receive() }()
-	go func() { defer s.workers.Done(); s.refresh(ctx) }()
 	return s, nil
 }
 
 func (s *Sampler) Close() error {
-	s.cancel()
 	s.conn.Close()
 	s.workers.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return s.ovs.SetSampling(ctx, s.node, "", SamplingRate)
-}
-
-func (s *Sampler) refresh(ctx context.Context) {
-	timer := time.NewTicker(2 * time.Second)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			interfaces, err := s.ovs.SamplingInterfaces(ctx)
-			s.mu.Lock()
-			s.interfaces, s.err = interfaces, err
-			active := map[string]bool{}
-			for _, port := range interfaces {
-				active[port] = true
-			}
-			for port := range s.omitted {
-				if !active[port] {
-					delete(s.omitted, port)
-				}
-			}
-			s.mu.Unlock()
-		}
-	}
 }
 
 func (s *Sampler) receive() {
@@ -97,7 +94,6 @@ func (s *Sampler) receive() {
 				s.mu.Lock()
 				s.err = err
 				s.mu.Unlock()
-				s.cancel()
 			}
 			return
 		}
@@ -120,15 +116,16 @@ func (s *Sampler) ingest(data []byte, now time.Time) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.err = nil
 	for _, flow := range datagram.FlowSamples {
-		port := ""
+		port := samplePort{}
 		if flow.InputInterfaceFormat == 0 {
-			port = s.interfaces[flow.InputInterface]
+			port.ingress = flow.InputInterface
 		}
-		if port == "" && flow.OutputInterfaceFormat == 0 {
-			port = s.interfaces[flow.OutputInterface]
+		if flow.OutputInterfaceFormat == 0 {
+			port.egress = flow.OutputInterface
 		}
-		if port == "" || flow.SamplingRate == 0 {
+		if port.ingress == 0 && port.egress == 0 || flow.SamplingRate == 0 {
 			continue
 		}
 		for _, record := range flow.Records {
@@ -140,32 +137,57 @@ func (s *Sampler) ingest(data []byte, now time.Time) error {
 			if sample.Source == "" || sample.Destination == "" {
 				continue
 			}
-			sample.PortName = port
-			if len(s.samples) < sampleBudget {
-				s.samples = append(s.samples, sample)
-			} else {
-				previous := s.samples[s.next]
-				if now.Sub(previous.At) < ObservationWindow*time.Second {
-					buckets := s.omitted[previous.PortName]
-					second := previous.At.Unix()
-					index := second % ObservationWindow
-					if buckets[index].second != second {
-						buckets[index] = sampleDrop{second: second}
-					}
-					buckets[index].count++
-					s.omitted[previous.PortName] = buckets
-				}
-				s.samples[s.next] = sample
-				s.next = (s.next + 1) % sampleBudget
-			}
+			port.name, sample.portSide = port.resolve(s.interfaces)
+			sample.PortName = port.name
+			s.add(sample, port)
 			break
 		}
 	}
 	return nil
 }
 
+// Keep one record per flow-second, so a busy flow cannot evict an entire node's observations by packet count.
+func (s *Sampler) add(sample Sample, port samplePort) {
+	key := sampleKey{sample.key(), port, sample.At.Unix()}
+	if index, exists := s.index[key]; exists {
+		entry := &s.samples[index]
+		entry.Bytes += sample.Bytes
+		entry.Packets += sample.Packets
+		entry.Samples += sample.Samples
+		if sample.At.Before(entry.At) {
+			entry.At = sample.At
+		}
+		if sample.At.After(entry.LastSeen) {
+			entry.LastSeen = sample.At
+		}
+		return
+	}
+	index := len(s.samples)
+	entry := sampled{Sample: sample, key: key}
+	if index < sampleBudget {
+		s.samples = append(s.samples, entry)
+	} else {
+		index = s.next
+		previous := s.samples[index]
+		delete(s.index, previous.key)
+		if sample.At.Sub(previous.LastSeen) < ObservationWindow*time.Second {
+			second := previous.At.Unix()
+			drop := &s.omitted[second%ObservationWindow]
+			if drop.second != second {
+				*drop = sampleDrop{second: second, ports: map[samplePort]int64{}}
+			}
+			attachment := previous.key.port
+			attachment.name = previous.PortName
+			drop.ports[attachment] += previous.Samples
+		}
+		s.samples[index] = entry
+		s.next = (index + 1) % sampleBudget
+	}
+	s.index[key] = index
+}
+
 func decodeSample(record layers.SFlowRawPacketFlowRecord, rate uint32, now time.Time) Sample {
-	sample := Sample{At: now, Bytes: int64(record.FrameLength) * int64(rate), Packets: int64(rate)}
+	sample := Sample{At: now, LastSeen: now, Bytes: int64(record.FrameLength) * int64(rate), Packets: int64(rate), Samples: 1}
 	if layer := record.Header.Layer(layers.LayerTypeEthernet); layer != nil {
 		frame := layer.(*layers.Ethernet)
 		sample.SourceMAC, sample.DestinationMAC = frame.SrcMAC.String(), frame.DstMAC.String()
@@ -190,7 +212,18 @@ func decodeSample(record layers.SFlowRawPacketFlowRecord, rate uint32, now time.
 	return sample
 }
 
-func (s *Sampler) Snapshot(interfaces []api.CaptureInterface, now time.Time) (api.TrafficObservation, error) {
+func (s *Sampler) Snapshot(ctx context.Context, interfaces []api.CaptureInterface, now time.Time) (api.TrafficObservation, error) {
+	ports, err := s.ovs.SamplingInterfaces(ctx)
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		return api.TrafficObservation{}, err
+	}
+	return s.snapshot(interfaces, ports, now)
+}
+
+func (s *Sampler) snapshot(interfaces []api.CaptureInterface, resolved map[uint32]string, now time.Time) (api.TrafficObservation, error) {
 	ports := map[string]bool{}
 	for _, iface := range interfaces {
 		if iface.NodeId == s.node {
@@ -198,6 +231,7 @@ func (s *Sampler) Snapshot(interfaces []api.CaptureInterface, now time.Time) (ap
 		}
 	}
 	s.mu.Lock()
+	s.interfaces = resolved
 	if s.err != nil {
 		err := s.err
 		s.mu.Unlock()
@@ -205,16 +239,23 @@ func (s *Sampler) Snapshot(interfaces []api.CaptureInterface, now time.Time) (ap
 	}
 	var samples []Sample
 	var omitted int64
-	for port := range ports {
-		for _, drop := range s.omitted[port] {
-			if drop.second > now.Unix()-ObservationWindow {
-				omitted += drop.count
+	for _, drop := range s.omitted {
+		if drop.second > now.Unix()-ObservationWindow {
+			for port, count := range drop.ports {
+				name, _ := port.resolve(resolved)
+				if ports[name] {
+					omitted += count
+				}
 			}
 		}
 	}
-	for _, observed := range s.samples {
-		if ports[observed.PortName] && now.Sub(observed.At) <= ObservationWindow*time.Second {
-			samples = append(samples, observed)
+	for index := range s.samples {
+		observed := &s.samples[index]
+		if observed.PortName == "" {
+			observed.PortName, observed.portSide = observed.key.port.resolve(resolved)
+		}
+		if ports[observed.PortName] && now.Sub(observed.LastSeen) <= ObservationWindow*time.Second {
+			samples = append(samples, observed.Sample)
 		}
 	}
 	s.mu.Unlock()

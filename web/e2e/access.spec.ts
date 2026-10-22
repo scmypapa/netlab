@@ -153,6 +153,8 @@ test("account management creates, edits and disables an ordinary user", async ({
   expect(calls.find((call) => call.method === "POST")?.body).toEqual({
     name: "新用户",
     password: "fixture-password",
+    administrator: false,
+    grants: [],
   });
   await page.getByRole("button", { name: "管理新用户", exact: true }).click();
   await page.getByRole("menuitem", { name: "编辑账号" }).click();
@@ -168,14 +170,25 @@ test("account management creates, edits and disables an ordinary user", async ({
   expect(
     calls.filter((call) => call.method === "PUT").map((call) => call.body),
   ).toEqual([
-    { name: "编辑用户", disabled: false, password: "updated-password" },
+    {
+      name: "编辑用户",
+      disabled: false,
+      password: "updated-password",
+      administrator: false,
+    },
     { name: "编辑用户", disabled: true },
   ]);
 });
 
 test("service token uses a scoped role with file permission removed, then revokes", async ({
   page,
+  context,
 }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.addInitScript(() => {
+    Object.assign(window, { testClipboard: navigator.clipboard });
+    Object.defineProperty(navigator, "clipboard", { value: undefined });
+  });
   const calls = await fixture(page);
   await page.goto("/accounts");
   await page.getByRole("button", { name: "服务 Token", exact: true }).click();
@@ -184,7 +197,10 @@ test("service token uses a scoped role with file permission removed, then revoke
   await drawer
     .getByRole("textbox", { name: "Token 名称", exact: true })
     .fill("自动化服务");
-  await drawer.getByRole("textbox", { name: "授权环境", exact: true }).click();
+  await drawer
+    .getByRole("button", { name: "添加授权范围", exact: true })
+    .click();
+  await drawer.getByRole("textbox", { name: "环境", exact: true }).click();
   await page.getByRole("option", { name: "共享测试环境", exact: true }).click();
   await drawer.getByRole("textbox", { name: "角色", exact: true }).click();
   await page.getByRole("option", { name: "操作员", exact: true }).click();
@@ -194,6 +210,16 @@ test("service token uses a scoped role with file permission removed, then revoke
     .uncheck();
   await drawer.getByRole("button", { name: "签发", exact: true }).click();
   await expect(drawer.locator("code")).toHaveText("fixture-once-token");
+  await drawer.getByRole("button", { name: "复制 Token", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as { testClipboard: Clipboard }
+        ).testClipboard.readText(),
+      ),
+    )
+    .toBe("fixture-once-token");
   const issued = calls.find((call) => call.path === "/service-tokens")?.body;
   expect(issued).toEqual({
     name: "自动化服务",

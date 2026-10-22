@@ -2,7 +2,7 @@ import { Button, Drawer, Modal, TextInput, Tabs } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@mantine/hooks";
 import { Cpu, Plus, Search, Server } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type Node } from "../../api/client";
 import { NodeStorageSummary, StoragePanel } from "./StoragePanel";
@@ -10,20 +10,25 @@ import { VolumePanel } from "./VolumePanel";
 import { BackupRepositoryPanel } from "./BackupRepositoryPanel";
 import { RetirementPanel } from "./RetirementPanel";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
-import { dateTime, memory } from "../../foundation/format";
-import { Status } from "../../foundation/Status";
+import { NodeCards } from "./NodeCards";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 
+const PerformanceWorkspace = lazy(
+  () => import("../workbench/PerformanceWorkspace"),
+);
+
 export function NodesPage() {
   const storageView = useLocation().pathname === "/resources/storage";
+  const performanceView = useLocation().pathname === "/resources/performance";
   const navigate = useNavigate();
   const client = useQueryClient();
   const [query, setQuery] = useState("");
   const [search] = useDebouncedValue(query, 250);
+  const nodeSearch = performanceView ? "" : search;
   const nodes = useCursorList(
-    ["nodes", { search }],
-    (page) => api.nodes({ ...page, search }),
+    ["nodes", { search: nodeSearch }],
+    (page) => api.nodes({ ...page, search: nodeSearch }),
     { refetchInterval: 15_000, enabled: !storageView },
   );
   const [adding, setAdding] = useState(false);
@@ -57,18 +62,34 @@ export function NodesPage() {
         )}
       </div>
       <Tabs
-        value={storageView ? "storage" : "nodes"}
+        value={
+          storageView ? "storage" : performanceView ? "performance" : "nodes"
+        }
         mb="lg"
         onChange={(value) =>
-          navigate(value === "storage" ? "/resources/storage" : "/resources")
+          navigate(
+            value === "storage"
+              ? "/resources/storage"
+              : value === "performance"
+                ? "/resources/performance"
+                : "/resources",
+          )
         }
       >
         <Tabs.List>
           <Tabs.Tab value="nodes">计算节点</Tabs.Tab>
+          <Tabs.Tab value="performance">集群性能</Tabs.Tab>
           <Tabs.Tab value="storage">存储</Tabs.Tab>
         </Tabs.List>
       </Tabs>
-      {storageView ? (
+      {performanceView ? (
+        <>
+          <Suspense fallback={<Loading />}>
+            <PerformanceWorkspace nodes={items} onNode={setSelected} />
+          </Suspense>
+          <LoadMore list={nodes} />
+        </>
+      ) : storageView ? (
         <StoragePanel />
       ) : (
         <>
@@ -89,81 +110,7 @@ export function NodesPage() {
           {nodes.isPending ? (
             <Loading />
           ) : items.length ? (
-            <div className="table-surface">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>节点</th>
-                    <th>CPU · 已分配 / 总计</th>
-                    <th>内存 · 已分配 / 总计</th>
-                    <th>存储 · 已分配 / 总计</th>
-                    <th>运行能力</th>
-                    <th>状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((node) => (
-                    <tr key={node.id}>
-                      <td>
-                        <button
-                          className="object-link text-link"
-                          onClick={() => setSelected(node)}
-                        >
-                          <span className="object-symbol">
-                            <Server size={20} />
-                          </span>
-                          <span>
-                            <strong>{node.name}</strong>
-                            <span className="secondary-line">
-                              {dateTime(node.observedAt)}
-                            </span>
-                          </span>
-                        </button>
-                      </td>
-                      <td>
-                        <Capacity
-                          used={node.reserved.cpu}
-                          total={node.capacity.cpu}
-                          text={`${node.reserved.cpu} / ${node.capacity.cpu} 核`}
-                        />
-                      </td>
-                      <td>
-                        <Capacity
-                          used={node.reserved.memoryMiB}
-                          total={node.capacity.memoryMiB}
-                          text={`${memory(node.reserved.memoryMiB)} / ${memory(node.capacity.memoryMiB)}`}
-                        />
-                      </td>
-                      <td>
-                        <Capacity
-                          used={node.reserved.diskGiB}
-                          total={node.capacity.diskGiB}
-                          text={`${node.reserved.diskGiB} / ${node.capacity.diskGiB} GiB`}
-                        />
-                      </td>
-                      <td>
-                        <div className="capabilities">
-                          {node.capabilities.map((capability) => (
-                            <span key={capability}>
-                              {capability === "vm"
-                                ? "KVM"
-                                : capability === "container"
-                                  ? "OCI"
-                                  : capability === "network"
-                                    ? "网络"
-                                    : capability}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        <Status value={node.state ?? "unknown"} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <NodeCards nodes={items} onSelect={setSelected} />
           ) : (
             !nodes.error && (
               <Empty
@@ -186,13 +133,19 @@ export function NodesPage() {
         closeButtonProps={{ "aria-label": "关闭节点" }}
       >
         {selected && (
-          <Tabs defaultValue="storage">
+          <Tabs defaultValue="performance" keepMounted={false}>
             <Tabs.List mb="md">
+              <Tabs.Tab value="performance">性能</Tabs.Tab>
               <Tabs.Tab value="storage">存储池</Tabs.Tab>
               <Tabs.Tab value="volumes">数据卷</Tabs.Tab>
               <Tabs.Tab value="backups">备份仓库</Tabs.Tab>
               <Tabs.Tab value="retirement">退出节点</Tabs.Tab>
             </Tabs.List>
+            <Tabs.Panel value="performance">
+              <Suspense fallback={<Loading />}>
+                <PerformanceWorkspace node={selected} />
+              </Suspense>
+            </Tabs.Panel>
             <Tabs.Panel value="storage">
               <NodeStorageSummary node={selected} />
             </Tabs.Panel>
@@ -250,28 +203,5 @@ export function NodesPage() {
         </form>
       </Modal>
     </main>
-  );
-}
-
-function Capacity({
-  used,
-  total,
-  text,
-}: {
-  used: number;
-  total: number;
-  text: string;
-}) {
-  return (
-    <div className="capacity">
-      <span>{text}</span>
-      <div className="capacity-track">
-        <span
-          style={{
-            width: `${total ? Math.min(100, (used / total) * 100) : 0}%`,
-          }}
-        />
-      </div>
-    </div>
   );
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import { ActionIcon, Button, Menu, Modal, TextInput } from "@mantine/core";
 import {
   ArrowLeft,
@@ -19,6 +20,7 @@ import {
   UsersRound,
   KeyRound,
   Activity,
+  Gauge,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +57,7 @@ import { allows, allowsProject } from "../access/permissions";
 const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 const ObservationWorkspace = lazy(() => import("./ObservationWorkspace"));
 const TrafficWorkspace = lazy(() => import("./TrafficWorkspace"));
+const PerformanceWorkspace = lazy(() => import("./PerformanceWorkspace"));
 
 export function WorkbenchPage() {
   const { id = "" } = useParams();
@@ -68,8 +71,12 @@ function Workbench({ id }: { id: string }) {
   const [capturing, setCapturing] = useState<Asset>();
   const [selection, setSelection] = useState<string>();
   const [tree, setTree] = useState(false);
-  const [list, setList] = useState(false);
-  const [traffic, setTraffic] = useState(false);
+  const [view, setView] = useState<
+    "topology" | "assets" | "traffic" | "performance"
+  >("topology");
+  const list = view === "assets",
+    traffic = view === "traffic",
+    performance = view === "performance";
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<"asset" | "network">();
   const [editingObject, setEditingObject] = useState(false);
@@ -215,8 +222,14 @@ function Workbench({ id }: { id: string }) {
       : "stop"
     : "start";
   const operation = workbench.state.data?.operation;
+  const beginEdit = () => {
+    setView(list ? "assets" : "topology");
+    setObservationOpened(false);
+    setFilesOpened(false);
+    workbench.beginEdit();
+  };
   const adding = (kind: "asset" | "network") => {
-    if (!workbench.editing) workbench.beginEdit();
+    if (!workbench.editing) beginEdit();
     setEditingObject(false);
     setEditor(kind);
   };
@@ -279,17 +292,17 @@ function Workbench({ id }: { id: string }) {
     if (asset)
       updateAsset({
         ...structuredClone(asset),
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         name: `${asset.name}-副本`,
         interfaces: asset.interfaces.map((item) => ({
           ...item,
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           address: "",
           mac: "",
         })),
         volumes: asset.volumes?.map((volume) => ({
           ...volume,
-          id: crypto.randomUUID(),
+          id: randomUUID(),
         })),
       });
   };
@@ -396,7 +409,7 @@ function Workbench({ id }: { id: string }) {
                 <Button
                   variant="default"
                   leftSection={<Pencil size={15} />}
-                  onClick={workbench.beginEdit}
+                  onClick={beginEdit}
                   disabled={busy || status === "destroyed"}
                 >
                   {environment.draft ? "继续调整" : "调整环境"}
@@ -500,7 +513,7 @@ function Workbench({ id }: { id: string }) {
         </div>
       )}
       <div className="workspace-body">
-        {tree && !traffic && (
+        {tree && !traffic && !performance && (
           <aside className="object-tree">
             <TextInput
               aria-label="查找对象"
@@ -572,12 +585,11 @@ function Workbench({ id }: { id: string }) {
                 </ActionIcon>
                 <div className="view-switch">
                   <button
-                    className={!list && !traffic ? "selected" : ""}
+                    className={view === "topology" ? "selected" : ""}
                     aria-label="拓扑视图"
-                    aria-pressed={!list && !traffic}
+                    aria-pressed={view === "topology"}
                     onClick={() => {
-                      setList(false);
-                      setTraffic(false);
+                      setView("topology");
                     }}
                   >
                     <LayoutGrid size={15} />
@@ -588,8 +600,7 @@ function Workbench({ id }: { id: string }) {
                     aria-label="资产视图"
                     aria-pressed={list && !traffic}
                     onClick={() => {
-                      setList(true);
-                      setTraffic(false);
+                      setView("assets");
                     }}
                   >
                     <List size={15} />
@@ -600,10 +611,21 @@ function Workbench({ id }: { id: string }) {
                       aria-label="流量视图"
                       className={traffic ? "selected" : ""}
                       aria-pressed={traffic}
-                      onClick={() => setTraffic(true)}
+                      onClick={() => setView("traffic")}
                     >
                       <Activity size={15} />
                       <span>流量</span>
+                    </button>
+                  )}
+                  {!workbench.editing && allows(environment, "observe") && (
+                    <button
+                      aria-label="性能视图"
+                      className={performance ? "selected" : ""}
+                      aria-pressed={performance}
+                      onClick={() => setView("performance")}
+                    >
+                      <Gauge size={15} />
+                      <span>性能</span>
                     </button>
                   )}
                 </div>
@@ -643,7 +665,19 @@ function Workbench({ id }: { id: string }) {
               </div>
             </div>
           )}
-          {!spec.assets.length && !spec.networks.length ? (
+          {performance && !observedAsset ? (
+            <Suspense fallback={<Loading />}>
+              <PerformanceWorkspace
+                environmentId={id}
+                assets={spec.assets}
+                onAsset={(item) => {
+                  setSelection(item.id);
+                  setObservationOpened(true);
+                  setFilesOpened(false);
+                }}
+              />
+            </Suspense>
+          ) : !spec.assets.length && !spec.networks.length ? (
             <Empty
               icon={<Network size={36} />}
               title="从一个网段开始"
@@ -654,7 +688,7 @@ function Workbench({ id }: { id: string }) {
             <Suspense fallback={<Loading />}>
               <TrafficWorkspace
                 environment={environment}
-                onClose={() => setTraffic(false)}
+                onClose={() => setView("topology")}
                 onView={
                   canCompose
                     ? (view) => workbench.saveView.mutateAsync(view)
@@ -669,6 +703,13 @@ function Workbench({ id }: { id: string }) {
                 environmentId={id}
                 asset={observedAsset}
                 networks={spec.networks}
+                backLabel={
+                  performance
+                    ? "返回环境性能"
+                    : list
+                      ? "返回资产列表"
+                      : "返回拓扑"
+                }
                 onClose={() => setObservationOpened(false)}
               />
             </Suspense>
@@ -784,7 +825,7 @@ function Workbench({ id }: { id: string }) {
             />
           )}
         </section>
-        {(asset || network) && !fileAsset && !traffic && (
+        {(asset || network) && !fileAsset && !traffic && !performance && (
           <ObjectInspector
             asset={asset}
             network={network}
@@ -1161,7 +1202,7 @@ function Workbench({ id }: { id: string }) {
               <Menu.Item
                 leftSection={<Pencil size={15} />}
                 disabled={busy}
-                onClick={workbench.beginEdit}
+                onClick={beginEdit}
               >
                 调整环境
               </Menu.Item>

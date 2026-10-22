@@ -6,21 +6,37 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/metrics"
 )
 
 // Metric storage is independent from runtime observations and never marks a node offline.
 func (s Service) collectMetrics(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+	failures := map[string]string{}
+	report := func(node string, err error) {
+		if err == nil {
+			delete(failures, node)
+			return
+		}
+		if message := err.Error(); failures[node] != message {
+			failures[node] = message
+			slog.Error("resource metrics collection failed", "node", node, "error", err)
+		}
+	}
+	type result struct {
+		node string
+		err  error
+	}
 	for ctx.Err() == nil {
 		nodes, err := queries.New(s.Pool).ListNodes(ctx)
-		if err != nil {
-			slog.Error("metrics node query failed", "error", err)
-		}
+		report("", err)
+		results := make(chan result, len(nodes))
 		var waiting sync.WaitGroup
 		for _, node := range nodes {
 			if node.State != "ready" {
@@ -29,12 +45,17 @@ func (s Service) collectMetrics(ctx context.Context) {
 			waiting.Add(1)
 			go func() {
 				defer waiting.Done()
-				if err := s.nodeMetrics(ctx, node.Endpoint); err != nil && ctx.Err() == nil {
-					slog.Error("node metrics collection failed", "node", node.ID, "error", err)
-				}
+				results <- result{node.ID, s.nodeMetrics(ctx, node.Endpoint)}
 			}()
 		}
 		waiting.Wait()
+		close(results)
+		if ctx.Err() != nil {
+			return
+		}
+		for result := range results {
+			report(result.node, result.err)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -62,5 +83,15 @@ func (s Service) nodeMetrics(ctx context.Context, endpoint string) error {
 		}
 		return fmt.Errorf("node metrics returned %d: %s", response.StatusCode, detail)
 	}
-	return s.Metrics.Import(ctx, response.Body)
+	if err = s.Metrics.Import(ctx, response.Body); err != nil {
+		return err
+	}
+	if warning := response.Header.Get(metrics.CollectionErrorHeader); warning != "" {
+		message, err := strconv.Unquote(warning)
+		if err != nil {
+			return fmt.Errorf("invalid node metrics error: %w", err)
+		}
+		return fmt.Errorf("node metrics incomplete: %s", message)
+	}
+	return nil
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from "../../foundation/id";
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
 import type { EnvironmentSpec, Schema, Template } from "../../api/client";
@@ -139,7 +140,7 @@ export function connectAsset(
             interfaces: [
               ...asset.interfaces,
               {
-                id: crypto.randomUUID(),
+                id: randomUUID(),
                 networkId,
                 address: "",
                 mac: "",

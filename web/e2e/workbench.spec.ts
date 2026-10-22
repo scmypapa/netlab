@@ -370,9 +370,55 @@ test("资产附加持久卷，容量取自目录并通过现有草稿提交", as
 
 test("通信图与抓包贯通，角色仅更新画布，分段失败可见", async ({ page }) => {
   const calls = await fixture(page);
+  const histories: URL[] = [];
+  let currentFailed = false;
+  let sampleFailed = false;
+  let lowTraffic = false;
+  await page.route("**/api/v1/environments/env/metrics**", (route) => {
+    const url = new URL(route.request().url());
+    histories.push(url);
+    const current = url.searchParams.get("range") === "60";
+    if (current && currentFailed)
+      return route.fulfill({
+        status: 502,
+        json: { detail: "节点指标暂不可读取" },
+      });
+    const end = new Date();
+    const range = Number(url.searchParams.get("range"));
+    const step = Math.max(10, Math.ceil(range / 60));
+    return route.fulfill({
+      json: {
+        start: new Date(
+          end.getTime() - Number(url.searchParams.get("range")) * 1000,
+        ).toISOString(),
+        end: end.toISOString(),
+        stepSeconds: step,
+        series: ["receive", "transmit"].map((metric) => ({
+          metric,
+          assetId: url.searchParams.get("assetId") ?? "",
+          instanceId: "",
+          nodeId: "",
+          points: Array.from(
+            { length: Math.floor(range / step) + 1 },
+            (_, index) => ({
+              time: new Date(
+                end.getTime() - range * 1000 + index * step * 1000,
+              ).toISOString(),
+              value: lowTraffic
+                ? 0.375
+                : current
+                  ? 2 * 1048576
+                  : (4 + 4 * Math.sin(index / 5) ** 2) * 1048576,
+            }),
+          ),
+        })),
+      },
+    });
+  });
   const capture = "cd3aa501-fda4-4b61-9d68-7337f896ad80";
   const now = new Date().toISOString();
   let active = false;
+  const deletedNodes = new Set<string>();
   let status: "running" | "stopped" = "running";
   const segment = () => ({
     id: capture,
@@ -421,8 +467,19 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
         expect(request.postDataJSON().assetIds).toEqual(["web", "windows"]);
       }
       return route.fulfill({
-        json: { segments: active ? [segment(), failed] : [], errors: {} },
+        json: {
+          segments: active
+            ? [segment(), failed].filter(
+                (item) => !deletedNodes.has(item.nodeId),
+              )
+            : [],
+          errors: {},
+        },
       });
+    }
+    if (request.method() === "DELETE") {
+      deletedNodes.add(path.split("/").at(-2)!);
+      return route.fulfill({ status: 204 });
     }
     if (request.method() === "POST") {
       status = "stopped";
@@ -433,6 +490,11 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   let sampled = false;
   await page.route("**/api/v1/environments/env/traffic", (route) => {
     sampled = true;
+    if (sampleFailed)
+      return route.fulfill({
+        status: 502,
+        json: { detail: "通信采样暂不可读取" },
+      });
     return route.fulfill({
       json: {
         flows,
@@ -447,7 +509,22 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "流量视图" }).click();
   await expect.poll(() => sampled).toBe(true);
-  await expect(page.getByText("采样估算 1/512", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("近 60 秒 · 1/512 采样", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("接口流量历史")).toContainText("2 MiB/s");
+  expect(histories[0].searchParams.get("aggregate")).toBe("true");
+  await page.getByText("7 天", { exact: true }).click();
+  await expect
+    .poll(() =>
+      histories.some((url) => url.searchParams.get("range") === "604800"),
+    )
+    .toBe(true);
+  await expect(page.getByLabel("接口流量历史")).toContainText("2 MiB/s");
+  await expect(page.getByLabel("接口流量历史")).not.toContainText("8 MiB/s");
+  expect(histories.some((url) => url.searchParams.get("range") === "60")).toBe(
+    true,
+  );
   await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
   await page
     .getByRole("button", { name: "开始抓包", exact: true })
@@ -460,9 +537,25 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
   await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
   await expect(page.getByText("抓包进程未能启动")).toBeVisible();
   await expect(page.getByText("抓包实测", { exact: true })).toBeVisible();
-  await expect(page.getByText("1.0 MiB · 16.0 KiB/s")).toBeVisible();
+  await expect(page.getByText("1 MiB · 16 KiB/s")).toBeVisible();
+  await expect(page.getByLabel("接口流量历史")).toHaveCount(0);
+  await page.getByRole("button", { name: "停止此分段" }).click();
+  await expect(
+    page.getByRole("link", { name: "下载抓包文件" }).first(),
+  ).toHaveAttribute(
+    "href",
+    "/api/v1/environments/env/captures/one/" + capture + "/file",
+  );
+  await page.getByRole("textbox", { name: "流量来源", exact: true }).click();
+  await page.getByRole("option", { name: "实时通信", exact: true }).click();
+  await expect(page.getByLabel("接口流量历史")).toBeVisible();
   await page.getByRole("button", { name: /web-01.*windows-01/ }).click();
+  lowTraffic = true;
   await page.getByRole("button", { name: "查看 web-01", exact: true }).click();
+  await expect
+    .poll(() => histories.at(-1)?.searchParams.get("assetId"))
+    .toBe("web");
+  await expect(page.getByLabel("接口流量历史")).toContainText("0.375 B/s");
   await page.getByRole("textbox", { name: "角色", exact: true }).fill("客户端");
   await page.getByRole("textbox", { name: "角色", exact: true }).press("Tab");
   await expect
@@ -476,22 +569,44 @@ test("通信图与抓包贯通，角色仅更新画布，分段失败可见", as
     )
     .toBe(true);
   expect(calls.some((call) => call.path.endsWith("/changes"))).toBe(false);
-  await page.getByRole("button", { name: "停止此分段" }).click();
-  await expect(
-    page.getByRole("link", { name: "下载抓包文件" }).first(),
-  ).toHaveAttribute(
-    "href",
-    "/api/v1/environments/env/captures/one/" + capture + "/file",
-  );
-  for (const width of [390, 1366]) {
+  for (const width of [390, 1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: "../data/traffic-" + width + ".png" });
+    await page.screenshot({ path: "test-results/traffic-" + width + ".png" });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
   }
+  await page.getByRole("button", { name: "切换夜间主题" }).click();
+  await expect(page.getByRole("img", { name: /资产通信图/ })).toBeVisible();
+  await page.getByRole("textbox", { name: "流量来源", exact: true }).click();
+  await page.getByRole("option").filter({ hasNotText: "实时通信" }).click();
+  await expect(page.getByLabel("接口流量历史")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "删除此分段", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("button", { name: "删除此分段", exact: true }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "删除此分段", exact: true }).click();
+  await expect(page.getByLabel("接口流量历史")).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "流量来源", exact: true }),
+  ).toHaveValue("实时通信");
+  currentFailed = true;
+  sampleFailed = true;
+  await expect(
+    page.getByRole("alert").filter({ hasText: "节点指标暂不可读取" }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByLabel("接口流量历史").locator("b")).toHaveText([
+    "—",
+    "—",
+  ]);
+  await expect(
+    page.getByLabel("可选择的通信连接").getByRole("button"),
+  ).toHaveCount(0);
 });
 import type { Identity, Operation, Schema } from "../src/api/client";
 
@@ -632,6 +747,9 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
   await page.getByRole("menuitem", { name: "资源曲线", exact: true }).click();
   await expect(page.getByRole("img", { name: /历史曲线/ })).toHaveCount(4);
   await expect(
+    page.getByLabel("网络指标").getByText("B/s", { exact: true }),
+  ).toBeVisible();
+  await expect(
     page
       .getByRole("table")
       .filter({ has: page.getByText("接口速率", { exact: true }) }),
@@ -651,7 +769,7 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
   }
   await page.getByRole("button", { name: "切换夜间主题" }).click();
   await expect(page.getByRole("img", { name: /历史曲线/ })).toHaveCount(4);
-  await page.getByRole("button", { name: "返回拓扑", exact: true }).click();
+  await page.getByRole("button", { name: "返回资产列表", exact: true }).click();
   await expect(page.getByLabel("资源观察")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "资产视图", exact: true }),
@@ -1734,6 +1852,31 @@ test("suspended environment and asset both offer a normal stop", async ({
       action: "stop",
       expectedRevision: 1,
       clientRequestId: expect.any(String),
+    });
+});
+
+test("HTTP 浏览器缺少 randomUUID 时仍能启动资产", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "randomUUID", { value: undefined });
+  });
+  const calls = await fixture(page, { status: "stopped" });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "windows-01", exact: true }).click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "启动", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        calls.find(
+          (call) => call.path === "/environments/env/assets/windows/actions",
+        )?.body,
+    )
+    .toMatchObject({
+      action: "start",
+      clientRequestId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      ),
     });
 });
 
