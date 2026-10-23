@@ -228,7 +228,7 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
             ]}
             allowDeselect={false}
           />
-          {kind === "vm" && (
+          {kind === "vm" && format !== "iso" && (
             <Select
               label="文件格式"
               value={format}
@@ -238,12 +238,9 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
                 setFiles([]);
                 setSource("");
               }}
-              data={(appliance
-                ? ["ova", "ovf"]
-                : format === "iso"
-                  ? ["iso"]
-                  : ["qcow2", "raw", "vmdk"]
-              ).map((value) => ({ value, label: value.toUpperCase() }))}
+              data={(appliance ? ["ova", "ovf"] : ["qcow2", "raw", "vmdk"]).map(
+                (value) => ({ value, label: value.toUpperCase() }),
+              )}
             />
           )}
         </div>

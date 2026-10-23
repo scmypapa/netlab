@@ -224,6 +224,9 @@ test("ISO installation selects Windows 11 hardware and uploads its driver disc",
   await drawer.getByRole("textbox", { name: "操作系统" }).click();
   await page.getByRole("option", { name: "Windows 11", exact: true }).click();
   await drawer.getByText("安装系统", { exact: true }).click();
+  await expect(
+    drawer.getByRole("textbox", { name: "文件格式", exact: true }),
+  ).toHaveCount(0);
   await drawer.locator("summary").filter({ hasText: "虚拟硬件" }).click();
   await expect(
     drawer.getByRole("textbox", { name: "固件", exact: true }),
@@ -324,7 +327,7 @@ test("OVA and OVF import omit hardware and display the parsed template", async (
   await expect(details).toContainText("BIOS");
   await expect(details).toContainText("lsilogic");
   await expect(details).toContainText("42 GiB");
-  await expect(drawer).toContainText("启动盘");
+  await expect(details).toContainText("启动盘");
 });
 
 test("container image package uses the existing import API without VM fields", async ({

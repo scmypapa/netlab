@@ -96,9 +96,11 @@ const pools = [
   },
 ];
 async function fixture(page: Page) {
+  const requests: string[] = [];
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url()),
       path = url.pathname.replace("/api/v1", "");
+    requests.push(path);
     let response: unknown;
     if (path === "/identity")
       response = { id: "admin", name: "admin", administrator: true };
@@ -157,24 +159,32 @@ async function fixture(page: Page) {
         start: start.toISOString(),
         end: end.toISOString(),
         stepSeconds: 10,
-        series: nodes.flatMap((node) =>
-          Object.entries({
-            cpu: 9.5,
-            cpu_capacity: 32,
-            memory: 24 * 2 ** 30,
-            memory_capacity: 128 * 2 ** 30,
-            memory_available: 104 * 2 ** 30,
-            disk_used: 256 * 2 ** 30,
-            disk_capacity: 2 * 2 ** 40,
-          }).map(([metric, value]) => ({
-            metric,
-            nodeId: node.id,
-            points: [0, 10, 20, 30, 40, 50, 60].map((offset) => ({
-              time: new Date(start.getTime() + offset * 1000).toISOString(),
-              value,
+        series: nodes
+          .filter(
+            (node) =>
+              !url.searchParams.has("nodeId") ||
+              node.id === url.searchParams.get("nodeId"),
+          )
+          .flatMap((node) =>
+            Object.entries({
+              cpu: 9.5,
+              cpu_capacity: 32,
+              memory: 24 * 2 ** 30,
+              memory_capacity: 128 * 2 ** 30,
+              memory_available: 104 * 2 ** 30,
+              disk_used: 256 * 2 ** 30,
+              disk_capacity: 2 * 2 ** 40,
+            }).map(([metric, value]) => ({
+              metric,
+              nodeId: node.id,
+              assetId: "",
+              instanceId: "",
+              points: [0, 10, 20, 30, 40, 50, 60].map((offset) => ({
+                time: new Date(start.getTime() + offset * 1000).toISOString(),
+                value,
+              })),
             })),
-          })),
-        ),
+          ),
       };
     } else if (path === "/storage-pools") response = pools;
     else if (path === "/storage-pools/shared/ceph")
@@ -242,6 +252,7 @@ async function fixture(page: Page) {
       });
     await route.fulfill({ json: response });
   });
+  return requests;
 }
 async function fits(page: Page) {
   expect(
@@ -312,26 +323,46 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
 });
 
 test("创建、导入、卷与备份操作在所属工作区直接可达", async ({ page }, info) => {
-  await fixture(page);
+  page.on("pageerror", (error) => {
+    throw error;
+  });
+  const requests = await fixture(page);
   await page.goto("/environments");
   await page.getByRole("button", { name: "新建环境", exact: true }).click();
   const create = page.getByRole("dialog", { name: "新建环境", exact: true });
   await expect(
-    create.getByRole("textbox", { name: "环境模板", exact: true }),
+    create.getByRole("textbox", { name: "环境名称", exact: true }),
   ).toBeFocused();
   await expect(
     create.getByRole("textbox", { name: "环境模板", exact: true }),
   ).toHaveValue("空白环境");
-  await page.screenshot({ path: info.outputPath("create-environment.png") });
+  await page.screenshot({
+    path: info.outputPath("create-environment.png"),
+    animations: "disabled",
+  });
   await page.keyboard.press("Escape");
   await page.goto("/templates");
+  await expect(
+    page.getByRole("region", { name: "资产模板", exact: true }),
+  ).toContainText("pc-q35-10.0");
+  expect(requests.filter((path) => path.endsWith("/cache"))).toEqual([]);
+  await page.getByRole("tab", { name: "节点缓存", exact: true }).click();
+  await expect(
+    page.getByRole("tabpanel", { name: "节点缓存", exact: true }),
+  ).toContainText("16.00 GiB");
+  expect(requests.filter((path) => path.endsWith("/cache"))).toEqual([
+    "/templates/windows/cache",
+  ]);
   await page.getByRole("button", { name: "导入模板", exact: true }).click();
   await expect(
     page
       .getByRole("dialog", { name: "导入资产模板", exact: true })
       .getByRole("heading", { name: "镜像来源", exact: true }),
   ).toBeVisible();
-  await page.screenshot({ path: info.outputPath("import-template.png") });
+  await page.screenshot({
+    path: info.outputPath("import-template.png"),
+    animations: "disabled",
+  });
   await page.keyboard.press("Escape");
   await page.goto("/resources/storage");
   await page.getByRole("tab", { name: "持久卷", exact: true }).click();

@@ -28,6 +28,7 @@ export function TemplateDetails({
   const client = useQueryClient();
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
   const [confirming, setConfirming] = useState(false);
+  const [tab, setTab] = useState<string | null>("overview");
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["templates"] });
     onClose();
@@ -39,7 +40,8 @@ export function TemplateDetails({
   const cache = useQuery({
     queryKey: ["template-cache", template.id],
     queryFn: () => api.templateCache(template.id),
-    enabled: template.kind === "vm" && template.state === "ready",
+    enabled:
+      tab === "cache" && template.kind === "vm" && template.state === "ready",
   });
   const trim = useMutation({
     mutationFn: () => api.trimTemplateCache(template.id),
@@ -126,7 +128,7 @@ export function TemplateDetails({
           {template.error}
         </div>
       )}
-      <Tabs defaultValue="overview" key={template.id}>
+      <Tabs value={tab} onChange={setTab}>
         <Tabs.List>
           <Tabs.Tab value="overview">规格与来源</Tabs.Tab>
           {template.kind === "vm" && template.state === "ready" && (

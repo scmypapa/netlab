@@ -62,32 +62,32 @@ export function NodeInventory({
                   <strong>{reading(cpu)}</strong>
                   <span> / {reading(cpuTotal)} 核</span>
                 </span>
-                <Progress
-                  aria-label={`${node.name} CPU 使用率`}
-                  size={4}
-                  value={
-                    cpu !== undefined && cpuTotal
-                      ? Math.min(100, (cpu / cpuTotal) * 100)
-                      : 0
-                  }
-                  color="var(--accent)"
-                />
+                {cpu !== undefined && cpuTotal ? (
+                  <Progress
+                    aria-label={`${node.name} CPU 使用率`}
+                    size={4}
+                    value={Math.min(100, (cpu / cpuTotal) * 100)}
+                    color="var(--accent)"
+                  />
+                ) : (
+                  <span className={styles.emptyTrack} />
+                )}
               </span>
               <span className={styles.load}>
                 <span>
                   <strong>{reading(ram, 2 ** 30)}</strong>
                   <span> / {reading(ramTotal, 2 ** 30)} GiB</span>
                 </span>
-                <Progress
-                  aria-label={`${node.name} 内存使用率`}
-                  size={4}
-                  value={
-                    ram !== undefined && ramTotal
-                      ? Math.min(100, (ram / ramTotal) * 100)
-                      : 0
-                  }
-                  color="var(--chart-2)"
-                />
+                {ram !== undefined && ramTotal ? (
+                  <Progress
+                    aria-label={`${node.name} 内存使用率`}
+                    size={4}
+                    value={Math.min(100, (ram / ramTotal) * 100)}
+                    color="var(--chart-2)"
+                  />
+                ) : (
+                  <span className={styles.emptyTrack} />
+                )}
               </span>
               <span className={styles.reserved} aria-label="已分配">
                 {node.reserved.cpu} 核{" "}

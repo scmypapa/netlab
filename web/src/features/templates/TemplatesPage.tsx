@@ -128,7 +128,9 @@ function AssetTemplatesPanel() {
                   <span className={styles.itemText}>
                     <strong>{template.name}</strong>
                     <span>
-                      {template.os} · {template.format?.toUpperCase() ?? "OCI"}{" "}
+                      {template.os} ·{" "}
+                      {template.format?.toUpperCase() ??
+                        (template.kind === "container" ? "OCI" : "—")}{" "}
                       · v{template.version}
                     </span>
                     <span>

@@ -73,7 +73,6 @@ export function CreateEnvironmentDialog({
         <section>
           <Select
             label="环境模板"
-            data-autofocus
             searchable
             allowDeselect={false}
             value={blueprintId}
@@ -119,6 +118,7 @@ export function CreateEnvironmentDialog({
         <section>
           <TextInput
             label="环境名称"
+            data-autofocus
             required
             value={name}
             onChange={(event) => setName(event.currentTarget.value)}
