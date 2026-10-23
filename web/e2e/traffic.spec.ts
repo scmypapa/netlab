@@ -82,18 +82,26 @@ function frame(number: number, dns = number % 4 === 0): Packet {
   };
 }
 function detail(packet: Packet): Schema<"CapturePacketDetail"> {
-  return {
+  const http = packet.protocol === "HTTP";
+  const transport = packet.transportProtocol ?? packet.protocol;
+  const payload = http
+    ? Buffer.from("GET / HTTP/1.1\r\nHost: lab.example\r\n\r\n")
+    : Buffer.alloc(0);
+  const result: Schema<"CapturePacketDetail"> = {
     packet,
     hex:
       packet.protocol === "UDP"
         ? "0011223344550200000000040800450000280001400040110000ac160115ac160102f856003500140000000000000000000000000000"
-        : "0011223344550200000000040800450000280001400040060000ac160115ac160112c350005000000001000000015010ffff00000000",
+        : "00112233445502000000000408004500" +
+          (40 + payload.length).toString(16).padStart(4, "0") +
+          "0001400040060000ac160115ac160112c350005000000001000000015010ffff00000000" +
+          payload.toString("hex"),
     layers: [
       {
         name: "frame",
-        label: `Frame ${packet.number}: 54 bytes`,
+        label: `Frame ${packet.number}: ${packet.length} bytes`,
         offset: 0,
-        length: 54,
+        length: packet.length,
         children: [],
       },
       {
@@ -141,7 +149,7 @@ function detail(packet: Packet): Schema<"CapturePacketDetail"> {
         ],
       },
       {
-        name: packet.protocol.toLowerCase(),
+        name: transport.toLowerCase(),
         label:
           packet.protocol === "UDP"
             ? "User Datagram Protocol"
@@ -150,14 +158,14 @@ function detail(packet: Packet): Schema<"CapturePacketDetail"> {
         length: packet.protocol === "UDP" ? 8 : 20,
         children: [
           {
-            name: `${packet.protocol.toLowerCase()}.srcport`,
+            name: `${transport.toLowerCase()}.srcport`,
             label: `Source Port: ${packet.sourcePort}`,
             offset: 34,
             length: 2,
             children: [],
           },
           {
-            name: `${packet.protocol.toLowerCase()}.dstport`,
+            name: `${transport.toLowerCase()}.dstport`,
             label: `Destination Port: ${packet.destinationPort}`,
             offset: 36,
             length: 2,
@@ -167,6 +175,23 @@ function detail(packet: Packet): Schema<"CapturePacketDetail"> {
       },
     ],
   };
+  if (http)
+    result.layers.push({
+      name: "http",
+      label: "Hypertext Transfer Protocol",
+      offset: 54,
+      length: payload.length,
+      children: [
+        {
+          name: "http.request.method",
+          label: "Request Method: GET",
+          offset: 54,
+          length: 3,
+          children: [],
+        },
+      ],
+    });
+  return result;
 }
 function flow(
   source: string,
@@ -561,14 +586,31 @@ test("点连接直接分析报文，协议与字节双向联动，键盘可选�
 
 test("风险在同一工作台筛选、分页并直接定位关联报文", async ({ page }) => {
   const { state, requests } = await fixture(page);
+  const payload = Buffer.from("GET / HTTP/1.1\r\nHost: lab.example\r\n\r\n");
+  state.packets[1] = {
+    ...frame(2, false),
+    protocol: "HTTP",
+    transportProtocol: "TCP",
+    length: 54 + payload.length,
+    capturedLength: 54 + payload.length,
+    summary: "GET / HTTP/1.1 · Host: lab.example",
+  };
   state.olderAlerts = [
     { ...alert, id: 99, signature: "ET WEB_SERVER Earlier request" },
   ];
   state.packetReply = (url) =>
     url.searchParams.get("filter")?.includes("tcp.port")
-      ? state.packets.filter((packet) => packet.protocol === "TCP")
+      ? state.packets.filter(
+          (packet) => (packet.transportProtocol ?? packet.protocol) === "TCP",
+        )
       : state.packets;
   await open(page);
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "GET / HTTP/1.1 ·" })
+      .getByLabel("关联高风险"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "高风险", exact: true }).click();
   await expect(page.getByRole("table", { name: "告警记录" })).toBeVisible();
   await expect(page.getByRole("region", { name: "资产通信图" })).toBeVisible();
