@@ -367,7 +367,7 @@ function Graph({
       link.severity !== undefined
         ? riskLevel(link.severity).color
         : (colors.get(
-            groups.get(link.forward ? link.source : link.target) ?? "",
+            groups.get(link.source) ?? groups.get(link.target) ?? "",
           ) ?? "var(--muted)");
     const amount = link.rate && link.rate > 0 ? link.rate : link.value,
       unit = byteUnit(amount);

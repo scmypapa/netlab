@@ -139,7 +139,7 @@
   align-items: center;
   gap: 16px;
   white-space: pre;
-  font: 11px/25px var(--font-mono, monospace);
+  font: 12px/25px var(--font-mono, monospace);
 }
 .offset {
   color: var(--muted);
@@ -206,7 +206,7 @@
 @media (max-width: 1366px) {
   .hexRow {
     gap: 9px;
-    font-size: 10px;
+    font-size: 11px;
   }
   .hexRow code:first-of-type {
     width: 344px;

@@ -40,6 +40,7 @@ import { byteUnit, dateTime, reading } from "../../foundation/format";
 import {
   TrafficGraph,
   riskLevels,
+  riskLevel,
   type TrafficSelection,
 } from "./TrafficGraph";
 import { useTrafficObservation } from "./useTrafficObservation";
@@ -101,6 +102,7 @@ export default function TrafficWorkspace({
     [protocol, setProtocol] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<{ start: string; end: string }>(),
     [timeline, setTimeline] = useState(true);
+  const [packetTimeWindow] = useDebouncedValue(timeRange, 250);
   const [selectedId, setSelectedId] = useState<string>(),
     [field, setField] = useState<Field>();
   const [recordView, setRecordView] = useState("packets"),
@@ -204,12 +206,12 @@ export default function TrafficWorkspace({
               Date.parse(chosenAlert.lastSeen) + 1000,
             ).toISOString(),
           }
-        : timeRange),
+        : packetTimeWindow),
       ...(displayFilter ? { filter: displayFilter } : {}),
-      networkId: selectionNetwork(selection),
+      networkId: chosenAlert?.networkId ?? selectionNetwork(selection),
       limit: 100,
     }),
-    [timeRange, displayFilter, chosenAlert, selection],
+    [packetTimeWindow, displayFilter, chosenAlert, selection],
   );
   const data = useTrafficObservation(environment, {
     range: Number(range),
@@ -229,7 +231,15 @@ export default function TrafficWorkspace({
     onSuccess: (blob) => saveBlob(blob, `${environment.name}-traffic.pcapng`),
   });
   const saveRoles = useMutation({
-    mutationFn: () => onView!({ ...environment.view, roles }),
+    mutationFn: () =>
+      onView!({
+        ...environment.view,
+        roles: Object.fromEntries(
+          Object.entries(roles)
+            .map(([id, role]) => [id, role.trim()])
+            .filter(([, role]) => role),
+        ),
+      }),
     onSuccess: () => setRolesOpen(false),
   });
   const files = useQuery({
@@ -267,6 +277,11 @@ export default function TrafficWorkspace({
     setChosenAlert(undefined);
     setSelectedId(undefined);
     setField(undefined);
+  };
+  const inspectField = (value: Field) => {
+    setSelectedId(selected);
+    setField(value);
+    setPaused(true);
   };
   const adjust = (kind: "column" | "row", value: number) =>
     kind === "column"
@@ -448,6 +463,20 @@ export default function TrafficWorkspace({
             <X size={12} />
           </button>
         )}
+        {chosenAlert && (
+          <button
+            className={styles.selection}
+            onClick={() => {
+              setChosenAlert(undefined);
+              setSelectedId(undefined);
+              setField(undefined);
+            }}
+            title={chosenAlert.signature}
+          >
+            {chosenAlert.signature}
+            <X size={12} />
+          </button>
+        )}
         {timeRange && (
           <button
             className={styles.selection}
@@ -506,6 +535,12 @@ export default function TrafficWorkspace({
                 seriesBy="asset"
                 colors={trafficPalette}
                 timeline
+                timeWindow={timeRange}
+                annotations={alerts.map((alert) => ({
+                  time: alert.lastSeen,
+                  label: alert.signature,
+                  color: riskLevel(alert.severity).color,
+                }))}
                 onTimeRange={(start, end) => {
                   setTimeRange({ start, end });
                   setSelectedId(undefined);
@@ -550,11 +585,11 @@ export default function TrafficWorkspace({
       >
         <section className={styles.graphPane}>
           <header className={styles.paneHeading}>
-            <strong>通信关系</strong>
+            <strong>{timeRange || filter ? "所示报文关系" : "通信关系"}</strong>
             <span>
-              {timeRange
+              {timeRange || filter
                 ? `${data.packets.length} 帧`
-                : `${data.traffic.data?.flows.length ?? 0} 条连接`}
+                : `${new Set(graphLinks.map((link) => [link.source, link.target].sort().join("/"))).size} 组关系`}
             </span>
           </header>
           <div className={styles.paneBody}>
@@ -697,7 +732,7 @@ export default function TrafficWorkspace({
               key={selected}
               detail={packet.data}
               field={field}
-              onSelect={setField}
+              onSelect={inspectField}
               alerts={alerts}
               loading={packet.isFetching}
               alert={chosenAlert}
@@ -728,7 +763,7 @@ export default function TrafficWorkspace({
             <PacketBytes
               detail={packet.data}
               field={field}
-              onSelect={setField}
+              onSelect={inspectField}
             />
           </div>
         </section>

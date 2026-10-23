@@ -36,7 +36,18 @@ export function describeEndpoint(
 ) {
   const address = item[side],
     assetId = item[`${side}AssetId`];
-  const asset = spec.assets.find((asset) => asset.id === assetId);
+  const asset =
+    spec.assets.find((asset) => asset.id === assetId) ??
+    (item.networkId
+      ? spec.assets.find((asset) =>
+          asset.interfaces.some(
+            (iface) =>
+              iface.networkId === item.networkId &&
+              (iface.mac === address ||
+                iface.address.split("/")[0] === address),
+          ),
+        )
+      : undefined);
   if (asset)
     return {
       id: asset.id,
@@ -229,24 +240,11 @@ export function buildTrafficLinks(
       severity: detected.get(pairKey(source.id, target.id))?.severity,
     };
   };
-  const assetAddresses = new Map(
-    spec.assets.flatMap((asset) =>
-      asset.interfaces.flatMap(
-        (iface) =>
-          [
-            [iface.address.split("/")[0], asset.id],
-            [iface.mac, asset.id],
-          ] as [string, string][],
-      ),
-    ),
-  );
   const links: TrafficLink[] = packets
     ? packets.map((packet) =>
         make(
           {
             ...packet,
-            sourceAssetId: assetAddresses.get(packet.source),
-            destinationAssetId: assetAddresses.get(packet.destination),
           },
           packet.length,
         ),

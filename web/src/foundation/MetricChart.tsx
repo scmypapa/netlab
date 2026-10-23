@@ -10,9 +10,11 @@ import {
   AxisPointerComponent,
   DataZoomInsideComponent,
   DataZoomSliderComponent,
+  MarkLineComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { History, Metric } from "./metrics";
+import { assetMetricSeries } from "./metrics";
 import styles from "./MetricChart.module.css";
 
 echarts.use([
@@ -24,6 +26,7 @@ echarts.use([
   AxisPointerComponent,
   DataZoomInsideComponent,
   DataZoomSliderComponent,
+  MarkLineComponent,
   CanvasRenderer,
 ]);
 export const metricTitles: Partial<Record<Metric, string>> = {
@@ -61,6 +64,8 @@ export function MetricChart({
   compact = false,
   timeline = false,
   onTimeRange,
+  timeWindow,
+  annotations,
 }: {
   history: History;
   measures: Metric[];
@@ -73,6 +78,8 @@ export function MetricChart({
   compact?: boolean;
   timeline?: boolean;
   onTimeRange?: (start: string, end: string) => void;
+  timeWindow?: { start: string; end: string };
+  annotations?: { time: string; label: string; color: string }[];
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.EChartsType>(null);
@@ -120,9 +127,13 @@ export function MetricChart({
       "#5b95a7",
     ];
     const readings: string[] = [];
+    const plotted = timeline
+      ? assetMetricSeries(history.series)
+      : history.series;
     const identities = [
+      ...names.keys(),
       ...new Set(
-        history.series.map((item) =>
+        plotted.map((item) =>
           seriesBy === "asset"
             ? item.assetId
             : seriesBy === "node"
@@ -131,7 +142,7 @@ export function MetricChart({
         ),
       ),
     ];
-    const series = history.series
+    const series = plotted
       .filter((item) => measures.includes(item.metric))
       .map((item, index) => {
         const identity =
@@ -196,6 +207,25 @@ export function MetricChart({
             type: timeline && item.metric === "receive" ? "dashed" : "solid",
           },
           itemStyle: { color },
+          markLine:
+            timeline && index === 0
+              ? {
+                  silent: false,
+                  symbol: "none",
+                  label: { show: false },
+                  data:
+                    annotations?.map((event) => ({
+                      name: event.label,
+                      xAxis: Date.parse(event.time),
+                      lineStyle: {
+                        color: event.color,
+                        width: 1,
+                        type: "dashed",
+                      },
+                      tooltip: { formatter: () => event.label },
+                    })) ?? [],
+                }
+              : undefined,
           symbolSize: 5,
           areaStyle: timeline
             ? undefined
@@ -325,6 +355,15 @@ export function MetricChart({
             moveOnMouseWheel: false,
             moveOnMouseMove: false,
             preventDefaultMouseMove: false,
+            ...(timeline
+              ? timeWindow
+                ? {
+                    startValue: Date.parse(timeWindow.start),
+                    endValue: Date.parse(timeWindow.end),
+                    rangeMode: ["value", "value"],
+                  }
+                : { start: 0, end: 100, rangeMode: ["percent", "percent"] }
+              : {}),
           },
           ...(timeline
             ? [
@@ -342,6 +381,7 @@ export function MetricChart({
                   showDetail: false,
                   textStyle: { color: muted },
                   brushSelect: true,
+                  realtime: false,
                 },
               ]
             : []),
@@ -361,6 +401,9 @@ export function MetricChart({
     colors,
     group,
     compact,
+    timeline,
+    timeWindow,
+    annotations,
   ]);
   return (
     <div
