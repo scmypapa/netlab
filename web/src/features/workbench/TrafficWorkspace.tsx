@@ -121,6 +121,18 @@ export default function TrafficWorkspace({
     () => new Map(spec.assets.map((asset) => [asset.id, asset.name])),
     [spec.assets],
   );
+  const interfaceNames = useMemo(
+    () =>
+      new Map(
+        spec.assets.flatMap((asset) =>
+          asset.interfaces.map((iface, index) => [
+            iface.id,
+            `${asset.name} / 网卡 ${index + 1}`,
+          ]),
+        ),
+      ),
+    [spec.assets],
+  );
   const groups = useMemo(
     () =>
       new Map(
@@ -733,6 +745,9 @@ export default function TrafficWorkspace({
             >
               协议层
             </button>
+            {packet.data?.packet.interfaceId && (
+              <span>{interfaceNames.get(packet.data.packet.interfaceId)}</span>
+            )}
             <button
               className={styles.mobileOnly}
               onClick={() => setMobileDetail("bytes")}

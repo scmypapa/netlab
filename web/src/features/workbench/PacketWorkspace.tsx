@@ -16,6 +16,10 @@ const time = (value: string) => {
     String(date.getMilliseconds()).padStart(3, "0")
   );
 };
+const socket = (address: string, port: number) =>
+  port
+    ? `${address.includes(":") ? `[${address}]` : address}:${port}`
+    : address;
 
 export function PacketList({
   packets,
@@ -128,12 +132,10 @@ export function PacketList({
                 </td>
                 <td>{time(packet.time)}</td>
                 <td title={packet.source}>
-                  {packet.source}
-                  {packet.sourcePort ? `:${packet.sourcePort}` : ""}
+                  {socket(packet.source, packet.sourcePort)}
                 </td>
                 <td title={packet.destination}>
-                  {packet.destination}
-                  {packet.destinationPort ? `:${packet.destinationPort}` : ""}
+                  {socket(packet.destination, packet.destinationPort)}
                 </td>
                 <td>
                   <span className={styles.protocolTag}>{packet.protocol}</span>
