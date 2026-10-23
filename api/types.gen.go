@@ -582,9 +582,15 @@ type CaptureFlow struct {
 	DestinationPort      int       `json:"destinationPort"`
 	FirstSeen            time.Time `json:"firstSeen"`
 
+	// InterfaceId Managed interface that owns this observation.
+	InterfaceId *string `json:"interfaceId,omitempty"`
+
 	// InterfaceIndex Original PCAPNG interface index; present for captured conversations.
 	InterfaceIndex *int      `json:"interfaceIndex,omitempty"`
 	LastSeen       time.Time `json:"lastSeen"`
+
+	// NetworkId Managed network of the owning interface.
+	NetworkId *string `json:"networkId,omitempty"`
 
 	// NodeId Node that owns this observation.
 	NodeId          *string `json:"nodeId,omitempty"`
@@ -2278,6 +2284,7 @@ type EnvironmentPacketsParams struct {
 	End         *time.Time `form:"end,omitempty" json:"end,omitempty"`
 	AssetId     *string    `form:"assetId,omitempty" json:"assetId,omitempty"`
 	InterfaceId *string    `form:"interfaceId,omitempty" json:"interfaceId,omitempty"`
+	NetworkId   *string    `form:"networkId,omitempty" json:"networkId,omitempty"`
 
 	// Source IP or MAC address; endpoint filters match both directions
 	Source          *string `form:"source,omitempty" json:"source,omitempty"`

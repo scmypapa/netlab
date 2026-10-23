@@ -108,6 +108,7 @@ paths:
         - {name: end, in: query, schema: {type: string, format: date-time}}
         - {name: assetId, in: query, schema: {type: string}}
         - {name: interfaceId, in: query, schema: {type: string}}
+        - {name: networkId, in: query, schema: {type: string}}
         - {name: source, in: query, schema: {type: string}, description: IP or MAC address; endpoint filters match both directions}
         - {name: destination, in: query, schema: {type: string}}
         - {name: sourcePort, in: query, schema: {type: integer, minimum: 0, maximum: 65535}}
@@ -2305,6 +2306,8 @@ components:
       required: [source, destination, protocol, sourcePort, destinationPort, bytes, packets, bytesPerSecond, firstSeen, lastSeen]
       properties:
         nodeId: {type: string, description: Node that owns this observation.}
+        interfaceId: {type: string, description: Managed interface that owns this observation.}
+        networkId: {type: string, description: Managed network of the owning interface.}
         interfaceIndex: {type: integer, minimum: 0, description: Original PCAPNG interface index; present for captured conversations.}
         source: {type: string}
         destination: {type: string}
