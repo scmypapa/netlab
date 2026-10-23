@@ -113,7 +113,7 @@ export function NodesPage() {
             !nodes.error && (
               <Empty
                 icon={<Cpu size={30} />}
-                title={query ? "没有匹配的节点" : "接入首个计算节点"}
+                title={query ? "没有匹配的节点" : "暂无计算节点"}
                 action={!query ? "接入节点" : undefined}
                 onAction={() => setAdding(true)}
               />

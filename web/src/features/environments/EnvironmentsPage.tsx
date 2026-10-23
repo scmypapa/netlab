@@ -127,13 +127,7 @@ export function EnvironmentsPage() {
         !environments.error && (
           <Empty
             icon={<Layers3 size={30} />}
-            title={
-              query || filter !== "all"
-                ? "没有匹配的环境"
-                : canCreate
-                  ? "创建你的第一个环境"
-                  : "暂无环境"
-            }
+            title={query || filter !== "all" ? "没有匹配的环境" : "暂无环境"}
             action={
               canCreate && !query && filter === "all" ? "新建环境" : undefined
             }
