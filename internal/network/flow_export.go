@@ -3,6 +3,8 @@ package network
 import (
 	"context"
 	"fmt"
+
+	"github.com/ovn-org/libovsdb/ovsdb"
 )
 
 type SFlow struct {
@@ -55,7 +57,7 @@ func (n *OVS) SetFlowExport(ctx context.Context, node, target string) error {
 		if err != nil {
 			return err
 		}
-		return transact(ctx, n.client, ops)
+		return n.applyFlowExport(ctx, ops)
 	}
 	rate, timeout, capacity := 1, 5, 65536
 	flow.Targets, flow.Sampling, flow.CacheActiveTimeout, flow.CacheMaxFlows = []string{target}, &rate, &timeout, &capacity
@@ -69,7 +71,7 @@ func (n *OVS) SetFlowExport(ctx context.Context, node, target string) error {
 		if err != nil {
 			return err
 		}
-		return transact(ctx, n.client, append(ops, more...))
+		return n.applyFlowExport(ctx, append(ops, more...))
 	}
 	flow.UUID, flow.ExternalIDs = "new_ipfix", map[string]string{"netlab.node": node}
 	ops, err := n.client.Create(flow)
@@ -81,7 +83,35 @@ func (n *OVS) SetFlowExport(ctx context.Context, node, target string) error {
 	if err != nil {
 		return err
 	}
-	return transact(ctx, n.client, append(ops, more...))
+	return n.applyFlowExport(ctx, append(ops, more...))
+}
+
+// OVSDB commit precedes datapath reconfiguration; acknowledge the applied generation
+// before accepting traffic or replacing the collector's UDP endpoint.
+func (n *OVS) applyFlowExport(ctx context.Context, ops []ovsdb.Operation) error {
+	var roots []OpenVSwitch
+	if err := n.client.List(ctx, &roots); err != nil {
+		return err
+	}
+	if len(roots) != 1 {
+		return fmt.Errorf("OVS root configuration is missing")
+	}
+	root := ovsdb.UUID{GoUUID: roots[0].UUID}
+	where := []ovsdb.Condition{ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, root)}
+	ops = append(ops,
+		ovsdb.Operation{Op: ovsdb.OperationMutate, Table: "Open_vSwitch", Where: where, Mutations: []ovsdb.Mutation{{Column: "next_cfg", Mutator: ovsdb.MutateOperationAdd, Value: 1}}},
+		ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Open_vSwitch", Where: where, Columns: []string{"next_cfg"}},
+	)
+	results, err := n.client.Transact(ctx, ops...)
+	if err != nil {
+		return err
+	}
+	if failures, err := ovsdb.CheckOperationResults(results, ops); err != nil {
+		return fmt.Errorf("OVSDB transaction: %w (%v)", err, failures)
+	}
+	revision := results[len(results)-1].Rows[0]["next_cfg"]
+	timeout := 5000
+	return transact(ctx, n.client, []ovsdb.Operation{{Op: ovsdb.OperationWait, Table: "Open_vSwitch", Where: append(where, ovsdb.NewCondition("cur_cfg", ovsdb.ConditionGreaterThanOrEqual, revision)), Columns: []string{"_uuid"}, Until: "==", Rows: []ovsdb.Row{{"_uuid": root}}, Timeout: &timeout}})
 }
 
 // Kernel ifindex identifies the actual ingress/egress attachment, even when environments reuse IPs.

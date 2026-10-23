@@ -160,10 +160,14 @@ func TestRecentPacketQueryAndStableOlderPagination(t *testing.T) {
 	if len(merged.Packets) != 2 || !merged.Packets[0].Time.Equal(packets[2].Time) || merged.NextCursor == nil {
 		t.Fatal(merged)
 	}
+	cursor, err := parsePacketCursor(*merged.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for index, packet := range packets {
-		before, err := packetBefore(packet, *merged.NextCursor)
-		if err != nil || before != (index < 2) {
-			t.Fatalf("index=%d before=%v err=%v", index, before, err)
+		before := packetBefore(packet, cursor)
+		if before != (index < 2) {
+			t.Fatalf("index=%d before=%v", index, before)
 		}
 	}
 	unavailable := api.RecentPacketPage{Retention: api.PacketRetention{Status: api.PacketRetentionStatusUnavailable}}
