@@ -231,7 +231,9 @@ test("集群历史覆盖全量，节点卡片展示实测并下钻", async ({ pa
   await page.goto("/resources");
   const card = page.getByRole("button", { name: /计算节点 A/ });
   await expect(card).toContainText("2.5");
-  await expect(card).toContainText("已分配 8 核");
+  await expect(card.getByLabel("已分配", { exact: true })).toContainText(
+    "8 核",
+  );
   await card.click();
   const drawer = page.getByRole("dialog", { name: "计算节点 A" });
   await expect(drawer.getByRole("region", { name: "节点性能" })).toBeVisible();

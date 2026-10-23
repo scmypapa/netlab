@@ -125,6 +125,7 @@ test("bare VM import uses native node hardware and initialization", async ({
   await drawer
     .getByRole("textbox", { name: "文件地址" })
     .fill("https://storage.test/linux.qcow2");
+  await drawer.locator("summary").filter({ hasText: "虚拟硬件" }).click();
   await expect(drawer.getByRole("textbox", { name: "机器类型" })).toHaveValue(
     "pc-q35-10.0",
   );
@@ -223,6 +224,7 @@ test("ISO installation selects Windows 11 hardware and uploads its driver disc",
   await drawer.getByRole("textbox", { name: "操作系统" }).click();
   await page.getByRole("option", { name: "Windows 11", exact: true }).click();
   await drawer.getByText("安装系统", { exact: true }).click();
+  await drawer.locator("summary").filter({ hasText: "虚拟硬件" }).click();
   await expect(
     drawer.getByRole("textbox", { name: "固件", exact: true }),
   ).toHaveValue("UEFI");
@@ -317,10 +319,11 @@ test("OVA and OVF import omit hardware and display the parsed template", async (
   });
   expect(imported[0]).not.toHaveProperty("hardware");
   await page.getByRole("button", { name: /Windows appliance/ }).click();
-  await expect(drawer).toContainText("pc-i440fx-9.2");
-  await expect(drawer).toContainText("BIOS");
-  await expect(drawer).toContainText("lsilogic");
-  await expect(drawer).toContainText("42 GiB");
+  const details = page.getByRole("region", { name: "资产模板", exact: true });
+  await expect(details).toContainText("pc-i440fx-9.2");
+  await expect(details).toContainText("BIOS");
+  await expect(details).toContainText("lsilogic");
+  await expect(details).toContainText("42 GiB");
   await expect(drawer).toContainText("启动盘");
 });
 
@@ -387,7 +390,7 @@ test("ordinary template details hide the source row and retain virtual hardware"
     page.getByRole("button", { name: "导入模板", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: /Windows template/ }).click();
-  const drawer = page.getByRole("dialog", { name: "资产模板" });
+  const drawer = page.getByRole("region", { name: "资产模板", exact: true });
   await expect(drawer).toContainText("pc-q35-10.0");
   await expect(drawer).toContainText("UEFI");
   await expect(drawer).toContainText("Cloudbase-Init");
@@ -443,7 +446,7 @@ test("template deletion keeps reference errors visible and closes after acceptan
   await confirmation.getByRole("button", { name: "删除", exact: true }).click();
   await expect(confirmation).not.toBeVisible();
   await expect(
-    page.getByRole("dialog", { name: "资产模板" }),
+    page.getByRole("region", { name: "资产模板", exact: true }),
   ).not.toBeVisible();
   await expect(page.getByRole("button", { name: /Lab container/ })).toHaveCount(
     0,
@@ -466,7 +469,7 @@ test("failed deletion resumes the original operation from the template", async (
           version: 1,
           source: "nginx:stable",
           state: "deleting",
-          error: "Worker unavailable",
+          error: retried ? undefined : "Worker unavailable",
           operationId: "remove",
           resources: { cpu: 1, memoryMiB: 512, diskGiB: 1 },
         },
@@ -482,12 +485,12 @@ test("failed deletion resumes the original operation from the template", async (
   });
   await page.goto("/templates");
   await page.getByRole("button", { name: /Failed deletion/ }).click();
-  const drawer = page.getByRole("dialog", { name: "资产模板" });
+  const drawer = page.getByRole("region", { name: "资产模板", exact: true });
   await expect(drawer).toContainText("Worker unavailable");
   await expect(
     drawer.getByRole("button", { name: "删除模板", exact: true }),
   ).toHaveCount(0);
   await drawer.getByRole("button", { name: "重试删除" }).click();
-  await expect(drawer).not.toBeVisible();
+  await expect(drawer).not.toContainText("Worker unavailable");
   expect(retried).toBe(true);
 });

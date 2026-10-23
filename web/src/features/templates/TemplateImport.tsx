@@ -22,6 +22,7 @@ import {
   useTemplateHardware,
   type HardwareProfile,
 } from "./useTemplateHardware";
+import styles from "./Templates.module.css";
 
 type Hardware = Schema<"Hardware">;
 type Format = NonNullable<Template["format"]>;
@@ -132,245 +133,257 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
   });
   return (
     <form
-      className="form-stack"
+      className={styles.importForm}
       onSubmit={(event) => {
         event.preventDefault();
         create.mutate();
       }}
     >
-      <div className="type-picker" role="group" aria-label="资产类型">
-        {(["container", "vm"] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            className={kind === value ? "selected" : ""}
-            aria-pressed={kind === value}
-            onClick={() => {
-              setKind(value);
-              setFormat(value === "container" ? "oci" : "qcow2");
-              setSpecifyHardware(false);
-              setFiles([]);
-              setSource("");
-            }}
-          >
-            {value === "container" ? <Box size={21} /> : <Monitor size={21} />}
-            {value === "container" ? "容器" : "虚拟机"}
-          </button>
-        ))}
-      </div>
-      <SegmentedControl
-        fullWidth
-        aria-label="镜像来源"
-        value={
-          kind === "container"
-            ? format
-            : appliance
-              ? "appliance"
-              : format === "iso"
-                ? "iso"
-                : "disk"
-        }
-        onChange={(value) => {
-          setFormat(
-            (value === "appliance"
-              ? "ova"
-              : value === "disk"
-                ? "qcow2"
-                : value) as Format,
-          );
-          setSpecifyHardware(false);
-          setFiles([]);
-          setSource("");
-          if (value === "iso") installationDefaults(os);
-        }}
-        data={
-          kind === "container"
-            ? [
-                { value: "oci", label: "镜像仓库" },
-                { value: "docker", label: "镜像包" },
-              ]
-            : [
-                { value: "disk", label: "系统磁盘" },
-                { value: "appliance", label: "整机镜像" },
-                { value: "iso", label: "安装系统" },
-              ]
-        }
-      />
-      <TextInput
-        label="模板名称"
-        required
-        value={name}
-        onChange={(event) => setName(event.currentTarget.value)}
-      />
-      <div className="form-columns">
-        <Select
-          label="操作系统"
-          value={os}
-          onChange={(value) => {
-            setOs(value!);
-            if (format === "iso") installationDefaults(value!);
-          }}
-          data={[
-            "Linux",
-            "Windows",
-            "Windows 7",
-            "Windows 10",
-            "Windows 11",
-            "Windows Server",
-            "其他",
-          ]}
-          allowDeselect={false}
-        />
-        {kind === "vm" && (
-          <Select
-            label="文件格式"
-            value={format}
-            allowDeselect={false}
-            onChange={(value) => {
-              setFormat(value as Format);
-              setFiles([]);
-              setSource("");
-            }}
-            data={(appliance
-              ? ["ova", "ovf"]
-              : format === "iso"
-                ? ["iso"]
-                : ["qcow2", "raw", "vmdk"]
-            ).map((value) => ({ value, label: value.toUpperCase() }))}
-          />
-        )}
-      </div>
-      {!registry && (
-        <SegmentedControl
-          fullWidth
-          aria-label="文件来源"
-          value={inputMode}
-          onChange={(value) => {
-            setInputMode(value);
-            setDriverFiles([]);
-            setSource("");
-            setFiles([]);
-          }}
-          data={[
-            { value: "file", label: "上传文件" },
-            { value: "address", label: "链接或节点路径" },
-          ]}
-        />
-      )}
-      {local ? (
-        <>
-          <FileInput
-            label={
-              format === "ovf" || format === "vmdk"
-                ? "镜像及关联磁盘"
-                : "镜像文件"
-            }
-            placeholder="选择文件"
-            required
-            multiple={format === "ovf" || format === "vmdk"}
-            value={
-              format === "ovf" || format === "vmdk" ? files : (files[0] ?? null)
-            }
-            onChange={(value) => {
-              const selected = Array.isArray(value)
-                ? value
-                : value
-                  ? [value]
-                  : [];
-              chooseFiles(selected);
-            }}
-          />
-          {(format === "ovf" || format === "vmdk") && (
-            <FileButton
-              multiple
-              onChange={chooseFiles}
-              inputProps={{
-                "aria-label": "镜像文件夹",
-                ...{ webkitdirectory: "" },
+      <section className={styles.importSection}>
+        <h3>资产与格式</h3>
+        <div className="type-picker" role="group" aria-label="资产类型">
+          {(["container", "vm"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={kind === value ? "selected" : ""}
+              aria-pressed={kind === value}
+              onClick={() => {
+                setKind(value);
+                setFormat(value === "container" ? "oci" : "qcow2");
+                setSpecifyHardware(false);
+                setFiles([]);
+                setSource("");
               }}
             >
-              {(props) => (
-                <Button {...props} variant="subtle" size="xs">
-                  选择文件夹
-                </Button>
+              {value === "container" ? (
+                <Box size={21} />
+              ) : (
+                <Monitor size={21} />
               )}
-            </FileButton>
-          )}
-          {files.length > 1 && (
-            <Select
-              label="主镜像文件"
-              value={source}
-              allowDeselect={false}
-              data={files.map((file) => ({
-                value: file.webkitRelativePath || file.name,
-                label: file.name,
-              }))}
-              onChange={(value) => setSource(value!)}
-            />
-          )}
-        </>
-      ) : (
-        <TextInput
-          label={format === "oci" ? "镜像地址" : "文件地址"}
-          placeholder={
-            format === "oci"
-              ? "docker.io/library/ubuntu:24.04"
-              : `https://storage.example.com/image.${format === "docker" ? "tar" : format}`
+              {value === "container" ? "容器" : "虚拟机"}
+            </button>
+          ))}
+        </div>
+        <SegmentedControl
+          fullWidth
+          aria-label="镜像来源"
+          value={
+            kind === "container"
+              ? format
+              : appliance
+                ? "appliance"
+                : format === "iso"
+                  ? "iso"
+                  : "disk"
           }
+          onChange={(value) => {
+            setFormat(
+              (value === "appliance"
+                ? "ova"
+                : value === "disk"
+                  ? "qcow2"
+                  : value) as Format,
+            );
+            setSpecifyHardware(false);
+            setFiles([]);
+            setSource("");
+            if (value === "iso") installationDefaults(os);
+          }}
+          data={
+            kind === "container"
+              ? [
+                  { value: "oci", label: "镜像仓库" },
+                  { value: "docker", label: "镜像包" },
+                ]
+              : [
+                  { value: "disk", label: "系统磁盘" },
+                  { value: "appliance", label: "整机镜像" },
+                  { value: "iso", label: "安装系统" },
+                ]
+          }
+        />
+        <TextInput
+          label="模板名称"
           required
-          value={source}
-          onChange={(event) => setSource(event.currentTarget.value)}
+          value={name}
+          onChange={(event) => setName(event.currentTarget.value)}
         />
-      )}
-      {registry && (
-        <>
-          <button
-            className="disclosure"
-            type="button"
-            aria-expanded={authentication}
-            onClick={() => setAuthentication(!authentication)}
-          >
-            仓库认证
-            <ChevronDown
-              size={16}
-              className={authentication ? "rotated" : ""}
-            />
-          </button>
-          <Collapse in={authentication}>
-            <div className="form-columns">
-              <TextInput
-                label="仓库用户名"
-                value={username}
-                onChange={(event) => setUsername(event.currentTarget.value)}
-                autoComplete="off"
-              />
-              <PasswordInput
-                label="仓库密码或访问令牌"
-                value={password}
-                onChange={(event) => setPassword(event.currentTarget.value)}
-                autoComplete="new-password"
-              />
-            </div>
-          </Collapse>
-          <Switch
-            label="HTTP 仓库"
-            checked={plainHttp}
-            onChange={(event) => setPlainHttp(event.currentTarget.checked)}
+        <div className="form-columns">
+          <Select
+            label="操作系统"
+            value={os}
+            onChange={(value) => {
+              setOs(value!);
+              if (format === "iso") installationDefaults(value!);
+            }}
+            data={[
+              "Linux",
+              "Windows",
+              "Windows 7",
+              "Windows 10",
+              "Windows 11",
+              "Windows Server",
+              "其他",
+            ]}
+            allowDeselect={false}
           />
-        </>
-      )}
-      {format === "iso" && local && (
-        <FileInput
-          label="驱动光盘"
-          placeholder="选择 ISO 文件"
-          accept=".iso"
-          multiple
-          value={driverFiles}
-          onChange={setDriverFiles}
-        />
-      )}
+          {kind === "vm" && (
+            <Select
+              label="文件格式"
+              value={format}
+              allowDeselect={false}
+              onChange={(value) => {
+                setFormat(value as Format);
+                setFiles([]);
+                setSource("");
+              }}
+              data={(appliance
+                ? ["ova", "ovf"]
+                : format === "iso"
+                  ? ["iso"]
+                  : ["qcow2", "raw", "vmdk"]
+              ).map((value) => ({ value, label: value.toUpperCase() }))}
+            />
+          )}
+        </div>
+      </section>
+      <section className={styles.importSection}>
+        <h3>镜像来源</h3>
+        {!registry && (
+          <SegmentedControl
+            fullWidth
+            aria-label="文件来源"
+            value={inputMode}
+            onChange={(value) => {
+              setInputMode(value);
+              setDriverFiles([]);
+              setSource("");
+              setFiles([]);
+            }}
+            data={[
+              { value: "file", label: "上传文件" },
+              { value: "address", label: "链接或节点路径" },
+            ]}
+          />
+        )}
+        {local ? (
+          <>
+            <FileInput
+              label={
+                format === "ovf" || format === "vmdk"
+                  ? "镜像及关联磁盘"
+                  : "镜像文件"
+              }
+              placeholder="选择文件"
+              required
+              multiple={format === "ovf" || format === "vmdk"}
+              value={
+                format === "ovf" || format === "vmdk"
+                  ? files
+                  : (files[0] ?? null)
+              }
+              onChange={(value) => {
+                const selected = Array.isArray(value)
+                  ? value
+                  : value
+                    ? [value]
+                    : [];
+                chooseFiles(selected);
+              }}
+            />
+            {(format === "ovf" || format === "vmdk") && (
+              <FileButton
+                multiple
+                onChange={chooseFiles}
+                inputProps={{
+                  "aria-label": "镜像文件夹",
+                  ...{ webkitdirectory: "" },
+                }}
+              >
+                {(props) => (
+                  <Button {...props} variant="subtle" size="xs">
+                    选择文件夹
+                  </Button>
+                )}
+              </FileButton>
+            )}
+            {files.length > 1 && (
+              <Select
+                label="主镜像文件"
+                value={source}
+                allowDeselect={false}
+                data={files.map((file) => ({
+                  value: file.webkitRelativePath || file.name,
+                  label: file.name,
+                }))}
+                onChange={(value) => setSource(value!)}
+              />
+            )}
+          </>
+        ) : (
+          <TextInput
+            label={format === "oci" ? "镜像地址" : "文件地址"}
+            placeholder={
+              format === "oci"
+                ? "docker.io/library/ubuntu:24.04"
+                : `https://storage.example.com/image.${format === "docker" ? "tar" : format}`
+            }
+            required
+            value={source}
+            onChange={(event) => setSource(event.currentTarget.value)}
+          />
+        )}
+        {registry && (
+          <>
+            <button
+              className="disclosure"
+              type="button"
+              aria-expanded={authentication}
+              onClick={() => setAuthentication(!authentication)}
+            >
+              仓库认证
+              <ChevronDown
+                size={16}
+                className={authentication ? "rotated" : ""}
+              />
+            </button>
+            <Collapse in={authentication}>
+              <div className="form-columns">
+                <TextInput
+                  label="仓库用户名"
+                  value={username}
+                  onChange={(event) => setUsername(event.currentTarget.value)}
+                  autoComplete="off"
+                />
+                <PasswordInput
+                  label="仓库密码或访问令牌"
+                  value={password}
+                  onChange={(event) => setPassword(event.currentTarget.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+            </Collapse>
+            <Switch
+              label="HTTP 仓库"
+              checked={plainHttp}
+              onChange={(event) => setPlainHttp(event.currentTarget.checked)}
+            />
+          </>
+        )}
+        {format === "iso" && local && (
+          <FileInput
+            label="驱动光盘"
+            placeholder="选择 ISO 文件"
+            accept=".iso"
+            multiple
+            value={driverFiles}
+            onChange={setDriverFiles}
+          />
+        )}
+      </section>
       {!appliance && (
-        <>
+        <section className={styles.importSection}>
           <h3 className="form-section-title">默认规格</h3>
           <div className="form-columns three">
             <NumberInput
@@ -393,7 +406,7 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
               onChange={(value) => setDisk(Number(value))}
             />
           </div>
-        </>
+        </section>
       )}
       {kind === "vm" && (
         <>
@@ -413,17 +426,27 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
           )}
           {needsHardware && (
             <>
-              {!appliance && <h3 className="form-section-title">虚拟硬件</h3>}
               <ErrorMessage error={profiles.error} />
               {profiles.isPending ? (
                 <Loading />
               ) : profile && hardware ? (
-                <HardwareFields
-                  profiles={profiles.data ?? []}
-                  profile={profile}
-                  value={hardware}
-                  onChange={setHardware}
-                />
+                <details
+                  className={styles.hardware}
+                  open={appliance || undefined}
+                >
+                  <summary>
+                    虚拟硬件{" "}
+                    <span>
+                      {hardware.firmware.toUpperCase()} · {hardware.nicModel}
+                    </span>
+                  </summary>
+                  <HardwareFields
+                    profiles={profiles.data ?? []}
+                    profile={profile}
+                    value={hardware}
+                    onChange={setHardware}
+                  />
+                </details>
               ) : (
                 !profiles.error && (
                   <Empty
@@ -468,9 +491,8 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
       {create.isPending && local && (
         <Progress value={progress} aria-label="上传进度" />
       )}
-      <div className="drawer-footer">
+      <div className={styles.importFooter}>
         <Button
-          fullWidth
           type="submit"
           loading={create.isPending}
           disabled={(needsHardware && !profile) || (local && !files.length)}

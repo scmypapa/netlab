@@ -135,13 +135,15 @@ export function StoragePanel() {
           存储池
         </div>
         <div className={styles.label}>
-          <Button
-            variant="default"
-            size="compact-sm"
-            onClick={() => setDisks(true)}
-          >
-            选择专用盘
-          </Button>
+          {shared && (
+            <Button
+              variant="default"
+              size="compact-sm"
+              onClick={() => setDisks(true)}
+            >
+              选择专用盘
+            </Button>
+          )}
           <Button
             variant="default"
             size="compact-sm"
@@ -164,30 +166,35 @@ export function StoragePanel() {
         !pools.error &&
         !nodes.error && (
           <section className={styles.setup}>
-            <div className={styles.heading}>
-              <h2>Ceph 共享存储</h2>
-              <Badge variant="light" color="gray">
-                未启用
-              </Badge>
-            </div>
-            <div className={styles.checks}>
-              <div className={styles.check}>
-                {ready.length >= 2 ? (
-                  <CheckCircle2 size={18} color="var(--accent)" />
-                ) : (
-                  <Circle size={18} />
-                )}
-                两个就绪的 KVM 节点
+            <div>
+              <div className={styles.heading}>
+                <h2>启用 Ceph 共享存储</h2>
+                <Badge variant="light" color="gray">
+                  未启用
+                </Badge>
               </div>
-              <div className={styles.check}>
-                {ready.some((n) => n.storageDevice) ? (
-                  <CheckCircle2 size={18} color="var(--accent)" />
-                ) : (
-                  <Circle size={18} />
-                )}
-                至少一块专用盘
+              <div className={styles.checks}>
+                <div className={styles.check}>
+                  {ready.length >= 2 ? (
+                    <CheckCircle2 size={18} color="var(--accent)" />
+                  ) : (
+                    <Circle size={18} />
+                  )}
+                  两个就绪的 KVM 节点
+                </div>
+                <div className={styles.check}>
+                  {ready.some((n) => n.storageDevice) ? (
+                    <CheckCircle2 size={18} color="var(--accent)" />
+                  ) : (
+                    <Circle size={18} />
+                  )}
+                  至少一块专用盘
+                </div>
               </div>
             </div>
+            <Button variant="default" size="sm" onClick={() => setDisks(true)}>
+              选择专用盘
+            </Button>
           </section>
         )}
       {pools.isPending ? (
@@ -341,16 +348,30 @@ export function StoragePanel() {
                       <div>共享池未就绪</div>
                     )
                   ) : (
-                    <div className={styles.label}>
-                      <Badge variant="light">
-                        {active.driver === "rbd"
-                          ? "共享虚拟磁盘"
-                          : "节点本地存储"}
-                      </Badge>
-                      {active.storage?.nativeSnapshots && (
-                        <Badge variant="light">原生快照</Badge>
+                    <dl className={styles.properties}>
+                      <dt>存储类型</dt>
+                      <dd>
+                        {active.driver === "rbd" ? "Ceph RBD" : "节点本地存储"}
+                      </dd>
+                      {active.storage?.path && (
+                        <>
+                          <dt>路径</dt>
+                          <dd>{active.storage.path}</dd>
+                        </>
                       )}
-                    </div>
+                      {active.storage?.filesystem && (
+                        <>
+                          <dt>文件系统</dt>
+                          <dd>{active.storage.filesystem}</dd>
+                        </>
+                      )}
+                      {active.storage?.nativeSnapshots && (
+                        <>
+                          <dt>快照</dt>
+                          <dd>原生快照</dd>
+                        </>
+                      )}
+                    </dl>
                   )}
                 </Tabs.Panel>
                 <Tabs.Panel value="assets" pt="lg">

@@ -17,6 +17,7 @@ import { dateTime, memory } from "../../foundation/format";
 import { LoadMore } from "../../foundation/LoadMore";
 import { Status } from "../../foundation/Status";
 import { useCursorList } from "../../foundation/useCursorList";
+import styles from "./StorageWorkspace.module.css";
 
 export function BackupCatalog({
   repository,
@@ -74,12 +75,12 @@ export function BackupCatalog({
         opened
         onClose={onClose}
         position="right"
-        size="lg"
+        size={840}
         title={repository.name}
       >
         <div className="form-stack">
-          <div className="collection-toolbar">
-            <h2>备份</h2>
+          <div className={styles.panelToolbar}>
+            <h2>备份目录</h2>
             <ActionIcon
               variant="subtle"
               aria-label="刷新仓库"
@@ -121,43 +122,47 @@ export function BackupCatalog({
                           <Status value={item.state} />
                         </td>
                         <td>
-                          <Menu position="bottom-end">
-                            <Menu.Target>
-                              <ActionIcon
-                                variant="subtle"
-                                aria-label={item.name + "操作"}
-                              >
-                                <MoreHorizontal size={17} />
-                              </ActionIcon>
-                            </Menu.Target>
-                            <Menu.Dropdown>
-                              <Menu.Item
-                                leftSection={<Copy size={15} />}
-                                disabled={item.state !== "ready"}
-                                onClick={() => {
-                                  restore.reset();
-                                  setSelected(item);
-                                  setName(item.name + " · 恢复");
-                                  setRun(true);
-                                }}
-                              >
-                                恢复为新环境
-                              </Menu.Item>
-                              <Menu.Item
-                                color="red"
-                                leftSection={<Trash2 size={15} />}
-                                disabled={["creating", "deleting"].includes(
-                                  item.state,
-                                )}
-                                onClick={() => {
-                                  remove.reset();
-                                  setRemoving(item);
-                                }}
-                              >
-                                删除备份
-                              </Menu.Item>
-                            </Menu.Dropdown>
-                          </Menu>
+                          <div className={styles.rowActions}>
+                            <Button
+                              variant="subtle"
+                              size="compact-xs"
+                              leftSection={<Copy size={14} />}
+                              disabled={item.state !== "ready"}
+                              onClick={() => {
+                                restore.reset();
+                                setSelected(item);
+                                setName(item.name + " · 恢复");
+                                setRun(true);
+                              }}
+                            >
+                              恢复
+                            </Button>
+                            <Menu position="bottom-end">
+                              <Menu.Target>
+                                <ActionIcon
+                                  variant="subtle"
+                                  aria-label={item.name + "操作"}
+                                >
+                                  <MoreHorizontal size={17} />
+                                </ActionIcon>
+                              </Menu.Target>
+                              <Menu.Dropdown>
+                                <Menu.Item
+                                  color="red"
+                                  leftSection={<Trash2 size={15} />}
+                                  disabled={["creating", "deleting"].includes(
+                                    item.state,
+                                  )}
+                                  onClick={() => {
+                                    remove.reset();
+                                    setRemoving(item);
+                                  }}
+                                >
+                                  删除备份
+                                </Menu.Item>
+                              </Menu.Dropdown>
+                            </Menu>
+                          </div>
                         </td>
                       </tr>
                     ))}

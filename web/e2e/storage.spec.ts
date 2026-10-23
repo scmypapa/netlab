@@ -92,9 +92,7 @@ for (const scenario of [
         await page.getByRole("tab", { name: "Ceph 服务", exact: true }).click();
         await expect(page.getByText("mon.one", { exact: true })).toBeVisible();
       } else
-        await expect(
-          page.getByText("存储任务", { exact: true }),
-        ).toBeVisible();
+        await expect(page.getByText("存储任务", { exact: true })).toBeVisible();
     }
     if (scenario === "failed") {
       await page
@@ -207,8 +205,7 @@ test("持久卷创建、扩容和删除使用同一节点工作区", async ({ pa
       animations: "disabled",
     });
   }
-  await page.getByRole("button", { name: "操作 业务数据" }).click();
-  await page.getByRole("menuitem", { name: "扩容", exact: true }).click();
+  await page.getByRole("button", { name: "扩容", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "扩容 业务数据" });
   await dialog.getByRole("textbox", { name: "容量 · GiB" }).fill("4");
   await dialog.getByRole("button", { name: "扩容", exact: true }).click();
@@ -290,8 +287,7 @@ test("仓库目录中的备份通过标准创建接口恢复", async ({ page }) 
   await page.goto("/resources");
   await page.getByRole("button", { name: /恢复节点/ }).click();
   await page.getByRole("tab", { name: "备份仓库" }).click();
-  await page.getByRole("button", { name: "历史备份操作" }).click();
-  await page.getByRole("menuitem", { name: "查看备份" }).click();
+  await page.getByRole("button", { name: "历史备份", exact: true }).click();
   await expect(page.getByText("混合网络", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
@@ -308,8 +304,7 @@ test("仓库目录中的备份通过标准创建接口恢复", async ({ page }) 
     path: "../data/backup-catalog-desktop.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "混合网络操作" }).click();
-  await page.getByRole("menuitem", { name: "恢复为新环境" }).click();
+  await page.getByRole("button", { name: "恢复", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "从备份创建环境" });
   await dialog.getByRole("textbox", { name: "环境名称" }).fill("恢复环境");
   await dialog.getByRole("checkbox", { name: "创建后启动" }).uncheck();

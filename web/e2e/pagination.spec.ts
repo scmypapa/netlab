@@ -136,7 +136,12 @@ test("environment summaries paginate, preserve a failed page, and filter on the 
   });
   await page.goto("/environments");
   await expect(page.locator("tbody tr")).toHaveCount(100);
-  await expect(page.locator("tbody tr").first()).toContainText("20 / 3");
+  await expect(
+    page.locator("tbody tr").first().getByRole("cell").nth(2),
+  ).toContainText("20");
+  await expect(
+    page.locator("tbody tr").first().getByRole("cell").nth(3),
+  ).toContainText("3");
   await page.getByRole("button", { name: "加载更多", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("读取下一页失败");
   await expect(page.locator("tbody tr")).toHaveCount(100);

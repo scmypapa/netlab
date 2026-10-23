@@ -19,6 +19,7 @@ import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { CreateEnvironmentDialog } from "../environments/CreateEnvironmentDialog";
 import { allowsProject } from "../access/permissions";
+import styles from "./Templates.module.css";
 
 export function BlueprintsPanel() {
   const [query, setQuery] = useState("");
@@ -32,10 +33,6 @@ export function BlueprintsPanel() {
   return (
     <>
       <div className="collection-toolbar">
-        <span className="section-label">
-          <Layers3 size={17} />
-          环境模板
-        </span>
         <TextInput
           aria-label="搜索环境模板"
           placeholder="搜索模板"
@@ -54,7 +51,7 @@ export function BlueprintsPanel() {
               <tr>
                 <th>模板</th>
                 <th>最新版本</th>
-                <th>资产 / 网段</th>
+                <th>规模</th>
                 <th>最近更新</th>
                 <th />
               </tr>
@@ -75,8 +72,8 @@ export function BlueprintsPanel() {
                   </td>
                   <td>v{item.latestVersion}</td>
                   <td className="numeric">
-                    {item.assetCount}
-                    <span className="muted"> / {item.networkCount}</span>
+                    {item.assetCount} 资产
+                    <span className="muted"> · {item.networkCount} 网段</span>
                   </td>
                   <td className="muted">{dateTime(item.updatedAt)}</td>
                   <td className="table-action">
@@ -154,7 +151,7 @@ function BlueprintDetails({
         onClose={onClose}
         title={blueprint.name}
         position="right"
-        size={440}
+        size={760}
       >
         <div className="form-stack">
           <Select
@@ -179,26 +176,31 @@ function BlueprintDetails({
                   <span>{version.data.assetCount} 个资产</span>
                   <span>{version.data.networkCount} 个网段</span>
                 </div>
-                <section className="blueprint-objects">
-                  <h3>网段</h3>
-                  {version.data.spec.networks.map((network) => (
-                    <div key={network.id}>
-                      <Network size={16} />
-                      <strong>{network.name}</strong>
-                      <span className="mono">{network.cidr}</span>
-                    </div>
-                  ))}
-                  <h3>资产</h3>
-                  {version.data.spec.assets.map((asset) => (
-                    <div key={asset.id}>
-                      <strong>{asset.name}</strong>
-                      <span>
-                        {asset.resources.cpu} 核 ·{" "}
-                        {asset.resources.memoryMiB / 1024} GiB
-                      </span>
-                    </div>
-                  ))}
-                </section>
+                <div className={styles.blueprintGrid}>
+                  <section>
+                    <h3>网段</h3>
+                    {version.data.spec.networks.map((network) => (
+                      <div key={network.id} className={styles.blueprintRow}>
+                        <strong>
+                          <Network size={14} /> {network.name}
+                        </strong>
+                        <span className="mono">{network.cidr}</span>
+                      </div>
+                    ))}
+                  </section>
+                  <section>
+                    <h3>资产</h3>
+                    {version.data.spec.assets.map((asset) => (
+                      <div key={asset.id} className={styles.blueprintRow}>
+                        <strong>{asset.name}</strong>
+                        <span>
+                          {asset.resources.cpu} 核 ·{" "}
+                          {asset.resources.memoryMiB / 1024} GiB
+                        </span>
+                      </div>
+                    ))}
+                  </section>
+                </div>
                 {(canCreate || blueprint.permissions?.includes("compose")) && (
                   <div className="drawer-footer">
                     <Group justify="space-between">

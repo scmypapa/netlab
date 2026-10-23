@@ -66,8 +66,11 @@ export function CaptureTemplateDialog({
           ]}
         />
         <ErrorMessage error={capture.error} />
-        <div className="drawer-footer">
-          <Button type="submit" fullWidth loading={capture.isPending}>
+        <div className="dialog-actions">
+          <Button variant="default" onClick={onClose}>
+            取消
+          </Button>
+          <Button type="submit" loading={capture.isPending}>
             固化模板
           </Button>
         </div>

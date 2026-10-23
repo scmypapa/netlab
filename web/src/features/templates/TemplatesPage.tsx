@@ -13,6 +13,7 @@ import { useCursorList } from "../../foundation/useCursorList";
 import { BlueprintsPanel } from "./BlueprintsPanel";
 import { TemplateDetails } from "./TemplateDetails";
 import { TemplateImportForm } from "./TemplateImport";
+import styles from "./Templates.module.css";
 
 export function TemplatesPage() {
   const [params, setParams] = useSearchParams();
@@ -22,23 +23,20 @@ export function TemplatesPage() {
     <main className="collection-page">
       <div className="page-heading">
         <h1>模板</h1>
-        <div className="view-switch" role="group" aria-label="模板分类">
-          {[
-            ["assets", "资产模板"],
-            ["environments", "环境模板"],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              className={section === value ? "selected" : ""}
-              aria-pressed={section === value}
-              onClick={() =>
-                setParams(value === "assets" ? {} : { tab: value })
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      </div>
+      <div className={styles.sections} role="group" aria-label="模板分类">
+        {[
+          ["assets", "资产模板"],
+          ["environments", "环境模板"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            aria-pressed={section === value}
+            onClick={() => setParams(value === "assets" ? {} : { tab: value })}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {section === "assets" ? <AssetTemplatesPanel /> : <BlueprintsPanel />}
     </main>
@@ -56,9 +54,9 @@ function AssetTemplatesPanel() {
     {
       refetchInterval: (items) =>
         items.some(
-          (template) =>
-            template.state === "importing" ||
-            (template.state === "deleting" && !template.error),
+          (item) =>
+            item.state === "importing" ||
+            (item.state === "deleting" && !item.error),
         )
           ? 2500
           : false,
@@ -69,7 +67,7 @@ function AssetTemplatesPanel() {
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
   const client = useQueryClient();
   const items = templates.data ?? [];
-  const detail = items.find((template) => template.id === selected);
+  const detail = items.find((item) => item.id === selected) ?? items[0];
   return (
     <>
       <div className="collection-toolbar">
@@ -89,13 +87,6 @@ function AssetTemplatesPanel() {
             </button>
           ))}
         </div>
-        <TextInput
-          aria-label="搜索模板"
-          placeholder="搜索模板"
-          leftSection={<Search size={16} />}
-          value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
-        />
         {identity.data?.administrator && (
           <Button
             leftSection={<Plus size={16} />}
@@ -108,89 +99,78 @@ function AssetTemplatesPanel() {
       <ErrorMessage error={templates.error} />
       {templates.isPending ? (
         <Loading />
-      ) : items.length ? (
-        <div className="table-surface">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>模板</th>
-                <th>系统</th>
-                <th>默认规格</th>
-                <th>格式</th>
-                <th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
+      ) : items.length || query ? (
+        <div className={styles.library}>
+          <aside className={styles.directory} aria-label="资产模板目录">
+            <TextInput
+              aria-label="搜索模板"
+              placeholder="搜索模板"
+              leftSection={<Search size={15} />}
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+            />
+            <div className={styles.items}>
               {items.map((template) => (
-                <tr key={template.id}>
-                  <td>
-                    <button
-                      type="button"
-                      className="object-link object-link-button"
-                      onClick={() => setSelected(template.id)}
-                    >
-                      <span className={`object-symbol ${template.kind}`}>
-                        {template.kind === "vm" ? (
-                          <Monitor size={20} />
-                        ) : (
-                          <Box size={20} />
-                        )}
-                      </span>
-                      <span>
-                        <strong>{template.name}</strong>
-                        <span className="secondary-line">
-                          {template.kind === "vm" ? "虚拟机" : "容器"} · v
-                          {template.version}
-                        </span>
-                      </span>
-                    </button>
-                  </td>
-                  <td>{template.os}</td>
-                  <td className="numeric">
-                    {template.resources.cpu} 核
-                    <span className="muted">
-                      {" "}
-                      · {memory(template.resources.memoryMiB)} ·{" "}
-                      {template.resources.diskGiB} GiB
+                <button
+                  key={template.id}
+                  className={styles.item}
+                  aria-label={template.name}
+                  aria-pressed={template.id === detail?.id}
+                  onClick={() => setSelected(template.id)}
+                >
+                  <span className={styles.symbol}>
+                    {template.kind === "vm" ? (
+                      <Monitor size={20} />
+                    ) : (
+                      <Box size={20} />
+                    )}
+                  </span>
+                  <span className={styles.itemText}>
+                    <strong>{template.name}</strong>
+                    <span>
+                      {template.os} · {template.format?.toUpperCase() ?? "OCI"}{" "}
+                      · v{template.version}
                     </span>
-                  </td>
-                  <td className="muted">
-                    {template.format?.toUpperCase() ??
-                      (template.kind === "container" ? "OCI" : "—")}
-                  </td>
-                  <td>
-                    <Status value={template.state ?? "importing"} />
-                  </td>
-                </tr>
+                    <span>
+                      {template.resources.cpu} 核 ·{" "}
+                      {memory(template.resources.memoryMiB)}
+                    </span>
+                  </span>
+                  <Status value={template.state ?? "importing"} />
+                </button>
               ))}
-            </tbody>
-          </table>
+              {!items.length && (
+                <Empty icon={<Search size={24} />} title="没有匹配的模板" />
+              )}
+              <LoadMore list={templates} />
+            </div>
+          </aside>
+          {detail ? (
+            <TemplateDetails
+              key={detail.id}
+              template={detail}
+              onClose={() => setSelected(undefined)}
+            />
+          ) : (
+            <div />
+          )}
         </div>
       ) : (
         !templates.error && (
           <Empty
             icon={<Boxes size={30} />}
-            title={
-              query || kind !== "all"
-                ? "没有匹配的模板"
-                : "导入可复用的资产模板"
-            }
-            action={
-              !query && kind === "all" && identity.data?.administrator
-                ? "导入模板"
-                : undefined
-            }
+            title={kind !== "all" ? "没有匹配的模板" : "暂无资产模板"}
+            action={identity.data?.administrator ? "导入模板" : undefined}
             onAction={() => setCreating(true)}
           />
         )
       )}
-      <LoadMore list={templates} />
       <Drawer
         opened={creating}
         onClose={() => setCreating(false)}
         title="导入资产模板"
         position="right"
-        size={500}
+        size={720}
       >
         <TemplateImportForm
           onCreated={() => {
@@ -199,12 +179,6 @@ function AssetTemplatesPanel() {
           }}
         />
       </Drawer>
-      {detail && (
-        <TemplateDetails
-          template={detail}
-          onClose={() => setSelected(undefined)}
-        />
-      )}
     </>
   );
 }

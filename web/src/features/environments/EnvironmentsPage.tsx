@@ -1,7 +1,7 @@
-import { ActionIcon, Button, TextInput } from "@mantine/core";
+import { Button, TextInput } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, Layers3, Plus, Search } from "lucide-react";
+import { Layers3, Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
@@ -12,6 +12,7 @@ import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { CreateEnvironmentDialog } from "./CreateEnvironmentDialog";
 import { allowsProject } from "../access/permissions";
+import styles from "./Environments.module.css";
 
 export function EnvironmentsPage() {
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
@@ -72,25 +73,25 @@ export function EnvironmentsPage() {
         <Loading />
       ) : items.length ? (
         <div className="table-surface">
-          <table className="data-table">
+          <table className={`data-table ${styles.table}`}>
             <thead>
               <tr>
                 <th>环境</th>
                 <th>状态</th>
-                <th>资产 / 网段</th>
+                <th>资产</th>
+                <th>网段</th>
                 <th>最近更新</th>
-                <th />
               </tr>
             </thead>
             <tbody>
               {items.map((environment) => (
                 <tr key={environment.id}>
-                  <td>
+                  <td className={styles.environment}>
                     <Link
                       className="object-link"
                       to={`/environments/${environment.id}`}
                     >
-                      <span className="object-symbol">
+                      <span className={styles.symbol}>
                         <Layers3 size={20} />
                       </span>
                       <span>
@@ -103,24 +104,19 @@ export function EnvironmentsPage() {
                       </span>
                     </Link>
                   </td>
-                  <td>
+                  <td className={styles.state}>
                     <Status value={environment.status} />
                   </td>
-                  <td className="numeric">
+                  <td className={styles.assetCount}>
                     {environment.assetCount}
-                    <span className="muted"> / {environment.networkCount}</span>
+                    <span> 资产</span>
                   </td>
-                  <td className="muted">{dateTime(environment.updatedAt)}</td>
-                  <td className="table-action">
-                    <ActionIcon
-                      component={Link}
-                      to={`/environments/${environment.id}`}
-                      variant="subtle"
-                      color="gray"
-                      aria-label={`打开${environment.name}`}
-                    >
-                      <ArrowUpRight size={18} />
-                    </ActionIcon>
+                  <td className={styles.networkCount}>
+                    {environment.networkCount}
+                    <span> 网段</span>
+                  </td>
+                  <td className={styles.updated}>
+                    {dateTime(environment.updatedAt)}
                   </td>
                 </tr>
               ))}

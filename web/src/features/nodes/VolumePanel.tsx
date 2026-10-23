@@ -14,6 +14,7 @@ import { useState } from "react";
 import { api, type Node, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
+import styles from "./StorageWorkspace.module.css";
 
 export function VolumePanel({
   node,
@@ -94,11 +95,8 @@ export function VolumePanel({
   };
   return (
     <section>
-      <div className="collection-toolbar">
-        <div className="section-label">
-          <Database size={17} />
-          数据卷
-        </div>
+      <div className={styles.panelToolbar}>
+        <h2>数据卷</h2>
         <Button
           variant="default"
           size="compact-sm"
@@ -150,44 +148,48 @@ export function VolumePanel({
                     )}
                   </td>
                   <td>
-                    <Menu withinPortal position="bottom-end">
-                      <Menu.Target>
-                        <ActionIcon
-                          variant="subtle"
-                          aria-label={`操作 ${volume.name}`}
-                        >
-                          <MoreHorizontal size={17} />
-                        </ActionIcon>
-                      </Menu.Target>
-                      <Menu.Dropdown>
-                        {volume.state === "failed" && volume.operationId && (
-                          <Menu.Item
-                            onClick={() => retry.mutate(volume.operationId!)}
+                    <div className={styles.rowActions}>
+                      <Button
+                        variant="subtle"
+                        size="compact-xs"
+                        disabled={
+                          volume.references.length > 0 ||
+                          volume.state !== "ready"
+                        }
+                        onClick={() => open("resize", volume)}
+                      >
+                        扩容
+                      </Button>
+                      <Menu withinPortal position="bottom-end">
+                        <Menu.Target>
+                          <ActionIcon
+                            variant="subtle"
+                            aria-label={`操作 ${volume.name}`}
                           >
-                            重试
+                            <MoreHorizontal size={17} />
+                          </ActionIcon>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                          {volume.state === "failed" && volume.operationId && (
+                            <Menu.Item
+                              onClick={() => retry.mutate(volume.operationId!)}
+                            >
+                              重试
+                            </Menu.Item>
+                          )}
+                          <Menu.Item
+                            color="red"
+                            disabled={
+                              volume.references.length > 0 ||
+                              !["ready", "failed"].includes(volume.state)
+                            }
+                            onClick={() => open("delete", volume)}
+                          >
+                            删除
                           </Menu.Item>
-                        )}
-                        <Menu.Item
-                          disabled={
-                            volume.references.length > 0 ||
-                            volume.state !== "ready"
-                          }
-                          onClick={() => open("resize", volume)}
-                        >
-                          扩容
-                        </Menu.Item>
-                        <Menu.Item
-                          color="red"
-                          disabled={
-                            volume.references.length > 0 ||
-                            !["ready", "failed"].includes(volume.state)
-                          }
-                          onClick={() => open("delete", volume)}
-                        >
-                          删除
-                        </Menu.Item>
-                      </Menu.Dropdown>
-                    </Menu>
+                        </Menu.Dropdown>
+                      </Menu>
+                    </div>
                   </td>
                 </tr>
               ))}

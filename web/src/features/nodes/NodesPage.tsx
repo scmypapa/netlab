@@ -1,7 +1,7 @@
 import { Button, Drawer, Modal, TextInput, Tabs } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@mantine/hooks";
-import { Cpu, Plus, Search, Server } from "lucide-react";
+import { Cpu, Plus, Search } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type Node } from "../../api/client";
@@ -10,9 +10,11 @@ import { VolumePanel } from "./VolumePanel";
 import { BackupRepositoryPanel } from "./BackupRepositoryPanel";
 import { RetirementPanel } from "./RetirementPanel";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
-import { NodeCards } from "./NodeCards";
+import { NodeInventory } from "./NodeInventory";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
+import { Status } from "../../foundation/Status";
+import styles from "./NodeInventory.module.css";
 
 const PerformanceWorkspace = lazy(
   () => import("../workbench/PerformanceWorkspace"),
@@ -94,10 +96,6 @@ export function NodesPage() {
       ) : (
         <>
           <div className="collection-toolbar">
-            <div className="section-label">
-              <Server size={16} />
-              计算节点
-            </div>
             <TextInput
               aria-label="搜索节点"
               placeholder="搜索节点"
@@ -110,7 +108,7 @@ export function NodesPage() {
           {nodes.isPending ? (
             <Loading />
           ) : items.length ? (
-            <NodeCards nodes={items} onSelect={setSelected} />
+            <NodeInventory nodes={items} onSelect={setSelected} />
           ) : (
             !nodes.error && (
               <Empty
@@ -129,39 +127,52 @@ export function NodesPage() {
         onClose={() => setSelected(undefined)}
         title={selected?.name}
         position="right"
-        size={680}
+        size={840}
         closeButtonProps={{ "aria-label": "关闭节点" }}
       >
         {selected && (
-          <Tabs defaultValue="performance" keepMounted={false}>
-            <Tabs.List mb="md">
-              <Tabs.Tab value="performance">性能</Tabs.Tab>
-              <Tabs.Tab value="storage">存储池</Tabs.Tab>
-              <Tabs.Tab value="volumes">数据卷</Tabs.Tab>
-              <Tabs.Tab value="backups">备份仓库</Tabs.Tab>
-              <Tabs.Tab value="retirement">退出节点</Tabs.Tab>
-            </Tabs.List>
-            <Tabs.Panel value="performance">
-              <Suspense fallback={<Loading />}>
-                <PerformanceWorkspace node={selected} />
-              </Suspense>
-            </Tabs.Panel>
-            <Tabs.Panel value="storage">
-              <NodeStorageSummary node={selected} />
-            </Tabs.Panel>
-            <Tabs.Panel value="backups">
-              <BackupRepositoryPanel node={selected} />
-            </Tabs.Panel>
-            <Tabs.Panel value="volumes">
-              <VolumePanel node={selected} />
-            </Tabs.Panel>
-            <Tabs.Panel value="retirement">
-              <RetirementPanel
-                node={selected}
-                onRemoved={() => setSelected(undefined)}
-              />
-            </Tabs.Panel>
-          </Tabs>
+          <>
+            <div className={styles.drawerHeader}>
+              <div>
+                <strong>
+                  {selected.capacity.cpu} 核 ·{" "}
+                  {selected.capacity.memoryMiB / 1024} GiB 内存 ·{" "}
+                  {selected.capacity.diskGiB} GiB 存储
+                </strong>
+                <span>{selected.endpoint}</span>
+              </div>
+              <Status value={selected.state ?? "unknown"} />
+            </div>
+            <Tabs defaultValue="performance" keepMounted={false}>
+              <Tabs.List mb="md">
+                <Tabs.Tab value="performance">性能</Tabs.Tab>
+                <Tabs.Tab value="storage">存储池</Tabs.Tab>
+                <Tabs.Tab value="volumes">数据卷</Tabs.Tab>
+                <Tabs.Tab value="backups">备份仓库</Tabs.Tab>
+                <Tabs.Tab value="retirement">退出节点</Tabs.Tab>
+              </Tabs.List>
+              <Tabs.Panel value="performance">
+                <Suspense fallback={<Loading />}>
+                  <PerformanceWorkspace node={selected} />
+                </Suspense>
+              </Tabs.Panel>
+              <Tabs.Panel value="storage">
+                <NodeStorageSummary node={selected} />
+              </Tabs.Panel>
+              <Tabs.Panel value="backups">
+                <BackupRepositoryPanel node={selected} />
+              </Tabs.Panel>
+              <Tabs.Panel value="volumes">
+                <VolumePanel node={selected} />
+              </Tabs.Panel>
+              <Tabs.Panel value="retirement">
+                <RetirementPanel
+                  node={selected}
+                  onRemoved={() => setSelected(undefined)}
+                />
+              </Tabs.Panel>
+            </Tabs>
+          </>
         )}
       </Drawer>
       <Modal

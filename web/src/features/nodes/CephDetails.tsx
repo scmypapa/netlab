@@ -1,4 +1,4 @@
-import { Badge, Button, Modal, NumberInput } from "@mantine/core";
+import { Badge, Button, Modal, NumberInput, Progress } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Schema } from "../../api/client";
@@ -122,36 +122,34 @@ export function CephDetails({
                 <span>接入节点</span>
               </div>
             </div>
-            <div className={styles.table}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>数据盘</th>
-                    <th>节点</th>
-                    <th>实际使用 / 总计</th>
-                    <th>状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {value.disks.map((d) => (
-                    <tr key={d.name}>
-                      <td>{d.name}</td>
-                      <td>{d.host}</td>
-                      <td>
-                        {Math.floor(d.usedBytes / 2 ** 30)} /{" "}
-                        {Math.floor(d.capacityBytes / 2 ** 30)} GiB
-                      </td>
-                      <td>
-                        {d.state === "up"
-                          ? "在线"
-                          : d.state === "down"
-                            ? "离线"
-                            : d.state}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className={styles.diskMap} aria-label="Ceph 数据盘">
+              {value.disks.map((d) => (
+                <div key={d.name} className={styles.diskUsage}>
+                  <div>
+                    <strong>{d.host}</strong>
+                    <span>{d.name}</span>
+                    <span data-state={d.state}>
+                      {d.state === "up"
+                        ? "在线"
+                        : d.state === "down"
+                          ? "离线"
+                          : d.state}
+                    </span>
+                  </div>
+                  <Progress
+                    aria-label={`${d.name} 使用率`}
+                    size={6}
+                    value={(d.usedBytes / d.capacityBytes) * 100}
+                    color={
+                      d.state === "up" ? "var(--accent)" : "var(--negative)"
+                    }
+                  />
+                  <span>
+                    {Math.floor(d.usedBytes / 2 ** 30)} /{" "}
+                    {Math.floor(d.capacityBytes / 2 ** 30)} GiB
+                  </span>
+                </div>
+              ))}
             </div>
           </>
         ))}

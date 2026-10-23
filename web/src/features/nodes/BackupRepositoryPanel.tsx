@@ -21,6 +21,7 @@ import { api, type Node, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { Status } from "../../foundation/Status";
 import { BackupCatalog } from "./BackupCatalog";
+import styles from "./StorageWorkspace.module.css";
 
 export function BackupRepositoryPanel({ node }: { node: Node }) {
   const client = useQueryClient();
@@ -97,7 +98,7 @@ export function BackupRepositoryPanel({ node }: { node: Node }) {
   const catalog = items.find((repo) => repo.id === catalogId);
   return (
     <section className="form-stack">
-      <div className="collection-toolbar">
+      <div className={styles.panelToolbar}>
         <h2>备份仓库</h2>
         <Button
           size="xs"
@@ -135,7 +136,13 @@ export function BackupRepositoryPanel({ node }: { node: Node }) {
               {items.map((repo) => (
                 <tr key={repo.id}>
                   <td>
-                    <strong>{repo.name}</strong>
+                    <button
+                      className={styles.resourceName}
+                      disabled={repo.state !== "ready"}
+                      onClick={() => setCatalogId(repo.id)}
+                    >
+                      {repo.name}
+                    </button>
                     <span className="secondary-line">{repo.location}</span>
                     {repo.error && (
                       <ErrorMessage error={new Error(repo.error)} />
@@ -155,13 +162,6 @@ export function BackupRepositoryPanel({ node }: { node: Node }) {
                         </ActionIcon>
                       </Menu.Target>
                       <Menu.Dropdown>
-                        <Menu.Item
-                          leftSection={<Archive size={15} />}
-                          disabled={repo.state !== "ready"}
-                          onClick={() => setCatalogId(repo.id)}
-                        >
-                          查看备份
-                        </Menu.Item>
                         {repo.state === "failed" && repo.operationId && (
                           <Menu.Item
                             leftSection={<RotateCcw size={15} />}
