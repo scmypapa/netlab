@@ -247,7 +247,7 @@ test("本地环境磁盘按需迁入指定共享池", async ({ page }) => {
   await page.getByRole("option", { name: "共享存储", exact: true }).click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "迁移", exact: true })
+    .getByRole("button", { name: "停机迁移", exact: true })
     .click();
   await expect.poll(() => submitted).toBe(true);
 });

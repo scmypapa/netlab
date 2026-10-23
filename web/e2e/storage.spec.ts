@@ -1,4 +1,12 @@
 import { expect, test } from "@playwright/test";
+import type { Schema } from "../src/api/client";
+
+const emptyMetrics: Schema<"MetricHistory"> = {
+  start: "2026-10-23T08:00:00Z",
+  end: "2026-10-23T08:01:00Z",
+  stepSeconds: 10,
+  series: [],
+};
 
 for (const scenario of [
   "missing-disk",
@@ -147,6 +155,7 @@ test("持久卷创建、扩容和删除使用同一节点工作区", async ({ pa
           },
         },
       ];
+    if (path === "/nodes/metrics") response = emptyMetrics;
     if (path.startsWith("/volumes")) {
       if (request.method() === "GET") response = volume ? [volume] : [];
       else {
@@ -240,6 +249,7 @@ test("仓库目录中的备份通过标准创建接口恢复", async ({ page }) 
           slots: 4,
         },
       ];
+    if (path === "/nodes/metrics") response = emptyMetrics;
     if (path === "/backup-repositories")
       response = [
         {
