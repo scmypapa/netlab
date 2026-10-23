@@ -17,6 +17,27 @@ export type Identity = Schema<"Identity">;
 export type Principal = Schema<"Principal">;
 export type Permission = Schema<"Permission">;
 export type RolePreset = Schema<"RolePreset">;
+export type PacketFilters = {
+  start?: string;
+  end?: string;
+  assetId?: string;
+  interfaceId?: string;
+  source?: string;
+  destination?: string;
+  sourcePort?: number;
+  destinationPort?: number;
+  protocol?: string;
+  filter?: string;
+  cursor?: string;
+  limit?: number;
+};
+
+function packetQuery(filters: PacketFilters) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters))
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  return query;
+}
 export type EnvironmentGrant = Schema<"EnvironmentGrant">;
 
 export class ApiError extends Error {
@@ -313,6 +334,36 @@ export const api = {
       undefined,
       signal,
     );
+  },
+  environmentPackets: (
+    id: string,
+    filters: PacketFilters = {},
+    signal?: AbortSignal,
+  ) =>
+    request<Schema<"RecentPacketPage">>(
+      `/environments/${id}/packets?${packetQuery(filters)}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+  environmentPacket: (id: string, packetId: string, signal?: AbortSignal) =>
+    request<Schema<"CapturePacketDetail">>(
+      `/environments/${id}/packets/${encodeURIComponent(packetId)}`,
+      "GET",
+      undefined,
+      signal,
+    ),
+  exportEnvironmentPackets: async (
+    id: string,
+    filters: PacketFilters = {},
+    signal?: AbortSignal,
+  ) => {
+    const response = await fetch(
+      `/api/v1/environments/${id}/packets/export?${packetQuery(filters)}`,
+      { credentials: "same-origin", signal },
+    );
+    await checkResponse(response);
+    return response.blob();
   },
   capturePacket: (
     id: string,

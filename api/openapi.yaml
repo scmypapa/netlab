@@ -98,7 +98,40 @@ paths:
     get:
       operationId: observeTraffic
       responses:
-        '200': {description: Rolling sampled conversations; counters are statistical estimates, content: {application/json: {schema: {$ref: '#/components/schemas/TrafficObservation'}}}}
+        '200': {description: Rolling IPFIX conversations and recent packet retention, content: {application/json: {schema: {$ref: '#/components/schemas/TrafficObservation'}}}}
+  /environments/{id}/packets:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: environmentPackets
+      parameters:
+        - {name: start, in: query, schema: {type: string, format: date-time}}
+        - {name: end, in: query, schema: {type: string, format: date-time}}
+        - {name: assetId, in: query, schema: {type: string}}
+        - {name: interfaceId, in: query, schema: {type: string}}
+        - {name: source, in: query, schema: {type: string}, description: IP or MAC address; endpoint filters match both directions}
+        - {name: destination, in: query, schema: {type: string}}
+        - {name: sourcePort, in: query, schema: {type: integer, minimum: 0, maximum: 65535}}
+        - {name: destinationPort, in: query, schema: {type: integer, minimum: 0, maximum: 65535}}
+        - {name: protocol, in: query, schema: {type: string}}
+        - {name: filter, in: query, schema: {type: string}, description: Wireshark display filter}
+        - {name: cursor, in: query, schema: {type: string}, description: Opaque cursor toward older packets}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+      responses:
+        '200': {description: Latest matching packets in chronological order; nextCursor requests older packets, content: {application/json: {schema: {$ref: '#/components/schemas/RecentPacketPage'}}}}
+  /environments/{id}/packets/export:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: exportEnvironmentPackets
+      responses:
+        '200': {description: Retained packets matching the same filters as environmentPackets, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
+  /environments/{id}/packets/{packetId}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: packetId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: environmentPacket
+      responses:
+        '200': {description: Original frame and TShark protocol tree, content: {application/json: {schema: {$ref: '#/components/schemas/CapturePacketDetail'}}}}
   /environments/{id}/security:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -2151,12 +2184,14 @@ components:
       type: object
       required: [cursor, interfaces]
       properties:
+        packetQuotas: {type: object, additionalProperties: {type: integer, format: int64}}
         cursor: {type: string}
         interfaces: {type: array, items: {$ref: '#/components/schemas/SecurityInterface'}}
     NodeSecurityObservation:
       type: object
       required: [cursor, alerts, sensor, coverage, historyGap, hasMore]
       properties:
+        packetRetention: {type: object, additionalProperties: {$ref: '#/components/schemas/PacketRetention'}}
         cursor: {type: string}
         alerts: {type: array, items: {$ref: '#/components/schemas/SecurityAlert'}}
         sensor: {$ref: '#/components/schemas/SecuritySensor'}
@@ -2189,6 +2224,25 @@ components:
         samplingRate: {type: integer, description: IPFIX export denominator; 1 means every packet contributes to the flow counters.}
         windowSeconds: {type: integer, description: Rolling retention window for observed samples.}
         omittedSamples: {type: integer, format: int64, description: Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.}
+        retention: {$ref: '#/components/schemas/PacketRetention'}
+    PacketRetention:
+      type: object
+      required: [limitBytes, usedBytes, status]
+      properties:
+        limitBytes: {type: integer, format: int64}
+        usedBytes: {type: integer, format: int64}
+        oldestAt: {type: string, format: date-time}
+        newestAt: {type: string, format: date-time}
+        status: {type: string, enum: [recording, idle, unavailable]}
+        error: {type: string}
+    RecentPacketPage:
+      type: object
+      required: [packets, retention, errors]
+      properties:
+        packets: {type: array, items: {$ref: '#/components/schemas/CapturePacket'}}
+        nextCursor: {type: string}
+        retention: {$ref: '#/components/schemas/PacketRetention'}
+        errors: {type: object, additionalProperties: {type: string}}
     CreateCapture:
       type: object
       required: [assetIds, durationSeconds, fileSizeMiB]
@@ -2271,6 +2325,13 @@ components:
       type: object
       required: [number, time, length, capturedLength, interfaceIndex, source, destination, sourcePort, destinationPort, protocol, summary]
       properties:
+        id: {type: string, description: Stable opaque node/segment/frame identity for recent packets}
+        nodeId: {type: string}
+        assetId: {type: string}
+        interfaceId: {type: string}
+        networkId: {type: string}
+        sourceMac: {type: string}
+        destinationMac: {type: string}
         number: {type: integer, format: int64}
         time: {type: string, format: date-time}
         length: {type: integer}

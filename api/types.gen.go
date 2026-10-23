@@ -199,6 +199,13 @@ const (
 	OperationStateSucceeded        OperationState = "succeeded"
 )
 
+// Defines values for PacketRetentionStatus.
+const (
+	PacketRetentionStatusIdle        PacketRetentionStatus = "idle"
+	PacketRetentionStatusRecording   PacketRetentionStatus = "recording"
+	PacketRetentionStatusUnavailable PacketRetentionStatus = "unavailable"
+)
+
 // Defines values for Permission.
 const (
 	PermissionAccess  Permission = "access"
@@ -354,14 +361,14 @@ const (
 
 // Defines values for UpdateActivityPhase.
 const (
-	Downloading       UpdateActivityPhase = "downloading"
-	Failed            UpdateActivityPhase = "failed"
-	Installing        UpdateActivityPhase = "installing"
-	Queued            UpdateActivityPhase = "queued"
-	Restarting        UpdateActivityPhase = "restarting"
-	Succeeded         UpdateActivityPhase = "succeeded"
-	UpdatingNodes     UpdateActivityPhase = "updating_nodes"
-	WaitingOperations UpdateActivityPhase = "waiting_operations"
+	UpdateActivityPhaseDownloading       UpdateActivityPhase = "downloading"
+	UpdateActivityPhaseFailed            UpdateActivityPhase = "failed"
+	UpdateActivityPhaseInstalling        UpdateActivityPhase = "installing"
+	UpdateActivityPhaseQueued            UpdateActivityPhase = "queued"
+	UpdateActivityPhaseRestarting        UpdateActivityPhase = "restarting"
+	UpdateActivityPhaseSucceeded         UpdateActivityPhase = "succeeded"
+	UpdateActivityPhaseUpdatingNodes     UpdateActivityPhase = "updating_nodes"
+	UpdateActivityPhaseWaitingOperations UpdateActivityPhase = "waiting_operations"
 )
 
 // Defines values for VPNAccessState.
@@ -609,17 +616,26 @@ type CaptureList struct {
 
 // CapturePacket defines model for CapturePacket.
 type CapturePacket struct {
-	CapturedLength  int       `json:"capturedLength"`
-	Destination     string    `json:"destination"`
-	DestinationPort int       `json:"destinationPort"`
-	InterfaceIndex  int       `json:"interfaceIndex"`
-	Length          int       `json:"length"`
-	Number          int64     `json:"number"`
-	Protocol        string    `json:"protocol"`
-	Source          string    `json:"source"`
-	SourcePort      int       `json:"sourcePort"`
-	Summary         string    `json:"summary"`
-	Time            time.Time `json:"time"`
+	AssetId         *string `json:"assetId,omitempty"`
+	CapturedLength  int     `json:"capturedLength"`
+	Destination     string  `json:"destination"`
+	DestinationMac  *string `json:"destinationMac,omitempty"`
+	DestinationPort int     `json:"destinationPort"`
+
+	// Id Stable opaque node/segment/frame identity for recent packets
+	Id             *string   `json:"id,omitempty"`
+	InterfaceId    *string   `json:"interfaceId,omitempty"`
+	InterfaceIndex int       `json:"interfaceIndex"`
+	Length         int       `json:"length"`
+	NetworkId      *string   `json:"networkId,omitempty"`
+	NodeId         *string   `json:"nodeId,omitempty"`
+	Number         int64     `json:"number"`
+	Protocol       string    `json:"protocol"`
+	Source         string    `json:"source"`
+	SourceMac      *string   `json:"sourceMac,omitempty"`
+	SourcePort     int       `json:"sourcePort"`
+	Summary        string    `json:"summary"`
+	Time           time.Time `json:"time"`
 }
 
 // CapturePacketDetail defines model for CapturePacketDetail.
@@ -1369,18 +1385,20 @@ type NodeSSH struct {
 
 // NodeSecurityObservation defines model for NodeSecurityObservation.
 type NodeSecurityObservation struct {
-	Alerts     []SecurityAlert `json:"alerts"`
-	Coverage   map[string]int  `json:"coverage"`
-	Cursor     string          `json:"cursor"`
-	HasMore    bool            `json:"hasMore"`
-	HistoryGap bool            `json:"historyGap"`
-	Sensor     SecuritySensor  `json:"sensor"`
+	Alerts          []SecurityAlert             `json:"alerts"`
+	Coverage        map[string]int              `json:"coverage"`
+	Cursor          string                      `json:"cursor"`
+	HasMore         bool                        `json:"hasMore"`
+	HistoryGap      bool                        `json:"historyGap"`
+	PacketRetention *map[string]PacketRetention `json:"packetRetention,omitempty"`
+	Sensor          SecuritySensor              `json:"sensor"`
 }
 
 // NodeSecurityRequest defines model for NodeSecurityRequest.
 type NodeSecurityRequest struct {
-	Cursor     string              `json:"cursor"`
-	Interfaces []SecurityInterface `json:"interfaces"`
+	Cursor       string              `json:"cursor"`
+	Interfaces   []SecurityInterface `json:"interfaces"`
+	PacketQuotas *map[string]int64   `json:"packetQuotas,omitempty"`
 }
 
 // NodeServiceBinding defines model for NodeServiceBinding.
@@ -1475,6 +1493,19 @@ type PacketField struct {
 	Offset   int           `json:"offset"`
 	Value    *string       `json:"value,omitempty"`
 }
+
+// PacketRetention defines model for PacketRetention.
+type PacketRetention struct {
+	Error      *string               `json:"error,omitempty"`
+	LimitBytes int64                 `json:"limitBytes"`
+	NewestAt   *time.Time            `json:"newestAt,omitempty"`
+	OldestAt   *time.Time            `json:"oldestAt,omitempty"`
+	Status     PacketRetentionStatus `json:"status"`
+	UsedBytes  int64                 `json:"usedBytes"`
+}
+
+// PacketRetentionStatus defines model for PacketRetention.Status.
+type PacketRetentionStatus string
 
 // PciBinding defines model for PciBinding.
 type PciBinding struct {
@@ -1576,6 +1607,14 @@ type RbdStorage struct {
 	Pool        string   `json:"pool"`
 	SecretId    string   `json:"secretId"`
 	User        string   `json:"user"`
+}
+
+// RecentPacketPage defines model for RecentPacketPage.
+type RecentPacketPage struct {
+	Errors     map[string]string `json:"errors"`
+	NextCursor *string           `json:"nextCursor,omitempty"`
+	Packets    []CapturePacket   `json:"packets"`
+	Retention  PacketRetention   `json:"retention"`
 }
 
 // RecoveryCapture defines model for RecoveryCapture.
@@ -1991,7 +2030,8 @@ type TrafficObservation struct {
 	ObservedAt time.Time         `json:"observedAt"`
 
 	// OmittedSamples Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.
-	OmittedSamples int64 `json:"omittedSamples"`
+	OmittedSamples int64            `json:"omittedSamples"`
+	Retention      *PacketRetention `json:"retention,omitempty"`
 
 	// SamplingRate IPFIX export denominator; 1 means every packet contributes to the flow counters.
 	SamplingRate int `json:"samplingRate"`
@@ -2230,6 +2270,28 @@ type GetEnvironmentMetricsParams struct {
 
 	// Step Seconds between points; defaults to at most 600 points
 	Step *int `form:"step,omitempty" json:"step,omitempty"`
+}
+
+// EnvironmentPacketsParams defines parameters for EnvironmentPackets.
+type EnvironmentPacketsParams struct {
+	Start       *time.Time `form:"start,omitempty" json:"start,omitempty"`
+	End         *time.Time `form:"end,omitempty" json:"end,omitempty"`
+	AssetId     *string    `form:"assetId,omitempty" json:"assetId,omitempty"`
+	InterfaceId *string    `form:"interfaceId,omitempty" json:"interfaceId,omitempty"`
+
+	// Source IP or MAC address; endpoint filters match both directions
+	Source          *string `form:"source,omitempty" json:"source,omitempty"`
+	Destination     *string `form:"destination,omitempty" json:"destination,omitempty"`
+	SourcePort      *int    `form:"sourcePort,omitempty" json:"sourcePort,omitempty"`
+	DestinationPort *int    `form:"destinationPort,omitempty" json:"destinationPort,omitempty"`
+	Protocol        *string `form:"protocol,omitempty" json:"protocol,omitempty"`
+
+	// Filter Wireshark display filter
+	Filter *string `form:"filter,omitempty" json:"filter,omitempty"`
+
+	// Cursor Opaque cursor toward older packets
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListRecoveryPointsParams defines parameters for ListRecoveryPoints.
