@@ -239,7 +239,13 @@ func (r *Recorder) startPart(environment string, interfaces []api.CaptureInterfa
 func (r *Recorder) configure(quotas map[string]int64, interfaces []api.SecurityInterface) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, state := range r.environments {
+	for environment, state := range r.environments {
+		if _, assigned := quotas[environment]; !assigned {
+			if err := r.remove(environment); err != nil {
+				return err
+			}
+			continue
+		}
 		state.running = false
 	}
 	for environment, quota := range quotas {
@@ -361,6 +367,9 @@ func (r *Recorder) Close() error {
 func (r *Recorder) Remove(environment string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.remove(environment)
+}
+func (r *Recorder) remove(environment string) error {
 	if state := r.environments[environment]; state != nil {
 		if err := r.closePart(environment); err != nil {
 			return err
@@ -433,23 +442,32 @@ func ParsePacketIdentity(value string) (node, part string, frame int64, err erro
 func packetCursor(packet api.CapturePacket) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(packet.Time.Format(time.RFC3339Nano) + "/" + *packet.Id))
 }
-func packetBefore(packet api.CapturePacket, cursor string) (bool, error) {
+
+type packetPosition struct {
+	at time.Time
+	id string
+}
+
+func parsePacketCursor(cursor string) (packetPosition, error) {
 	if cursor == "" {
-		return true, nil
+		return packetPosition{}, nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return false, fmt.Errorf("无效报文游标")
+		return packetPosition{}, fmt.Errorf("无效报文游标")
 	}
 	at, id, ok := strings.Cut(string(raw), "/")
 	if !ok {
-		return false, fmt.Errorf("无效报文游标")
+		return packetPosition{}, fmt.Errorf("无效报文游标")
 	}
 	timestamp, err := time.Parse(time.RFC3339Nano, at)
 	if err != nil {
-		return false, err
+		return packetPosition{}, err
 	}
-	return packet.Time.Before(timestamp) || packet.Time.Equal(timestamp) && *packet.Id < id, nil
+	return packetPosition{timestamp, id}, nil
+}
+func packetBefore(packet api.CapturePacket, cursor packetPosition) bool {
+	return cursor.id == "" || packet.Time.Before(cursor.at) || packet.Time.Equal(cursor.at) && *packet.Id < cursor.id
 }
 
 type partRead struct {

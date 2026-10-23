@@ -159,6 +159,19 @@ func TestRealInterfaceCaptureLifecycle(t *testing.T) {
 	if entries, err := os.ReadDir(filepath.Join(directory, "captures")); err != nil || len(entries) != 0 {
 		t.Fatalf("capture residue: %v %v", entries, err)
 	}
+	// A previously in-flight observer request can arrive after explicit destruction.
+	if _, err = reloaded.Reconcile(ctx, targets, map[string]int64{request.EnvironmentId: PacketBudget}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(reloaded.recorder.directory, request.EnvironmentId)); err != nil {
+		t.Fatal("stale snapshot was not recreated", err)
+	}
+	if _, err = reloaded.Reconcile(ctx, []api.SecurityInterface{}, map[string]int64{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(reloaded.recorder.directory, request.EnvironmentId)); !os.IsNotExist(err) {
+		t.Fatal("authoritative empty snapshot retained destroyed environment packets", err)
+	}
 	output, err := exec.Command("ovs-vsctl", "--columns=name", "--format=csv", "--data=bare", "--no-headings", "find", "Mirror", "external_ids:netlab.capture="+id).Output()
 	if err != nil || len(strings.TrimSpace(string(output))) != 0 {
 		t.Fatalf("OVS mirror residue: %s %v", output, err)

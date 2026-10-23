@@ -115,7 +115,6 @@ func TestRealContinuousOVSFlows(t *testing.T) {
 			if err != nil {
 				t.Fatal("collector restart", err)
 			}
-			command("set", "Bridge", bridge, "other_config:netlab-test-configured=true")
 		}
 	}
 }

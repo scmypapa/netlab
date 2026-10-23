@@ -83,8 +83,7 @@ func ParseRecentQuery(values url.Values) (RecentQuery, error) {
 		}
 	}
 	if q.Cursor != "" {
-		id := "validation"
-		if _, err = packetBefore(api.CapturePacket{Id: &id}, q.Cursor); err != nil {
+		if _, err = parsePacketCursor(q.Cursor); err != nil {
 			return q, err
 		}
 	}
@@ -206,6 +205,10 @@ func mergeRetention(total *api.PacketRetention, part api.PacketRetention) {
 }
 func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery) (api.RecentPacketPage, error) {
 	result := api.RecentPacketPage{Packets: []api.CapturePacket{}, Errors: map[string]string{}, Retention: r.Retention()[environment]}
+	cursor, err := parsePacketCursor(q.Cursor)
+	if err != nil {
+		return result, err
+	}
 	parts, err := r.openParts(environment)
 	if err != nil {
 		return result, err
@@ -302,11 +305,7 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 			if transport != "" {
 				packet.TransportProtocol = &transport
 			}
-			older, cursorErr := packetBefore(packet, q.Cursor)
-			if cursorErr != nil {
-				return result, cursorErr
-			}
-			if !older {
+			if !packetBefore(packet, cursor) {
 				continue
 			}
 			at, _ := slices.BinarySearchFunc(result.Packets, packet, packetOrder)
