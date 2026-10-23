@@ -290,6 +290,8 @@ const alert: Schema<"SecurityAlert"> = {
   id: 101,
   environmentId: "env",
   nodeId: "node-a",
+  interfaceId: "nic-win7",
+  networkId: "internal",
   sourceAssetId: "win7",
   destinationAssetId: "oa",
   source: "172.22.1.21",
@@ -515,14 +517,25 @@ test("点连接直接分析报文，协议与字节双向联动，键盘可选�
 }) => {
   const { state, requests } = await fixture(page);
   state.packetReply = (url) =>
-    url.searchParams.get("filter")?.includes("172.22.1.2")
-      ? state.packets.filter((packet) => packet.protocol === "UDP")
+    url.searchParams.get("assetId") === "dc"
+      ? state.packets
+          .filter((packet) => packet.protocol === "UDP")
+          .map((packet) => ({
+            ...packet,
+            assetId: "dc",
+            interfaceId: "nic-dc",
+          }))
       : state.packets;
   await open(page);
   await clickConnection(page);
   await expect
-    .poll(() => packetCalls(requests).at(-1)?.url.searchParams.get("filter"))
-    .toContain("172.22.1.2");
+    .poll(() => packetCalls(requests).at(-1)?.url.searchParams.get("assetId"))
+    .toBe("dc");
+  const edgeQuery = packetCalls(requests).at(-1)!.url.searchParams;
+  expect(edgeQuery.get("networkId")).toBe("internal");
+  expect(edgeQuery.get("filter")).toBe(
+    "(ip.addr == 172.22.1.21 || eth.addr == 02:00:00:00:00:04)",
+  );
   const table = page.getByRole("grid", { name: "报文列表" });
   await expect(table.getByRole("row")).toHaveCount(10);
   expect(requests.some(({ url }) => /\/packets\/.+/.test(url.pathname))).toBe(
@@ -582,6 +595,16 @@ test("点连接直接分析报文，协议与字节双向联动，键盘可选�
   await expect(connection(page)).toHaveClass(/selected/);
   await page.keyboard.press("Escape");
   await expect(connection(page)).not.toHaveClass(/selected/);
+  await page
+    .getByRole("region", { name: "资产通信图" })
+    .locator('.react-flow__node[data-id="web"]')
+    .press("Enter");
+  await expect
+    .poll(() => packetCalls(requests).at(-1)?.url.searchParams.get("assetId"))
+    .toBe("web");
+  const assetQuery = packetCalls(requests).at(-1)!.url.searchParams;
+  expect(assetQuery.get("networkId")).toBeNull();
+  expect(assetQuery.get("filter")).toBeNull();
 });
 
 test("风险在同一工作台筛选、分页并直接定位关联报文", async ({ page }) => {
@@ -628,6 +651,9 @@ test("风险在同一工作台筛选、分页并直接定位关联报文", async
     .toContain("tcp.port == 50000");
   const query = packetCalls(requests).at(-1)!.url.searchParams;
   expect(query.get("filter")).toContain("tcp.port == 80");
+  expect(query.get("assetId")).toBeNull();
+  expect(query.get("interfaceId")).toBe("nic-win7");
+  expect(query.get("networkId")).toBe("internal");
   expect(query.get("start")).toBe(alert.firstSeen);
   await expect(page.getByLabel("报文协议层")).toContainText(alert.signature);
   await expect(
@@ -856,6 +882,40 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
     for (const width of [1366, 1920, 2560, 390]) {
       await page.setViewportSize({ width, height: width === 1366 ? 768 : 900 });
       await open(page);
+      if (width === 390)
+        await page.getByRole("button", { name: "通信图", exact: true }).click();
+      const graph = page.getByRole("region", { name: "资产通信图" });
+      await expect(graph).toBeVisible();
+      await expect(
+        graph.locator('.react-flow__node:has([data-kind="asset"])'),
+      ).toHaveCount(assets.length);
+      await expect
+        .poll(() =>
+          graph.locator(".react-flow").evaluate((canvas) => {
+            const frame = canvas.getBoundingClientRect();
+            return Array.from(
+              canvas.querySelectorAll(
+                '.react-flow__node:has([data-kind="asset"])',
+              ),
+            )
+              .filter((node) => {
+                const rect = node.getBoundingClientRect();
+                return (
+                  rect.left < frame.left - 1 ||
+                  rect.right > frame.right + 1 ||
+                  rect.top < frame.top - 1 ||
+                  rect.bottom > frame.bottom + 1
+                );
+              })
+              .map((node) => node.getAttribute("data-id"));
+          }),
+        )
+        .toEqual([]);
+      if (width === 390)
+        await page
+          .getByRole("button", { name: "报文", exact: true })
+          .first()
+          .click();
       await page
         .getByRole("grid", { name: "报文列表" })
         .getByRole("row")
