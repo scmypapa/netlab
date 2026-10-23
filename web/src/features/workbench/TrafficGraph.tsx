@@ -110,7 +110,7 @@ function arrange(nodes: AssetNode[], links: TrafficLink[]) {
   const graph = new dagre.graphlib.Graph()
     .setGraph({ rankdir: "LR", ranksep: 100, nodesep: 52 })
     .setDefaultEdgeLabel(() => ({}));
-  for (const node of nodes) graph.setNode(node.id, size);
+  for (const node of nodes) graph.setNode(node.id, { ...size });
   for (const link of links) graph.setEdge(link.source, link.target);
   dagre.layout(graph);
   return nodes.map((node) => ({

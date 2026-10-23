@@ -597,15 +597,17 @@ export default function TrafficWorkspace({
             </span>
           </header>
           <div className={styles.paneBody}>
-            <TrafficGraph
-              environment={environment}
-              links={graphLinks}
-              groups={groups}
-              colors={colors}
-              selection={selection}
-              onSelect={select}
-              fullscreenTarget={host}
-            />
+            {!data.traffic.isPending && (
+              <TrafficGraph
+                environment={environment}
+                links={graphLinks}
+                groups={groups}
+                colors={colors}
+                selection={selection}
+                onSelect={select}
+                fullscreenTarget={host}
+              />
+            )}
           </div>
         </section>
         <section className={styles.packetPane}>
