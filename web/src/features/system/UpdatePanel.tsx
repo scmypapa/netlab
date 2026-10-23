@@ -1,13 +1,12 @@
-import {
-  ActionIcon,
-  Badge,
-  Button,
-  Drawer,
-  Loader,
-  Modal,
-} from "@mantine/core";
+import { Button, Drawer, Loader, Modal, Progress } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  CircleAlert,
+  Download,
+  RefreshCw,
+} from "lucide-react";
 import { useState } from "react";
 import Markdown from "react-markdown";
 import { api, type Schema } from "../../api/client";
@@ -57,6 +56,12 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
   const retryVersion =
     data?.activity?.phase === "failed" ? data.activity.version : undefined;
   const targetVersion = retryVersion ?? latest?.version;
+  const totalNodes = data?.activity?.totalNodes;
+  const completedNodes = data?.activity?.completedNodes;
+  const nodeProgress =
+    totalNodes !== undefined && totalNodes > 0 && completedNodes !== undefined
+      ? (100 * completedNodes) / totalNodes
+      : undefined;
   return (
     <>
       <Drawer
@@ -73,8 +78,12 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
           ) : (
             data && (
               <>
-                <section className={styles.versions} aria-label="软件版本">
-                  <div>
+                <section
+                  className={styles.versions}
+                  aria-label="软件版本"
+                  data-available={data.available && Boolean(targetVersion)}
+                >
+                  <div className={styles.version}>
                     <span>当前版本</span>
                     <strong>
                       {data.currentVersion === "dev"
@@ -82,20 +91,48 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                         : data.currentVersion}
                     </strong>
                   </div>
-                  <div>
-                    <span>最新版本</span>
-                    <strong>{latest?.version ?? "—"}</strong>
-                  </div>
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
+                  {data.available && targetVersion && (
+                    <>
+                      <ArrowRight className={styles.upgradeArrow} size={20} />
+                      <div className={styles.version}>
+                        <span>可用更新</span>
+                        <strong>{targetVersion}</strong>
+                      </div>
+                    </>
+                  )}
+                  <Button
+                    className={styles.check}
+                    variant="default"
+                    leftSection={<RefreshCw size={15} />}
                     aria-label="检查更新"
                     loading={check.isPending}
                     disabled={busy}
                     onClick={() => check.mutate()}
                   >
-                    <RefreshCw size={18} />
-                  </ActionIcon>
+                    检查更新
+                  </Button>
+                  {!data.available &&
+                    !retryVersion &&
+                    data.currentVersion !== "dev" &&
+                    latest && (
+                      <span className={styles.current}>
+                        <Check size={15} />
+                        已是最新版本
+                      </span>
+                    )}
+                  {data.available && data.canApply && !retryVersion && (
+                    <Button
+                      className={styles.apply}
+                      leftSection={<Download size={15} />}
+                      disabled={busy}
+                      onClick={() => {
+                        apply.reset();
+                        setConfirming(true);
+                      }}
+                    >
+                      更新到 {latest?.version}
+                    </Button>
+                  )}
                 </section>
                 <ErrorMessage
                   error={
@@ -108,23 +145,33 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                     className={styles.activity}
                     aria-label="更新进度"
                     aria-live="polite"
+                    data-phase={data.activity.phase}
                   >
-                    <div>
+                    <header>
+                      {busy ? (
+                        <Loader
+                          size={16}
+                          aria-label={phases[data.activity.phase]}
+                        />
+                      ) : data.activity.phase === "failed" ? (
+                        <CircleAlert size={17} />
+                      ) : (
+                        <Check size={17} />
+                      )}
                       <strong>{phases[data.activity.phase]}</strong>
                       <span>{data.activity.version}</span>
-                      {data.activity.phase === "updating_nodes" && (
+                    </header>
+                    {data.activity.phase === "updating_nodes" && (
+                      <div className={styles.nodeProgress}>
                         <span>
                           {data.activity.nodeName} ·{" "}
                           {data.activity.completedNodes}/
                           {data.activity.totalNodes}
                         </span>
-                      )}
-                    </div>
-                    {busy && (
-                      <Loader
-                        size={16}
-                        aria-label={phases[data.activity.phase]}
-                      />
+                        {nodeProgress !== undefined && (
+                          <Progress value={nodeProgress} size={3} />
+                        )}
+                      </div>
                     )}
                     {data.activity.error && (
                       <ErrorMessage error={new Error(data.activity.error)} />
@@ -145,32 +192,8 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                 {latest && (
                   <section className={styles.release}>
                     <header>
-                      <div>
-                        <h2>{latest.name || latest.version}</h2>
-                        <time>{dateTime(latest.publishedAt)}</time>
-                      </div>
-                      {data.available && data.canApply && !retryVersion ? (
-                        <Button
-                          leftSection={<Download size={16} />}
-                          disabled={busy}
-                          onClick={() => {
-                            apply.reset();
-                            setConfirming(true);
-                          }}
-                        >
-                          更新到 {latest.version}
-                        </Button>
-                      ) : !data.available &&
-                        !retryVersion &&
-                        data.currentVersion !== "dev" ? (
-                        <Badge
-                          variant="light"
-                          color="green"
-                          leftSection={<Check size={13} />}
-                        >
-                          已是最新版本
-                        </Badge>
-                      ) : null}
+                      <h2>{latest.name || latest.version}</h2>
+                      <time>{dateTime(latest.publishedAt)}</time>
                     </header>
                     <div className={styles.notes}>
                       <Markdown

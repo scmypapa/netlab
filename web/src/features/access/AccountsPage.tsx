@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { useState } from "react";
@@ -32,6 +33,7 @@ import { dateTime } from "../../foundation/format";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { GrantEditor } from "./GrantEditor";
+import styles from "./AccessWorkspace.module.css";
 
 export function AccountsPage() {
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
@@ -93,6 +95,7 @@ export function AccountsPage() {
             <button
               key={value}
               className={kind === value ? "selected" : ""}
+              aria-pressed={kind === value}
               onClick={() => setKind(value)}
             >
               {label}
@@ -125,29 +128,50 @@ export function AccountsPage() {
               {accounts.data.map((principal) => (
                 <tr key={principal.id}>
                   <td>
-                    <div className="object-link">
-                      <span className="object-symbol">
-                        {kind === "user" ? (
-                          <UserRound size={19} />
-                        ) : (
-                          <KeyRound size={19} />
-                        )}
-                      </span>
-                      <strong>{principal.name}</strong>
-                      {principal.administrator && (
-                        <span className="access-badge">系统管理员</span>
+                    <div className={styles.accountName}>
+                      {kind === "user" ? (
+                        <UserRound size={19} />
+                      ) : (
+                        <KeyRound size={19} />
+                      )}
+                      {kind === "user" ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditing(principal)}
+                        >
+                          {principal.name}
+                        </button>
+                      ) : (
+                        <strong>{principal.name}</strong>
                       )}
                     </div>
+                    {principal.administrator && (
+                      <span className={styles.adminLabel}>
+                        <ShieldCheck size={13} />
+                        管理员
+                      </span>
+                    )}
                   </td>
                   <td>
-                    {principal.disabled
-                      ? kind === "token"
-                        ? "已撤销"
-                        : "已停用"
-                      : principal.expiresAt &&
-                          new Date(principal.expiresAt) < new Date()
-                        ? "已过期"
-                        : "正常"}
+                    <span
+                      className={styles.state}
+                      data-inactive={
+                        principal.disabled ||
+                        Boolean(
+                          principal.expiresAt &&
+                          new Date(principal.expiresAt) < new Date(),
+                        )
+                      }
+                    >
+                      {principal.disabled
+                        ? kind === "token"
+                          ? "已撤销"
+                          : "已停用"
+                        : principal.expiresAt &&
+                            new Date(principal.expiresAt) < new Date()
+                          ? "已过期"
+                          : "正常"}
+                    </span>
                   </td>
                   <td className="muted">
                     {kind === "user"
@@ -293,42 +317,49 @@ function UserEditor({
       onClose={onClose}
       title={principal ? "编辑账号" : "新建用户"}
       position="right"
-      size={400}
+      size={540}
     >
       <form
-        className="form-stack"
+        className={styles.editor}
         onSubmit={(event) => {
           event.preventDefault();
           save.mutate();
         }}
       >
-        <TextInput
-          label="账号名称"
-          required
-          autoFocus
-          value={name}
-          onChange={(event) => setName(event.currentTarget.value)}
-        />
-        <PasswordInput
-          label={principal ? "重置密码" : "密码"}
-          required={!principal}
-          minLength={8}
-          maxLength={72}
-          value={password}
-          onChange={(event) => setPassword(event.currentTarget.value)}
-        />
+        <div className={styles.identity}>
+          <TextInput
+            label="账号名称"
+            required
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.currentTarget.value)}
+          />
+          <PasswordInput
+            label={principal ? "重置密码" : "密码"}
+            required={!principal}
+            minLength={8}
+            maxLength={72}
+            value={password}
+            onChange={(event) => setPassword(event.currentTarget.value)}
+          />
+        </div>
         <ErrorMessage error={save.error} />
-        <Checkbox
-          label="系统管理员"
-          checked={administrator}
-          onChange={(event) => setAdministrator(event.currentTarget.checked)}
-        />
+        <div className={styles.administrator}>
+          <Checkbox
+            label="系统管理员"
+            checked={administrator}
+            onChange={(event) => setAdministrator(event.currentTarget.checked)}
+          />
+        </div>
         {!administrator && (
           <GrantEditor value={value} onChange={setGrants} roles={roles} />
         )}
         <ErrorMessage error={grants.error} />
-        <div className="drawer-footer">
-          <Button fullWidth type="submit" loading={save.isPending}>
+        <div className={styles.footer}>
+          <Button variant="default" onClick={onClose}>
+            取消
+          </Button>
+          <Button type="submit" loading={save.isPending}>
             保存
           </Button>
         </div>
@@ -365,11 +396,11 @@ function TokenEditor({
       onClose={onClose}
       title={issue.data ? "Token 已签发" : "签发服务 Token"}
       position="right"
-      size={420}
+      size={540}
     >
       {issue.data ? (
-        <div className="form-stack">
-          <div className="token-secret">
+        <div className={styles.editor}>
+          <div className={styles.secret}>
             <code>{issue.data.token}</code>
             <ActionIcon
               aria-label="复制 Token"
@@ -382,38 +413,40 @@ function TokenEditor({
               {copied ? <Check size={17} /> : <Copy size={17} />}
             </ActionIcon>
           </div>
-          <div className="drawer-footer">
-            <Button fullWidth onClick={onClose}>
-              完成
-            </Button>
+          <div className={styles.footer}>
+            <Button onClick={onClose}>完成</Button>
           </div>
         </div>
       ) : (
         <form
-          className="form-stack"
+          className={styles.editor}
           onSubmit={(event) => {
             event.preventDefault();
             issue.mutate();
           }}
         >
-          <TextInput
-            label="Token 名称"
-            required
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
-          />
+          <div className={styles.identity}>
+            <TextInput
+              label="Token 名称"
+              required
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.currentTarget.value)}
+            />
+            <TextInput
+              label="有效期"
+              type="datetime-local"
+              value={expires}
+              onChange={(event) => setExpires(event.currentTarget.value)}
+            />
+          </div>
           <GrantEditor roles={roles} value={grants} onChange={setGrants} />
-          <TextInput
-            label="有效期"
-            type="datetime-local"
-            value={expires}
-            onChange={(event) => setExpires(event.currentTarget.value)}
-          />
           <ErrorMessage error={issue.error} />
-          <div className="drawer-footer">
+          <div className={styles.footer}>
+            <Button variant="default" onClick={onClose}>
+              取消
+            </Button>
             <Button
-              fullWidth
               type="submit"
               disabled={!grants.length}
               loading={issue.isPending}

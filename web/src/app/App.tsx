@@ -219,7 +219,7 @@ function Login() {
           login.mutate();
         }}
       >
-        <h1>欢迎回来</h1>
+        <h1>登录 Netlab</h1>
         <TextInput
           label="账号"
           autoComplete="username"
