@@ -61,18 +61,30 @@ const theme = createTheme({
     InputWrapper: { styles: { label: { fontWeight: 500 } } },
     Drawer: {
       styles: {
-        header: { borderBottom: "1px solid var(--line)", minHeight: 58 },
+        content: { background: "var(--surface)" },
+        header: {
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--line)",
+          minHeight: 58,
+        },
         title: { fontSize: 16, fontWeight: 600 },
         body: { paddingTop: 24 },
       },
     },
     Modal: {
       defaultProps: { radius: "md" },
-      styles: { title: { fontSize: 16, fontWeight: 600 } },
+      styles: {
+        content: { background: "var(--surface)" },
+        header: { background: "var(--surface)" },
+        title: { fontSize: 16, fontWeight: 600 },
+      },
     },
     Menu: {
       defaultProps: { shadow: "sm", offset: 6 },
-      styles: { item: { fontSize: 13 } },
+      styles: {
+        dropdown: { background: "var(--surface)", borderColor: "var(--line)" },
+        item: { fontSize: 13 },
+      },
     },
   },
 });

@@ -115,7 +115,7 @@ export function AccountsPage() {
         <Loading />
       ) : accounts.data?.length ? (
         <div className="table-surface">
-          <table className="data-table">
+          <table className={`data-table ${styles.accountTable}`}>
             <thead>
               <tr>
                 <th>名称</th>
