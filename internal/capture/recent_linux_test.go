@@ -77,6 +77,30 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 	if exportedDrops == nil || *exportedDrops != 7 {
 		t.Fatalf("native interface drop statistics stripped from filtered export: %v", exportedDrops)
 	}
+	exported.Reset()
+	if err = r.Export(ctx, environment, RecentQuery{Filter: "frame.number == 2"}, &exported); err != nil {
+		t.Fatal(err)
+	}
+	count = 0
+	if err = readFrames(ctx, &exported, false, func(packet api.CapturePacket, data []byte) bool {
+		count++
+		if !bytes.Equal(data, frame) || !packet.Time.Equal(at.Add(time.Millisecond)) {
+			t.Fatal("filtered original frame changed", packet)
+		}
+		return true
+	}); err != nil || count != 1 {
+		t.Fatalf("filtered export count=%d err=%v", count, err)
+	}
+	t.Run("unfiltered export needs no packet analyser", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		var output bytes.Buffer
+		if err := r.Export(ctx, environment, RecentQuery{}, &output); err != nil || output.Len() == 0 {
+			t.Fatal("unfiltered export did not pass through native packets", err)
+		}
+	})
+	if err = r.Export(ctx, environment, RecentQuery{Filter: "invalid_filter_x ===="}, &bytes.Buffer{}); err == nil {
+		t.Fatal("invalid export filter accepted")
+	}
 	if _, err = r.Recent(ctx, environment, RecentQuery{Limit: 100, Filter: "invalid_filter_x ===="}); err == nil {
 		t.Fatal("invalid display filter accepted")
 	}

@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/csv"
@@ -247,7 +248,7 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 			args = append(args, "-e", field)
 		}
 		command := exec.CommandContext(ctx, "tshark", args...)
-		input := completePartReader(ctx, part)
+		input := completePartReader(ctx, part, nil)
 		defer input.Close()
 		command.Stdin = input
 		stdout, pipeErr := command.StdoutPipe()
@@ -328,7 +329,7 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 
 // The active zstd frame has no final footer. Re-emit committed complete packets,
 // so TShark always receives a complete pcapng stream rather than a truncated archive.
-func completePartReader(ctx context.Context, part partRead) *io.PipeReader {
+func completePartReader(ctx context.Context, part partRead, selected []bool) *io.PipeReader {
 	reader, writer := io.Pipe()
 	go func() {
 		output, err := pcapgo.NewNgWriterInterface(writer, pcapInterface(part.part.Interfaces[0]), pcapgo.DefaultNgWriterOptions)
@@ -353,6 +354,9 @@ func completePartReader(ctx context.Context, part partRead) *io.PipeReader {
 				data, info, err = input.ZeroCopyReadPacketData()
 				if err != nil || number > part.part.Packets {
 					break
+				}
+				if selected != nil && !selected[number] {
+					continue
 				}
 				if err = output.WritePacket(info, data); err != nil {
 					break
@@ -405,7 +409,7 @@ func (r *Recorder) RecentPacket(ctx context.Context, environment, id string) (ap
 		}
 		part.reader.Reset(io.NewSectionReader(part.file, 0, part.part.Size))
 		command := exec.CommandContext(ctx, "tshark", "-n", "-r", "-", "-c", strconv.FormatInt(number, 10), "-Y", "frame.number == "+strconv.FormatInt(number, 10), "-T", "pdml")
-		input := completePartReader(ctx, part)
+		input := completePartReader(ctx, part, nil)
 		defer input.Close()
 		command.Stdin = input
 		data, decodeErr := command.Output()
@@ -450,6 +454,39 @@ func (field packetFieldXML) model() api.PacketField {
 	}
 	return result
 }
+func matchingFrames(ctx context.Context, part partRead, filter string) ([]bool, error) {
+	command := exec.CommandContext(ctx, "tshark", "-n", "-r", "-", "-Y", filter, "-T", "fields", "-e", "frame.number")
+	input := completePartReader(ctx, part, nil)
+	defer input.Close()
+	command.Stdin = input
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	var stderr strings.Builder
+	command.Stderr = &stderr
+	if err = command.Start(); err != nil {
+		return nil, err
+	}
+	selected := make([]bool, part.part.Packets+1)
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		var number int
+		number, err = strconv.Atoi(scanner.Text())
+		if err != nil {
+			break
+		}
+		selected[number] = true
+	}
+	if err = errors.Join(err, scanner.Err()); err != nil {
+		command.Process.Kill()
+	}
+	if err = errors.Join(err, command.Wait()); err != nil {
+		return nil, fmt.Errorf("报文筛选失败：%s: %w", strings.TrimSpace(stderr.String()), err)
+	}
+	return selected, nil
+}
+
 func (r *Recorder) Export(ctx context.Context, environment string, q RecentQuery, output io.Writer) error {
 	parts, err := r.openParts(environment)
 	if err != nil {
@@ -467,22 +504,25 @@ func (r *Recorder) Export(ctx context.Context, environment string, q RecentQuery
 		if err = r.openPart(environment, &part); err != nil {
 			return err
 		}
-		args := []string{"-n", "-r", "-", "-F", "pcapng", "-w", "-"}
+		var selected []bool
 		if filter := q.display(part.part); filter != "" {
-			args = append(args, "-Y", filter)
+			selected, err = matchingFrames(ctx, part, filter)
+			if err != nil {
+				closeParts([]partRead{part})
+				return err
+			}
+			if err = part.reader.Reset(io.NewSectionReader(part.file, 0, part.part.Size)); err != nil {
+				closeParts([]partRead{part})
+				return err
+			}
 		}
-		command := exec.CommandContext(ctx, "tshark", args...)
-		input := completePartReader(ctx, part)
-		command.Stdin = input
-		command.Stdout = output
+		input := completePartReader(ctx, part, selected)
 		wrote = true
-		var stderr strings.Builder
-		command.Stderr = &stderr
-		err = command.Run()
+		_, err = io.Copy(output, input)
 		input.Close()
 		closeParts([]partRead{part})
 		if err != nil {
-			return fmt.Errorf("导出报文失败：%s: %w", strings.TrimSpace(stderr.String()), err)
+			return err
 		}
 	}
 	if !wrote {
