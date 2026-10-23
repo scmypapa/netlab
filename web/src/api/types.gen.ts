@@ -2948,6 +2948,10 @@ export interface components {
     CaptureFlow: {
       /** @description Node that owns this observation. */
       nodeId?: string;
+      /** @description Managed interface that owns this observation. */
+      interfaceId?: string;
+      /** @description Managed network of the owning interface. */
+      networkId?: string;
       /** @description Original PCAPNG interface index; present for captured conversations. */
       interfaceIndex?: number;
       source: string;
@@ -3439,6 +3443,7 @@ export interface operations {
         end?: string;
         assetId?: string;
         interfaceId?: string;
+        networkId?: string;
         /** @description IP or MAC address; endpoint filters match both directions */
         source?: string;
         destination?: string;

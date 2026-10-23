@@ -22,6 +22,7 @@ export type PacketFilters = {
   end?: string;
   assetId?: string;
   interfaceId?: string;
+  networkId?: string;
   source?: string;
   destination?: string;
   sourcePort?: number;
