@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { join } from "node:path";
 
 const permissions = [
   "read",
@@ -292,4 +293,146 @@ test("environment sharing applies a role to selected assets without file access"
     },
   ]);
   await expect(drawer).not.toBeVisible();
+});
+
+test("访问、授权与更新在四种屏宽和日夜主题保持完整可操作", async ({
+  page,
+}, info) => {
+  test.setTimeout(60000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await fixture(page);
+  await page.route("**/api/v1/system/update**", (route) =>
+    route.fulfill({
+      json: {
+        currentVersion: "v1.0.5",
+        available: true,
+        canApply: true,
+        checkedAt: time,
+        latest: {
+          version: "v1.1.0",
+          name: "Netlab v1.1.0",
+          notes:
+            "## 网络与观测\n\n- 完善多节点连接和实时流量分析。\n\n## 管理\n\n- 改进资源、模板与访问管理。",
+          publishedAt: time,
+          url: "https://github.com/scmypapa/netlab/releases/tag/v1.1.0",
+        },
+      },
+    }),
+  );
+  await page.goto("/accounts");
+  const output = info.outputPath("screenshots");
+  for (const theme of ["light", "dark"]) {
+    if (
+      (await page.locator("html").getAttribute("data-mantine-color-scheme")) !==
+      theme
+    )
+      await page
+        .getByRole("button", {
+          name: theme === "dark" ? "切换夜间主题" : "切换日间主题",
+        })
+        .click();
+    for (const width of [390, 1366, 1920, 2560]) {
+      await page.setViewportSize({ width, height: width === 1366 ? 768 : 900 });
+      await expect(
+        page.getByRole("heading", { name: "访问管理", exact: true }),
+      ).toBeVisible();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      expect(
+        await page.locator(".global-header").evaluate((header) => {
+          const nav = header
+            .querySelector(".primary-nav")!
+            .getBoundingClientRect();
+          const tools = header
+            .querySelector(".global-tools")!
+            .getBoundingClientRect();
+          return nav.right <= tools.left;
+        }),
+      ).toBe(true);
+      await page.screenshot({
+        path: join(output, `access-${width}-${theme}.png`),
+      });
+      await page.getByRole("button", { name: "新建用户", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("button", { name: "添加授权范围" }).click();
+      await dialog.getByRole("textbox", { name: "环境", exact: true }).click();
+      await page
+        .getByRole("option", { name: "共享测试环境", exact: true })
+        .click();
+      await dialog.getByRole("button", { name: "细项权限" }).click();
+      await expect(
+        dialog.getByRole("checkbox", { name: "文件传输", exact: true }),
+      ).toBeVisible();
+      expect(
+        await dialog.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: join(output, `grant-${width}-${theme}.png`),
+      });
+      await dialog.getByRole("button", { name: "取消", exact: true }).click();
+      await page.locator(".profile").click();
+      await page
+        .getByRole("menuitem", { name: "系统更新", exact: true })
+        .click();
+      const update = page.getByRole("dialog", {
+        name: "系统更新",
+        exact: true,
+      });
+      await expect(
+        update.getByRole("button", { name: "更新到 v1.1.0", exact: true }),
+      ).toBeVisible();
+      expect(
+        await update.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: join(output, `update-${width}-${theme}.png`),
+      });
+      await page.keyboard.press("Escape");
+      await expect(update).not.toBeVisible();
+    }
+  }
+});
+
+test("登录页在四种屏宽和日夜主题呈现统一字体及清晰表单", async ({
+  page,
+}, info) => {
+  test.setTimeout(30000);
+  await page.route("**/api/v1/identity", (route) =>
+    route.fulfill({ status: 401, json: { error: "unauthorized" } }),
+  );
+  for (const theme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    for (const width of [390, 1366, 1920, 2560]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/environments");
+      await expect(
+        page.getByRole("heading", { name: "登录 Netlab", exact: true }),
+      ).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-mantine-color-scheme",
+        theme,
+      );
+      await expect(
+        page.getByRole("textbox", { name: "账号", exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "登录", exact: true }),
+      ).toBeVisible();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: info.outputPath(`login-${width}-${theme}.png`),
+      });
+    }
+  }
 });
