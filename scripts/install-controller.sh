@@ -5,7 +5,7 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/install-common.sh"
 config=${1:-/etc/netlab/controller.env}
 address=${2:-$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')}
 apt-get update
-apt-get install -y ca-certificates jq sudo openssl postgresql ovn-central
+apt-get install -y ca-certificates jq sudo openssl postgresql ovn-central libpcap0.8t64
 getent passwd netlab >/dev/null || useradd --system --home-dir /var/lib/netlab --shell /usr/sbin/nologin netlab
 install -d -m 0750 -o root -g netlab /etc/netlab /etc/netlab/pki
 install -d -m 0750 -o netlab -g netlab /var/lib/netlab /var/lib/netlab/update /var/lib/netlab/metrics
