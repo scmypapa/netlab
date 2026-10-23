@@ -166,6 +166,13 @@ func TestRecentPacketQueryAndStableOlderPagination(t *testing.T) {
 			t.Fatalf("index=%d before=%v err=%v", index, before, err)
 		}
 	}
+	unavailable := api.RecentPacketPage{Retention: api.PacketRetention{Status: api.PacketRetentionStatusUnavailable}}
+	recording := api.RecentPacketPage{Retention: api.PacketRetention{Status: api.PacketRetentionStatusRecording}}
+	for _, pages := range [][]api.RecentPacketPage{{unavailable, recording}, {recording, unavailable}} {
+		if MergePacketPages(pages, 2).Retention.Status != api.PacketRetentionStatusUnavailable {
+			t.Fatal("recording node hides unavailable peer")
+		}
+	}
 }
 
 func TestRecorderRecoversAndSealedReadsDoNotWrite(t *testing.T) {

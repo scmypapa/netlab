@@ -2345,6 +2345,7 @@ components:
         sourcePort: {type: integer}
         destinationPort: {type: integer}
         protocol: {type: string}
+        transportProtocol: {type: string, description: TCP, UDP, ICMP or ICMPv6 from the decoded packet header, independently of the displayed application protocol.}
         summary: {type: string}
     CapturePacketPage:
       type: object
