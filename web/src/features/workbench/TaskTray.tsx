@@ -6,11 +6,12 @@ import {
   ListChecks,
   RotateCcw,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EnvironmentSpec, Operation } from "../../api/client";
 import { actionLabels, dateTime } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
 import { LoadMore, type CursorPagination } from "../../foundation/LoadMore";
+import styles from "./TaskTray.module.css";
 
 const phaseLabels: Record<string, string> = {
   pending: "等待调度",
@@ -71,10 +72,13 @@ export function TaskTray({
       ? operation
       : (operations[0] ?? operation);
   const shown = operations.find((item) => item.id === selected) ?? latest;
+  useEffect(() => {
+    if (latest?.state === "failed") setOpen(true);
+  }, [latest?.id, latest?.state]);
   return (
-    <section className={`task-tray ${open ? "is-open" : ""}`}>
+    <section className={styles.tray} aria-label="运行任务">
       <button
-        className="task-tray-toggle"
+        className={styles.toggle}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
       >
@@ -83,7 +87,7 @@ export function TaskTray({
           任务
           {latest && (
             <>
-              <span className="task-divider" />
+              <span className={styles.divider} />
               {actionLabels[latest.kind] ?? latest.kind}
               <Status value={latest.state} />
             </>
@@ -93,7 +97,7 @@ export function TaskTray({
           {latest &&
             latest.total > 0 &&
             ["running", "queued"].includes(latest.state) && (
-              <span className="task-progress">
+              <span className={styles.progress}>
                 {latest.completed} / {latest.total}
               </span>
             )}
@@ -101,13 +105,13 @@ export function TaskTray({
         </span>
       </button>
       {open && (
-        <div className="task-tray-content">
-          <div className="task-list">
+        <div className={styles.content}>
+          <div className={styles.list} role="group" aria-label="任务列表">
             {operations.length ? (
               operations.map((item) => (
                 <button
                   key={item.id}
-                  className={shown?.id === item.id ? "selected" : ""}
+                  aria-current={shown?.id === item.id}
                   onClick={() => setSelected(item.id)}
                 >
                   <span>
@@ -118,7 +122,7 @@ export function TaskTray({
                 </button>
               ))
             ) : (
-              <div className="task-empty">
+              <div className={styles.empty}>
                 <CircleCheck size={20} />
                 暂无任务
               </div>
@@ -126,8 +130,8 @@ export function TaskTray({
             <LoadMore list={pagination} />
           </div>
           {shown && (
-            <div className="task-detail">
-              <div className="task-detail-heading">
+            <div className={styles.detail}>
+              <div className={styles.detailHeading}>
                 <strong>{actionLabels[shown.kind] ?? shown.kind}</strong>
                 <span>{phaseLabels[shown.phase] ?? shown.phase}</span>
                 <span>
@@ -145,9 +149,20 @@ export function TaskTray({
                   </Button>
                 )}
               </div>
-              {shown.error && <div className="error-inline">{shown.error}</div>}
+              {shown.error && (
+                <div className={styles.error} role="alert">
+                  {shown.error}
+                </div>
+              )}
               {shown.total > 0 && (
-                <div className="task-completion">
+                <div
+                  className={styles.completion}
+                  role="progressbar"
+                  aria-label="任务进度"
+                  aria-valuenow={shown.completed}
+                  aria-valuemax={shown.total}
+                  aria-valuemin={0}
+                >
                   <span
                     style={{
                       width: `${(shown.completed / shown.total) * 100}%`,
@@ -155,7 +170,7 @@ export function TaskTray({
                   />
                 </div>
               )}
-              <div className="task-results">
+              <div className={styles.results}>
                 {shown.results?.map((result) => (
                   <div key={result.assetId}>
                     <span>

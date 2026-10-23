@@ -1,0 +1,156 @@
+.tray {
+  flex-shrink: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.toggle {
+  width: 100%;
+  border: 0;
+  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 20px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.toggle > span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.toggle > span > svg {
+  color: var(--muted);
+}
+.divider {
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+}
+.progress {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.content {
+  height: min(300px, 42vh);
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+}
+.list {
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.list > button {
+  width: 100%;
+  text-align: left;
+  background: none;
+  color: var(--text);
+  display: grid;
+  gap: 7px;
+  border: 0;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.list > button > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+.list time {
+  color: var(--muted);
+  font-size: 12px;
+}
+.list > button:hover {
+  background: var(--surface-hover);
+}
+.list > button[aria-current="true"] {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 var(--accent);
+}
+.detail {
+  min-width: 0;
+  overflow: auto;
+  padding: 16px 20px;
+}
+.detailHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+.detailHeading strong {
+  font-weight: 600;
+  margin-right: auto;
+}
+.detailHeading > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.completion {
+  height: 3px;
+  background: var(--line);
+  overflow: hidden;
+  margin: 16px 0;
+}
+.completion span {
+  height: 100%;
+  display: block;
+  background: var(--accent);
+}
+.results > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.results > div > span:first-child {
+  flex: 1;
+}
+.results p,
+.error {
+  width: 100%;
+  color: var(--negative);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.error {
+  margin: 12px 0;
+}
+.empty {
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .toggle {
+    padding: 10px 12px;
+  }
+  .content {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+  .list > button {
+    padding: 10px;
+  }
+  .list > button > span {
+    flex-wrap: wrap;
+  }
+  .detail {
+    padding: 12px;
+  }
+}

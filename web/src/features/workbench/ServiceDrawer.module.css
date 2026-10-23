@@ -35,10 +35,18 @@
   gap: 18px;
   padding-top: 8px;
 }
-.ports {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.options {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.options summary {
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.options[open] summary {
+  margin-bottom: 10px;
+  color: var(--text);
 }
 .actions {
   display: flex;

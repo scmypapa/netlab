@@ -258,14 +258,15 @@ test("referenced VM templates, asset selection and operation history read later 
   expect(requests.some((url) => url.searchParams.get("ids") === "old-vm")).toBe(
     true,
   );
-  await page.locator(".task-tray-toggle").click();
-  await expect(page.locator(".task-list > button")).toHaveCount(100);
+  await page.getByRole("button", { name: /^任务/ }).click();
+  const tasks = page.getByRole("group", { name: "任务列表" });
+  await expect(tasks.locator(":scope > button")).toHaveCount(100);
   await page
-    .locator(".task-list")
+    .getByRole("group", { name: "任务列表" })
     .getByRole("button", { name: "加载更多", exact: true })
     .click();
-  await expect(page.locator(".task-list > button")).toHaveCount(101);
-  await page.locator(".task-tray-toggle").click();
+  await expect(tasks.locator(":scope > button")).toHaveCount(101);
+  await page.getByRole("button", { name: /^任务/ }).click();
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
   await page.getByRole("button", { name: "添加", exact: true }).click();
   await page.getByRole("menuitem", { name: "资产", exact: true }).click();

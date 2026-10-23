@@ -20,6 +20,7 @@ import type { Edge } from "@xyflow/react";
 import type { Schema } from "../../api/client";
 import { stateLabel } from "../../foundation/format";
 import type { TopologyNode } from "./topology";
+import styles from "./TopologyCanvas.module.css";
 
 const nodeTypes = { asset: AssetNode, network: NetworkNode };
 
@@ -81,6 +82,7 @@ export function TopologyCanvas({
   );
   return (
     <ReactFlow<TopologyNode>
+      className={styles.canvas}
       nodes={nodes}
       edges={edges}
       onNodesChange={onNodesChange}
@@ -153,21 +155,23 @@ function FocusSelection({ selection }: { selection?: string }) {
 function AssetNode({ data, selected }: NodeProps<TopologyNode>) {
   return (
     <div
-      className={`topology-asset ${selected ? "is-selected" : ""}`}
+      className={styles.asset}
+      data-selected={selected}
       style={{ "--network-color": data.color } as React.CSSProperties}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="topology-asset-header">
-        <span className={`asset-glyph ${data.kind}`}>
-          {data.kind === "vm" ? <Monitor size={22} /> : <Box size={22} />}
+      <div className={styles.assetHeading}>
+        <span className={styles.glyph}>
+          {data.kind === "vm" ? <Monitor size={23} /> : <Box size={23} />}
         </span>
         <span
-          className={`node-light ${data.state}`}
+          className={styles.light}
+          data-state={data.state}
           title={stateLabel(data.state)}
         />
       </div>
       <strong>{data.label}</strong>
-      <span className="node-address">
+      <span className={styles.address}>
         {data.secondary || (data.kind === "vm" ? "虚拟机" : "容器")}
       </span>
       <Handle type="source" position={Position.Bottom} />
@@ -177,16 +181,17 @@ function AssetNode({ data, selected }: NodeProps<TopologyNode>) {
 function NetworkNode({ data, selected }: NodeProps<TopologyNode>) {
   return (
     <div
-      className={`topology-network ${selected ? "is-selected" : ""}`}
+      className={styles.network}
+      data-selected={selected}
       style={{ "--network-color": data.color } as React.CSSProperties}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="network-line">
+      <div className={styles.networkHeading}>
         <Network size={17} />
         <strong>{data.label}</strong>
         <span>{data.count}</span>
       </div>
-      <span className="network-cidr">{data.secondary}</span>
+      <span className={styles.cidr}>{data.secondary}</span>
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

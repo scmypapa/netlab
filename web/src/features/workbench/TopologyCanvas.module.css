@@ -1,0 +1,129 @@
+.asset,
+.network {
+  width: 188px;
+  background: var(--surface);
+  border: 1px solid var(--strong-line);
+  border-radius: 5px;
+  color: var(--text);
+  box-shadow: 0 2px 4px #10182806;
+}
+.asset {
+  height: 100px;
+  padding: 12px 14px;
+}
+.asset[data-selected="true"],
+.network[data-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.asset:hover,
+.network:hover {
+  border-color: var(--network-color);
+}
+.assetHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 26px;
+  margin-bottom: 8px;
+}
+.glyph {
+  display: flex;
+  color: var(--network-color);
+}
+.light {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.light[data-state="running"] {
+  background: var(--positive);
+}
+.light[data-state="failed"] {
+  background: var(--negative);
+}
+.light[data-state="suspended"] {
+  background: var(--warning);
+}
+.asset strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.address,
+.cidr {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 19px;
+}
+.network {
+  height: 64px;
+  padding: 11px 13px;
+  border-top: 2px solid var(--network-color);
+}
+.networkHeading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.networkHeading svg {
+  color: var(--network-color);
+  flex-shrink: 0;
+}
+.networkHeading strong {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.networkHeading > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.cidr {
+  padding-left: 24px;
+}
+.asset :global(.react-flow__handle),
+.network :global(.react-flow__handle) {
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--surface);
+  background: var(--network-color);
+}
+.canvas :global(.react-flow__controls) {
+  box-shadow: 0 1px 5px #10182815;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.canvas :global(.react-flow__controls-button) {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+}
+.canvas :global(.react-flow__controls-button:hover) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.canvas :global(.react-flow__controls-button svg) {
+  fill: currentColor;
+}
+.canvas :global(.react-flow__minimap) {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: none;
+}
+@media (max-width: 760px) {
+  .canvas :global(.react-flow__minimap) {
+    display: none;
+  }
+}

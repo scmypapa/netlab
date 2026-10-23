@@ -27,23 +27,36 @@ test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "对象列表", exact: true }).click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
-  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await page.getByRole("button", { name: "连接方式", exact: true }).click();
   await page.getByRole("menuitem", { name: "SSH", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "web-01 · SSH" });
   await dialog
     .getByRole("textbox", { name: "用户名", exact: true })
     .fill("operator");
-  await dialog.getByLabel("密码", { exact: true }).fill("test-password");
+  await dialog
+    .getByRole("textbox", { name: "密码", exact: true })
+    .fill("test-password");
   await expect.poll(() => ports).toContain(22);
   await expect(
     dialog.getByRole("button", { name: "信任并保存" }),
   ).toBeDisabled();
+  await dialog.getByText("连接选项", { exact: true }).click();
   await dialog.getByRole("textbox", { name: "端口", exact: true }).fill("2222");
   await expect(dialog).toContainText("SHA256:server-2222");
   releaseInitial();
   await expect(
     dialog.getByRole("button", { name: "信任并保存" }),
   ).toBeEnabled();
+  for (const width of [1366, 1920, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({
+      path: `test-results/connection-${width}.png`,
+      animations: "disabled",
+    });
+    expect(
+      await dialog.evaluate((element) => element.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+  }
   await dialog.getByRole("button", { name: "信任并保存" }).click();
   await expect
     .poll(() => submitted)
@@ -54,6 +67,187 @@ test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page
       port: 2222,
       hostKey: "SHA256:server-2222",
     });
+});
+
+test("文件工作区切换视图时退出，目录操作保留键盘入口", async ({ page }) => {
+  await fixture(page);
+  await page.route("**/api/v1/environments/env/assets/web/files**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          name: "logs",
+          kind: "directory",
+          size: 0,
+          modifiedAt: "2026-10-05T08:00:00Z",
+        },
+        {
+          name: "config.json",
+          kind: "file",
+          size: 256,
+          modifiedAt: "2026-10-05T08:00:00Z",
+        },
+      ],
+    }),
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "文件", exact: true }).click();
+  const files = page.getByRole("table", { name: "文件列表" });
+  const entry = files.getByRole("row").filter({ hasText: "config.json" });
+  await expect(entry).toBeVisible();
+  await expect(
+    page.getByRole("complementary", { name: "对象详情" }),
+  ).toHaveCount(0);
+  await entry.focus();
+  await page.keyboard.press("F2");
+  const rename = page.getByRole("dialog", { name: "重命名", exact: true });
+  await expect(rename).toBeVisible();
+  await rename.getByRole("button", { name: "取消", exact: true }).click();
+  for (const width of [1366, 1920, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({
+      path: `test-results/files-${width}.png`,
+      animations: "disabled",
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await page.getByRole("button", { name: "拓扑视图", exact: true }).click();
+  await expect(files).toHaveCount(0);
+  await page.getByRole("button", { name: "资产视图", exact: true }).click();
+  await page.getByRole("button", { name: "关闭对象详情", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "查找资产", exact: true })
+    .fill("10.10.0.11");
+  await expect(
+    page
+      .getByRole("table")
+      .getByRole("button", { name: "windows-01", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table")
+      .getByRole("button", { name: "web-01", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("控制台收起不断开连接，全屏支持直接退出", async ({ page }) => {
+  await fixture(page);
+  await page.route("**/api/v1/environments/env/assets/web/ssh", (route) =>
+    route.fulfill({
+      json: {
+        username: "operator",
+        port: 22,
+        authKind: "password",
+        hostKey: "SHA256:server",
+      },
+    }),
+  );
+  let connections = 0;
+  await page.routeWebSocket(
+    /\/api\/v1\/environments\/env\/assets\/web\/console\?kind=ssh$/,
+    (socket) => {
+      connections++;
+      socket.send(Buffer.from("ready\r\n"));
+    },
+  );
+  await page.goto("/environments/env");
+  await page.evaluate(() => {
+    const sockets: WebSocket[] = [];
+    Object.assign(window, { consoleSockets: sockets });
+    const NativeSocket = WebSocket;
+    window.WebSocket = class extends NativeSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        if (String(url).includes("/console")) sockets.push(this);
+      }
+    };
+  });
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "web-01", exact: true }).click();
+  await page.getByRole("button", { name: "连接方式", exact: true }).click();
+  await page.getByRole("menuitem", { name: "SSH", exact: true }).click();
+  await expect.poll(() => connections).toBeGreaterThan(0);
+  const connection = page.getByRole("region", {
+    name: "资产连接",
+    exact: true,
+  });
+  await expect(connection.getByText("已连接", { exact: true })).toBeVisible();
+  const opened = connections;
+  await connection
+    .getByRole("button", { name: "收起连接", exact: true })
+    .click();
+  await expect(connection.getByRole("tabpanel")).toHaveCount(0);
+  await connection
+    .getByRole("button", { name: "展开连接", exact: true })
+    .click();
+  await expect(connection.getByRole("tabpanel")).toBeVisible();
+  expect(connections).toBe(opened);
+  await connection
+    .getByRole("button", { name: "全屏连接", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+    .toBe(true);
+  await connection
+    .getByRole("button", { name: "连接设置", exact: true })
+    .click();
+  const settings = page.getByRole("dialog", { name: "web-01 · SSH" });
+  await expect(
+    settings.getByRole("textbox", { name: "用户名", exact: true }),
+  ).toBeVisible();
+  expect(
+    await settings.evaluate((element) =>
+      Boolean(element.closest('[aria-label="资产连接"]')),
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/connection-fullscreen.png",
+    animations: "disabled",
+  });
+  await settings.getByRole("button", { name: "取消", exact: true }).click();
+  await connection
+    .getByRole("button", { name: "退出全屏连接", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+    .toBe(false);
+  expect(connections).toBe(opened);
+  await page.evaluate(() => {
+    const sockets = (window as unknown as { consoleSockets: WebSocket[] })
+      .consoleSockets;
+    sockets
+      .at(-1)!
+      .dispatchEvent(
+        new CloseEvent("close", { code: 1011, reason: "节点连接断开" }),
+      );
+  });
+  await expect(connection.getByRole("status")).toHaveText("节点连接断开");
+  await connection
+    .getByRole("button", { name: "重新连接", exact: true })
+    .click();
+  await expect(connection.getByRole("status")).toHaveText("已连接");
+  expect(connections).toBe(opened + 1);
+  expect(
+    await page.evaluate(() => {
+      const sockets = (window as unknown as { consoleSockets: WebSocket[] })
+        .consoleSockets;
+      const previous = sockets.at(-2)!;
+      previous.dispatchEvent(
+        new CloseEvent("close", { code: 1000, reason: "旧连接已结束" }),
+      );
+      return (
+        previous.onclose === null &&
+        previous.onmessage === null &&
+        previous.onopen === null
+      );
+    }),
+  ).toBe(true);
+  await expect(connection.getByRole("status")).toHaveText("已连接");
 });
 
 test("会话过期后切换账号清除前账号的环境缓存", async ({ page }) => {
@@ -99,7 +293,9 @@ test("会话过期后切换账号清除前账号的环境缓存", async ({ page 
     history.pushState({}, "", "/environments/env");
     dispatchEvent(new PopStateEvent("popstate"));
   });
-  await expect(page.getByRole("heading", { name: "欢迎回来" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "登录 Netlab" }),
+  ).toBeVisible();
   await page.getByRole("textbox", { name: "账号" }).fill("second");
   await page
     .locator('input[autocomplete="current-password"]')
@@ -285,8 +481,7 @@ test("资产迁移选择节点并提交原运行修订", async ({ page }) => {
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "迁移节点", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "迁移 windows-01" });
-  await dialog.getByRole("textbox", { name: "目标节点" }).click();
-  await page.getByRole("option", { name: /Worker B/ }).click();
+  await dialog.getByRole("radio", { name: /Worker B/ }).check();
   for (const width of [390, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
@@ -343,7 +538,10 @@ test("资产附加持久卷，容量取自目录并通过现有草稿提交", as
     expect(
       await editor.evaluate((element) => element.scrollWidth),
     ).toBeLessThanOrEqual(width);
-    await page.screenshot({ path: `../data/volume-editor-${width}.png` });
+    await page.screenshot({
+      path: `test-results/volume-editor-${width}.png`,
+      animations: "disabled",
+    });
   }
   await editor.getByRole("button", { name: "更新资产", exact: true }).click();
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
@@ -1296,26 +1494,44 @@ test("canvas positioning only writes view", async ({ page }) => {
 });
 
 test("working area fits supported widths and both themes", async ({ page }) => {
+  test.setTimeout(60_000);
   await fixture(page);
-  for (const width of [390, 1366, 1920, 2560]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto("/environments/env");
-    await expect(page.getByRole("heading", { name: "混合环境" })).toBeVisible();
-    await page.getByRole("button", { name: "对象列表", exact: true }).click();
-    await page.getByRole("button", { name: "windows-01", exact: true }).click();
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-    await page.screenshot({ path: `test-results/workbench-${width}.png` });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const theme of ["light", "dark"]) {
+    await page.addInitScript(
+      (scheme) => localStorage.setItem("mantine-color-scheme-value", scheme),
+      theme,
+    );
+    for (const width of [390, 1366, 1920, 2560]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/environments/env");
+      await expect(
+        page.getByRole("heading", { name: "混合环境" }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "对象列表", exact: true }).click();
+      await page
+        .getByRole("button", { name: "windows-01", exact: true })
+        .click();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: `test-results/workbench-${theme}-${width}.png`,
+        animations: "disabled",
+      });
+      await page.getByRole("button", { name: "资产视图", exact: true }).click();
+      await page.screenshot({
+        path: `test-results/assets-${theme}-${width}.png`,
+        animations: "disabled",
+      });
+    }
   }
-  await page.getByRole("button", { name: "切换夜间主题" }).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-mantine-color-scheme",
     "dark",
   );
-  await page.screenshot({ path: "test-results/workbench-dark.png" });
 });
 
 test("saving an edited environment creates a template or appends a version without applying the draft", async ({
@@ -1543,7 +1759,10 @@ for (const retryable of [true, false]) {
       },
     });
     await page.goto("/environments/env");
-    await page.getByRole("button", { name: /^任务/ }).click();
+    await expect(page.getByRole("button", { name: /^任务/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     const retry = page.getByRole("button", { name: "重试", exact: true });
     if (!retryable) {
       await expect(retry).toHaveCount(0);
@@ -1707,7 +1926,10 @@ test("asset-scoped session opens its console without environment management", as
     page.getByRole("button", { name: "终端", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
-  await expect(page.locator(".template-properties")).toContainText("UEFI");
+  await page.getByText("模板与硬件", { exact: true }).click();
+  await expect(
+    page.getByRole("complementary", { name: "对象详情" }),
+  ).toContainText("UEFI");
   await page.getByRole("button", { name: "控制台", exact: true }).click();
   await expect
     .poll(() => [...new Set(connections)])
@@ -1887,7 +2109,7 @@ test("service endpoints follow the selected asset and acceptance does not imply 
   await expect(drawer).toContainText("192.0.2.10:32000");
   await drawer.getByRole("button", { name: "开放服务", exact: true }).click();
   await drawer
-    .getByRole("textbox", { name: "目标端口", exact: true })
+    .getByRole("textbox", { name: "资产端口", exact: true })
     .fill("8080");
   await drawer.getByRole("button", { name: "开放服务", exact: true }).click();
   await expect

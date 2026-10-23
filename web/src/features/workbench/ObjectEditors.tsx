@@ -25,6 +25,7 @@ import {
 import { LoadMore, type CursorPagination } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { ErrorMessage } from "../../foundation/Feedback";
+import styles from "./ObjectEditors.module.css";
 
 export function AssetEditor({
   asset,
@@ -157,10 +158,10 @@ export function AssetEditor({
       onClose={onClose}
       title={asset ? "编辑资产" : "添加资产"}
       position="right"
-      size={416}
+      size={504}
     >
       <form
-        className="form-stack"
+        className={styles.form}
         onSubmit={(event) => {
           event.preventDefault();
           save();
@@ -189,309 +190,324 @@ export function AssetEditor({
             }))}
         />
         <LoadMore list={pagination} />
-        <TextInput
-          label="资产名称"
-          value={name}
-          onChange={(event) => setName(event.currentTarget.value)}
-          required
-        />
-        <MultiSelect
-          label="连接网段"
-          data={spec.networks.map((network) => ({
-            value: network.id,
-            label: `${network.name} · ${network.cidr}`,
-          }))}
-          value={networkIds}
-          onChange={setNetworkIds}
-          searchable
-        />
-        <div className="form-columns">
-          <NumberInput
-            label="CPU · 核"
-            min={1}
-            value={cpu}
-            onChange={(value) => setCpu(Number(value))}
-          />
-          <NumberInput
-            label="内存 · GiB"
-            min={0.25}
-            step={0.25}
-            value={memoryGiB}
-            onChange={(value) => setMemoryGiB(Number(value))}
-          />
-        </div>
-        {template?.kind === "container" && (
-          <Select
-            label="进程退出后"
-            value={restartPolicy}
-            onChange={(value) =>
-              setRestartPolicy(value as Schema<"RestartPolicy">)
-            }
-            allowDeselect={false}
-            data={[
-              { value: "never", label: "保持停止" },
-              { value: "on-failure", label: "异常退出时重启" },
-              { value: "always", label: "自动重启" },
-            ]}
-          />
-        )}
-        {Boolean(template?.media?.length) && (
-          <MultiSelect
-            label="光驱"
-            data={template!.media!.map((item) => ({
-              value: item.id,
-              label: item.source.split("/").at(-1) ?? item.source,
-            }))}
-            value={media ?? template!.media!.map((item) => item.id)}
-            onChange={setMedia}
-          />
-        )}
-        <button
-          className="disclosure"
-          type="button"
-          aria-expanded={advanced}
-          onClick={() => setAdvanced(!advanced)}
-        >
-          存储
-          <ChevronDown size={16} className={advanced ? "rotated" : ""} />
-        </button>
-        <Collapse in={advanced}>
-          {!asset && (
-            <Select
-              label="存储位置"
-              placeholder="自动分配"
-              clearable
-              value={storagePoolId}
-              onChange={setStoragePoolId}
-              data={(storage.data ?? [])
-                .filter(
-                  (pool) =>
-                    !pool.default &&
-                    pool.state === "ready" &&
-                    !pool.error &&
-                    (template?.kind === "vm" ||
-                      pool.capabilities.includes("volumes")),
-                )
-                .map((pool) => ({ value: pool.id, label: pool.name }))}
+        {templateId && (
+          <>
+            <TextInput
+              label="资产名称"
+              value={name}
+              onChange={(event) => setName(event.currentTarget.value)}
+              required
             />
-          )}
-          <ErrorMessage error={storage.error} />
-          <NumberInput
-            label="系统盘 · GiB"
-            min={1}
-            value={disk}
-            onChange={(value) => setDisk(Number(value))}
-          />
-        </Collapse>
-        {template?.kind === "vm" && identity.data?.administrator && (
-          <>
-            <button
-              className="disclosure"
-              type="button"
-              aria-expanded={devicesOpen}
-              onClick={() => setDevicesOpen(!devicesOpen)}
-            >
-              PCI 直通{" "}
-              <ChevronDown size={16} className={devicesOpen ? "rotated" : ""} />
-            </button>
-            <Collapse in={devicesOpen}>
-              <Select
-                label="宿主节点"
-                clearable
-                value={pciBinding?.nodeId ?? null}
-                data={(deviceNodes.data ?? [])
-                  .filter((node) => node.vmHardware?.pciGroups?.length)
-                  .map((node) => ({ value: node.id, label: node.name }))}
-                onChange={(nodeId) =>
-                  setPciBinding(nodeId ? { nodeId, groupIds: [] } : undefined)
-                }
+            <MultiSelect
+              label="连接网段"
+              data={spec.networks.map((network) => ({
+                value: network.id,
+                label: `${network.name} · ${network.cidr}`,
+              }))}
+              value={networkIds}
+              onChange={setNetworkIds}
+              searchable
+            />
+            <div className={styles.resources}>
+              <NumberInput
+                label="CPU · 核"
+                min={1}
+                value={cpu}
+                onChange={(value) => setCpu(Number(value))}
               />
-              {pciBinding && (
-                <MultiSelect
-                  label="设备组"
-                  searchable
-                  value={pciBinding.groupIds}
-                  data={(
-                    deviceNodes.data?.find(
-                      (node) => node.id === pciBinding.nodeId,
-                    )?.vmHardware?.pciGroups ?? []
-                  ).map((group) => ({
-                    value: group.id,
-                    label: group.name,
-                    disabled:
-                      !group.available &&
-                      !(
-                        asset?.pciBinding?.nodeId === pciBinding.nodeId &&
-                        asset.pciBinding.groupIds.includes(group.id)
-                      ),
-                  }))}
-                  onChange={(groupIds) =>
-                    setPciBinding({ ...pciBinding, groupIds })
-                  }
-                />
-              )}
-              <ErrorMessage error={deviceNodes.error} />
-              <LoadMore list={deviceNodes} />
-            </Collapse>
-          </>
-        )}
-        <button
-          className="disclosure"
-          type="button"
-          aria-expanded={volumesOpen}
-          onClick={() => setVolumesOpen(!volumesOpen)}
-        >
-          数据卷
-          <ChevronDown size={16} className={volumesOpen ? "rotated" : ""} />
-        </button>
-        <Collapse in={volumesOpen}>
-          <div className="form-stack">
-            {volumes.map((volume, index) => {
-              const update = (values: Partial<Schema<"Volume">>) =>
-                setVolumes((items) =>
-                  items.map((item, i) =>
-                    i === index ? { ...item, ...values } : item,
-                  ),
-                );
-              return (
-                <div className="form-stack" key={volume.id}>
-                  <div className="form-columns">
-                    <Select
-                      label="数据来源"
-                      clearable
-                      placeholder="随资产创建"
-                      value={volume.persistentVolumeId ?? null}
-                      onChange={(id) => {
-                        const source = availableVolumes.data?.find(
-                          (item) => item.id === id,
-                        );
-                        update({
-                          persistentVolumeId: id ?? undefined,
-                          sizeGiB: source?.sizeGiB ?? volume.sizeGiB,
-                        });
-                        if (source)
-                          setStoragePoolId(
-                            source.storagePoolId.startsWith("default:")
-                              ? null
-                              : source.storagePoolId,
-                          );
-                      }}
-                      data={
-                        !identity.data?.administrator &&
-                        volume.persistentVolumeId
-                          ? [
-                              {
-                                value: volume.persistentVolumeId,
-                                label: "已附加数据卷",
-                              },
-                            ]
-                          : (availableVolumes.data ?? [])
-                              .filter(
-                                (item) =>
-                                  item.kind === template?.kind &&
-                                  (item.state === "ready" ||
-                                    item.id === volume.persistentVolumeId),
-                              )
-                              .map((item) => ({
-                                value: item.id,
-                                label: item.name,
-                              }))
+              <NumberInput
+                label="内存 · GiB"
+                min={0.25}
+                step={0.25}
+                value={memoryGiB}
+                onChange={(value) => setMemoryGiB(Number(value))}
+              />
+              <NumberInput
+                label="系统盘 · GiB"
+                min={1}
+                value={disk}
+                onChange={(value) => setDisk(Number(value))}
+              />
+            </div>
+            {template?.kind === "container" && (
+              <Select
+                label="进程退出后"
+                value={restartPolicy}
+                onChange={(value) =>
+                  setRestartPolicy(value as Schema<"RestartPolicy">)
+                }
+                allowDeselect={false}
+                data={[
+                  { value: "never", label: "保持停止" },
+                  { value: "on-failure", label: "异常退出时重启" },
+                  { value: "always", label: "自动重启" },
+                ]}
+              />
+            )}
+            {Boolean(template?.media?.length) && (
+              <MultiSelect
+                label="光驱"
+                data={template!.media!.map((item) => ({
+                  value: item.id,
+                  label: item.source.split("/").at(-1) ?? item.source,
+                }))}
+                value={media ?? template!.media!.map((item) => item.id)}
+                onChange={setMedia}
+              />
+            )}
+            {!asset && (
+              <>
+                <button
+                  className={styles.disclosure}
+                  type="button"
+                  aria-expanded={advanced}
+                  onClick={() => setAdvanced(!advanced)}
+                >
+                  存储位置
+                  <ChevronDown size={16} />
+                </button>
+                <Collapse in={advanced}>
+                  <Select
+                    label="存储位置"
+                    placeholder="自动分配"
+                    clearable
+                    value={storagePoolId}
+                    onChange={setStoragePoolId}
+                    data={(storage.data ?? [])
+                      .filter(
+                        (pool) =>
+                          !pool.default &&
+                          pool.state === "ready" &&
+                          !pool.error &&
+                          (template?.kind === "vm" ||
+                            pool.capabilities.includes("volumes")),
+                      )
+                      .map((pool) => ({ value: pool.id, label: pool.name }))}
+                  />
+                  <ErrorMessage error={storage.error} />
+                </Collapse>
+              </>
+            )}
+            {template?.kind === "vm" && identity.data?.administrator && (
+              <>
+                <button
+                  className={styles.disclosure}
+                  type="button"
+                  aria-expanded={devicesOpen}
+                  onClick={() => setDevicesOpen(!devicesOpen)}
+                >
+                  PCI 直通 <ChevronDown size={16} />
+                </button>
+                <Collapse in={devicesOpen}>
+                  <Select
+                    label="宿主节点"
+                    clearable
+                    value={pciBinding?.nodeId ?? null}
+                    data={(deviceNodes.data ?? [])
+                      .filter((node) => node.vmHardware?.pciGroups?.length)
+                      .map((node) => ({ value: node.id, label: node.name }))}
+                    onChange={(nodeId) =>
+                      setPciBinding(
+                        nodeId ? { nodeId, groupIds: [] } : undefined,
+                      )
+                    }
+                  />
+                  {pciBinding && (
+                    <MultiSelect
+                      label="设备组"
+                      searchable
+                      value={pciBinding.groupIds}
+                      data={(
+                        deviceNodes.data?.find(
+                          (node) => node.id === pciBinding.nodeId,
+                        )?.vmHardware?.pciGroups ?? []
+                      ).map((group) => ({
+                        value: group.id,
+                        label: group.name,
+                        disabled:
+                          !group.available &&
+                          !(
+                            asset?.pciBinding?.nodeId === pciBinding.nodeId &&
+                            asset.pciBinding.groupIds.includes(group.id)
+                          ),
+                      }))}
+                      onChange={(groupIds) =>
+                        setPciBinding({ ...pciBinding, groupIds })
                       }
                     />
-                    <ActionIcon
-                      variant="subtle"
-                      color="red"
-                      aria-label={`移除数据卷 ${index + 1}`}
-                      onClick={() =>
-                        setVolumes((items) =>
-                          items.filter((_, i) => i !== index),
-                        )
-                      }
-                    >
-                      <Trash2 size={16} />
-                    </ActionIcon>
-                  </div>
-                  <div className="form-columns">
-                    <TextInput
-                      label={template?.kind === "vm" ? "盘名" : "挂载目录"}
-                      value={volume.mountPath}
-                      required
-                      onChange={(event) =>
-                        update({ mountPath: event.currentTarget.value })
-                      }
-                    />
-                    <NumberInput
-                      label="容量 · GiB"
-                      value={volume.sizeGiB}
-                      min={1}
-                      disabled={Boolean(volume.persistentVolumeId)}
-                      onChange={(value) => update({ sizeGiB: Number(value) })}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            <ErrorMessage error={availableVolumes.error} />
-            <Button
-              variant="default"
-              size="compact-sm"
-              leftSection={<Plus size={15} />}
-              onClick={() =>
-                setVolumes((items) => [
-                  ...items,
-                  {
-                    id: randomUUID(),
-                    mountPath:
-                      template?.kind === "vm"
-                        ? `数据盘 ${items.length + 1}`
-                        : `/data${items.length ? items.length + 1 : ""}`,
-                    sizeGiB: 10,
-                  },
-                ])
-              }
-            >
-              添加数据卷
-            </Button>
-          </div>
-        </Collapse>
-        {initialized && (
-          <>
+                  )}
+                  <ErrorMessage error={deviceNodes.error} />
+                  <LoadMore list={deviceNodes} />
+                </Collapse>
+              </>
+            )}
             <button
-              className="disclosure"
+              className={styles.disclosure}
               type="button"
-              aria-expanded={guestOpen}
-              onClick={() => setGuestOpen(!guestOpen)}
+              aria-expanded={volumesOpen}
+              onClick={() => setVolumesOpen(!volumesOpen)}
             >
-              来宾设置
-              <ChevronDown size={16} className={guestOpen ? "rotated" : ""} />
+              数据卷
+              <ChevronDown size={16} />
             </button>
-            <Collapse in={guestOpen}>
-              <div className="form-stack">
-                <div className="form-columns">
-                  <TextInput
-                    label="主机名"
-                    value={hostname}
-                    onChange={(event) => setHostname(event.currentTarget.value)}
-                  />
-                  <TextInput
-                    label="登录用户"
-                    value={username}
-                    onChange={(event) => setUsername(event.currentTarget.value)}
-                  />
-                </div>
-                <Textarea
-                  label="SSH 公钥"
-                  placeholder="ssh-ed25519 …"
-                  minRows={3}
-                  autosize
-                  value={sshKeys}
-                  onChange={(event) => setSshKeys(event.currentTarget.value)}
-                />
+            <Collapse in={volumesOpen}>
+              <div className={styles.form}>
+                {volumes.map((volume, index) => {
+                  const update = (values: Partial<Schema<"Volume">>) =>
+                    setVolumes((items) =>
+                      items.map((item, i) =>
+                        i === index ? { ...item, ...values } : item,
+                      ),
+                    );
+                  return (
+                    <div className={styles.volume} key={volume.id}>
+                      <div className={styles.volumeSource}>
+                        <Select
+                          label="数据来源"
+                          clearable
+                          placeholder="随资产创建"
+                          value={volume.persistentVolumeId ?? null}
+                          onChange={(id) => {
+                            const source = availableVolumes.data?.find(
+                              (item) => item.id === id,
+                            );
+                            update({
+                              persistentVolumeId: id ?? undefined,
+                              sizeGiB: source?.sizeGiB ?? volume.sizeGiB,
+                            });
+                            if (source)
+                              setStoragePoolId(
+                                source.storagePoolId.startsWith("default:")
+                                  ? null
+                                  : source.storagePoolId,
+                              );
+                          }}
+                          data={
+                            !identity.data?.administrator &&
+                            volume.persistentVolumeId
+                              ? [
+                                  {
+                                    value: volume.persistentVolumeId,
+                                    label: "已附加数据卷",
+                                  },
+                                ]
+                              : (availableVolumes.data ?? [])
+                                  .filter(
+                                    (item) =>
+                                      item.kind === template?.kind &&
+                                      (item.state === "ready" ||
+                                        item.id === volume.persistentVolumeId),
+                                  )
+                                  .map((item) => ({
+                                    value: item.id,
+                                    label: item.name,
+                                  }))
+                          }
+                        />
+                        <ActionIcon
+                          variant="subtle"
+                          color="red"
+                          aria-label={`移除数据卷 ${index + 1}`}
+                          onClick={() =>
+                            setVolumes((items) =>
+                              items.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          <Trash2 size={16} />
+                        </ActionIcon>
+                      </div>
+                      <div className={styles.columns}>
+                        <TextInput
+                          label={template?.kind === "vm" ? "盘名" : "挂载目录"}
+                          value={volume.mountPath}
+                          required
+                          onChange={(event) =>
+                            update({ mountPath: event.currentTarget.value })
+                          }
+                        />
+                        <NumberInput
+                          label="容量 · GiB"
+                          value={volume.sizeGiB}
+                          min={1}
+                          disabled={Boolean(volume.persistentVolumeId)}
+                          onChange={(value) =>
+                            update({ sizeGiB: Number(value) })
+                          }
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                <ErrorMessage error={availableVolumes.error} />
+                <Button
+                  variant="default"
+                  size="compact-sm"
+                  leftSection={<Plus size={15} />}
+                  onClick={() =>
+                    setVolumes((items) => [
+                      ...items,
+                      {
+                        id: randomUUID(),
+                        mountPath:
+                          template?.kind === "vm"
+                            ? `数据盘 ${items.length + 1}`
+                            : `/data${items.length ? items.length + 1 : ""}`,
+                        sizeGiB: 10,
+                      },
+                    ])
+                  }
+                >
+                  添加数据卷
+                </Button>
               </div>
             </Collapse>
+            {initialized && (
+              <>
+                <button
+                  className={styles.disclosure}
+                  type="button"
+                  aria-expanded={guestOpen}
+                  onClick={() => setGuestOpen(!guestOpen)}
+                >
+                  来宾设置
+                  <ChevronDown size={16} />
+                </button>
+                <Collapse in={guestOpen}>
+                  <div className={styles.form}>
+                    <div className={styles.columns}>
+                      <TextInput
+                        label="主机名"
+                        value={hostname}
+                        onChange={(event) =>
+                          setHostname(event.currentTarget.value)
+                        }
+                      />
+                      <TextInput
+                        label="登录用户"
+                        value={username}
+                        onChange={(event) =>
+                          setUsername(event.currentTarget.value)
+                        }
+                      />
+                    </div>
+                    <Textarea
+                      label="SSH 公钥"
+                      placeholder="ssh-ed25519 …"
+                      minRows={3}
+                      autosize
+                      value={sshKeys}
+                      onChange={(event) =>
+                        setSshKeys(event.currentTarget.value)
+                      }
+                    />
+                  </div>
+                </Collapse>
+              </>
+            )}
           </>
         )}
-        <div className="drawer-footer">
+        <div className={styles.footer}>
           <Button fullWidth type="submit" disabled={!templateId}>
             {asset ? "更新资产" : "添加到环境"}
           </Button>
@@ -579,10 +595,10 @@ export function NetworkEditor({
       onClose={onClose}
       title={network ? "编辑网段" : "添加网段"}
       position="right"
-      size={416}
+      size={504}
     >
       <form
-        className="form-stack"
+        className={styles.form}
         onSubmit={(event) => {
           event.preventDefault();
           save();
@@ -679,16 +695,16 @@ export function NetworkEditor({
           </>
         )}
         <button
-          className="disclosure"
+          className={styles.disclosure}
           type="button"
           aria-expanded={advanced}
           onClick={() => setAdvanced(!advanced)}
         >
           网络参数
-          <ChevronDown size={16} className={advanced ? "rotated" : ""} />
+          <ChevronDown size={16} />
         </button>
         <Collapse in={advanced}>
-          <div className="form-stack">
+          <div className={styles.form}>
             {!external && (
               <TextInput
                 label="网关"
@@ -724,7 +740,7 @@ export function NetworkEditor({
             />
           </div>
         </Collapse>
-        <div className="drawer-footer">
+        <div className={styles.footer}>
           <Button fullWidth type="submit">
             {network ? "更新网段" : "添加到环境"}
           </Button>

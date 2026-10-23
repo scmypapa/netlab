@@ -188,22 +188,6 @@
   display: grid;
   gap: 16px;
 }
-.columns {
-  display: grid;
-  grid-template-columns: 1fr 100px;
-  gap: 12px;
-}
-.key {
-  display: grid;
-  gap: 10px;
-  justify-items: start;
-}
-.key code {
-  font-size: 11px;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  color: var(--muted);
-}
 .dialogActions {
   display: flex;
   justify-content: flex-end;

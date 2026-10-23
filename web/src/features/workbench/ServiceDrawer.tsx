@@ -157,41 +157,44 @@ export function ServiceDrawer({
                 { label: "UDP", value: "udp" },
               ]}
             />
-            {asset.interfaces.length > 1 && (
-              <Select
-                label="网络接口"
-                value={interfaceId}
-                onChange={(value) => setInterfaceId(value ?? undefined)}
-                data={asset.interfaces.map((item) => ({
-                  value: item.id,
-                  label: `${spec.networks.find((network) => network.id === item.networkId)?.name ?? ""} · ${item.address}`,
-                }))}
-                allowDeselect={false}
-                required
-              />
-            )}
-            <div className={styles.ports}>
-              <NumberInput
-                label="目标端口"
-                value={targetPort}
-                onChange={setTargetPort}
-                min={1}
-                max={65535}
-                allowDecimal={false}
-                hideControls
-                required
-              />
-              <NumberInput
-                label="入口端口"
-                placeholder="自动分配"
-                value={listenPort}
-                onChange={setListenPort}
-                min={1}
-                max={65535}
-                allowDecimal={false}
-                hideControls
-              />
-            </div>
+            <NumberInput
+              label="资产端口"
+              value={targetPort}
+              onChange={setTargetPort}
+              min={1}
+              max={65535}
+              allowDecimal={false}
+              hideControls
+              required
+            />
+            <details className={styles.options}>
+              <summary>入口设置</summary>
+              <div className={styles.form}>
+                {asset.interfaces.length > 1 && (
+                  <Select
+                    label="网络接口"
+                    value={interfaceId}
+                    onChange={(value) => setInterfaceId(value ?? undefined)}
+                    data={asset.interfaces.map((item) => ({
+                      value: item.id,
+                      label: `${spec.networks.find((network) => network.id === item.networkId)?.name ?? ""} · ${item.address}`,
+                    }))}
+                    allowDeselect={false}
+                    required
+                  />
+                )}
+                <NumberInput
+                  label="入口端口"
+                  placeholder="自动分配"
+                  value={listenPort}
+                  onChange={setListenPort}
+                  min={1}
+                  max={65535}
+                  allowDecimal={false}
+                  hideControls
+                />
+              </div>
+            </details>
             <div className={styles.actions}>
               <Button variant="default" onClick={() => setCreating(false)}>
                 取消

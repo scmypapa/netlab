@@ -1,5 +1,12 @@
 import { randomUUID } from "../../foundation/id";
-import { ActionIcon, Button, Menu, Modal, TextInput } from "@mantine/core";
+import {
+  ActionIcon,
+  Button,
+  Menu,
+  Modal,
+  Select,
+  TextInput,
+} from "@mantine/core";
 import {
   ArrowLeft,
   Box,
@@ -53,6 +60,7 @@ import { VPNDrawer } from "./VPNDrawer";
 import { RecoveryDrawer } from "./RecoveryDrawer";
 import { consoleKey, type ConsoleTab } from "./consoles";
 import { allows, allowsProject } from "../access/permissions";
+import styles from "./WorkbenchPage.module.css";
 
 const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 const ObservationWorkspace = lazy(() => import("./ObservationWorkspace"));
@@ -78,6 +86,7 @@ function Workbench({ id }: { id: string }) {
     traffic = view === "traffic",
     performance = view === "performance";
   const [query, setQuery] = useState("");
+  const [assetFilter, setAssetFilter] = useState("all");
   const [editor, setEditor] = useState<"asset" | "network">();
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
@@ -151,6 +160,14 @@ function Workbench({ id }: { id: string }) {
     [layout, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
+  const listedAssets = spec.assets.filter(
+    (item) =>
+      (assetFilter === "all" || assetStates.get(item.id) === assetFilter) &&
+      [item.name, ...item.interfaces.map((iface) => iface.address)]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(query.toLocaleLowerCase()),
+  );
   const fileAsset =
     filesOpened &&
     !workbench.editing &&
@@ -222,6 +239,11 @@ function Workbench({ id }: { id: string }) {
       : "stop"
     : "start";
   const operation = workbench.state.data?.operation;
+  const switchView = (value: typeof view) => {
+    setView(value);
+    setFilesOpened(false);
+    setObservationOpened(false);
+  };
   const beginEdit = () => {
     setView(list ? "assets" : "topology");
     setObservationOpened(false);
@@ -324,9 +346,9 @@ function Workbench({ id }: { id: string }) {
       </main>
     );
   return (
-    <main className={`workbench ${workbench.editing ? "editing" : ""}`}>
-      <header className="environment-header">
-        <div className="environment-heading">
+    <main className={styles.workbench} data-editing={workbench.editing}>
+      <header className={styles.header}>
+        <div className={styles.identity}>
           <ActionIcon
             component={Link}
             to="/environments"
@@ -336,30 +358,36 @@ function Workbench({ id }: { id: string }) {
           >
             <ArrowLeft size={18} />
           </ActionIcon>
-          <div className="environment-heading-text">
+          <div className={styles.title}>
             <h1>{environment.name}</h1>
             <Status value={status} />
           </div>
-          {workbench.editing && <span className="edit-indicator">调整中</span>}
+          {workbench.editing && <span className={styles.editing}>调整中</span>}
         </div>
-        <div className="environment-actions">
+        <div className={styles.actions}>
           {environment.permissions?.includes("access") && (
-            <ActionIcon
+            <Button
               variant="default"
               aria-label="VPN"
+              title="VPN"
+              className={styles.utility}
+              leftSection={<KeyRound size={15} />}
               onClick={() => setVPNOpened(true)}
             >
-              <KeyRound size={18} />
-            </ActionIcon>
+              VPN
+            </Button>
           )}
           {environment.permissions?.includes("manage") && (
-            <ActionIcon
+            <Button
               variant="default"
               aria-label="共享环境"
+              title="共享环境"
+              className={styles.utility}
+              leftSection={<UsersRound size={15} />}
               onClick={() => setSharing(true)}
             >
-              <UsersRound size={18} />
-            </ActionIcon>
+              共享
+            </Button>
           )}
           {workbench.editing ? (
             <>
@@ -508,13 +536,13 @@ function Workbench({ id }: { id: string }) {
         <ErrorMessage key={index} error={error} />
       ))}
       {environment.error && (
-        <div className="workbench-error" role="alert">
+        <div className={styles.error} role="alert">
           {environment.error}
         </div>
       )}
-      <div className="workspace-body">
-        {tree && !traffic && !performance && (
-          <aside className="object-tree">
+      <div className={styles.body}>
+        {tree && !traffic && !performance && !fileAsset && !observedAsset && (
+          <aside className={styles.tree}>
             <TextInput
               aria-label="查找对象"
               placeholder="查找对象"
@@ -522,7 +550,7 @@ function Workbench({ id }: { id: string }) {
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
-            <div className="tree-section-heading">
+            <div className={styles.treeHeading}>
               资产<span>{spec.assets.length}</span>
             </div>
             {spec.assets
@@ -533,7 +561,8 @@ function Workbench({ id }: { id: string }) {
               )
               .map((item) => (
                 <button
-                  className={`tree-item ${selection === item.id ? "selected" : ""}`}
+                  className={styles.treeItem}
+                  aria-current={selection === item.id}
                   key={item.id}
                   onClick={() => setSelection(item.id)}
                 >
@@ -543,10 +572,13 @@ function Workbench({ id }: { id: string }) {
                     <Box size={16} />
                   )}
                   <span>{item.name}</span>
-                  <span className={`tree-state ${assetStates.get(item.id)}`} />
+                  <span
+                    className={styles.treeState}
+                    data-state={assetStates.get(item.id)}
+                  />
                 </button>
               ))}
-            <div className="tree-section-heading">
+            <div className={styles.treeHeading}>
               网段<span>{spec.networks.length}</span>
             </div>
             {spec.networks
@@ -557,7 +589,8 @@ function Workbench({ id }: { id: string }) {
               )
               .map((item, index) => (
                 <button
-                  className={`tree-item ${selection === item.id ? "selected" : ""}`}
+                  className={styles.treeItem}
+                  aria-current={selection === item.id}
                   key={item.id}
                   onClick={() => setSelection(item.id)}
                 >
@@ -570,37 +603,37 @@ function Workbench({ id }: { id: string }) {
               ))}
           </aside>
         )}
-        <section className="canvas-area" aria-label="环境拓扑">
+        <section className={styles.canvas} aria-label="环境拓扑">
           {!observedAsset && (
-            <div className="canvas-toolbar">
-              <div className="canvas-view-controls">
-                <ActionIcon
-                  variant={tree ? "light" : "subtle"}
-                  color={tree ? "blue" : "gray"}
-                  aria-label="对象列表"
-                  aria-pressed={tree}
-                  onClick={() => setTree(!tree)}
-                >
-                  <Columns3 size={17} />
-                </ActionIcon>
-                <div className="view-switch">
+            <div className={styles.toolbar}>
+              <div className={styles.viewControls}>
+                {!fileAsset && !traffic && !performance && (
+                  <ActionIcon
+                    variant={tree ? "light" : "subtle"}
+                    color={tree ? "blue" : "gray"}
+                    aria-label="对象列表"
+                    aria-pressed={tree}
+                    onClick={() => setTree(!tree)}
+                  >
+                    <Columns3 size={17} />
+                  </ActionIcon>
+                )}
+                <div className={styles.views}>
                   <button
-                    className={view === "topology" ? "selected" : ""}
                     aria-label="拓扑视图"
                     aria-pressed={view === "topology"}
                     onClick={() => {
-                      setView("topology");
+                      switchView("topology");
                     }}
                   >
                     <LayoutGrid size={15} />
                     <span>拓扑</span>
                   </button>
                   <button
-                    className={list && !traffic ? "selected" : ""}
                     aria-label="资产视图"
                     aria-pressed={list && !traffic}
                     onClick={() => {
-                      setView("assets");
+                      switchView("assets");
                     }}
                   >
                     <List size={15} />
@@ -609,9 +642,8 @@ function Workbench({ id }: { id: string }) {
                   {!workbench.editing && allows(environment, "observe") && (
                     <button
                       aria-label="流量视图"
-                      className={traffic ? "selected" : ""}
                       aria-pressed={traffic}
-                      onClick={() => setView("traffic")}
+                      onClick={() => switchView("traffic")}
                     >
                       <Activity size={15} />
                       <span>流量</span>
@@ -620,9 +652,8 @@ function Workbench({ id }: { id: string }) {
                   {!workbench.editing && allows(environment, "observe") && (
                     <button
                       aria-label="性能视图"
-                      className={performance ? "selected" : ""}
                       aria-pressed={performance}
-                      onClick={() => setView("performance")}
+                      onClick={() => switchView("performance")}
                     >
                       <Gauge size={15} />
                       <span>性能</span>
@@ -630,7 +661,7 @@ function Workbench({ id }: { id: string }) {
                   )}
                 </div>
               </div>
-              <div className="canvas-add-controls">
+              <div className={styles.addControls}>
                 {workbench.editing && (
                   <Menu position="bottom-end">
                     <Menu.Target>
@@ -659,7 +690,7 @@ function Workbench({ id }: { id: string }) {
                     </Menu.Dropdown>
                   </Menu>
                 )}
-                <span className="canvas-count">
+                <span className={styles.count}>
                   {spec.assets.length} 资产 · {spec.networks.length} 网段
                 </span>
               </div>
@@ -731,58 +762,96 @@ function Workbench({ id }: { id: string }) {
               }
             />
           ) : list ? (
-            <div className="asset-list-area">
-              <table className="data-table asset-table">
-                <thead>
-                  <tr>
-                    <th>资产</th>
-                    <th>状态</th>
-                    <th>连接网段</th>
-                    <th>地址</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {spec.assets.map((item) => (
-                    <tr
-                      key={item.id}
-                      className={selection === item.id ? "selected" : ""}
-                    >
-                      <td>
-                        <button
-                          className="asset-row-name"
-                          onClick={() => setSelection(item.id)}
-                        >
-                          {templatesById.get(item.templateId)?.kind === "vm" ? (
-                            <Monitor size={17} />
-                          ) : (
-                            <Box size={17} />
-                          )}
-                          {item.name}
-                        </button>
-                      </td>
-                      <td>
-                        <Status value={assetStates.get(item.id) ?? "draft"} />
-                      </td>
-                      <td>
-                        {item.interfaces
-                          .map(
-                            (iface) =>
-                              spec.networks.find(
-                                (network) => network.id === iface.networkId,
-                              )?.name,
-                          )
-                          .join("、")}
-                      </td>
-                      <td className="mono">
-                        {item.interfaces
-                          .map((iface) => iface.address)
-                          .filter(Boolean)
-                          .join("、")}
-                      </td>
+            <div className={styles.assetList}>
+              <div className={styles.listTools}>
+                <TextInput
+                  aria-label="查找资产"
+                  placeholder="名称或地址"
+                  leftSection={<Search size={15} />}
+                  value={query}
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                />
+                <Select
+                  aria-label="资产状态"
+                  value={assetFilter}
+                  onChange={(value) => setAssetFilter(value!)}
+                  allowDeselect={false}
+                  data={[
+                    { value: "all", label: "全部状态" },
+                    { value: "running", label: "运行中" },
+                    { value: "stopped", label: "已停止" },
+                    { value: "suspended", label: "已暂停" },
+                    { value: "failed", label: "失败" },
+                  ]}
+                />
+              </div>
+              <div className={styles.tableScroll}>
+                <table className={styles.assetTable}>
+                  <thead>
+                    <tr>
+                      <th>资产</th>
+                      <th>状态</th>
+                      <th>连接网段</th>
+                      <th>地址</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {listedAssets.map((item) => (
+                      <tr
+                        key={item.id}
+                        aria-selected={selection === item.id}
+                        onClick={() => setSelection(item.id)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setSelection(item.id);
+                          setContext({
+                            id: item.id,
+                            x: event.clientX,
+                            y: event.clientY,
+                          });
+                        }}
+                      >
+                        <td>
+                          <button
+                            className={styles.assetName}
+                            onClick={() => setSelection(item.id)}
+                          >
+                            {templatesById.get(item.templateId)?.kind ===
+                            "vm" ? (
+                              <Monitor size={17} />
+                            ) : (
+                              <Box size={17} />
+                            )}
+                            {item.name}
+                          </button>
+                        </td>
+                        <td>
+                          <Status value={assetStates.get(item.id) ?? "draft"} />
+                        </td>
+                        <td>
+                          {item.interfaces
+                            .map(
+                              (iface) =>
+                                spec.networks.find(
+                                  (network) => network.id === iface.networkId,
+                                )?.name,
+                            )
+                            .join("、")}
+                        </td>
+                        <td className="mono">
+                          {item.interfaces
+                            .map((iface) => iface.address)
+                            .filter(Boolean)
+                            .join("、")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!listedAssets.length && (
+                  <div className={styles.empty}>没有匹配的资产</div>
+                )}
+              </div>
               {workbench.editing && (
                 <Button
                   variant="subtle"
@@ -825,52 +894,56 @@ function Workbench({ id }: { id: string }) {
             />
           )}
         </section>
-        {(asset || network) && !fileAsset && !traffic && !performance && (
-          <ObjectInspector
-            asset={asset}
-            network={network}
-            spec={spec}
-            template={asset && templatesById.get(asset.templateId)}
-            state={workbench.state.data}
-            editing={workbench.editing}
-            busy={busy}
-            canOperate={allows(environment, "operate", asset?.id)}
-            canManage={allows(environment, "manage", asset?.id)}
-            canCapture={Boolean(identity.data?.administrator)}
-            onCapture={() => setCapturing(asset)}
-            onMigrate={() => setMigrating(asset)}
-            canConnect={allows(environment, "session", asset?.id)}
-            canFile={allows(environment, "file", asset?.id)}
-            onFiles={() => {
-              setObservationOpened(false);
-              setFilesOpened(true);
-            }}
-            canObserve={allows(environment, "observe", asset?.id)}
-            canAccess={allows(environment, "access", asset?.id)}
-            services={workbench.services.data ?? []}
-            onClose={() => setSelection(undefined)}
-            onEdit={editObject}
-            onRemove={remove}
-            onDuplicate={duplicate}
-            onAction={(action) =>
-              action === "rebuild"
-                ? setRebuilding(asset)
-                : workbench.action.mutate({ action, assetId: asset?.id })
-            }
-            onConnect={connect}
-            onLogs={() => setLogging(asset)}
-            onObserve={() => {
-              setFilesOpened(false);
-              setObservationOpened(true);
-            }}
-            onServices={() => {
-              workbench.exposeService.reset();
-              workbench.revokeService.reset();
-              setServing(asset?.id);
-            }}
-            onSelect={setSelection}
-          />
-        )}
+        {(asset || network) &&
+          !fileAsset &&
+          !observedAsset &&
+          !traffic &&
+          !performance && (
+            <ObjectInspector
+              asset={asset}
+              network={network}
+              spec={spec}
+              template={asset && templatesById.get(asset.templateId)}
+              state={workbench.state.data}
+              editing={workbench.editing}
+              busy={busy}
+              canOperate={allows(environment, "operate", asset?.id)}
+              canManage={allows(environment, "manage", asset?.id)}
+              canCapture={Boolean(identity.data?.administrator)}
+              onCapture={() => setCapturing(asset)}
+              onMigrate={() => setMigrating(asset)}
+              canConnect={allows(environment, "session", asset?.id)}
+              canFile={allows(environment, "file", asset?.id)}
+              onFiles={() => {
+                setObservationOpened(false);
+                setFilesOpened(true);
+              }}
+              canObserve={allows(environment, "observe", asset?.id)}
+              canAccess={allows(environment, "access", asset?.id)}
+              services={workbench.services.data ?? []}
+              onClose={() => setSelection(undefined)}
+              onEdit={editObject}
+              onRemove={remove}
+              onDuplicate={duplicate}
+              onAction={(action) =>
+                action === "rebuild"
+                  ? setRebuilding(asset)
+                  : workbench.action.mutate({ action, assetId: asset?.id })
+              }
+              onConnect={connect}
+              onLogs={() => setLogging(asset)}
+              onObserve={() => {
+                setFilesOpened(false);
+                setObservationOpened(true);
+              }}
+              onServices={() => {
+                workbench.exposeService.reset();
+                workbench.revokeService.reset();
+                setServing(asset?.id);
+              }}
+              onSelect={setSelection}
+            />
+          )}
       </div>
       <ErrorMessage error={connectionError} />
       {migrating && (
@@ -1067,7 +1140,7 @@ function Workbench({ id }: { id: string }) {
                   </div>
                 ))
               ) : (
-                <div className="task-empty">没有执行配置变更</div>
+                <div className={styles.empty}>没有执行配置变更</div>
               )}
             </div>
             <div className="dialog-actions">

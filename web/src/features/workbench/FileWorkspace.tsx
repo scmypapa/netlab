@@ -19,6 +19,7 @@ import {
   MoreHorizontal,
   Pencil,
   RefreshCw,
+  Settings2,
   Trash2,
   Upload,
   X,
@@ -234,7 +235,7 @@ export function FileWorkspace({
               aria-label="连接设置"
               onClick={onSettings}
             >
-              <MoreHorizontal size={17} />
+              <Settings2 size={17} />
             </ActionIcon>
           )}
           <ActionIcon variant="subtle" aria-label="关闭文件" onClick={onClose}>
