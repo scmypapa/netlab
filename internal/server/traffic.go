@@ -20,7 +20,7 @@ func (s *Server) runtimeInterfaces(ctx context.Context, id string) ([]api.Captur
 	}
 	interfaces := []api.CaptureInterface{}
 	for _, asset := range assets {
-		if !asset.Current {
+		if !asset.Current || asset.State!="running" {
 			continue
 		}
 		var execution api.AssetExecution
@@ -73,6 +73,11 @@ func (s *Server) environmentTraffic(w http.ResponseWriter, r *http.Request, iden
 		})
 	}
 	workers.Wait()
+	retention, err := s.packetRetention(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	result.Retention = &retention
 	capture.SortFlows(result.Flows)
 	return writeJSON(w, http.StatusOK, result)
 }

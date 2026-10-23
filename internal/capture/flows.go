@@ -184,6 +184,8 @@ func (a *aggregate) addSample(sample Sample) {
 		*flow = api.CaptureFlow{Source: source, Destination: destination, Protocol: sample.Protocol, SourcePort: sp, DestinationPort: dp, FirstSeen: at}
 		node := a.node
 		flow.NodeId, flow.InterfaceIndex = &node, sample.CaptureIndex
+		interfaceID, networkID := owner.InterfaceId, owner.NetworkId
+		flow.InterfaceId, flow.NetworkId = &interfaceID, &networkID
 		if srcKnown {
 			id := src.AssetId
 			flow.SourceAssetId = &id

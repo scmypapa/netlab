@@ -245,6 +245,8 @@ func run() error {
 	})
 	mux.HandleFunc("POST /node/v1/traffic", executor.Traffic)
 	mux.HandleFunc("POST /node/v1/security", executor.Security)
+	mux.HandleFunc("GET /node/v1/environments/{environmentId}/packets", executor.Packets)
+	mux.HandleFunc("GET /node/v1/environments/{environmentId}/packets/{packetId}", executor.Packets)
 	for _, pattern := range []string{
 		"GET /node/v1/environments/{environmentId}/captures", "POST /node/v1/environments/{environmentId}/captures", "DELETE /node/v1/environments/{environmentId}/captures",
 		"GET /node/v1/environments/{environmentId}/captures/{captureId}", "POST /node/v1/environments/{environmentId}/captures/{captureId}", "DELETE /node/v1/environments/{environmentId}/captures/{captureId}",

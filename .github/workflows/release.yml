@@ -26,7 +26,7 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libvirt-dev openvswitch-switch ovn-central suricata suricata-update tshark
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libvirt-dev libpcap-dev openvswitch-switch ovn-central suricata suricata-update tshark
       - name: Verify resource, networking and execution changes
         run: |
           go test ./internal/security ./internal/metrics ./internal/capture ./internal/network ./internal/observation ./internal/server ./internal/update -count=1
@@ -37,7 +37,7 @@ jobs:
       - name: Verify native IPFIX and packet analysis
         run: |
           go test -race -c -o "$RUNNER_TEMP/netlab-capture.test" ./internal/capture
-          sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run 'TestRealContinuousOVSFlows|TestRealPacketDecoding' -test.v -test.timeout=60s
+          sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run 'TestRealContinuousOVSFlows|TestRealPacketDecoding|TestRealCompressedRecentPackets|TestRealInterfaceCaptureLifecycle' -test.v -test.timeout=90s
       - name: Verify full Suricata rules
         run: |
           sudo suricata-update --no-test --no-reload
@@ -74,7 +74,7 @@ jobs:
           [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           sudo apt-get update
-          sudo apt-get install -y libvirt-dev autoconf automake libtool pkg-config libcairo2-dev libjpeg-turbo8-dev libpng-dev libpango1.0-dev libwebp-dev freerdp3-dev libssl-dev
+          sudo apt-get install -y libvirt-dev libpcap-dev autoconf automake libtool pkg-config libcairo2-dev libjpeg-turbo8-dev libpng-dev libpango1.0-dev libwebp-dev freerdp3-dev libssl-dev
           mkdir -p package/web package/deploy package/scripts
           flags="-s -w -X netlab.local/core/internal/buildinfo.Version=$VERSION -X netlab.local/core/internal/buildinfo.Commit=$GITHUB_SHA"
           go test ./internal/update -count=1
