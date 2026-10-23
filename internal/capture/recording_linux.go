@@ -93,6 +93,7 @@ func (m *Manager) Reconcile(ctx context.Context, targets []api.SecurityInterface
 						m.recorder.err = err
 						m.recorder.mu.Unlock()
 					}
+					m.recordStatistics(target.EnvironmentId, target.Interface.PortName, stats)
 				}
 			}})
 			local := map[string][]api.CaptureInterface{}

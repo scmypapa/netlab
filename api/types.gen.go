@@ -677,7 +677,7 @@ type CaptureSegment struct {
 	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
 	Id            string     `json:"id"`
 
-	// KernelDroppedPackets Kernel capture drops from the pcapng interface statistics; present after the recorder reports statistics.
+	// KernelDroppedPackets Cumulative kernel drops reported by the native capture intervals contributing to this file; omitted until source statistics are available.
 	KernelDroppedPackets *int64  `json:"kernelDroppedPackets,omitempty"`
 	NodeId               string  `json:"nodeId"`
 	NodeName             *string `json:"nodeName,omitempty"`

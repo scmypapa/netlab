@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -44,8 +45,7 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 	if err != nil || detail.Hex != hex.EncodeToString(frame) || len(detail.Layers) < 3 {
 		t.Fatalf("detail=%+v err=%v", detail, err)
 	}
-	statistics := pcapgo.DefaultNgInterfaceStatistics
-	statistics.PacketsDropped, statistics.PacketsReceived = 7, 10
+	statistics := pcapgo.NgInterfaceStatistics{PacketsDropped: 7, PacketsReceived: 10, StartTime: at, EndTime: at.Add(time.Second), LastUpdate: at.Add(time.Second)}
 	if err = r.interfaceStatistics(environment, interfaces[0].PortName, statistics); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +70,9 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 		if _, _, err = reader.ReadPacketData(); err != nil {
 			break
 		}
+	}
+	if err != io.EOF {
+		t.Fatal(err)
 	}
 	if exportedDrops == nil || *exportedDrops != 7 {
 		t.Fatalf("native interface drop statistics stripped from filtered export: %v", exportedDrops)

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gopacket/gopacket/pcapgo"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
@@ -126,12 +127,18 @@ func TestRealInterfaceCaptureLifecycle(t *testing.T) {
 			t.Fatalf("isolated packet misattributed: %+v", flow)
 		}
 	}
+	if _, err = m.Reconcile(ctx, []api.SecurityInterface{}, map[string]int64{request.EnvironmentId: PacketBudget}); err != nil {
+		t.Fatal(err)
+	}
 	segment, err := m.Stop(ctx, id, request.EnvironmentId)
 	if err != nil || segment.Status != api.CaptureSegmentStatusStopped {
 		if segment.Error != nil {
 			t.Log(*segment.Error)
 		}
 		t.Fatalf("stop: %+v %v", segment, err)
+	}
+	if segment.KernelDroppedPackets == nil {
+		t.Fatal("native interface drop statistics missing from explicit capture")
 	}
 	response := httptest.NewRecorder()
 	if err = m.File(response, httptest.NewRequest("GET", "/", nil), id, request.EnvironmentId); err != nil {
@@ -142,6 +149,26 @@ func TestRealInterfaceCaptureLifecycle(t *testing.T) {
 	}
 	if !bytes.Contains(response.Body.Bytes(), frame) {
 		t.Fatal("original jumbo frame was truncated")
+	}
+	var dropped *int64
+	reader, err := pcapgo.NewNgReader(bytes.NewReader(response.Body.Bytes()), pcapgo.NgReaderOptions{StatisticsCallback: func(index int, stats pcapgo.NgInterfaceStatistics) {
+		if stats.PacketsDropped != pcapgo.NgNoValue64 {
+			if dropped == nil {
+				dropped = new(int64)
+			}
+			*dropped += int64(stats.PacketsDropped)
+		}
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, _, err = reader.ReadPacketData(); err != nil {
+			break
+		}
+	}
+	if dropped == nil || *dropped != *segment.KernelDroppedPackets {
+		t.Fatalf("explicit export lost native drop statistics: %v %+v", dropped, segment)
 	}
 	m.Close()
 	reloaded, err := New(ctx, ovs, directory, "one")
