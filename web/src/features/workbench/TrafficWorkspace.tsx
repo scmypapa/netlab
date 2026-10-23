@@ -56,6 +56,7 @@ import {
   selectionLabel,
   alertFilter,
   selectionNetwork,
+  selectionAsset,
   selectionFilter,
   selectionMatches,
   trafficPalette,
@@ -220,10 +221,12 @@ export default function TrafficWorkspace({
           }
         : packetTimeWindow),
       ...(displayFilter ? { filter: displayFilter } : {}),
-      networkId: chosenAlert?.networkId ?? selectionNetwork(selection),
+      assetId: chosenAlert ? undefined : selectionAsset(spec, selection),
+      interfaceId: chosenAlert?.interfaceId,
+      networkId: chosenAlert?.networkId ?? selectionNetwork(spec, selection),
       limit: 100,
     }),
-    [packetTimeWindow, displayFilter, chosenAlert, selection],
+    [packetTimeWindow, displayFilter, chosenAlert, selection, spec],
   );
   const data = useTrafficObservation(environment, {
     range: Number(range),

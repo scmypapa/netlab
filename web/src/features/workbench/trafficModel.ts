@@ -150,18 +150,52 @@ export function selectionFilter(
   selection: TrafficSelection | undefined,
 ) {
   if (!selection) return "";
+  const managed = (id: string) => spec.assets.some((asset) => asset.id === id);
   return "asset" in selection
-    ? endpointFilter(spec, [selection.asset])
-    : `(${endpointFilter(spec, [selection.source])} && ${endpointFilter(spec, [selection.destination])})`;
+    ? managed(selection.asset)
+      ? ""
+      : endpointFilter(spec, [selection.asset])
+    : managed(selection.source)
+      ? endpointFilter(spec, [selection.destination])
+      : managed(selection.destination)
+        ? endpointFilter(spec, [selection.source])
+        : `(${endpointFilter(spec, [selection.source])} && ${endpointFilter(spec, [selection.destination])})`;
 }
-export function selectionNetwork(selection: TrafficSelection | undefined) {
+export function selectionAsset(
+  spec: Spec,
+  selection: TrafficSelection | undefined,
+) {
+  const ids = selection
+    ? "asset" in selection
+      ? [selection.asset]
+      : [selection.source, selection.destination]
+    : [];
+  return ids.find((id) => spec.assets.some((asset) => asset.id === id));
+}
+export function selectionNetwork(
+  spec: Spec,
+  selection: TrafficSelection | undefined,
+) {
   const ids = selection
     ? "asset" in selection
       ? [selection.asset]
       : [selection.source, selection.destination]
     : [];
   const network = ids.find((id) => id.startsWith("group:"))?.split(":")[1];
-  return network && network !== "unbound" ? network : undefined;
+  if (network && network !== "unbound") return network;
+  const assets = ids.flatMap(
+    (id) => spec.assets.find((asset) => asset.id === id) ?? [],
+  );
+  const shared =
+    assets[0]?.interfaces
+      .map((iface) => iface.networkId)
+      .filter((id) =>
+        assets.every((asset) =>
+          asset.interfaces.some((iface) => iface.networkId === id),
+        ),
+      ) ?? [];
+  const unique = [...new Set(shared)];
+  return unique.length === 1 ? unique[0] : undefined;
 }
 
 export function packetAlerts(
