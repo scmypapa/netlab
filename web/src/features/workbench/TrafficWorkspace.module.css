@@ -231,6 +231,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.paneHeading .graphTools {
+  margin-left: auto;
+  overflow: visible;
+}
 .paneHeading button {
   padding: 0;
   border: 0;

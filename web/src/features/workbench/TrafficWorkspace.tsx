@@ -116,6 +116,7 @@ export default function TrafficWorkspace({
     [rolesOpen, setRolesOpen] = useState(false),
     [roles, setRoles] = useState<Record<string, string>>({});
   const dragging = useRef<"column" | "row" | null>(null);
+  const [graphTools, setGraphTools] = useState<HTMLSpanElement | null>(null);
   const spec = environment.appliedSpec ?? environment.spec;
   const client = useQueryClient();
   const names = useMemo(
@@ -617,6 +618,7 @@ export default function TrafficWorkspace({
                 ? `${data.packets.length} 帧`
                 : `${new Set(graphLinks.map((link) => [link.source, link.target].sort().join("/"))).size} 组关系`}
             </span>
+            <span ref={setGraphTools} className={styles.graphTools} />
           </header>
           <div className={styles.paneBody}>
             {!data.traffic.isPending && (
@@ -628,6 +630,7 @@ export default function TrafficWorkspace({
                 selection={selection}
                 onSelect={select}
                 fullscreenTarget={host}
+                toolsTarget={graphTools}
               />
             )}
           </div>

@@ -1,4 +1,5 @@
 import { useComputedColorScheme } from "@mantine/core";
+import { createPortal } from "react-dom";
 import {
   useEffect,
   useMemo,
@@ -10,8 +11,6 @@ import {
 import dagre from "@dagrejs/dagre";
 import {
   Background,
-  ControlButton,
-  Controls,
   Handle,
   MarkerType,
   Position,
@@ -33,6 +32,9 @@ import {
   Server,
   Shuffle,
   Waypoints,
+  ZoomIn,
+  ZoomOut,
+  Scan,
 } from "lucide-react";
 import type { Environment } from "../../api/client";
 import { byteUnit, reading } from "../../foundation/format";
@@ -54,9 +56,7 @@ export type TrafficLink = {
   sourceKind?: EndpointKind;
   targetKind?: EndpointKind;
   value: number;
-  label: string;
   rate?: number;
-  packets?: number;
   severity?: number;
   alerts?: number;
 };
@@ -146,15 +146,17 @@ function arrange(
 function GraphActions({
   onArrange,
   fullscreenTarget,
+  toolsTarget,
 }: {
   onArrange: () => void;
   fullscreenTarget: RefObject<HTMLElement | null>;
+  toolsTarget: HTMLElement | null;
 }) {
-  const initialized = useNodesInitialized();
-  const fitted = useRef(false);
-  const { fitView, getNodes } = useReactFlow();
-  const [fullscreen, setFullscreen] = useState(false);
-  const [error, setError] = useState<string>();
+  const initialized = useNodesInitialized(),
+    fitted = useRef(false);
+  const { fitView, getNodes, zoomIn, zoomOut } = useReactFlow();
+  const [fullscreen, setFullscreen] = useState(false),
+    [error, setError] = useState<string>();
   useEffect(() => {
     if (initialized && !fitted.current) {
       fitted.current = true;
@@ -172,35 +174,56 @@ function GraphActions({
     return () => document.removeEventListener("fullscreenchange", changed);
   }, [fullscreenTarget]);
   return (
-    <>
-      <Controls showInteractive={false} position="bottom-right">
-        <ControlButton
-          title="重新布局"
-          aria-label="重新布局"
-          onClick={onArrange}
-        >
-          <Shuffle size={15} />
-        </ControlButton>
-        <ControlButton
-          title={fullscreen ? "退出全屏" : "全屏分析"}
-          aria-label={fullscreen ? "退出全屏" : "全屏分析"}
-          onClick={() => {
-            setError(undefined);
-            const action = fullscreen
-              ? document.exitFullscreen()
-              : fullscreenTarget.current!.requestFullscreen();
-            void action.catch((reason: Error) => setError(reason.message));
-          }}
-        >
-          {fullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
-        </ControlButton>
-      </Controls>
-      {error && (
-        <div className={styles.error} role="alert">
-          {error}
+    toolsTarget &&
+    createPortal(
+      <>
+        <div className={styles.tools}>
+          <button
+            title="放大通信图"
+            aria-label="放大通信图"
+            onClick={() => void zoomIn()}
+          >
+            <ZoomIn size={14} />
+          </button>
+          <button
+            title="缩小通信图"
+            aria-label="缩小通信图"
+            onClick={() => void zoomOut()}
+          >
+            <ZoomOut size={14} />
+          </button>
+          <button
+            title="适应画布"
+            aria-label="适应画布"
+            onClick={() => void fitView({ padding: 0.18, maxZoom: 1.05 })}
+          >
+            <Scan size={14} />
+          </button>
+          <button title="重新布局" aria-label="重新布局" onClick={onArrange}>
+            <Shuffle size={14} />
+          </button>
+          <button
+            title={fullscreen ? "退出全屏" : "全屏分析"}
+            aria-label={fullscreen ? "退出全屏" : "全屏分析"}
+            onClick={() => {
+              setError(undefined);
+              const action = fullscreen
+                ? document.exitFullscreen()
+                : fullscreenTarget.current!.requestFullscreen();
+              void action.catch((reason: Error) => setError(reason.message));
+            }}
+          >
+            {fullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+          </button>
         </div>
-      )}
-    </>
+        {error && (
+          <div className={styles.error} role="alert">
+            {error}
+          </div>
+        )}
+      </>,
+      toolsTarget,
+    )
   );
 }
 function Graph({
@@ -211,6 +234,7 @@ function Graph({
   selection,
   onSelect,
   fullscreenTarget,
+  toolsTarget,
 }: {
   environment: Environment;
   links: TrafficLink[];
@@ -219,10 +243,12 @@ function Graph({
   selection?: TrafficSelection;
   onSelect: (selection?: TrafficSelection) => void;
   fullscreenTarget: RefObject<HTMLElement | null>;
+  toolsTarget: HTMLElement | null;
 }) {
   const theme = useComputedColorScheme();
   const width = useStore((state) => state.width),
     height = useStore((state) => state.height);
+  const zoom = useStore((state) => state.transform[2]);
   const spec = environment.appliedSpec ?? environment.spec;
   const merged = useMemo(() => {
     const pairs = new Map<
@@ -321,22 +347,17 @@ function Graph({
     return [...nodes.values()];
   }, [spec.assets, merged, selection, groups, colors]);
   const [nodes, setNodes, onNodesChange] = useNodesState<AssetNode>([]);
-  const positions = useRef(new Map<string, Point>());
   useEffect(() => {
     if (!width || !height) return;
     setNodes((current) => {
       const present = new Set(models.map((node) => node.id));
-      for (const id of positions.current.keys())
-        if (!present.has(id)) positions.current.delete(id);
-      for (const node of current)
-        if (present.has(node.id)) positions.current.set(node.id, node.position);
-      if (!positions.current.size) {
-        const initial = arrange(models, displayed, { width, height });
-        for (const node of initial)
-          positions.current.set(node.id, node.position);
-        return initial;
-      }
-      const occupied = [...positions.current.values()];
+      const placed = new Map(
+        current
+          .filter((node) => present.has(node.id))
+          .map((node) => [node.id, node]),
+      );
+      if (!placed.size) return arrange(models, displayed, { width, height });
+      const occupied = [...placed.values()].map((node) => node.position);
       const free = (point: Point) =>
         !occupied.some(
           (other) =>
@@ -344,20 +365,20 @@ function Graph({
             Math.abs(other.y - point.y) < size.height + 35,
         );
       return models.map((model) => {
-        let position = positions.current.get(model.id);
+        const previous = placed.get(model.id);
+        let position = previous?.position;
         if (!position) {
           const neighbor = displayed.find(
             (link) =>
-              (link.source === model.id &&
-                positions.current.has(link.target)) ||
-              (link.target === model.id && positions.current.has(link.source)),
+              (link.source === model.id && placed.has(link.target)) ||
+              (link.target === model.id && placed.has(link.source)),
           );
           const anchor = neighbor
-            ? positions.current.get(
+            ? placed.get(
                 neighbor.source === model.id
                   ? neighbor.target
                   : neighbor.source,
-              )!
+              )!.position
             : { x: 0, y: 0 };
           const x = neighbor
             ? anchor.x + (neighbor.source === model.id ? -250 : 250)
@@ -370,14 +391,10 @@ function Graph({
             };
             row++;
           } while (!free(position));
-          positions.current.set(model.id, position);
+          placed.set(model.id, { ...model, position });
           occupied.push(position);
         }
-        return {
-          ...model,
-          position,
-          measured: current.find((node) => node.id === model.id)?.measured,
-        };
+        return { ...model, position, measured: previous?.measured };
       });
     });
   }, [models, setNodes, width, height]);
@@ -443,6 +460,8 @@ function Graph({
       className={styles.graph}
       role="region"
       aria-label="资产通信图"
+      data-compact={zoom < 0.85}
+      style={{ "--graph-zoom": zoom } as CSSProperties}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation();
@@ -487,11 +506,9 @@ function Graph({
         <Background color="var(--line)" gap={24} size={1} />
         <GraphActions
           fullscreenTarget={fullscreenTarget}
+          toolsTarget={toolsTarget}
           onArrange={() => {
             const arranged = arrange(nodes, displayed, { width, height });
-            positions.current = new Map(
-              arranged.map((node) => [node.id, node.position]),
-            );
             setNodes(arranged);
           }}
         />

@@ -272,7 +272,6 @@ export function buildTrafficLinks(
       targetKind: target.kind,
       value,
       rate,
-      label: "",
       severity: detected.get(pairKey(source.id, target.id))?.severity,
     };
   };
@@ -295,7 +294,6 @@ export function buildTrafficLinks(
       sourceKind: source.kind,
       targetKind: target.kind,
       value: 0,
-      label: "",
       alerts: count,
       severity,
     });
