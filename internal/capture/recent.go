@@ -335,35 +335,38 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 func completePartReader(ctx context.Context, part partRead) *io.PipeReader {
 	reader, writer := io.Pipe()
 	go func() {
-		var output *pcapgo.NgWriter
-		err := readFrames(ctx, part.reader, !part.part.Sealed, func(packet api.CapturePacket, data []byte) bool {
-			if packet.Number > part.part.Packets {
-				return false
-			}
-			if output == nil {
-				var createErr error
-				output, createErr = pcapgo.NewNgWriterInterface(writer, pcapInterface(part.part.Interfaces[0]), pcapgo.DefaultNgWriterOptions)
-				if createErr != nil {
-					writer.CloseWithError(createErr)
-					return false
-				}
-				for _, iface := range part.part.Interfaces[1:] {
-					if _, createErr = output.AddInterface(pcapInterface(iface)); createErr != nil {
-						writer.CloseWithError(createErr)
-						return false
-					}
-				}
-			}
-			if writeErr := output.WritePacket(packetInfo(packet), data); writeErr != nil {
-				writer.CloseWithError(writeErr)
-				return false
-			}
-			return true
-		})
-		if output != nil {
-			err = errors.Join(err, output.Flush())
+		output, err := pcapgo.NewNgWriterInterface(writer, pcapInterface(part.part.Interfaces[0]), pcapgo.DefaultNgWriterOptions)
+		if err != nil {
+			writer.CloseWithError(err)
+			return
 		}
-		writer.CloseWithError(err)
+		for _, iface := range part.part.Interfaces[1:] {
+			if _, err = output.AddInterface(pcapInterface(iface)); err != nil {
+				writer.CloseWithError(err)
+				return
+			}
+		}
+		var statisticsErr error
+		input, err := pcapgo.NewNgReader(part.reader, pcapgo.NgReaderOptions{WantMixedLinkType: true, StatisticsCallback: func(index int, statistics pcapgo.NgInterfaceStatistics) {
+			statisticsErr = errors.Join(statisticsErr, output.WriteInterfaceStats(index, statistics))
+		}})
+		if err == nil {
+			for number := int64(1); ctx.Err() == nil; number++ {
+				var data []byte
+				var info gopacket.CaptureInfo
+				data, info, err = input.ZeroCopyReadPacketData()
+				if err != nil || number > part.part.Packets {
+					break
+				}
+				if err = output.WritePacket(info, data); err != nil {
+					break
+				}
+			}
+		}
+		if errors.Is(err, io.EOF) || !part.part.Sealed && errors.Is(err, io.ErrUnexpectedEOF) {
+			err = nil
+		}
+		writer.CloseWithError(errors.Join(err, statisticsErr, ctx.Err(), output.Flush()))
 	}()
 	return reader
 }

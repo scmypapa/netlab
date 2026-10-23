@@ -12,6 +12,7 @@ import (
 
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/layers"
+	"github.com/gopacket/gopacket/pcapgo"
 	"netlab.local/core/api"
 )
 
@@ -43,13 +44,35 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 	if err != nil || detail.Hex != hex.EncodeToString(frame) || len(detail.Layers) < 3 {
 		t.Fatalf("detail=%+v err=%v", detail, err)
 	}
+	statistics := pcapgo.DefaultNgInterfaceStatistics
+	statistics.PacketsDropped, statistics.PacketsReceived = 7, 10
+	if err = r.interfaceStatistics(environment, interfaces[0].PortName, statistics); err != nil {
+		t.Fatal(err)
+	}
 	var exported bytes.Buffer
 	if err = r.Export(ctx, environment, RecentQuery{Filter: "udp.dstport == 502"}, &exported); err != nil {
 		t.Fatal(err)
 	}
+	exportedData := append([]byte{}, exported.Bytes()...)
 	count := 0
 	if err = readFrames(ctx, &exported, false, func(api.CapturePacket, []byte) bool { count++; return true }); err != nil || count != 3 {
 		t.Fatalf("export count=%d err=%v", count, err)
+	}
+	var exportedDrops *uint64
+	reader, err := pcapgo.NewNgReader(bytes.NewReader(exportedData), pcapgo.NgReaderOptions{StatisticsCallback: func(index int, stats pcapgo.NgInterfaceStatistics) {
+		value := stats.PacketsDropped
+		exportedDrops = &value
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, _, err = reader.ReadPacketData(); err != nil {
+			break
+		}
+	}
+	if exportedDrops == nil || *exportedDrops != 7 {
+		t.Fatalf("native interface drop statistics stripped from filtered export: %v", exportedDrops)
 	}
 	if _, err = r.Recent(ctx, environment, RecentQuery{Limit: 100, Filter: "invalid_filter_x ===="}); err == nil {
 		t.Fatal("invalid display filter accepted")
