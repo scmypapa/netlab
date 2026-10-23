@@ -22,6 +22,35 @@ func (m *Manager) Packets(ctx context.Context, id, environment string, query Pac
 	if err != nil {
 		return result, err
 	}
+	if m.recorder != nil {
+		parts, openErr := m.recorder.openParts(environment)
+		if openErr != nil {
+			return result, openErr
+		}
+		defer closeParts(parts)
+		for _, part := range parts {
+			if part.part.CaptureID != id {
+				continue
+			}
+			if err = m.recorder.openPart(environment, &part); err != nil {
+				return result, err
+			}
+			defer closeParts([]partRead{part})
+			err = readFrames(ctx, part.reader, !part.part.Sealed, func(packet api.CapturePacket, _ []byte) bool {
+				if packet.Number <= query.After || !query.matches(packet) {
+					return true
+				}
+				if len(result.Packets) == query.Limit {
+					cursor := result.Packets[len(result.Packets)-1].Number
+					result.NextCursor = &cursor
+					return false
+				}
+				result.Packets = append(result.Packets, packet)
+				return true
+			})
+			return result, err
+		}
+	}
 	file, err := os.Open(filepath.Join(m.directory, id, "capture.pcapng"))
 	if err != nil {
 		return result, err
@@ -50,6 +79,17 @@ func (m *Manager) Packet(ctx context.Context, id, environment string, number int
 	if err != nil {
 		return result, err
 	}
+	if m.recorder != nil {
+		parts, openErr := m.recorder.openParts(environment)
+		if openErr != nil {
+			return result, openErr
+		}
+		for _, part := range parts {
+			if part.part.CaptureID == id {
+				return m.recorder.RecentPacket(ctx, environment, packetIdentity(m.node, part.part.ID, number))
+			}
+		}
+	}
 	path := filepath.Join(m.directory, id, "capture.pcapng")
 	file, err := os.Open(path)
 	if err != nil {
@@ -72,7 +112,7 @@ func (m *Manager) Packet(ctx context.Context, id, environment string, number int
 	command := exec.CommandContext(ctx, "tshark", "-n", "-r", path, "-c", strconv.FormatInt(number, 10), "-Y", "frame.number == "+strconv.FormatInt(number, 10), "-T", "pdml")
 	var output struct {
 		Packets []struct {
-			Protocols []pdmlField `xml:"proto"`
+			Protocols []packetFieldXML `xml:"proto"`
 		} `xml:"packet"`
 	}
 	data, err := command.Output()
@@ -95,24 +135,4 @@ func (m *Manager) Packet(ctx context.Context, id, environment string, number int
 		result.Layers = append(result.Layers, field.model())
 	}
 	return result, nil
-}
-
-type pdmlField struct {
-	Name     string      `xml:"name,attr"`
-	Label    string      `xml:"showname,attr"`
-	Show     string      `xml:"show,attr"`
-	Offset   int         `xml:"pos,attr"`
-	Length   int         `xml:"size,attr"`
-	Children []pdmlField `xml:",any"`
-}
-
-func (field pdmlField) model() api.PacketField {
-	result := api.PacketField{Name: field.Name, Label: first(field.Label, field.Name), Offset: field.Offset, Length: field.Length, Children: []api.PacketField{}}
-	if field.Show != "" {
-		result.Value = &field.Show
-	}
-	for _, child := range field.Children {
-		result.Children = append(result.Children, child.model())
-	}
-	return result
 }

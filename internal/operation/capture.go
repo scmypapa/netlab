@@ -18,6 +18,13 @@ func (w Worker) removeCaptures(ctx context.Context, environment string) error {
 	for _, ref := range refs {
 		nodes[ref.NodeID] = ref.Endpoint
 	}
+	packetNodes, err := w.Queries.ListEnvironmentPacketNodes(ctx, environment)
+	if err != nil {
+		return err
+	}
+	for _, node := range packetNodes {
+		nodes[node.NodeID] = node.Endpoint
+	}
 	var mutex sync.Mutex
 	var waiting sync.WaitGroup
 	for _, endpoint := range nodes {
@@ -35,6 +42,9 @@ func (w Worker) removeCaptures(ctx context.Context, environment string) error {
 	waiting.Wait()
 	if err == nil {
 		err = w.Queries.DeleteEnvironmentCaptures(ctx, environment)
+	}
+	if err == nil {
+		err = w.Queries.DeleteEnvironmentPacketNodes(ctx, environment)
 	}
 	return err
 }

@@ -175,6 +175,14 @@ type Operation struct {
 	ClientRequestID  *string
 }
 
+type PacketNode struct {
+	EnvironmentID string
+	NodeID        string
+	QuotaBytes    int64
+	Observation   []byte
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type PersistentVolume struct {
 	ID            string
 	NodeID        string

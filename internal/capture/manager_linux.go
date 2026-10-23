@@ -3,11 +3,11 @@
 package capture
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,6 +18,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gopacket/gopacket"
+	"github.com/gopacket/gopacket/layers"
+	"github.com/gopacket/gopacket/pcap"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/network"
 )
@@ -27,15 +30,22 @@ type Manager struct {
 	directory, node string
 	mu              sync.Mutex
 	live            map[string]*session
+	control         sync.Mutex
+	recorder        *Recorder
+	recording       *recordingRun
+	flushCancel     context.CancelFunc
 }
 type session struct {
 	mu        sync.Mutex
 	detail    api.CaptureDetail
 	stats     *aggregate
-	cmd       *exec.Cmd
+	writer    *packetWriter
+	filter    *pcap.BPF
+	cancel    context.CancelFunc
 	done      chan struct{}
 	stopped   bool
 	persisted time.Time
+	limit     int64
 }
 
 func New(ctx context.Context, ovs *network.OVS, directory, node string) (*Manager, error) {
@@ -51,150 +61,121 @@ func New(ctx context.Context, ovs *network.OVS, directory, node string) (*Manage
 		if !entry.IsDir() {
 			continue
 		}
-		if _, err := uuid.Parse(entry.Name()); err != nil {
-			return nil, fmt.Errorf("无效抓包目录：%s", entry.Name())
-		}
-		detail, err := m.read(entry.Name())
-		if errors.Is(err, os.ErrNotExist) {
-			if err := os.RemoveAll(filepath.Join(m.directory, entry.Name())); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		if err != nil {
+		if _, err = uuid.Parse(entry.Name()); err != nil {
 			return nil, err
+		}
+		detail, readErr := m.read(entry.Name())
+		if readErr != nil {
+			return nil, readErr
 		}
 		if detail.Segment.Status == api.CaptureSegmentStatusRunning || detail.Segment.Status == api.CaptureSegmentStatusStarting {
 			now, message := time.Now().UTC(), "节点进程已重启，抓包结束"
 			detail.Segment.Status, detail.Segment.FinishedAt, detail.Segment.Error = api.CaptureSegmentStatusFailed, &now, &message
-			if err := m.save(detail); err != nil {
+			if err = m.save(detail); err != nil {
 				return nil, err
 			}
 		}
 	}
+	m.recorder, err = NewRecorder(directory, node)
+	if err != nil {
+		return nil, err
+	}
+	flushContext, cancel := context.WithCancel(ctx)
+	m.flushCancel = cancel
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-flushContext.Done():
+				return
+			case <-ticker.C:
+				m.recorder.Flush()
+			}
+		}
+	}()
 	return m, nil
 }
-
-func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (segment api.CaptureSegment, startErr error) {
+func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (api.CaptureSegment, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, err := uuid.Parse(request.Id); err != nil {
 		return api.CaptureSegment{}, err
 	}
-	if request.Settings.DurationSeconds < 10 || request.Settings.DurationSeconds > 1800 || request.Settings.FileSizeMiB < 1 || request.Settings.FileSizeMiB > 1024 {
+	settings := request.Settings
+	if settings.DurationSeconds < 10 || settings.DurationSeconds > 1800 || settings.FileSizeMiB < 1 || settings.FileSizeMiB > 1024 {
 		return api.CaptureSegment{}, errors.New("抓包时长或文件额度超出范围")
 	}
-	for _, live := range m.live {
-		live.mu.Lock()
-		active := live.detail.Segment.EnvironmentId == request.EnvironmentId && (live.detail.Segment.Status == api.CaptureSegmentStatusRunning || live.detail.Segment.Status == api.CaptureSegmentStatusStarting)
-		live.mu.Unlock()
-		if active {
+	for _, active := range m.live {
+		if active.detail.Segment.EnvironmentId == request.EnvironmentId {
 			return api.CaptureSegment{}, errors.New("该环境在此节点已有运行中的抓包")
 		}
 	}
-	ports, assets := []string{}, []string{}
+	local := []api.CaptureInterface{}
+	assets := []string{}
 	for _, iface := range request.Interfaces {
-		if iface.NodeId == m.node && slices.Contains(request.Settings.AssetIds, iface.AssetId) {
-			ports = append(ports, iface.PortName)
+		if iface.NodeId == m.node && slices.Contains(settings.AssetIds, iface.AssetId) {
+			local = append(local, iface)
 			if !slices.Contains(assets, iface.AssetId) {
 				assets = append(assets, iface.AssetId)
 			}
 		}
 	}
-	if len(ports) == 0 {
-		return api.CaptureSegment{}, errors.New("没有可抓包接口")
+	if len(local) == 0 {
+		return api.CaptureSegment{}, errors.New("没有可抓包的运行接口")
 	}
-	directory := filepath.Join(m.directory, request.Id)
-	if err := os.Mkdir(directory, 0700); err != nil {
-		return api.CaptureSegment{}, err
-	}
-	s := &session{done: make(chan struct{}), stats: newAggregate(m.node, request), detail: api.CaptureDetail{Segment: api.CaptureSegment{Id: request.Id, NodeId: m.node, EnvironmentId: request.EnvironmentId, AssetIds: assets, Status: api.CaptureSegmentStatusStarting, StartedAt: time.Now().UTC()}, Flows: []api.CaptureFlow{}}}
-	if err := m.save(s.detail); err != nil {
-		return api.CaptureSegment{}, errors.Join(err, os.RemoveAll(directory))
-	}
-	defer func() {
-		if startErr == nil {
-			return
+	var filter *pcap.BPF
+	var err error
+	if settings.Filter != nil && *settings.Filter != "" {
+		filter, err = pcap.NewBPF(layers.LinkTypeEthernet, 262144, *settings.Filter)
+		if err != nil {
+			return api.CaptureSegment{}, fmt.Errorf("抓包过滤器：%w", err)
 		}
-		now, message := time.Now().UTC(), startErr.Error()
-		s.detail.Segment.Status, s.detail.Segment.Error, s.detail.Segment.FinishedAt = api.CaptureSegmentStatusFailed, &message, &now
-		startErr = errors.Join(startErr, m.save(s.detail))
-	}()
-	devices, err := m.ovs.CaptureDevices(ctx, ports)
+	}
+	now := time.Now().UTC()
+	legacyDirectory := filepath.Join(m.directory, request.Id)
+	if err = os.Mkdir(legacyDirectory, 0700); err != nil {
+		return api.CaptureSegment{}, err
+	}
+	m.recorder.mu.Lock()
+	writer, err := m.recorder.startPart(request.EnvironmentId, local, request.Id, now)
+	m.recorder.mu.Unlock()
 	if err != nil {
-		return api.CaptureSegment{}, err
+		return api.CaptureSegment{}, errors.Join(err, os.RemoveAll(legacyDirectory))
 	}
-	s.stats.capturePorts = ports
-	args := []string{"-l", "-n", "-B", "64"}
-	for _, device := range devices {
-		args = append(args, "-i", device)
+	s := &session{done: make(chan struct{}), writer: writer, filter: filter, limit: int64(settings.FileSizeMiB) << 20, stats: newAggregate(m.node, request), detail: api.CaptureDetail{Segment: api.CaptureSegment{Id: request.Id, NodeId: m.node, EnvironmentId: request.EnvironmentId, AssetIds: assets, Status: api.CaptureSegmentStatusStarting, StartedAt: now}, Flows: []api.CaptureFlow{}}}
+	for _, iface := range local {
+		s.stats.capturePorts = append(s.stats.capturePorts, iface.PortName)
 	}
-	args = append(args, "-w", filepath.Join(directory, "capture.pcapng"), "-P", "-T", "fields", "-E", "occurrence=f", "-a", fmt.Sprint("duration:", request.Settings.DurationSeconds), "-a", fmt.Sprint("filesize:", request.Settings.FileSizeMiB*1024))
-	// Online flow fields need packet headers, not reconstructed TCP streams; PCAP retains the full packets.
-	args = append(args, "-o", "tcp.desegment_tcp_streams:FALSE", "-o", "tcp.analyze_sequence_numbers:FALSE")
-	if request.Settings.Filter != nil && *request.Settings.Filter != "" {
-		args = append(args, "-f", *request.Settings.Filter)
+	if err = m.save(s.detail); err != nil {
+		m.recorder.mu.Lock()
+		cleanupErr := m.recorder.finishWriter(request.EnvironmentId, writer)
+		m.recorder.mu.Unlock()
+		return api.CaptureSegment{}, errors.Join(err, cleanupErr, os.RemoveAll(legacyDirectory))
 	}
-	for _, field := range []string{"frame.time_epoch", "frame.len", "eth.src", "eth.dst", "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport", "_ws.col.Protocol", "frame.interface_id"} {
-		args = append(args, "-e", field)
-	}
-	cmd := exec.Command("tshark", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return api.CaptureSegment{}, err
-	}
-	stderr, err := os.Create(filepath.Join(directory, "stderr.log"))
-	if err != nil {
-		return api.CaptureSegment{}, err
-	}
-	cmd.Stderr = stderr
-	if err = cmd.Start(); err != nil {
-		stderr.Close()
-		return api.CaptureSegment{}, err
-	}
-	s.cmd = cmd
+	lifetime, cancel := context.WithTimeout(context.Background(), time.Duration(settings.DurationSeconds)*time.Second)
+	s.cancel = cancel
 	m.live[request.Id] = s
-	started := s.detail.Segment
 	go func() {
-		var decodeErr error
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			s.mu.Lock()
-			decodeErr = s.stats.add(scanner.Text())
-			if decodeErr == nil && (s.detail.Segment.Status == api.CaptureSegmentStatusStarting || time.Since(s.persisted) >= 10*time.Second) {
-				s.detail.Segment.Status = api.CaptureSegmentStatusRunning
-				decodeErr = m.save(s.snapshot())
-				s.persisted = time.Now()
-			}
-			s.mu.Unlock()
-			if decodeErr != nil {
-				cmd.Process.Kill()
-				break
-			}
-		}
-		waitErr := cmd.Wait()
+		<-lifetime.Done()
 		s.mu.Lock()
-		stopped := s.stopped
-		s.mu.Unlock()
-		if stopped && isInterrupt(waitErr) {
-			waitErr = nil
-		}
-		finalErr := errors.Join(decodeErr, scanner.Err(), waitErr, stderr.Close())
-		drops, statsErr := captureDrops(filepath.Join(directory, "capture.pcapng"))
-		finalErr = errors.Join(finalErr, statsErr)
-		s.mu.Lock()
+		s.stopped = true
+		finishErr := func() error {
+			m.recorder.mu.Lock()
+			defer m.recorder.mu.Unlock()
+			return m.recorder.finishWriter(request.EnvironmentId, writer)
+		}()
 		s.detail = s.snapshot()
-		s.detail.Segment.KernelDroppedPackets = drops
 		now := time.Now().UTC()
-		s.detail.Segment.FinishedAt, s.detail.Segment.Status = &now, api.CaptureSegmentStatusStopped
-		if finalErr != nil {
+		s.detail.Segment.FinishedAt = &now
+		if s.detail.Segment.Error == nil && finishErr == nil {
+			s.detail.Segment.Status = api.CaptureSegmentStatusStopped
+		} else {
 			s.detail.Segment.Status = api.CaptureSegmentStatusFailed
-			message := finalErr.Error()
-			if detail, readErr := os.ReadFile(filepath.Join(directory, "stderr.log")); readErr == nil {
-				message += ": " + string(detail[max(0, len(detail)-8192):])
+			if finishErr != nil {
+				message := finishErr.Error()
+				s.detail.Segment.Error = &message
 			}
-			s.detail.Segment.Error = &message
 		}
 		saveErr := m.save(s.detail)
 		if saveErr != nil {
@@ -209,9 +190,69 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (se
 		}
 		close(s.done)
 	}()
-	return started, nil
+	return s.detail.Segment, nil
 }
-
+func (m *Manager) recordSubscriptions(environment, portName string, info gopacket.CaptureInfo, data []byte) {
+	m.mu.Lock()
+	sessions := []*session{}
+	for _, s := range m.live {
+		if s.detail.Segment.EnvironmentId == environment {
+			sessions = append(sessions, s)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range sessions {
+		s.mu.Lock()
+		index := slices.Index(s.stats.capturePorts, portName)
+		if index < 0 || s.stopped || info.Timestamp.Before(s.detail.Segment.StartedAt) || s.filter != nil && !s.filter.Matches(info, data) {
+			s.mu.Unlock()
+			continue
+		}
+		if s.writer.part.Raw+int64(len(data))+32 > s.limit {
+			s.stopped = true
+			s.cancel()
+			s.mu.Unlock()
+			continue
+		}
+		info.InterfaceIndex = index
+		m.recorder.mu.Lock()
+		err := s.writer.packets.WritePacket(info, data)
+		if err == nil {
+			s.writer.part.Raw += int64(len(data)) + 32
+			s.writer.part.Packets++
+			s.writer.part.End = info.Timestamp.UTC()
+		}
+		m.recorder.mu.Unlock()
+		if err != nil {
+			message := err.Error()
+			s.detail.Segment.Error = &message
+			s.stopped = true
+			s.cancel()
+			s.mu.Unlock()
+			continue
+		}
+		packet := summarizePacket(0, data, info, layers.LinkTypeEthernet)
+		sample := Sample{At: info.Timestamp, Source: packet.Source, Destination: packet.Destination, Protocol: packet.Protocol, SourcePort: packet.SourcePort, DestinationPort: packet.DestinationPort, PortName: portName, Bytes: int64(len(data)), Packets: 1, Samples: 1, CaptureIndex: &index}
+		if packet.SourceMac != nil {
+			sample.SourceMAC = *packet.SourceMac
+		}
+		if packet.DestinationMac != nil {
+			sample.DestinationMAC = *packet.DestinationMac
+		}
+		s.stats.addSample(sample)
+		s.detail.Segment.Status = api.CaptureSegmentStatusRunning
+		if time.Since(s.persisted) >= 10*time.Second {
+			if err = m.save(s.snapshot()); err != nil {
+				message := err.Error()
+				s.detail.Segment.Error = &message
+				s.stopped = true
+				s.cancel()
+			}
+			s.persisted = time.Now()
+		}
+		s.mu.Unlock()
+	}
+}
 func (s *session) snapshot() api.CaptureDetail {
 	detail := s.detail
 	detail.Segment.Bytes, detail.Segment.Packets, detail.Segment.OmittedFlows = s.stats.bytes, s.stats.packets, s.stats.omitted
@@ -223,14 +264,14 @@ func (m *Manager) Get(id, environment string) (api.CaptureDetail, error) {
 		return api.CaptureDetail{}, err
 	}
 	m.mu.Lock()
-	session := m.live[id]
+	s := m.live[id]
 	m.mu.Unlock()
 	var detail api.CaptureDetail
 	var err error
-	if session != nil {
-		session.mu.Lock()
-		detail = session.snapshot()
-		session.mu.Unlock()
+	if s != nil {
+		s.mu.Lock()
+		detail = s.snapshot()
+		s.mu.Unlock()
 	} else {
 		detail, err = m.read(id)
 	}
@@ -244,21 +285,21 @@ func (m *Manager) List(environment string) ([]api.CaptureSegment, error) {
 	if err != nil {
 		return nil, err
 	}
-	segments := []api.CaptureSegment{}
+	result := []api.CaptureSegment{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		detail, err := m.Get(entry.Name(), environment)
-		if errors.Is(err, os.ErrNotExist) {
+		detail, readErr := m.Get(entry.Name(), environment)
+		if errors.Is(readErr, os.ErrNotExist) {
 			continue
 		}
-		if err != nil {
-			return nil, err
+		if readErr != nil {
+			return nil, readErr
 		}
-		segments = append(segments, detail.Segment)
+		result = append(result, detail.Segment)
 	}
-	return segments, nil
+	return result, nil
 }
 func (m *Manager) Stop(ctx context.Context, id, environment string) (api.CaptureSegment, error) {
 	detail, err := m.Get(id, environment)
@@ -270,14 +311,9 @@ func (m *Manager) Stop(ctx context.Context, id, environment string) (api.Capture
 	m.mu.Unlock()
 	if s != nil {
 		s.mu.Lock()
-		if (s.detail.Segment.Status == api.CaptureSegmentStatusRunning || s.detail.Segment.Status == api.CaptureSegmentStatusStarting) && !s.stopped {
-			s.stopped = true
-			err = s.cmd.Process.Signal(syscall.SIGINT)
-		}
+		s.stopped = true
+		s.cancel()
 		s.mu.Unlock()
-		if err != nil && !errors.Is(err, os.ErrProcessDone) {
-			return api.CaptureSegment{}, err
-		}
 		select {
 		case <-s.done:
 		case <-ctx.Done():
@@ -293,13 +329,27 @@ func (m *Manager) Remove(ctx context.Context, id, environment string) error {
 	} else if err != nil {
 		return err
 	}
-	if err := os.RemoveAll(filepath.Join(m.directory, id)); err != nil {
-		return err
+	if m.recorder != nil {
+		m.recorder.mu.Lock()
+		if state := m.recorder.environments[environment]; state != nil {
+			for index := len(state.Parts) - 1; index >= 0; index-- {
+				part := state.Parts[index]
+				if part.CaptureID == id {
+					if err := os.Remove(m.recorder.filename(environment, part.ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+						m.recorder.mu.Unlock()
+						return err
+					}
+					state.Parts = slices.Delete(state.Parts, index, index+1)
+				}
+			}
+			if err := m.recorder.save(environment); err != nil {
+				m.recorder.mu.Unlock()
+				return err
+			}
+		}
+		m.recorder.mu.Unlock()
 	}
-	m.mu.Lock()
-	delete(m.live, id)
-	m.mu.Unlock()
-	return nil
+	return os.RemoveAll(filepath.Join(m.directory, id))
 }
 func (m *Manager) RemoveEnvironment(ctx context.Context, environment string) error {
 	segments, err := m.List(environment)
@@ -308,6 +358,9 @@ func (m *Manager) RemoveEnvironment(ctx context.Context, environment string) err
 	}
 	for _, segment := range segments {
 		err = errors.Join(err, m.Remove(ctx, segment.Id, environment))
+	}
+	if err == nil && m.recorder != nil {
+		err = m.recorder.Remove(environment)
 	}
 	return err
 }
@@ -331,6 +384,14 @@ func (m *Manager) StopAssets(ctx context.Context, environment string, assets []a
 	return err
 }
 func (m *Manager) Close() {
+	if m.flushCancel != nil {
+		m.flushCancel()
+	}
+	m.control.Lock()
+	if m.recording != nil {
+		m.stopRecording()
+	}
+	m.control.Unlock()
 	m.mu.Lock()
 	sessions := map[string]*session{}
 	for id, s := range m.live {
@@ -339,12 +400,11 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 	for id, s := range sessions {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_, err := m.Stop(ctx, id, s.detail.Segment.EnvironmentId)
+		m.Stop(ctx, id, s.detail.Segment.EnvironmentId)
 		cancel()
-		if err != nil {
-			s.cmd.Process.Kill()
-			<-s.done
-		}
+	}
+	if m.recorder != nil {
+		m.recorder.Close()
 	}
 }
 func (m *Manager) File(w http.ResponseWriter, r *http.Request, id, environment string) error {
@@ -357,24 +417,43 @@ func (m *Manager) File(w http.ResponseWriter, r *http.Request, id, environment s
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=capture.pcapng")
+	if m.recorder != nil {
+		parts, openErr := m.recorder.openParts(environment)
+		if openErr != nil {
+			return openErr
+		}
+		defer closeParts(parts)
+		for _, part := range parts {
+			if part.part.CaptureID == id {
+				if err = m.recorder.openPart(environment, &part); err != nil {
+					return err
+				}
+				defer closeParts([]partRead{part})
+				input := completePartReader(r.Context(), part)
+				defer input.Close()
+				_, err = io.Copy(w, input)
+				return err
+			}
+		}
+	}
 	http.ServeFile(w, r, filepath.Join(m.directory, id, "capture.pcapng"))
 	return nil
 }
 func (m *Manager) read(id string) (api.CaptureDetail, error) {
 	var detail api.CaptureDetail
-	raw, err := os.ReadFile(filepath.Join(m.directory, id, "capture.json"))
+	data, err := os.ReadFile(filepath.Join(m.directory, id, "capture.json"))
 	if err == nil {
-		err = json.Unmarshal(raw, &detail)
+		err = json.Unmarshal(data, &detail)
 	}
 	return detail, err
 }
 func (m *Manager) save(detail api.CaptureDetail) error {
-	directory := filepath.Join(m.directory, detail.Segment.Id)
-	raw, err := json.Marshal(detail)
+	data, err := json.Marshal(detail)
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(directory, "capture.tmp"), raw, 0600); err != nil {
+	directory := filepath.Join(m.directory, detail.Segment.Id)
+	if err = os.WriteFile(filepath.Join(directory, "capture.tmp"), data, 0600); err != nil {
 		return err
 	}
 	return os.Rename(filepath.Join(directory, "capture.tmp"), filepath.Join(directory, "capture.json"))

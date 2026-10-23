@@ -62,6 +62,10 @@ func (s Service) securityCycle(ctx context.Context, failures map[string]string) 
 	if err != nil {
 		return err
 	}
+	quotas, err := s.packetQuotas(ctx, interfaces)
+	if err != nil {
+		return err
+	}
 	type result struct {
 		node string
 		err  error
@@ -69,7 +73,9 @@ func (s Service) securityCycle(ctx context.Context, failures map[string]string) 
 	results := make(chan result, len(nodes))
 	var waiting sync.WaitGroup
 	for _, node := range nodes {
-		waiting.Go(func() { results <- result{node.ID, s.nodeSecurity(ctx, node.ID, node.Endpoint, interfaces)} })
+		waiting.Go(func() {
+			results <- result{node.ID, s.nodeSecurity(ctx, node.ID, node.Endpoint, interfaces, quotas[node.ID])}
+		})
 	}
 	waiting.Wait()
 	close(results)
@@ -84,7 +90,7 @@ func (s Service) securityCycle(ctx context.Context, failures map[string]string) 
 	return nil
 }
 
-func (s Service) nodeSecurity(parent context.Context, id, endpoint string, all []api.SecurityInterface) error {
+func (s Service) nodeSecurity(parent context.Context, id, endpoint string, all []api.SecurityInterface, budget packetNodeBudget) error {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	q := queries.New(s.Pool)
@@ -98,7 +104,7 @@ func (s Service) nodeSecurity(parent context.Context, id, endpoint string, all [
 			environments[iface.EnvironmentId] = true
 		}
 	}
-	request := api.NodeSecurityRequest{Cursor: cursor, Interfaces: []api.SecurityInterface{}}
+	request := api.NodeSecurityRequest{Cursor: cursor, Interfaces: []api.SecurityInterface{}, PacketQuotas: &budget.requested}
 	for _, iface := range all {
 		if environments[iface.EnvironmentId] {
 			request.Interfaces = append(request.Interfaces, iface)
@@ -121,6 +127,14 @@ func (s Service) nodeSecurity(parent context.Context, id, endpoint string, all [
 		}
 		if len(observation.Alerts) > 0 && observation.Cursor == cursor {
 			return fmt.Errorf("security batch did not advance its cursor")
+		}
+		if observation.PacketRetention != nil {
+			for environment, info := range *observation.PacketRetention {
+				quota, exists := budget.reserved[environment]
+				if !exists || info.LimitBytes > quota || info.UsedBytes > info.LimitBytes || info.UsedBytes < 0 {
+					return fmt.Errorf("节点报文留存额度不符合分配")
+				}
+			}
 		}
 		if err = s.commitSecurity(ctx, id, cursor, observation); err != nil {
 			return err
@@ -151,6 +165,17 @@ func (s Service) commitSecurity(ctx context.Context, id, cursor string, observat
 	}
 	if changed != 1 {
 		return fmt.Errorf("安全观测游标已变化")
+	}
+	if observation.PacketRetention != nil {
+		for environment, info := range *observation.PacketRetention {
+			data, encodeErr := json.Marshal(info)
+			if encodeErr != nil {
+				return encodeErr
+			}
+			if err = q.SavePacketNode(ctx, queries.SavePacketNodeParams{EnvironmentID: environment, NodeID: id, QuotaBytes: info.LimitBytes, Observation: data}); err != nil {
+				return err
+			}
+		}
 	}
 	if len(alerts) > 0 {
 		raw, err := json.Marshal(alerts)

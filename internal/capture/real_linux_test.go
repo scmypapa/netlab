@@ -3,9 +3,11 @@
 package capture
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,7 +39,7 @@ func TestRealInterfaceCaptureLifecycle(t *testing.T) {
 	}
 	command("add-br", bridge, "--", "set", "Bridge", bridge, "fail_mode=standalone")
 	t.Cleanup(func() { exec.Command("ovs-vsctl", "--if-exists", "del-br", bridge).Run() })
-	request := api.NodeCaptureRequest{Id: id, EnvironmentId: "environment", Settings: api.CreateCapture{DurationSeconds: 10, FileSizeMiB: 1}}
+	request := api.NodeCaptureRequest{Id: id, EnvironmentId: uuid.NewString(), Settings: api.CreateCapture{DurationSeconds: 10, FileSizeMiB: 1}}
 	peers := []netlink.Link{}
 	for index, scope := range []string{"red", "blue"} {
 		device, peer := "cs"+suffix+scope[:1], "cp"+suffix+scope[:1]
@@ -81,6 +83,13 @@ func TestRealInterfaceCaptureLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Close()
+	targets := []api.SecurityInterface{}
+	for _, iface := range request.Interfaces {
+		targets = append(targets, api.SecurityInterface{EnvironmentId: request.EnvironmentId, Interface: iface})
+	}
+	if _, err = m.Reconcile(ctx, targets, map[string]int64{request.EnvironmentId: PacketBudget}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := m.Start(ctx, request); err != nil {
 		t.Fatal(err)
 	}
@@ -124,22 +133,17 @@ func TestRealInterfaceCaptureLifecycle(t *testing.T) {
 		}
 		t.Fatalf("stop: %+v %v", segment, err)
 	}
-	if segment.KernelDroppedPackets == nil {
-		t.Fatal("tshark did not persist interface drop statistics")
-	}
-	file, err := os.Open(filepath.Join(directory, "captures", id, "capture.pcapng"))
-	if err != nil {
+	response := httptest.NewRecorder()
+	if err = m.File(response, httptest.NewRequest("GET", "/", nil), id, request.EnvironmentId); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := file.Stat(); err != nil || info.Size() < 8192 {
-		t.Fatalf("jumbo frame absent from PCAP: %v %v", info, err)
+	if response.Body.Len() < 8192 || binary.LittleEndian.Uint32(response.Body.Bytes()[:4]) != 0x0a0d0d0a {
+		t.Fatal("complete jumbo frame absent from exported PCAPNG")
 	}
-	magic := make([]byte, 4)
-	_, err = file.Read(magic)
-	file.Close()
-	if err != nil || binary.LittleEndian.Uint32(magic) != 0x0a0d0d0a {
-		t.Fatalf("not a PCAPNG: %x %v", magic, err)
+	if !bytes.Contains(response.Body.Bytes(), frame) {
+		t.Fatal("original jumbo frame was truncated")
 	}
+	m.Close()
 	reloaded, err := New(ctx, ovs, directory, "one")
 	if err != nil {
 		t.Fatal(err)

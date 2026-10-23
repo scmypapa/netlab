@@ -108,6 +108,8 @@ func summarizePacket(number int64, data []byte, info gopacket.CaptureInfo, link 
 	if value := packet.Layer(layers.LayerTypeEthernet); value != nil {
 		eth := value.(*layers.Ethernet)
 		result.Source, result.Destination, result.Protocol = eth.SrcMAC.String(), eth.DstMAC.String(), eth.EthernetType.String()
+		source, destination := eth.SrcMAC.String(), eth.DstMAC.String()
+		result.SourceMac, result.DestinationMac = &source, &destination
 	}
 	if value := packet.Layer(layers.LayerTypeIPv4); value != nil {
 		ip := value.(*layers.IPv4)
