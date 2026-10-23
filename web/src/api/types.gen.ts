@@ -181,6 +181,61 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/{id}/packets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["environmentPackets"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/packets/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["exportEnvironmentPackets"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/environments/{id}/packets/{packetId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        packetId: string;
+      };
+      cookie?: never;
+    };
+    get: operations["environmentPacket"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/security": {
     parameters: {
       query?: never;
@@ -2753,10 +2808,16 @@ export interface components {
       error?: string;
     };
     NodeSecurityRequest: {
+      packetQuotas?: {
+        [key: string]: number;
+      };
       cursor: string;
       interfaces: components["schemas"]["SecurityInterface"][];
     };
     NodeSecurityObservation: {
+      packetRetention?: {
+        [key: string]: components["schemas"]["PacketRetention"];
+      };
       cursor: string;
       alerts: components["schemas"]["SecurityAlert"][];
       sensor: components["schemas"]["SecuritySensor"];
@@ -2800,6 +2861,28 @@ export interface components {
        * @description Sample records in the observation window excluded by buffer or conversation budgets; not estimated packets.
        */
       omittedSamples: number;
+      retention?: components["schemas"]["PacketRetention"];
+    };
+    PacketRetention: {
+      /** Format: int64 */
+      limitBytes: number;
+      /** Format: int64 */
+      usedBytes: number;
+      /** Format: date-time */
+      oldestAt?: string;
+      /** Format: date-time */
+      newestAt?: string;
+      /** @enum {string} */
+      status: "recording" | "idle" | "unavailable";
+      error?: string;
+    };
+    RecentPacketPage: {
+      packets: components["schemas"]["CapturePacket"][];
+      nextCursor?: string;
+      retention: components["schemas"]["PacketRetention"];
+      errors: {
+        [key: string]: string;
+      };
     };
     CreateCapture: {
       assetIds: string[];
@@ -2893,6 +2976,14 @@ export interface components {
       lastSeen: string;
     };
     CapturePacket: {
+      /** @description Stable opaque node/segment/frame identity for recent packets */
+      id?: string;
+      nodeId?: string;
+      assetId?: string;
+      interfaceId?: string;
+      networkId?: string;
+      sourceMac?: string;
+      destinationMac?: string;
       /** Format: int64 */
       number: number;
       /** Format: date-time */
@@ -3330,13 +3421,96 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Rolling sampled conversations; counters are statistical estimates */
+      /** @description Rolling IPFIX conversations and recent packet retention */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["TrafficObservation"];
+        };
+      };
+    };
+  };
+  environmentPackets: {
+    parameters: {
+      query?: {
+        start?: string;
+        end?: string;
+        assetId?: string;
+        interfaceId?: string;
+        /** @description IP or MAC address; endpoint filters match both directions */
+        source?: string;
+        destination?: string;
+        sourcePort?: number;
+        destinationPort?: number;
+        protocol?: string;
+        /** @description Wireshark display filter */
+        filter?: string;
+        /** @description Opaque cursor toward older packets */
+        cursor?: string;
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Latest matching packets in chronological order; nextCursor requests older packets */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RecentPacketPage"];
+        };
+      };
+    };
+  };
+  exportEnvironmentPackets: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Retained packets matching the same filters as environmentPackets */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+    };
+  };
+  environmentPacket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+        packetId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Original frame and TShark protocol tree */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CapturePacketDetail"];
         };
       };
     };
