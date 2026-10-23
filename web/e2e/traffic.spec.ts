@@ -729,7 +729,10 @@ test("流量刷新保持视角与节点位置，动态端点加入，广播组�
   await expect(
     graph.getByRole("group", { name: "02:00:00:00:00:04", exact: true }),
   ).toHaveCount(0);
-  await graph.getByRole("button", { name: "放大通信图" }).click();
+  await page
+    .locator("[data-traffic-workspace]")
+    .getByRole("button", { name: "放大通信图" })
+    .click();
   const box = (await graph.boundingBox())!;
   await page.mouse.move(box.x + 35, box.y + box.height - 45);
   await page.mouse.down();
@@ -801,7 +804,10 @@ test("流量刷新保持视角与节点位置，动态端点加入，广播组�
   for (const id of Object.keys(positions))
     expect(after[id]).toBe(positions[id]);
   expect(new Set(Object.values(after)).size).toBe(Object.keys(after).length);
-  await graph.getByRole("button", { name: "适应画布", exact: true }).click();
+  await page
+    .locator("[data-traffic-workspace]")
+    .getByRole("button", { name: "适应画布", exact: true })
+    .click();
   const request = page.waitForRequest((request) =>
     new URL(request.url()).pathname.endsWith("/packets"),
   );
@@ -911,6 +917,35 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
           }),
         )
         .toEqual([]);
+      const labelConflicts = await graph
+        .locator(".react-flow")
+        .evaluate((canvas) => {
+          const labels = Array.from(
+            canvas.querySelectorAll(".react-flow__node strong"),
+          ).map((label) => ({
+            name: label.getAttribute("title"),
+            rect: label.getBoundingClientRect(),
+          }));
+          const tools = canvas
+            .closest("[data-traffic-workspace]")!
+            .querySelector('[class*="graphTools"]')!
+            .getBoundingClientRect();
+          const intersects = (a: DOMRect, b: DOMRect) =>
+            a.left < b.right &&
+            a.right > b.left &&
+            a.top < b.bottom &&
+            a.bottom > b.top;
+          const conflicts: string[] = [];
+          for (let i = 0; i < labels.length; i++) {
+            if (intersects(labels[i].rect, tools))
+              conflicts.push(`${labels[i].name}/tools`);
+            for (let j = i + 1; j < labels.length; j++)
+              if (intersects(labels[i].rect, labels[j].rect))
+                conflicts.push(`${labels[i].name}/${labels[j].name}`);
+          }
+          return conflicts;
+        });
+      expect(labelConflicts).toEqual([]);
       if (width === 390)
         await page
           .getByRole("button", { name: "报文", exact: true })
