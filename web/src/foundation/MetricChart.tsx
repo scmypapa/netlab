@@ -409,6 +409,7 @@ export function MetricChart({
     <div
       ref={host}
       className={styles.chart}
+      data-timeline={timeline||undefined}
       role="img"
       aria-label={measures.map((item) => titles[item]).join("、") + "历史曲线"}
     />

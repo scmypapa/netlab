@@ -151,6 +151,7 @@
 }
 .chart {
   height: 134px;
+  overflow:hidden;
 }
 .collapsedTimeline {
   padding: 5px 14px;
