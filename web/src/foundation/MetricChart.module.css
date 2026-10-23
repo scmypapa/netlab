@@ -5,4 +5,4 @@
   min-height: 160px;
   flex: 1;
 }
-.chart[data-timeline] { min-height:0; }
+.chart[data-timeline] { min-height:0; height:100%; }
