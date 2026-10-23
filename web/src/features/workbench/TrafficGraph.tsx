@@ -20,6 +20,7 @@ import {
   useNodesInitialized,
   useNodesState,
   useReactFlow,
+  useStore,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
@@ -106,20 +107,41 @@ function TrafficAsset({ data, selected }: NodeProps<AssetNode>) {
 }
 const nodeTypes = { trafficAsset: TrafficAsset };
 type Point = { x: number; y: number };
-function arrange(nodes: AssetNode[], links: TrafficLink[]) {
-  const graph = new dagre.graphlib.Graph()
-    .setGraph({ rankdir: "LR", ranksep: 100, nodesep: 52 })
-    .setDefaultEdgeLabel(() => ({}));
-  for (const node of nodes) graph.setNode(node.id, { ...size });
-  for (const link of links) graph.setEdge(link.source, link.target);
-  dagre.layout(graph);
-  return nodes.map((node) => ({
-    ...node,
-    position: {
-      x: graph.node(node.id).x - size.width / 2,
-      y: graph.node(node.id).y - size.height / 2,
-    },
-  }));
+function arrange(
+  nodes: AssetNode[],
+  links: TrafficLink[],
+  frame: { width: number; height: number },
+) {
+  const layouts = ["LR", "TB"].map((rankdir) => {
+    const graph = new dagre.graphlib.Graph()
+      .setGraph({ rankdir, ranksep: 65, nodesep: 24 })
+      .setDefaultEdgeLabel(() => ({}));
+    for (const node of nodes) graph.setNode(node.id, { ...size });
+    for (const link of links) graph.setEdge(link.source, link.target);
+    dagre.layout(graph);
+    return nodes.map((node) => ({
+      ...node,
+      position: {
+        x: graph.node(node.id).x - size.width / 2,
+        y: graph.node(node.id).y - size.height / 2,
+      },
+    }));
+  });
+  const score = (layout: AssetNode[]) => {
+    const assets = layout.filter((node) => node.data.kind === "asset");
+    const focus = assets.length ? assets : layout;
+    if (!focus.length) return 1;
+    const width =
+      Math.max(...focus.map((node) => node.position.x)) +
+      size.width -
+      Math.min(...focus.map((node) => node.position.x));
+    const height =
+      Math.max(...focus.map((node) => node.position.y)) +
+      size.height -
+      Math.min(...focus.map((node) => node.position.y));
+    return Math.min(frame.width / width, frame.height / height);
+  };
+  return score(layouts[0]) >= score(layouts[1]) ? layouts[0] : layouts[1];
 }
 function GraphActions({
   onArrange,
@@ -139,7 +161,6 @@ function GraphActions({
       void fitView({
         nodes: getNodes().filter((node) => node.data.kind === "asset"),
         padding: 0.18,
-        minZoom: 0.75,
         maxZoom: 1.05,
       });
     }
@@ -200,6 +221,8 @@ function Graph({
   fullscreenTarget: RefObject<HTMLElement | null>;
 }) {
   const theme = useComputedColorScheme();
+  const width = useStore((state) => state.width),
+    height = useStore((state) => state.height);
   const spec = environment.appliedSpec ?? environment.spec;
   const merged = useMemo(() => {
     const pairs = new Map<
@@ -300,6 +323,7 @@ function Graph({
   const [nodes, setNodes, onNodesChange] = useNodesState<AssetNode>([]);
   const positions = useRef(new Map<string, Point>());
   useEffect(() => {
+    if (!width || !height) return;
     setNodes((current) => {
       const present = new Set(models.map((node) => node.id));
       for (const id of positions.current.keys())
@@ -307,7 +331,7 @@ function Graph({
       for (const node of current)
         if (present.has(node.id)) positions.current.set(node.id, node.position);
       if (!positions.current.size) {
-        const initial = arrange(models, displayed);
+        const initial = arrange(models, displayed, { width, height });
         for (const node of initial)
           positions.current.set(node.id, node.position);
         return initial;
@@ -356,7 +380,7 @@ function Graph({
         };
       });
     });
-  }, [models, setNodes]);
+  }, [models, setNodes, width, height]);
   const edges = displayed.map((link) => {
     const id = JSON.stringify([link.source, link.target]);
     const active = Boolean(
@@ -464,7 +488,7 @@ function Graph({
         <GraphActions
           fullscreenTarget={fullscreenTarget}
           onArrange={() => {
-            const arranged = arrange(nodes, displayed);
+            const arranged = arrange(nodes, displayed, { width, height });
             positions.current = new Map(
               arranged.map((node) => [node.id, node.position]),
             );
