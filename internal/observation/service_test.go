@@ -15,6 +15,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/capture"
 )
 
 func TestNodeObservationsWithPostgreSQL(t *testing.T) {
@@ -178,6 +179,31 @@ func TestNodeObservationsWithPostgreSQL(t *testing.T) {
 			if row.InstanceID == "i1" && row.State != "stopped" {
 				t.Fatal("recovered node did not expose its confirmed state")
 			}
+		}
+	})
+	t.Run("packet quota migration waits for source acknowledgement", func(t *testing.T) {
+		service := Service{Pool: pool}
+		targets := []api.SecurityInterface{{EnvironmentId: "env", Interface: api.CaptureInterface{NodeId: "n1"}}}
+		budget, err := service.packetQuotas(ctx, targets)
+		if err != nil || budget["n1"].requested["env"] != capture.PacketBudget {
+			t.Fatal(budget, err)
+		}
+		observation, _ := json.Marshal(api.PacketRetention{LimitBytes: capture.PacketBudget, UsedBytes: 1024, Status: api.PacketRetentionStatusRecording})
+		if err = q.SavePacketNode(ctx, queries.SavePacketNodeParams{EnvironmentID: "env", NodeID: "n1", QuotaBytes: capture.PacketBudget, Observation: observation}); err != nil {
+			t.Fatal(err)
+		}
+		targets[0].Interface.NodeId = "n2"
+		budget, err = service.packetQuotas(ctx, targets)
+		if err != nil || budget["n1"].requested["env"] != capture.PacketBudget/2 || budget["n2"].requested["env"] != 0 {
+			t.Fatalf("source capacity reused before acknowledgement: %+v %v", budget, err)
+		}
+		observation, _ = json.Marshal(api.PacketRetention{LimitBytes: capture.PacketBudget / 2, UsedBytes: 1024, Status: api.PacketRetentionStatusIdle})
+		if err = q.SavePacketNode(ctx, queries.SavePacketNodeParams{EnvironmentID: "env", NodeID: "n1", QuotaBytes: capture.PacketBudget / 2, Observation: observation}); err != nil {
+			t.Fatal(err)
+		}
+		budget, err = service.packetQuotas(ctx, targets)
+		if err != nil || budget["n1"].reserved["env"]+budget["n2"].reserved["env"] != capture.PacketBudget || budget["n2"].requested["env"] != capture.PacketBudget/2 {
+			t.Fatal(budget, err)
 		}
 	})
 }

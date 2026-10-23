@@ -303,6 +303,7 @@ func (r *Recorder) Record(environment string, interfaces []api.CaptureInterface,
 	writer.part.Raw += int64(len(data)) + 32
 	writer.part.Packets++
 	writer.part.End = info.Timestamp.UTC()
+	state.Error = ""
 	return nil
 }
 func pcapInterface(iface api.CaptureInterface) pcapgo.NgInterface {
@@ -336,7 +337,7 @@ func (r *Recorder) Flush() error {
 }
 func (r *Recorder) flushEnvironment(environment string) error {
 	state := r.environments[environment]
-	if state == nil {
+	if state == nil || len(state.writers) == 0 {
 		return nil
 	}
 	var err error
@@ -503,13 +504,11 @@ func (r *Recorder) walk(ctx context.Context, environment string, visit func(pack
 	if err != nil {
 		return err
 	}
-	defer closeParts(parts)
 	for index := len(parts) - 1; index >= 0; index-- {
 		part := parts[index]
 		if err = r.openPart(environment, &part); err != nil {
 			return err
 		}
-		defer closeParts([]partRead{part})
 		finished := false
 		err = readFrames(ctx, part.reader, !part.part.Sealed, func(packet api.CapturePacket, data []byte) bool {
 			if packet.Number > part.part.Packets {
@@ -527,6 +526,7 @@ func (r *Recorder) walk(ctx context.Context, environment string, visit func(pack
 			}
 			return true
 		})
+		closeParts([]partRead{part})
 		if err != nil {
 			return err
 		}

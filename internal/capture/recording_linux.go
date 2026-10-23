@@ -127,10 +127,13 @@ func (m *Manager) Reconcile(ctx context.Context, targets []api.SecurityInterface
 					}
 				}
 			}
-			waitErr := command.Wait()
-			if waitErr == nil || isInterrupt(waitErr) {
+			if errors.Is(readErr, io.EOF) {
 				readErr = nil
-			} else {
+			} else if readErr != nil {
+				command.Process.Kill()
+			}
+			waitErr := command.Wait()
+			if waitErr != nil && !isInterrupt(waitErr) {
 				readErr = errors.Join(readErr, waitErr, errors.New(strings.TrimSpace(stderr.String())))
 			}
 			closeErr := m.recorder.Close()

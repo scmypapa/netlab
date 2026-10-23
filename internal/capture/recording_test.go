@@ -167,3 +167,30 @@ func TestRecentPacketQueryAndStableOlderPagination(t *testing.T) {
 		}
 	}
 }
+
+func TestRecorderRecoversAndSealedReadsDoNotWrite(t *testing.T) {
+	r, environment, interfaces := recordingFixture(t, 1<<20)
+	r.environments[environment].Error = "temporary write failure"
+	frame := sampleFrame(t)
+	if err := r.Record(environment, interfaces, 0, gopacket.CaptureInfo{Timestamp: time.Now(), Length: len(frame), CaptureLength: len(frame)}, frame); err != nil {
+		t.Fatal(err)
+	}
+	if r.Retention()[environment].Error != nil {
+		t.Fatal("recovered recorder retains an error")
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(r.directory, environment, "manifest.json")
+	at := time.Unix(1791115200, 0)
+	if err := os.Chtimes(manifest, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.walk(context.Background(), environment, func(packetPart, api.CapturePacket, []byte) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(manifest)
+	if err != nil || !info.ModTime().Equal(at) {
+		t.Fatal("reading sealed packets rewrote the manifest", err)
+	}
+}

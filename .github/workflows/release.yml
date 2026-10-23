@@ -34,6 +34,8 @@ jobs:
           NETLAB_REAL_NETWORK=1 go test ./internal/network -run TestRealOVNMutualTLS -count=1
           go build -trimpath ./cmd/controller
           go build -trimpath -tags libvirt_dlopen ./cmd/node
+          ldd controller
+          ldd node
       - name: Verify native IPFIX and packet analysis
         run: |
           go test -race -c -o "$RUNNER_TEMP/netlab-capture.test" ./internal/capture
