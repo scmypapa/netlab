@@ -143,6 +143,10 @@ export function RDPDisplay({
     return () => {
       observer.disconnect();
       keyboard.reset();
+      connection.onstatechange = null;
+      connection.onerror = null;
+      connection.onclipboard = null;
+      display.onresize = null;
       connection.disconnect();
       screen.remove();
       client.current = null;

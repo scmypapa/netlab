@@ -1,12 +1,12 @@
 import { ActionIcon, Button, Menu } from "@mantine/core";
 import {
-  Box,
   Activity,
+  ArrowRight,
+  Box,
+  ChevronDown,
   Copy,
   FolderOpen,
-  Cpu,
   HardDrive,
-  MemoryStick,
   Monitor,
   MoreHorizontal,
   Network,
@@ -30,6 +30,38 @@ import type {
 import { memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
 import { networkColors } from "./topology";
+import styles from "./ObjectInspector.module.css";
+
+type Props = {
+  asset?: Asset;
+  network?: NetworkModel;
+  spec: EnvironmentSpec;
+  template?: Template;
+  state?: EnvironmentState;
+  editing: boolean;
+  busy: boolean;
+  canOperate: boolean;
+  canManage: boolean;
+  canCapture: boolean;
+  canConnect: boolean;
+  canObserve: boolean;
+  canFile: boolean;
+  canAccess: boolean;
+  onCapture: () => void;
+  onMigrate: () => void;
+  onClose: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+  onDuplicate: () => void;
+  onAction: (action: Schema<"ActionRequest">["action"]) => void;
+  onConnect: (kind: Schema<"ConsoleKind">) => void;
+  onFiles: () => void;
+  onLogs: () => void;
+  onObserve: () => void;
+  onServices: () => void;
+  onSelect: (id: string) => void;
+  services: Schema<"ServiceEndpoint">[];
+};
 
 export function ObjectInspector({
   asset,
@@ -60,41 +92,31 @@ export function ObjectInspector({
   canAccess,
   onServices,
   onSelect,
-}: {
-  asset?: Asset;
-  network?: NetworkModel;
-  spec: EnvironmentSpec;
-  template?: Template;
-  state?: EnvironmentState;
-  editing: boolean;
-  busy: boolean;
-  canOperate: boolean;
-  canManage: boolean;
-  canCapture: boolean;
-  onCapture: () => void;
-  onMigrate: () => void;
-  canConnect: boolean;
-  canObserve: boolean;
-  onClose: () => void;
-  onEdit: () => void;
-  onRemove: () => void;
-  onDuplicate: () => void;
-  onAction: (action: Schema<"ActionRequest">["action"]) => void;
-  onConnect: (kind: Schema<"ConsoleKind">) => void;
-  canFile: boolean;
-  onFiles: () => void;
-  onLogs: () => void;
-  onObserve: () => void;
-  services: Schema<"ServiceEndpoint">[];
-  canAccess: boolean;
-  onServices: () => void;
-  onSelect: (id: string) => void;
-}) {
+}: Props) {
   const assetState = state?.assets.find((item) => item.assetId === asset?.id);
+  const vm = template?.kind === "vm";
+  const stopped = assetState?.state === "stopped";
+  const assetServices = services.filter((item) => item.assetId === asset?.id);
   return (
-    <aside className="object-inspector" aria-label="对象详情">
-      <div className="inspector-title">
-        <span>{asset ? "资产" : "网段"}</span>
+    <aside className={styles.inspector} aria-label="对象详情">
+      <header className={styles.header}>
+        <span className={styles.symbol}>
+          {network ? (
+            <Network size={22} />
+          ) : vm ? (
+            <Monitor size={22} />
+          ) : (
+            <Box size={22} />
+          )}
+        </span>
+        <div className={styles.identity}>
+          <h2>{asset?.name ?? network?.name}</h2>
+          {asset ? (
+            <Status value={assetState?.state ?? "draft"} />
+          ) : (
+            <span className={styles.address}>{network?.cidr}</span>
+          )}
+        </div>
         <ActionIcon
           variant="subtle"
           color="gray"
@@ -103,33 +125,17 @@ export function ObjectInspector({
         >
           <X size={17} />
         </ActionIcon>
-      </div>
-      <div className="object-identity">
-        <span
-          className={`inspector-symbol ${network ? "network" : template?.kind}`}
-        >
-          {network ? (
-            <Network size={26} />
-          ) : template?.kind === "vm" ? (
-            <Monitor size={26} />
-          ) : (
-            <Box size={26} />
-          )}
-        </span>
-        <div>
-          <h2>{asset?.name ?? network?.name}</h2>
-          {asset && <Status value={assetState?.state ?? "draft"} />}
-          {network && <span className="muted mono">{network.cidr}</span>}
-        </div>
-      </div>
+      </header>
       {(editing ||
         (assetState &&
           (canOperate ||
             canManage ||
+            canObserve ||
             canConnect ||
             canFile ||
-            canObserve))) && (
-        <div className="inspector-actions">
+            canAccess ||
+            (canCapture && vm)))) && (
+        <div className={styles.actions}>
           {editing ? (
             <Button
               variant="default"
@@ -139,60 +145,112 @@ export function ObjectInspector({
               编辑
             </Button>
           ) : (
-            asset &&
-            (assetState?.state === "stopped" ? canOperate : canConnect) && (
-              <Button
-                variant="default"
-                leftSection={
-                  assetState?.state === "stopped" ? (
-                    <Play size={14} />
-                  ) : template?.kind === "vm" ? (
-                    <Monitor size={14} />
-                  ) : (
-                    <SquareTerminal size={14} />
-                  )
-                }
-                disabled={
-                  busy ||
-                  (assetState?.state === "suspended" &&
-                    template?.kind === "container")
-                }
-                onClick={() =>
-                  assetState?.state === "stopped"
-                    ? onAction("start")
-                    : onConnect(template?.kind === "vm" ? "vnc" : "terminal")
-                }
-              >
-                {assetState?.state === "stopped"
-                  ? "启动"
-                  : template?.kind === "vm"
-                    ? "控制台"
-                    : "终端"}
-              </Button>
+            asset && (
+              <>
+                {stopped
+                  ? canOperate && (
+                      <Button
+                        leftSection={<Play size={14} />}
+                        disabled={busy}
+                        onClick={() => onAction("start")}
+                      >
+                        启动
+                      </Button>
+                    )
+                  : canConnect && (
+                      <div className={styles.connect}>
+                        <Button
+                          leftSection={
+                            vm ? (
+                              <Monitor size={15} />
+                            ) : (
+                              <SquareTerminal size={15} />
+                            )
+                          }
+                          disabled={
+                            busy || (assetState?.state === "suspended" && !vm)
+                          }
+                          onClick={() => onConnect(vm ? "vnc" : "terminal")}
+                        >
+                          {vm ? "控制台" : "终端"}
+                        </Button>
+                        <Menu position="bottom-start">
+                          <Menu.Target>
+                            <ActionIcon
+                              variant="filled"
+                              aria-label="连接方式"
+                              disabled={busy}
+                            >
+                              <ChevronDown size={15} />
+                            </ActionIcon>
+                          </Menu.Target>
+                          <Menu.Dropdown>
+                            <Menu.Item
+                              leftSection={<SquareTerminal size={15} />}
+                              disabled={assetState?.state !== "running"}
+                              onClick={() => onConnect("ssh")}
+                            >
+                              SSH
+                            </Menu.Item>
+                            {vm && (
+                              <Menu.Item
+                                leftSection={<Monitor size={15} />}
+                                disabled={assetState?.state !== "running"}
+                                onClick={() => onConnect("rdp")}
+                              >
+                                远程桌面
+                              </Menu.Item>
+                            )}
+                            {vm && (
+                              <Menu.Item
+                                leftSection={<SquareTerminal size={15} />}
+                                disabled={stopped}
+                                onClick={() => onConnect("serial")}
+                              >
+                                串口控制台
+                              </Menu.Item>
+                            )}
+                          </Menu.Dropdown>
+                        </Menu>
+                      </div>
+                    )}
+                {canFile && (
+                  <ActionIcon
+                    variant="default"
+                    aria-label="文件"
+                    onClick={onFiles}
+                  >
+                    <FolderOpen size={17} />
+                  </ActionIcon>
+                )}
+                {canAccess && (
+                  <ActionIcon
+                    variant="default"
+                    aria-label="管理服务入口"
+                    disabled={busy}
+                    onClick={onServices}
+                  >
+                    <Network size={17} />
+                  </ActionIcon>
+                )}
+              </>
             )
           )}
           {(editing ||
             (asset &&
               (canOperate ||
-                canFile ||
                 canManage ||
                 canObserve ||
-                (canConnect && template?.kind === "vm")))) && (
+                (canCapture && vm)))) && (
             <Menu position="bottom-end">
               <Menu.Target>
-                <ActionIcon variant="default" aria-label="对象操作">
+                <ActionIcon variant="subtle" color="gray" aria-label="对象操作">
                   <MoreHorizontal size={18} />
                 </ActionIcon>
               </Menu.Target>
               <Menu.Dropdown>
                 {editing ? (
                   <>
-                    <Menu.Item
-                      leftSection={<Pencil size={15} />}
-                      onClick={onEdit}
-                    >
-                      编辑
-                    </Menu.Item>
                     {asset && (
                       <Menu.Item
                         leftSection={<Copy size={15} />}
@@ -201,7 +259,6 @@ export function ObjectInspector({
                         复制资产
                       </Menu.Item>
                     )}
-                    <Menu.Divider />
                     <Menu.Item
                       color="red"
                       leftSection={<Trash2 size={15} />}
@@ -213,75 +270,14 @@ export function ObjectInspector({
                 ) : (
                   asset && (
                     <>
-                      {canFile && (
-                        <Menu.Item
-                          leftSection={<FolderOpen size={15} />}
-                          onClick={onFiles}
-                        >
-                          文件
-                        </Menu.Item>
-                      )}
-                      {canConnect && (
-                        <Menu.Item
-                          leftSection={<SquareTerminal size={15} />}
-                          disabled={assetState?.state !== "running"}
-                          onClick={() => onConnect("ssh")}
-                        >
-                          SSH
-                        </Menu.Item>
-                      )}
-                      {canObserve && (
-                        <Menu.Item
-                          leftSection={<Activity size={15} />}
-                          onClick={onObserve}
-                        >
-                          资源曲线
-                        </Menu.Item>
-                      )}
-                      {canObserve && template?.kind === "container" && (
-                        <Menu.Item
-                          leftSection={<SquareChartGantt size={15} />}
-                          onClick={onLogs}
-                        >
-                          进程日志
-                        </Menu.Item>
-                      )}
-                      {canConnect && template?.kind === "vm" && (
-                        <Menu.Item
-                          leftSection={<Monitor size={15} />}
-                          disabled={assetState?.state !== "running"}
-                          onClick={() => onConnect("rdp")}
-                        >
-                          远程桌面
-                        </Menu.Item>
-                      )}
-                      {canConnect && template?.kind === "vm" && (
-                        <Menu.Item
-                          leftSection={<SquareTerminal size={15} />}
-                          disabled={assetState?.state === "stopped"}
-                          onClick={() => onConnect("serial")}
-                        >
-                          串口控制台
-                        </Menu.Item>
-                      )}
                       {canOperate && (
                         <>
                           <Menu.Item
                             leftSection={<Power size={15} />}
                             disabled={busy}
-                            onClick={() =>
-                              onAction(
-                                assetState?.state === "stopped"
-                                  ? "start"
-                                  : "stop",
-                              )
-                            }
+                            onClick={() => onAction(stopped ? "start" : "stop")}
                           >
-                            {assetState?.state === "stopped"
-                              ? "启动"
-                              : template?.kind === "vm"
-                                ? "关机"
-                                : "停止"}
+                            {stopped ? "启动" : vm ? "关机" : "停止"}
                           </Menu.Item>
                           <Menu.Item
                             leftSection={<RotateCcw size={15} />}
@@ -310,23 +306,22 @@ export function ObjectInspector({
                               : "暂停"}
                           </Menu.Item>
                           <Menu.Divider />
-                          <Menu.Item
-                            color="red"
-                            disabled={busy}
-                            onClick={() => onAction("force-stop")}
-                          >
-                            强制停止
-                          </Menu.Item>
                         </>
                       )}
-                      {canManage && (
+                      {canObserve && (
                         <Menu.Item
-                          color="red"
-                          leftSection={<HardDrive size={15} />}
-                          disabled={busy}
-                          onClick={() => onAction("rebuild")}
+                          leftSection={<Activity size={15} />}
+                          onClick={onObserve}
                         >
-                          重建资产
+                          资源曲线
+                        </Menu.Item>
+                      )}
+                      {canObserve && template?.kind === "container" && (
+                        <Menu.Item
+                          leftSection={<SquareChartGantt size={15} />}
+                          onClick={onLogs}
+                        >
+                          进程日志
                         </Menu.Item>
                       )}
                       {canManage &&
@@ -343,13 +338,33 @@ export function ObjectInspector({
                             迁移节点
                           </Menu.Item>
                         )}
-                      {canCapture && template?.kind === "vm" && (
+                      {canCapture && vm && (
                         <Menu.Item
                           leftSection={<Copy size={15} />}
-                          disabled={busy || assetState?.state !== "stopped"}
+                          disabled={busy || !stopped}
                           onClick={onCapture}
                         >
                           固化模板
+                        </Menu.Item>
+                      )}
+                      {(canOperate || canManage) && <Menu.Divider />}
+                      {canOperate && (
+                        <Menu.Item
+                          color="red"
+                          disabled={busy}
+                          onClick={() => onAction("force-stop")}
+                        >
+                          强制停止
+                        </Menu.Item>
+                      )}
+                      {canManage && (
+                        <Menu.Item
+                          color="red"
+                          leftSection={<HardDrive size={15} />}
+                          disabled={busy}
+                          onClick={() => onAction("rebuild")}
+                        >
+                          重建资产
                         </Menu.Item>
                       )}
                     </>
@@ -361,151 +376,137 @@ export function ObjectInspector({
         </div>
       )}
       {assetState?.error && (
-        <div className="inspector-error" role="alert">
+        <div className={styles.error} role="alert">
           {assetState.error}
         </div>
       )}
-      {asset && (
-        <>
-          <section className="inspector-section">
-            <h3>规格</h3>
-            <dl className="property-list">
+      <div className={styles.body}>
+        {asset && (
+          <>
+            <dl className={styles.resources}>
               <div>
-                <dt>
-                  <Cpu size={14} />
-                  CPU
-                </dt>
-                <dd>{asset.resources.cpu} 核</dd>
+                <dt>CPU</dt>
+                <dd>
+                  {asset.resources.cpu}
+                  <span>核</span>
+                </dd>
               </div>
               <div>
-                <dt>
-                  <MemoryStick size={14} />
-                  内存
-                </dt>
+                <dt>内存</dt>
                 <dd>{memory(asset.resources.memoryMiB)}</dd>
               </div>
               <div>
-                <dt>
-                  <HardDrive size={14} />
-                  磁盘
-                </dt>
-                <dd>{asset.resources.diskGiB} GiB</dd>
+                <dt>系统盘</dt>
+                <dd>
+                  {asset.resources.diskGiB}
+                  <span>GiB</span>
+                </dd>
               </div>
             </dl>
-            {template && (
-              <dl className="property-list template-properties">
-                <div>
-                  <dt>模板</dt>
-                  <dd>{template.name}</dd>
-                </div>
-                <div>
-                  <dt>系统</dt>
-                  <dd>{template.os}</dd>
-                </div>
-                {template.kind === "vm" && (
-                  <div>
-                    <dt>固件</dt>
-                    <dd>{template.hardware?.firmware.toUpperCase()}</dd>
-                  </div>
-                )}
-              </dl>
-            )}
-          </section>
-          <section className="inspector-section">
-            <h3>
-              网络接口<span>{asset.interfaces.length}</span>
-            </h3>
-            <div className="interface-list">
-              {asset.interfaces.map((item, index) => {
-                const connected = spec.networks.find(
-                  (network) => network.id === item.networkId,
-                );
-                const color =
-                  networkColors[
-                    spec.networks.findIndex(
-                      (network) => network.id === item.networkId,
-                    ) % networkColors.length
-                  ];
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onSelect(item.networkId)}
-                    className="interface-item"
-                  >
-                    <span
-                      className="interface-indicator"
-                      style={{ background: color }}
-                    />
-                    <div>
-                      <strong>{connected?.name}</strong>
-                      <span className="mono">
-                        {item.address || connected?.cidr}
+            <section className={styles.section}>
+              <h3>
+                网络接口 <span>{asset.interfaces.length}</span>
+              </h3>
+              <div className={styles.items}>
+                {asset.interfaces.map((item, index) => {
+                  const networkIndex = spec.networks.findIndex(
+                    (network) => network.id === item.networkId,
+                  );
+                  const connected = spec.networks[networkIndex];
+                  return (
+                    <button
+                      key={item.id}
+                      className={styles.item}
+                      onClick={() => onSelect(item.networkId)}
+                    >
+                      <span
+                        className={styles.marker}
+                        style={{
+                          background:
+                            networkColors[networkIndex % networkColors.length],
+                        }}
+                      />
+                      <span className={styles.itemText}>
+                        <strong>{connected?.name}</strong>
+                        <span className={styles.address}>
+                          {item.address || connected?.cidr}
+                        </span>
                       </span>
-                    </div>
-                    <span className="interface-index">
-                      eth{index}
-                      {item.primary ? " · 主" : ""}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-          {!editing &&
-            assetState &&
-            (canAccess ||
-              services.some((item) => item.assetId === asset.id)) && (
-              <section className="inspector-section">
+                      <span className={styles.meta}>
+                        {item.primary ? "主接口" : `网卡 ${index + 1}`}
+                      </span>
+                      <ArrowRight size={13} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+            {!editing && assetState && assetServices.length > 0 && (
+              <section className={styles.section}>
                 <h3>
-                  服务
-                  {canAccess && (
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      aria-label="管理服务入口"
-                      disabled={busy}
+                  服务入口 <span>{assetServices.length}</span>
+                </h3>
+                <div className={styles.items}>
+                  {assetServices.map((item) => (
+                    <button
+                      key={item.id}
+                      className={styles.item}
                       onClick={onServices}
                     >
-                      <Network size={16} />
-                    </ActionIcon>
-                  )}
-                </h3>
-                <div className="interface-list">
-                  {services
-                    .filter((item) => item.assetId === asset.id)
-                    .map((item) => (
-                      <button
-                        key={item.id}
-                        className="interface-item"
-                        onClick={onServices}
-                      >
-                        <div>
-                          <strong>
-                            {item.protocol.toUpperCase()} · {item.targetPort}
-                          </strong>
-                          <span className="mono">
-                            {item.address}:{item.port}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
+                      <span className={styles.itemText}>
+                        <strong>
+                          {item.protocol.toUpperCase()} / {item.targetPort}
+                        </strong>
+                        <span className={styles.address}>
+                          {item.address}:{item.port}
+                        </span>
+                      </span>
+                      <ArrowRight size={13} />
+                    </button>
+                  ))}
                 </div>
               </section>
             )}
-        </>
-      )}
-      {network && (
-        <>
-          <section className="inspector-section">
-            <h3>地址配置</h3>
-            <dl className="property-list">
-              <div>
-                <dt>网络</dt>
-                <dd className="mono">{network.cidr}</dd>
-              </div>
+            {template && (
+              <details className={styles.details}>
+                <summary>
+                  模板与硬件 <ChevronDown size={14} />
+                </summary>
+                <dl className={styles.properties}>
+                  <div>
+                    <dt>模板</dt>
+                    <dd>{template.name}</dd>
+                  </div>
+                  <div>
+                    <dt>系统</dt>
+                    <dd>{template.os}</dd>
+                  </div>
+                  {vm && (
+                    <div>
+                      <dt>固件</dt>
+                      <dd>{template.hardware?.firmware.toUpperCase()}</dd>
+                    </div>
+                  )}
+                  {asset.interfaces.map(
+                    (item, index) =>
+                      item.mac && (
+                        <div key={item.id}>
+                          <dt>网卡 {index + 1}</dt>
+                          <dd className={styles.address}>{item.mac}</dd>
+                        </div>
+                      ),
+                  )}
+                </dl>
+              </details>
+            )}
+          </>
+        )}
+        {network && (
+          <>
+            <dl className={styles.properties}>
               <div>
                 <dt>网关</dt>
-                <dd className="mono">
+                <dd className={styles.address}>
                   {network.gateway || (network.external ? "—" : "自动")}
                 </dd>
               </div>
@@ -534,45 +535,46 @@ export function ObjectInspector({
                     </dd>
                   </div>
                   <div>
-                    <dt>可分配地址</dt>
-                    <dd className="mono">{network.allocationPool}</dd>
+                    <dt>地址池</dt>
+                    <dd className={styles.address}>{network.allocationPool}</dd>
                   </div>
                 </>
               )}
             </dl>
-          </section>
-          <section className="inspector-section">
-            <h3>连接资产</h3>
-            <div className="interface-list">
-              {spec.assets
-                .filter((item) =>
-                  item.interfaces.some(
-                    (iface) => iface.networkId === network.id,
-                  ),
-                )
-                .map((member) => (
-                  <button
-                    className="interface-item"
-                    key={member.id}
-                    onClick={() => onSelect(member.id)}
-                  >
-                    <Box size={16} />
-                    <div>
-                      <strong>{member.name}</strong>
-                      <span className="mono">
-                        {
-                          member.interfaces.find(
-                            (item) => item.networkId === network.id,
-                          )?.address
-                        }
+            <section className={styles.section}>
+              <h3>连接资产</h3>
+              <div className={styles.items}>
+                {spec.assets
+                  .filter((item) =>
+                    item.interfaces.some(
+                      (iface) => iface.networkId === network.id,
+                    ),
+                  )
+                  .map((member) => (
+                    <button
+                      className={styles.item}
+                      key={member.id}
+                      onClick={() => onSelect(member.id)}
+                    >
+                      <Box size={16} />
+                      <span className={styles.itemText}>
+                        <strong>{member.name}</strong>
+                        <span className={styles.address}>
+                          {
+                            member.interfaces.find(
+                              (item) => item.networkId === network.id,
+                            )?.address
+                          }
+                        </span>
                       </span>
-                    </div>
-                  </button>
-                ))}
-            </div>
-          </section>
-        </>
-      )}
+                      <ArrowRight size={13} />
+                    </button>
+                  ))}
+              </div>
+            </section>
+          </>
+        )}
+      </div>
     </aside>
   );
 }

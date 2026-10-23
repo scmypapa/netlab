@@ -2,6 +2,9 @@ import { ActionIcon, Button, Modal, Textarea } from "@mantine/core";
 import {
   Clipboard,
   Maximize2,
+  Minimize2,
+  PanelBottomClose,
+  PanelBottomOpen,
   Monitor,
   Settings2,
   SquareTerminal,
@@ -32,9 +35,23 @@ export default function ConsoleWorkspace({
   onSettings: (tab: ConsoleTab) => void;
 }) {
   const workspace = useRef<HTMLElement>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const current = tabs.find((tab) => consoleKey(tab) === selected);
+  useEffect(() => setCollapsed(false), [selected]);
+  useEffect(() => {
+    const changed = () =>
+      setFullscreen(document.fullscreenElement === workspace.current);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
   return (
-    <section ref={workspace} className={styles.workspace} aria-label="资产连接">
+    <section
+      ref={workspace}
+      className={styles.workspace}
+      data-collapsed={collapsed}
+      aria-label="资产连接"
+    >
       <div className={styles.toolbar}>
         <div className={styles.tabs} role="tablist" aria-label="当前连接">
           {tabs.map((tab) => {
@@ -48,7 +65,10 @@ export default function ConsoleWorkspace({
                   role="tab"
                   aria-selected={selected === key}
                   aria-controls={`console-${key}`}
-                  onClick={() => onSelect(key)}
+                  onClick={() => {
+                    onSelect(key);
+                    setCollapsed(false);
+                  }}
                 >
                   {tab.kind === "vnc" || tab.kind === "rdp" ? (
                     <Monitor size={14} />
@@ -73,6 +93,20 @@ export default function ConsoleWorkspace({
           })}
         </div>
         <div className={styles.actions}>
+          {!fullscreen && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              aria-label={collapsed ? "展开连接" : "收起连接"}
+              onClick={() => setCollapsed(!collapsed)}
+            >
+              {collapsed ? (
+                <PanelBottomOpen size={16} />
+              ) : (
+                <PanelBottomClose size={16} />
+              )}
+            </ActionIcon>
+          )}
           {(current?.kind === "ssh" || current?.kind === "rdp") && (
             <ActionIcon
               variant="subtle"
@@ -86,10 +120,15 @@ export default function ConsoleWorkspace({
           <ActionIcon
             variant="subtle"
             color="gray"
-            aria-label="全屏连接"
-            onClick={() => void workspace.current?.requestFullscreen()}
+            aria-label={fullscreen ? "退出全屏连接" : "全屏连接"}
+            onClick={() => {
+              setCollapsed(false);
+              void (fullscreen
+                ? document.exitFullscreen()
+                : workspace.current?.requestFullscreen());
+            }}
           >
-            <Maximize2 size={16} />
+            {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </ActionIcon>
         </div>
       </div>
@@ -98,7 +137,7 @@ export default function ConsoleWorkspace({
           key={consoleKey(tab)}
           tab={tab}
           environmentId={environmentId}
-          active={selected === consoleKey(tab)}
+          active={!collapsed && selected === consoleKey(tab)}
         />
       ))}
     </section>
@@ -141,14 +180,18 @@ function ConsoleConnection({
       vnc.current = connection;
       connection.scaleViewport = true;
       connection.resizeSession = true;
-      connection.addEventListener("connect", () => setStatus("已连接"));
-      connection.addEventListener("disconnect", (event) =>
-        setStatus(event.detail.clean ? "连接已结束" : "连接中断"),
-      );
-      connection.addEventListener("securityfailure", (event) =>
-        setStatus(event.detail.reason ?? "控制台认证失败"),
-      );
+      const connected = () => setStatus("已连接");
+      const disconnected = (event: CustomEvent<{ clean: boolean }>) =>
+        setStatus(event.detail.clean ? "连接已结束" : "连接中断");
+      const failed = (event: CustomEvent<{ reason?: string }>) =>
+        setStatus(event.detail.reason ?? "控制台认证失败");
+      connection.addEventListener("connect", connected);
+      connection.addEventListener("disconnect", disconnected);
+      connection.addEventListener("securityfailure", failed);
       return () => {
+        connection.removeEventListener("connect", connected);
+        connection.removeEventListener("disconnect", disconnected);
+        connection.removeEventListener("securityfailure", failed);
         connection.disconnect();
         vnc.current = null;
       };
@@ -209,6 +252,9 @@ function ConsoleConnection({
       input.dispose();
       resize.dispose();
       observer.disconnect();
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
       socket.close();
       terminal.dispose();
       fit.current = null;
@@ -285,6 +331,7 @@ function ConsoleConnection({
       )}
       <Modal
         opened={clipboardOpened}
+        withinPortal={false}
         title="远程剪贴板"
         onClose={() => setClipboardOpened(false)}
         centered

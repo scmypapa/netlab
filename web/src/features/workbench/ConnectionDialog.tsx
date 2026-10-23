@@ -3,6 +3,7 @@ import {
   Modal,
   NumberInput,
   PasswordInput,
+  SegmentedControl,
   Select,
   Textarea,
   TextInput,
@@ -11,7 +12,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError, type Asset, type Schema } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
-import styles from "./FileWorkspace.module.css";
+import styles from "./ConnectionDialog.module.css";
 
 type Settings = Schema<"SSHSettings"> | Schema<"RDPSettings">;
 
@@ -113,6 +114,10 @@ export function ConnectionDialog({
       onClose={onClose}
       centered
       size="md"
+      portalProps={{
+        target: (document.fullscreenElement ?? undefined) as
+          HTMLElement | undefined,
+      }}
     >
       {saved.isPending ? (
         <Loading />
@@ -125,64 +130,18 @@ export function ConnectionDialog({
           }}
         >
           <ErrorMessage error={saved.error ?? probe.error ?? save.error} />
-          <div className={styles.columns}>
-            <TextInput
-              label="用户名"
-              value={settings.username}
-              onChange={(event) =>
-                change({ username: event.currentTarget.value })
-              }
-              required
-              autoFocus
-            />
-            <NumberInput
-              label="端口"
-              value={settings.port}
-              min={1}
-              max={65535}
-              onChange={(value) => {
-                change({
-                  port: Number(value),
-                  ...("authKind" in settings
-                    ? { hostKey: "" }
-                    : { certificate: "" }),
-                });
-              }}
-            />
-          </div>
-          {rdp && (
-            <TextInput
-              label="域"
-              value={rdp.domain ?? ""}
-              onChange={(event) =>
-                change({ domain: event.currentTarget.value || undefined })
-              }
-            />
-          )}
-          {asset.interfaces.length > 1 && (
-            <Select
-              label="网络接口"
-              value={settings.interfaceId ?? ""}
-              data={[
-                { value: "", label: "主接口" },
-                ...asset.interfaces.map((item) => ({
-                  value: item.id,
-                  label: item.address || "未分配地址",
-                })),
-              ]}
-              onChange={(value) => {
-                change({
-                  interfaceId: value || undefined,
-                  ...("authKind" in settings
-                    ? { hostKey: "" }
-                    : { certificate: "" }),
-                });
-              }}
-            />
-          )}
+          <TextInput
+            label="用户名"
+            value={settings.username}
+            onChange={(event) =>
+              change({ username: event.currentTarget.value })
+            }
+            required
+            autoFocus
+          />
           {ssh && (
-            <Select
-              label="认证"
+            <SegmentedControl
+              aria-label="认证方式"
               value={ssh.authKind}
               data={[
                 { value: "password", label: "密码" },
@@ -225,17 +184,69 @@ export function ConnectionDialog({
               autoComplete="new-password"
             />
           )}
-          <div className={styles.key}>
-            <Button
-              variant="default"
-              size="compact-sm"
-              onClick={() => void probe.refetch()}
-              loading={probe.isFetching}
-            >
-              {kind === "ssh" ? "读取主机密钥" : "读取服务器证书"}
-            </Button>
-            {fingerprint && <code>{fingerprint}</code>}
-          </div>
+          <details className={styles.options}>
+            <summary>连接选项</summary>
+            <div className={styles.optionFields}>
+              <NumberInput
+                label="端口"
+                value={settings.port}
+                min={1}
+                max={65535}
+                onChange={(value) => {
+                  change({
+                    port: Number(value),
+                    ...("authKind" in settings
+                      ? { hostKey: "" }
+                      : { certificate: "" }),
+                  });
+                }}
+              />
+              {rdp && (
+                <TextInput
+                  label="域"
+                  value={rdp.domain ?? ""}
+                  onChange={(event) =>
+                    change({ domain: event.currentTarget.value || undefined })
+                  }
+                />
+              )}
+              {asset.interfaces.length > 1 && (
+                <Select
+                  label="网络接口"
+                  value={settings.interfaceId ?? ""}
+                  data={[
+                    { value: "", label: "主接口" },
+                    ...asset.interfaces.map((item) => ({
+                      value: item.id,
+                      label: item.address || "未分配地址",
+                    })),
+                  ]}
+                  onChange={(value) => {
+                    change({
+                      interfaceId: value || undefined,
+                      ...("authKind" in settings
+                        ? { hostKey: "" }
+                        : { certificate: "" }),
+                    });
+                  }}
+                />
+              )}
+            </div>
+          </details>
+          <details className={styles.options} open={!savedFingerprint}>
+            <summary>{kind === "ssh" ? "主机身份" : "服务器证书"}</summary>
+            <div className={styles.identity}>
+              <Button
+                variant="default"
+                size="compact-sm"
+                onClick={() => void probe.refetch()}
+                loading={probe.isFetching}
+              >
+                {kind === "ssh" ? "读取主机密钥" : "读取服务器证书"}
+              </Button>
+              {fingerprint && <code>{fingerprint}</code>}
+            </div>
+          </details>
           <div className={styles.dialogActions}>
             <Button variant="default" onClick={onClose}>
               取消

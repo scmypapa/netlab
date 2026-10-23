@@ -6,6 +6,7 @@ import { Monitor } from "lucide-react";
 import { api, type Asset } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
+import styles from "./MigrationDialog.module.css";
 
 export function MigrationDialog({
   id,
@@ -48,84 +49,120 @@ export function MigrationDialog({
     },
   });
   return (
-    <Modal opened onClose={onClose} title={`迁移 ${asset.name}`} size="sm">
-      {nodes.isPending ? (
-        <Loading />
-      ) : nodes.isError ? (
-        <ErrorMessage error={nodes.error} />
-      ) : nodes.data.length ? (
-        <Select
-          label="目标节点"
-          placeholder="自动选择"
-          clearable
-          value={target}
-          onChange={(id) => {
-            setTarget(id);
-            setStorage(null);
-          }}
-          disabled={migration.isPending}
-          data={nodes.data.map((node) => ({
-            value: node.id,
-            label: `${node.name}${node.current ? "（当前节点）" : ""} · ${node.available.cpu} 核 / ${memory(node.available.memoryMiB)}`,
-          }))}
-        />
-      ) : (
-        <Empty icon={<Monitor size={24} />} title="暂无可用迁移节点" />
-      )}
-      {nodes.data?.length ? (
-        <Select
-          mt="md"
-          label="目标存储池"
-          placeholder="保留共享池或使用目标节点本地存储"
-          clearable
-          value={storage}
-          onChange={setStorage}
-          data={(pools.data ?? [])
-            .filter(
-              (pool) =>
-                !pool.error &&
-                (!nodes.data?.find((node) => node.id === target)?.current ||
-                  pool.id !==
+    <Modal
+      opened
+      onClose={onClose}
+      title={`迁移 ${asset.name}`}
+      size="md"
+      centered
+    >
+      <div className={styles.body}>
+        {nodes.isPending ? (
+          <Loading />
+        ) : nodes.isError ? (
+          <ErrorMessage error={nodes.error} />
+        ) : nodes.data.length ? (
+          <fieldset className={styles.targets} disabled={migration.isPending}>
+            <legend>目标节点</legend>
+            <label className={styles.target}>
+              <input
+                type="radio"
+                name="migration-target"
+                checked={target === null}
+                onChange={() => {
+                  setTarget(null);
+                  setStorage(null);
+                }}
+              />
+              <strong>自动选择</strong>
+            </label>
+            {nodes.data.map((node) => (
+              <label key={node.id} className={styles.target}>
+                <input
+                  type="radio"
+                  name="migration-target"
+                  checked={target === node.id}
+                  onChange={() => {
+                    setTarget(node.id);
+                    setStorage(null);
+                  }}
+                />
+                <span>
+                  <strong>
+                    {node.name}
+                    {node.current && "（当前节点）"}
+                  </strong>
+                  <span>
+                    {node.available.cpu} 核 · {memory(node.available.memoryMiB)}{" "}
+                    可用
+                  </span>
+                </span>
+                <span className={styles.mode}>
+                  {node.live ? "在线迁移" : "停机迁移"}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        ) : (
+          <Empty icon={<Monitor size={24} />} title="暂无可用迁移节点" />
+        )}
+        {nodes.data?.length ? (
+          <details className={styles.storage}>
+            <summary>存储位置</summary>
+            <Select
+              label="目标存储池"
+              placeholder="自动选择"
+              clearable
+              value={storage}
+              onChange={setStorage}
+              data={(pools.data ?? [])
+                .filter(
+                  (pool) =>
+                    !pool.error &&
+                    (!nodes.data?.find((node) => node.id === target)?.current ||
+                      pool.id !==
+                        nodes.data.find((node) => node.id === target)
+                          ?.sourceStoragePoolId) &&
+                    (pool.default || pool.state === "ready") &&
+                    (template.data?.[0]?.kind === "vm" ||
+                      pool.driver === "directory") &&
+                    (target
+                      ? pool.nodeIds.includes(target)
+                      : pool.nodeIds.some((id) =>
+                          nodes.data?.some((node) => node.id === id),
+                        )),
+                )
+                .map((pool) => ({ value: pool.id, label: pool.name }))}
+            />
+          </details>
+        ) : null}
+        <ErrorMessage error={migration.error ?? pools.error} />
+        <div className={styles.actions}>
+          <Button variant="default" onClick={onClose}>
+            取消
+          </Button>
+          <Button
+            disabled={
+              !nodes.data?.length ||
+              Boolean(
+                nodes.data?.find((node) => node.id === target)?.current &&
+                !storage,
+              )
+            }
+            loading={migration.isPending}
+            onClick={() => migration.mutate()}
+          >
+            {target
+              ? nodes.data?.find((node) => node.id === target)?.live &&
+                (!storage ||
+                  storage ===
                     nodes.data.find((node) => node.id === target)
-                      ?.sourceStoragePoolId) &&
-                (pool.default || pool.state === "ready") &&
-                (template.data?.[0]?.kind === "vm" ||
-                  pool.driver === "directory") &&
-                (target
-                  ? pool.nodeIds.includes(target)
-                  : pool.nodeIds.some((id) =>
-                      nodes.data?.some((node) => node.id === id),
-                    )),
-            )
-            .map((pool) => ({ value: pool.id, label: pool.name }))}
-        />
-      ) : null}
-      <ErrorMessage error={migration.error ?? pools.error} />
-      <div className="dialog-actions">
-        <Button variant="default" onClick={onClose}>
-          取消
-        </Button>
-        <Button
-          disabled={
-            !nodes.data?.length ||
-            Boolean(
-              nodes.data?.find((node) => node.id === target)?.current &&
-              !storage,
-            )
-          }
-          loading={migration.isPending}
-          onClick={() => migration.mutate()}
-        >
-          {target
-            ? nodes.data?.find((node) => node.id === target)?.live &&
-              (!storage ||
-                storage ===
-                  nodes.data.find((node) => node.id === target)
-                    ?.sourceStoragePoolId)
-              ? "在线迁移"
-              : "停机迁移"
-            : "迁移"}
-        </Button>
+                      ?.sourceStoragePoolId)
+                ? "在线迁移"
+                : "停机迁移"
+              : "迁移"}
+          </Button>
+        </div>
       </div>
     </Modal>
   );
