@@ -54,7 +54,7 @@
 .risks {
   display: flex;
   gap: 3px;
-  margin-left: 17px;
+  margin-left: 4px;
 }
 .risks button {
   display: flex;
@@ -91,12 +91,27 @@
   gap: 8px;
   padding: 7px 14px;
   border-bottom: 1px solid var(--line);
-  min-height: 44px;
+  min-height: 30px;
   flex-shrink: 0;
 }
 .filter {
   flex: 1;
   min-width: 180px;
+}
+@media (max-width: 1000px) {
+  .toolbar {
+    flex-wrap: wrap;
+    padding-block: 6px;
+  }
+  .toolbar .filter {
+    order: 10;
+    min-width: 0;
+    flex-basis: calc(100% - 130px);
+  }
+  .toolbar .protocolSelect {
+    order: 11;
+    width: 110px;
+  }
 }
 .filter input {
   font-family: var(--font-mono);

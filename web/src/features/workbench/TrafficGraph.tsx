@@ -130,15 +130,20 @@ function GraphActions({
 }) {
   const initialized = useNodesInitialized();
   const fitted = useRef(false);
-  const { fitView } = useReactFlow();
+  const { fitView, getNodes } = useReactFlow();
   const [fullscreen, setFullscreen] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
     if (initialized && !fitted.current) {
       fitted.current = true;
-      void fitView({ padding: 0.18, maxZoom: 1.05 });
+      void fitView({
+        nodes: getNodes().filter((node) => node.data.kind === "asset"),
+        padding: 0.18,
+        minZoom: 0.75,
+        maxZoom: 1.05,
+      });
     }
-  }, [initialized, fitView]);
+  }, [initialized, fitView, getNodes]);
   useEffect(() => {
     const changed = () =>
       setFullscreen(document.fullscreenElement === fullscreenTarget.current);

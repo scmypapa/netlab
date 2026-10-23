@@ -328,6 +328,52 @@ export default function TrafficWorkspace({
         </ActionIcon>
         <Network size={16} />
         <strong>流量分析</strong>
+        <TextInput
+          className={styles.filter}
+          aria-label="报文过滤器"
+          placeholder="显示过滤器 · tcp.port == 443"
+          leftSection={<Filter size={14} />}
+          value={input}
+          onChange={(event) => {
+            setInput(event.currentTarget.value);
+            setSelectedId(undefined);
+            setField(undefined);
+            setChosenAlert(undefined);
+          }}
+          size="xs"
+          rightSection={
+            input ? (
+              <ActionIcon
+                size="xs"
+                variant="subtle"
+                aria-label="清空过滤器"
+                onClick={() => {
+                  setInput("");
+                  setSelectedId(undefined);
+                  setField(undefined);
+                }}
+              >
+                <X size={12} />
+              </ActionIcon>
+            ) : undefined
+          }
+        />
+        <Select
+          comboboxProps={{ withinPortal: false }}
+          aria-label="协议筛选"
+          placeholder="全部协议"
+          clearable
+          data={["TCP", "UDP", "ICMP", "ARP"]}
+          value={protocol}
+          onChange={(value) => {
+            setProtocol(value);
+            setChosenAlert(undefined);
+            setSelectedId(undefined);
+            setField(undefined);
+          }}
+          size="xs"
+          className={styles.protocolSelect}
+        />
         <div className={styles.risks} aria-label="风险筛选">
           {riskLevels.map((risk) => (
             <button
@@ -414,92 +460,48 @@ export default function TrafficWorkspace({
           </Menu.Dropdown>
         </Menu>
       </header>
-      <div className={styles.filterbar}>
-        <TextInput
-          className={styles.filter}
-          aria-label="报文过滤器"
-          placeholder="显示过滤器 · tcp.port == 443"
-          leftSection={<Filter size={14} />}
-          value={input}
-          onChange={(event) => {
-            setInput(event.currentTarget.value);
-            setSelectedId(undefined);
-            setField(undefined);
-            setChosenAlert(undefined);
-          }}
-          size="xs"
-          rightSection={
-            input ? (
-              <ActionIcon
-                size="xs"
-                variant="subtle"
-                aria-label="清空过滤器"
-                onClick={() => {
-                  setInput("");
-                  setSelectedId(undefined);
-                  setField(undefined);
-                }}
-              >
-                <X size={12} />
-              </ActionIcon>
-            ) : undefined
-          }
-        />
-        <Select
-          comboboxProps={{ withinPortal: false }}
-          aria-label="协议筛选"
-          placeholder="全部协议"
-          clearable
-          data={["TCP", "UDP", "ICMP", "ARP"]}
-          value={protocol}
-          onChange={(value) => {
-            setProtocol(value);
-            setChosenAlert(undefined);
-            setSelectedId(undefined);
-            setField(undefined);
-          }}
-          size="xs"
-          className={styles.protocolSelect}
-        />
-        {selectionName && (
-          <button
-            className={styles.selection}
-            onClick={() => select()}
-            title={selectionName}
-          >
-            {selectionName}
-            <X size={12} />
-          </button>
-        )}
-        {chosenAlert && (
-          <button
-            className={styles.selection}
-            onClick={() => {
-              setChosenAlert(undefined);
-              setSelectedId(undefined);
-              setField(undefined);
-            }}
-            title={chosenAlert.signature}
-          >
-            {chosenAlert.signature}
-            <X size={12} />
-          </button>
-        )}
-        {timeRange && (
-          <button
-            className={styles.selection}
-            onClick={() => {
-              setTimeRange(undefined);
-              setSelectedId(undefined);
-              setField(undefined);
-            }}
-          >
-            {new Date(timeRange.start).toLocaleTimeString()} –{" "}
-            {new Date(timeRange.end).toLocaleTimeString()}
-            <X size={12} />
-          </button>
-        )}
-      </div>
+      {(selectionName || chosenAlert || timeRange) && (
+        <div className={styles.filterbar}>
+          {selectionName && (
+            <button
+              className={styles.selection}
+              onClick={() => select()}
+              title={selectionName}
+            >
+              {selectionName}
+              <X size={12} />
+            </button>
+          )}
+          {chosenAlert && (
+            <button
+              className={styles.selection}
+              onClick={() => {
+                setChosenAlert(undefined);
+                setSelectedId(undefined);
+                setField(undefined);
+              }}
+              title={chosenAlert.signature}
+            >
+              {chosenAlert.signature}
+              <X size={12} />
+            </button>
+          )}
+          {timeRange && (
+            <button
+              className={styles.selection}
+              onClick={() => {
+                setTimeRange(undefined);
+                setSelectedId(undefined);
+                setField(undefined);
+              }}
+            >
+              {new Date(timeRange.start).toLocaleTimeString()} –{" "}
+              {new Date(timeRange.end).toLocaleTimeString()}
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      )}
       {errors.length > 0 && (
         <div className={styles.errors} role="alert">
           {[...new Set(errors)].map((error) => (
