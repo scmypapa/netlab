@@ -643,7 +643,7 @@ type CapturePacket struct {
 	Summary        string    `json:"summary"`
 	Time           time.Time `json:"time"`
 
-	// TransportProtocol TCP
+	// TransportProtocol TCP, UDP, ICMP or ICMPv6 from the decoded packet header, independently of the displayed application protocol.
 	TransportProtocol *string `json:"transportProtocol,omitempty"`
 }
 

@@ -3000,7 +3000,7 @@ export interface components {
       sourcePort: number;
       destinationPort: number;
       protocol: string;
-      /** @description TCP */
+      /** @description TCP, UDP, ICMP or ICMPv6 from the decoded packet header, independently of the displayed application protocol. */
       transportProtocol?: string;
       summary: string;
     };
