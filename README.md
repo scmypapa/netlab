@@ -20,7 +20,7 @@ Netlab 是一个用来快速搭建**隔离网络环境**、管理**虚拟机与�
 
 1. **混部同构**：同一个子网里既可以跑 Windows 虚拟机（支持 TPM 2.0、Secure Boot 与 AD 域控），也可以跑 QEMU Linux 和轻量 containerd 容器。
 2. **SDN 真实组网**：基于 OVN/OVS 构建分布式虚拟网络，支持跨物理机同网段、重叠 IP 段隔离，支持 Linux `netem` 动态链路注入（时延/丢包/带宽限制）。
-3. **内置观测与调试**：直接在资产真实接口抓包并导出 `.pcapng`，内嵌基于 sFlow 的实时拓扑流量图谱。
+3. **内置观测与调试**：基于 OVS IPFIX 汇总实时通信，在资产真实接口抓包，查看报文、协议层与原始字节，并导出 `.pcapng`。
 4. **支持热变**：网络结构不用推倒重来，在前端画布调整接口和网段，保存草稿、预览差异后应用到运行环境。
 
 ---
@@ -76,8 +76,8 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ### 3. 运维、监控与流量观测
 
 * **免客户端运维**：网页原生集成终端（xterm.js）、VM VNC、串口（Serial）、SSH，以及由 Guacamole 驱动的 RDP（支持剪贴板与窗口缩放自适应）。
-* **接口抓包**：直接从虚拟网卡采集，保留真实网段与接口身份。支持 BPF 规则过滤，直出 PCAPNG 文件。
-* **流向可视化**：基于 sFlow（采样率 1/512）在画布上实时绘制通信拓扑箭头与连接明细。
+* **接口抓包**：直接从虚拟网卡采集，保留真实网段与接口身份。支持 BPF 规则过滤、分页报文浏览、协议树与原始字节联动，以及 PCAPNG 文件导出。
+* **流向可视化**：基于 OVS IPFIX 全量计数汇总最近一分钟的通信，展示资产、双向连接与传输速率；抓包历史展示累计传输量。
 * **风险检测**：Suricata 使用 ET Open 规则被动检测 VM 与容器接口，按高、中、低风险筛选告警；通信图联动告警详情，历史告警保留 30 天。
 * **时序监控**：提供环境、节点和集群性能视图；CPU、内存、磁盘 I/O、网卡速率与丢包计数每 10 秒采集，历史保留 30 天。VM 内存按 QEMU 进程 RSS 统计，容器按 cgroup 统计。
 
@@ -119,7 +119,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.0.4/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.0.5/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -215,7 +215,7 @@ cd web && pnpm test
 
 - **拓扑规格**：2 台节点（其中 1 台为嵌套 VM 节点），部署 4 个容器 + 2 台真实 Ubuntu VM。
 - **并发压力**：每节点 64 并发（总计 128 客户端），请求持续 60 秒，单次响应载荷 2 MiB。
-- **同时运行任务**：跨节点通信、sFlow 采样、接口抓包与 10s 资源采集。抓包每节点 256 MiB，达到文件额度后结束。
+- **同时运行任务**：跨节点通信、实时流量观测、接口抓包与 10s 资源采集。抓包每节点 256 MiB，达到文件额度后结束。
 - **测试结果**：
   - 完成请求数：**12,677 次**（失败数：0）
   - 综合吞吐量：**417.97 MiB/s**
@@ -262,7 +262,7 @@ curl -H "Authorization: Bearer <Your-Token>" \
 ## 许可证与第三方组件
 
 - 本项目代码许可证待定，当前源码及发布包保留所有权利。
-- 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、Suricata。
+- 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、Suricata、GoFlow2。
 
 ## 文档
 
