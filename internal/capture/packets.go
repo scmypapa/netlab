@@ -104,6 +104,7 @@ func readFrames(ctx context.Context, input io.Reader, live bool, visit func(api.
 
 func summarizePacket(number int64, data []byte, info gopacket.CaptureInfo, link layers.LinkType) api.CapturePacket {
 	result := api.CapturePacket{Number: number, Time: info.Timestamp.UTC(), Length: info.Length, CapturedLength: info.CaptureLength, InterfaceIndex: info.InterfaceIndex, Protocol: link.String()}
+	transport := ""
 	packet := gopacket.NewPacket(data, link, gopacket.DecodeOptions{Lazy: true, NoCopy: true})
 	if value := packet.Layer(layers.LayerTypeEthernet); value != nil {
 		eth := value.(*layers.Ethernet)
@@ -120,6 +121,7 @@ func summarizePacket(number int64, data []byte, info gopacket.CaptureInfo, link 
 		result.Source, result.Destination, result.Protocol = ip.SrcIP.String(), ip.DstIP.String(), ip.NextHeader.String()
 	}
 	if value := packet.Layer(layers.LayerTypeTCP); value != nil {
+		transport = "TCP"
 		tcp := value.(*layers.TCP)
 		result.Protocol = "TCP"
 		result.SourcePort, result.DestinationPort = int(tcp.SrcPort), int(tcp.DstPort)
@@ -134,17 +136,23 @@ func summarizePacket(number int64, data []byte, info gopacket.CaptureInfo, link 
 		}
 		result.Summary = fmt.Sprintf("%d → %d [%s] Seq=%d Ack=%d Len=%d", tcp.SrcPort, tcp.DstPort, strings.Join(flags, ", "), tcp.Seq, tcp.Ack, len(tcp.Payload))
 	} else if value := packet.Layer(layers.LayerTypeUDP); value != nil {
+		transport = "UDP"
 		udp := value.(*layers.UDP)
 		result.Protocol = "UDP"
 		result.SourcePort, result.DestinationPort = int(udp.SrcPort), int(udp.DstPort)
 		result.Summary = fmt.Sprintf("%d → %d Len=%d", udp.SrcPort, udp.DstPort, len(udp.Payload))
 	} else if value := packet.Layer(layers.LayerTypeICMPv4); value != nil {
+		transport = "ICMP"
 		result.Summary = value.(*layers.ICMPv4).TypeCode.String()
 	} else if value := packet.Layer(layers.LayerTypeICMPv6); value != nil {
+		transport = "ICMPv6"
 		result.Summary = value.(*layers.ICMPv6).TypeCode.String()
 	} else if value := packet.Layer(layers.LayerTypeARP); value != nil {
 		arp := value.(*layers.ARP)
 		result.Summary = fmt.Sprintf("%s → %s", net.IP(arp.SourceProtAddress), net.IP(arp.DstProtAddress))
+	}
+	if transport != "" {
+		result.TransportProtocol = &transport
 	}
 	return result
 }

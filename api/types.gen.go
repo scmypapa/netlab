@@ -642,6 +642,9 @@ type CapturePacket struct {
 	SourcePort     int       `json:"sourcePort"`
 	Summary        string    `json:"summary"`
 	Time           time.Time `json:"time"`
+
+	// TransportProtocol TCP
+	TransportProtocol *string `json:"transportProtocol,omitempty"`
 }
 
 // CapturePacketDetail defines model for CapturePacketDetail.

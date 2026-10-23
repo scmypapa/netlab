@@ -50,7 +50,7 @@ func TestPacketReadAndConnectionFilter(t *testing.T) {
 	if !q.matches(packets[0]) || q.matches(packets[1]) || packets[1].InterfaceIndex != 1 || packets[1].Summary != "192.0.2.1 → 192.0.2.2" {
 		t.Fatal(packets)
 	}
-	if packets[2].Number != 3 || packets[0].CapturedLength != packets[0].Length || packets[0].Protocol != "UDP" {
+	if packets[2].Number != 3 || packets[0].CapturedLength != packets[0].Length || packets[0].Protocol != "UDP" || packets[0].TransportProtocol == nil || *packets[0].TransportProtocol != "UDP" || packets[1].TransportProtocol != nil {
 		t.Fatal(packets)
 	}
 	for _, values := range []url.Values{{"after": {"-1"}}, {"limit": {"201"}}, {"sourcePort": {"65536"}}, {"destinationPort": {"text"}}, {"interfaceIndex": {"-1"}}} {

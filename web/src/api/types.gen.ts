@@ -3000,6 +3000,8 @@ export interface components {
       sourcePort: number;
       destinationPort: number;
       protocol: string;
+      /** @description TCP */
+      transportProtocol?: string;
       summary: string;
     };
     CapturePacketPage: {

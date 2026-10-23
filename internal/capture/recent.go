@@ -196,10 +196,10 @@ func mergeRetention(total *api.PacketRetention, part api.PacketRetention) {
 	if part.NewestAt != nil && (total.NewestAt == nil || part.NewestAt.After(*total.NewestAt)) {
 		total.NewestAt = part.NewestAt
 	}
-	if part.Status == api.PacketRetentionStatusRecording {
+	if part.Status == api.PacketRetentionStatusRecording && total.Status != api.PacketRetentionStatusUnavailable {
 		total.Status = part.Status
 	}
-	if part.Error != nil {
+	if part.Error != nil || part.Status == api.PacketRetentionStatusUnavailable {
 		total.Error = part.Error
 		total.Status = api.PacketRetentionStatusUnavailable
 	}
@@ -244,7 +244,7 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 		if filter := q.display(part.part); filter != "" {
 			args = append(args, "-Y", filter)
 		}
-		for _, field := range []string{"frame.number", "frame.time_epoch", "frame.len", "frame.cap_len", "frame.interface_id", "eth.src", "eth.dst", "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport", "_ws.col.Protocol", "_ws.col.Info"} {
+		for _, field := range []string{"frame.number", "frame.time_epoch", "frame.len", "frame.cap_len", "frame.interface_id", "eth.src", "eth.dst", "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport", "_ws.col.Protocol", "_ws.col.Info", "icmp.type", "icmpv6.type"} {
 			args = append(args, "-e", field)
 		}
 		command := exec.CommandContext(ctx, "tshark", args...)
@@ -262,7 +262,7 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 		}
 		reader := csv.NewReader(stdout)
 		reader.Comma = '\t'
-		reader.FieldsPerRecord = 17
+		reader.FieldsPerRecord = 19
 		for {
 			fields, readErr := reader.Read()
 			if readErr == io.EOF {
@@ -288,6 +288,20 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 			iface := part.part.Interfaces[ifaceIndex]
 			id := packetIdentity(r.node, part.part.ID, number)
 			packet := api.CapturePacket{Id: &id, NodeId: &r.node, AssetId: &iface.AssetId, InterfaceId: &iface.InterfaceId, NetworkId: &iface.NetworkId, Number: number, Time: time.Unix(0, int64(epoch*1e9)).UTC(), Length: port(fields[2]), CapturedLength: port(fields[3]), InterfaceIndex: ifaceIndex, Source: first(fields[7], fields[9], fields[5]), Destination: first(fields[8], fields[10], fields[6]), SourcePort: port(first(fields[11], fields[13])), DestinationPort: port(first(fields[12], fields[14])), Protocol: fields[15], Summary: fields[16], SourceMac: &fields[5], DestinationMac: &fields[6]}
+			transport := ""
+			switch {
+			case fields[11] != "" || fields[12] != "":
+				transport = "TCP"
+			case fields[13] != "" || fields[14] != "":
+				transport = "UDP"
+			case fields[17] != "":
+				transport = "ICMP"
+			case fields[18] != "":
+				transport = "ICMPv6"
+			}
+			if transport != "" {
+				packet.TransportProtocol = &transport
+			}
 			older, cursorErr := packetBefore(packet, q.Cursor)
 			if cursorErr != nil {
 				return result, cursorErr

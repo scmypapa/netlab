@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gopacket/gopacket"
+	"github.com/gopacket/gopacket/layers"
 	"netlab.local/core/api"
 )
 
@@ -58,5 +59,26 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 	}
 	if _, err = r.RecentPacket(ctx, environment, *page.Packets[0].Id); err != nil {
 		t.Fatal("sealed part identity changed", err)
+	}
+	packet := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.Default)
+	ip := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4)
+	udp := packet.Layer(layers.LayerTypeUDP).(*layers.UDP)
+	udp.DstPort = 53
+	udp.SetNetworkLayerForChecksum(ip)
+	dns := &layers.DNS{ID: 7, RD: true, Questions: []layers.DNSQuestion{{Name: []byte("example.test"), Type: layers.DNSTypeA, Class: layers.DNSClassIN}}}
+	buffer := gopacket.NewSerializeBuffer()
+	if err = gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), ip, udp, dns); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.Record(environment, interfaces, 0, gopacket.CaptureInfo{Timestamp: at.Add(time.Second), Length: len(buffer.Bytes()), CaptureLength: len(buffer.Bytes())}, buffer.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	page, err = r.Recent(ctx, environment, RecentQuery{Limit: 10, Protocol: "DNS"})
+	if err != nil || len(page.Packets) != 1 || page.Packets[0].Protocol != "DNS" || page.Packets[0].TransportProtocol == nil || *page.Packets[0].TransportProtocol != "UDP" {
+		t.Fatalf("application and transport protocols: %+v %v", page, err)
+	}
+	detail, err = r.RecentPacket(ctx, environment, *page.Packets[0].Id)
+	if err != nil || detail.Packet.TransportProtocol == nil || *detail.Packet.TransportProtocol != "UDP" {
+		t.Fatalf("detail transport protocol: %+v %v", detail, err)
 	}
 }
