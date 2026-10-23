@@ -462,7 +462,7 @@ func (m *Manager) File(w http.ResponseWriter, r *http.Request, id, environment s
 					return err
 				}
 				defer closeParts([]partRead{part})
-				input := completePartReader(r.Context(), part)
+				input := completePartReader(r.Context(), part, nil)
 				defer input.Close()
 				_, err = io.Copy(w, input)
 				return err
