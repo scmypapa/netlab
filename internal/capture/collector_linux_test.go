@@ -115,6 +115,7 @@ func TestRealContinuousOVSFlows(t *testing.T) {
 			if err != nil {
 				t.Fatal("collector restart", err)
 			}
+			command("sync")
 		}
 	}
 }

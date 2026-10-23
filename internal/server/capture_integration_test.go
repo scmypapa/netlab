@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
+	"netlab.local/core/internal/capture"
 	"netlab.local/core/internal/transport"
 )
 
@@ -28,6 +30,7 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 		t.Fatal(err)
 	}
 	nodeID := uuid.NewString()
+	recentID := base64.RawURLEncoding.EncodeToString([]byte(nodeID + "/" + uuid.NewString() + "/1"))
 	var mutex sync.Mutex
 	var request api.NodeCaptureRequest
 	status := api.CaptureSegmentStatusRunning
@@ -35,6 +38,24 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mutex.Lock()
 		defer mutex.Unlock()
+		recentPath := "/node/v1/environments/" + env.Id + "/packets"
+		if r.URL.Path == recentPath {
+			if trafficFailure {
+				http.Error(w, "recorder unavailable", 503)
+				return
+			}
+			writeJSON(w, 200, api.RecentPacketPage{Packets: []api.CapturePacket{{Id: &recentID, Number: 1, Time: time.Now().UTC(), Protocol: "TCP"}}, Errors: map[string]string{}, Retention: api.PacketRetention{LimitBytes: capture.PacketBudget, UsedBytes: 1024, Status: api.PacketRetentionStatusRecording}})
+			return
+		}
+		if r.URL.Path == recentPath+"/"+recentID {
+			writeJSON(w, 200, api.CapturePacketDetail{Packet: api.CapturePacket{Id: &recentID, Number: 1}, Hex: "010203", Layers: []api.PacketField{}})
+			return
+		}
+		if r.URL.Path == recentPath+"/export" {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			capture.EmptyPacketCapture(w)
+			return
+		}
 		if r.URL.Path == "/node/v1/traffic" {
 			var interfaces []api.CaptureInterface
 			if err := json.NewDecoder(r.Body).Decode(&interfaces); err != nil {
@@ -143,5 +164,30 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 	refs, err := s.Queries.ListCaptureSegments(ctx, env.Id)
 	if err != nil || len(refs) != 0 {
 		t.Fatalf("capture ownership remains: %+v %v", refs, err)
+	}
+	if err = s.Queries.EnsurePacketNode(ctx, queries.EnsurePacketNodeParams{EnvironmentID: env.Id, NodeID: nodeID}); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := json.Marshal(api.PacketRetention{LimitBytes: capture.PacketBudget, UsedBytes: 1024, Status: api.PacketRetentionStatusRecording})
+	if err = s.Queries.SavePacketNode(ctx, queries.SavePacketNodeParams{EnvironmentID: env.Id, NodeID: nodeID, QuotaBytes: capture.PacketBudget, Observation: info}); err != nil {
+		t.Fatal(err)
+	}
+	recentPath := "/environments/" + env.Id + "/packets"
+	call("GET", recentPath, token.Token, nil, 403)
+	var recent api.RecentPacketPage
+	if err = json.Unmarshal(call("GET", recentPath+"?networkId=shared", admin, nil, 200), &recent); err != nil || len(recent.Packets) != 1 || recent.Packets[0].Id == nil || *recent.Packets[0].Id != recentID {
+		t.Fatal(recent, err)
+	}
+	call("GET", recentPath+"?source=invalid-address", admin, nil, 400)
+	call("GET", recentPath+"/"+recentID, admin, nil, 200)
+	call("GET", "/environments/env-b/packets/"+recentID, admin, nil, 410)
+	if data := call("GET", recentPath+"/export", admin, nil, 200); len(data) < 28 {
+		t.Fatal("empty download is not a PCAPNG file")
+	}
+	mutex.Lock()
+	trafficFailure = true
+	mutex.Unlock()
+	if err = json.Unmarshal(call("GET", recentPath, admin, nil, 200), &recent); err != nil || len(recent.Errors) != 1 || recent.Retention.Status != api.PacketRetentionStatusUnavailable {
+		t.Fatal("recorder error hidden", recent, err)
 	}
 }
