@@ -146,11 +146,15 @@
   justify-self: start;
 }
 .footer {
+  position: sticky;
+  bottom: -16px;
+  z-index: 2;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   border-top: 1px solid var(--line);
-  padding-top: 20px;
+  padding: 16px 0;
+  background: var(--surface);
 }
 .owner {
   display: flex;

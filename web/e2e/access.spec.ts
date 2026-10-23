@@ -371,6 +371,9 @@ test("访问、授权与更新在四种屏宽和日夜主题保持完整可操�
           (element) => element.scrollWidth <= element.clientWidth,
         ),
       ).toBe(true);
+      await expect(
+        dialog.getByRole("button", { name: "保存", exact: true }),
+      ).toBeInViewport();
       await page.screenshot({
         path: join(output, `grant-${width}-${theme}.png`),
       });
