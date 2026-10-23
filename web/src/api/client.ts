@@ -388,9 +388,10 @@ export const api = {
     range: number,
     signal?: AbortSignal,
     assetId?: string,
+    aggregate = true,
   ) =>
     request<Schema<"MetricHistory">>(
-      `/environments/${id}/metrics?${new URLSearchParams({ range: String(range), aggregate: "true", ...(assetId ? { assetId } : {}) })}`,
+      `/environments/${id}/metrics?${new URLSearchParams({ range: String(range), aggregate: String(aggregate), ...(assetId ? { assetId } : {}) })}`,
       "GET",
       undefined,
       signal,

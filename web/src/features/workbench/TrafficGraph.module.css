@@ -1,0 +1,110 @@
+.graph {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  background: var(--canvas);
+}
+.node {
+  width: 150px;
+  height: 94px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--text);
+}
+.symbol {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  color: var(--node-color);
+  border: 1.5px solid color-mix(in srgb, var(--node-color) 55%, var(--line));
+  background: var(--surface);
+  transition: box-shadow 0.15s;
+}
+.node[data-kind="broadcast"] .symbol,
+.node[data-kind="multicast"] .symbol {
+  border-style: dashed;
+  border-radius: 15px;
+}
+.node[data-kind="gateway"] .symbol {
+  border-radius: 12px;
+}
+.node strong {
+  max-width: 148px;
+  margin-top: 7px;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.address {
+  color: var(--muted);
+  font: 10px/17px var(--font-mono, monospace);
+}
+.node[data-selected="true"] .symbol {
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  border-color: var(--accent);
+}
+.node :global(.react-flow__handle) {
+  opacity: 0;
+  top: 25px;
+}
+.node :global(.react-flow__handle-left) {
+  left: 51px;
+}
+.node :global(.react-flow__handle-right) {
+  right: 51px;
+}
+.graph :global(.react-flow__controls) {
+  display: flex;
+  flex-direction: row;
+  box-shadow: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.graph :global(.react-flow__controls-button) {
+  width: 30px;
+  height: 30px;
+  background: var(--surface);
+  fill: var(--text);
+  border: 0;
+  border-right: 1px solid var(--line);
+}
+.graph :global(.react-flow__controls-button:last-child) {
+  border: 0;
+}
+.graph :global(.react-flow__controls-button:hover) {
+  background: var(--surface-hover);
+}
+.graph :global(.react-flow__edge:focus-visible path),
+.graph :global(.react-flow__node:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.limit {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.error {
+  position: absolute;
+  bottom: 50px;
+  right: 10px;
+  color: var(--negative);
+  background: var(--surface);
+  padding: 8px;
+  font-size: 12px;
+  max-width: 300px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .symbol {
+    transition: none;
+  }
+}

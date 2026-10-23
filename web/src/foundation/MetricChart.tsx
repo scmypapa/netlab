@@ -9,6 +9,7 @@ import {
   AriaComponent,
   AxisPointerComponent,
   DataZoomInsideComponent,
+  DataZoomSliderComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { History, Metric } from "./metrics";
@@ -22,6 +23,7 @@ echarts.use([
   AriaComponent,
   AxisPointerComponent,
   DataZoomInsideComponent,
+  DataZoomSliderComponent,
   CanvasRenderer,
 ]);
 export const metricTitles: Partial<Record<Metric, string>> = {
@@ -57,6 +59,8 @@ export function MetricChart({
   colors,
   group,
   compact = false,
+  timeline = false,
+  onTimeRange,
 }: {
   history: History;
   measures: Metric[];
@@ -67,13 +71,28 @@ export function MetricChart({
   colors?: string[];
   group?: string;
   compact?: boolean;
+  timeline?: boolean;
+  onTimeRange?: (start: string, end: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.EChartsType>(null);
   const theme = useComputedColorScheme();
+  const rangeCallback = useRef(onTimeRange);
+  rangeCallback.current = onTimeRange;
   useEffect(() => {
     const current = echarts.init(host.current!);
     chart.current = current;
+    current.on("datazoom", () => {
+      const option = current.getOption() as {
+        dataZoom?: { startValue?: number; endValue?: number }[];
+      };
+      const zoom = option.dataZoom?.[0];
+      if (zoom?.startValue !== undefined && zoom.endValue !== undefined)
+        rangeCallback.current?.(
+          new Date(zoom.startValue).toISOString(),
+          new Date(zoom.endValue).toISOString(),
+        );
+    });
     if (group) {
       current.group = group;
       echarts.connect(group);
@@ -101,9 +120,30 @@ export function MetricChart({
       "#5b95a7",
     ];
     const readings: string[] = [];
+    const identities = [
+      ...new Set(
+        history.series.map((item) =>
+          seriesBy === "asset"
+            ? item.assetId
+            : seriesBy === "node"
+              ? item.nodeId
+              : item.interfaceId,
+        ),
+      ),
+    ];
     const series = history.series
       .filter((item) => measures.includes(item.metric))
       .map((item, index) => {
+        const identity =
+          seriesBy === "asset"
+            ? item.assetId
+            : seriesBy === "node"
+              ? item.nodeId
+              : item.interfaceId;
+        const color =
+          palette[
+            (timeline ? identities.indexOf(identity) : index) % palette.length
+          ];
         const points: [number, number | null][] = [];
         const step = history.stepSeconds * 1000;
         let previous = Date.parse(history.start);
@@ -141,32 +181,42 @@ export function MetricChart({
               new Date(latest.time).toLocaleTimeString(),
           );
         return {
+          id: [item.nodeId, item.assetId, item.interfaceId, item.metric].join(
+            ":",
+          ),
           name,
           type: "line" as const,
           data: points,
           showSymbol: false,
           sampling: "lttb" as const,
           connectNulls: false,
-          lineStyle: { width: 2 },
-          symbolSize: 5,
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              {
-                offset: 0,
-                color: echarts.color.modifyAlpha(
-                  palette[index % palette.length],
-                  theme === "dark" ? 0.22 : 0.14,
-                ),
-              },
-              {
-                offset: 1,
-                color: echarts.color.modifyAlpha(
-                  palette[index % palette.length],
-                  0.01,
-                ),
-              },
-            ]),
+          lineStyle: {
+            width: timeline ? 1.5 : 2,
+            color,
+            type: timeline && item.metric === "receive" ? "dashed" : "solid",
           },
+          itemStyle: { color },
+          symbolSize: 5,
+          areaStyle: timeline
+            ? undefined
+            : {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  {
+                    offset: 0,
+                    color: echarts.color.modifyAlpha(
+                      palette[index % palette.length],
+                      theme === "dark" ? 0.22 : 0.14,
+                    ),
+                  },
+                  {
+                    offset: 1,
+                    color: echarts.color.modifyAlpha(
+                      palette[index % palette.length],
+                      0.01,
+                    ),
+                  },
+                ]),
+              },
           emphasis: { focus: "series" as const },
         };
       });
@@ -188,8 +238,8 @@ export function MetricChart({
         grid: {
           left: 12,
           right: 18,
-          top: compact ? 25 : 30,
-          bottom: compact ? 12 : 36,
+          top: timeline ? 24 : compact ? 25 : 30,
+          bottom: timeline ? 30 : compact ? 12 : 36,
           containLabel: true,
         },
         tooltip: {
@@ -256,7 +306,8 @@ export function MetricChart({
         },
         legend: {
           show: !compact && (measures.length > 1 || series.length > 1),
-          bottom: 0,
+          top: timeline ? 0 : undefined,
+          bottom: timeline ? undefined : 0,
           left: 12,
           type: "scroll",
           textStyle: { color: muted, fontSize: 11 },
@@ -275,6 +326,25 @@ export function MetricChart({
             moveOnMouseMove: false,
             preventDefaultMouseMove: false,
           },
+          ...(timeline
+            ? [
+                {
+                  id: "time-slider",
+                  type: "slider",
+                  xAxisIndex: 0,
+                  filterMode: "none",
+                  height: 18,
+                  bottom: 5,
+                  borderColor: line,
+                  backgroundColor: surface,
+                  fillerColor: echarts.color.modifyAlpha(palette[0], 0.12),
+                  handleSize: "80%",
+                  showDetail: false,
+                  textStyle: { color: muted },
+                  brushSelect: true,
+                },
+              ]
+            : []),
         ],
         series,
       },

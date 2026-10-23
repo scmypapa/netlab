@@ -1,165 +1,78 @@
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { api, type Environment, type Schema } from "../../api/client";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { api, type Environment } from "../../api/client";
 
-export type Flow = Schema<"CaptureFlow">;
-export type Alert = Schema<"SecurityAlert">;
-export type Segment = Schema<"CaptureSegment">;
-export const activeCapture = (segment: Segment) =>
-  ["starting", "running"].includes(segment.status);
-export const endpoint = (flow: Flow | Alert, side: "source" | "destination") =>
-  flow[side === "source" ? "sourceAssetId" : "destinationAssetId"] ||
-  flow[side];
-
+export type PacketFilters = Parameters<typeof api.environmentPackets>[1];
 export function useTrafficObservation(
   environment: Environment,
-  captureId: string,
-  setCaptureId: (id: string) => void,
-  filters: {
+  options: {
     range: number;
-    level?: string;
-    assetId?: string;
-    search?: string;
-    protocol?: string;
+    paused: boolean;
+    filters: PacketFilters;
   },
 ) {
   const id = environment.id;
-  const client = useQueryClient();
-  const live = captureId === "live";
-  const captures = useQuery({
-    queryKey: ["captures", id],
-    queryFn: ({ signal }) => api.captures(id, signal),
-    refetchInterval: (query) =>
-      query.state.data?.segments.some(activeCapture) ? 3000 : false,
+  const key = JSON.stringify(options.filters);
+  const [paging, setPaging] = useState<{ key: string; cursors: string[] }>({
+    key: "",
+    cursors: [],
+  });
+  const cursors = paging.key === key ? paging.cursors : [];
+  const latest = useQuery({
+    queryKey: ["environment-packets", id, options.filters],
+    queryFn: ({ signal }) =>
+      api.environmentPackets(id, options.filters, signal),
+    refetchInterval: options.paused ? false : 3000,
+  });
+  const earlier = useQueries({
+    queries: cursors.map((cursor) => ({
+      queryKey: ["environment-packets", id, options.filters, cursor],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api.environmentPackets(id, { ...options.filters, cursor }, signal),
+      staleTime: Infinity,
+    })),
   });
   const traffic = useQuery({
     queryKey: ["traffic", id],
     queryFn: ({ signal }) => api.traffic(id, signal),
-    enabled: live,
-    refetchInterval: 5000,
+    refetchInterval: options.paused ? false : 5000,
   });
   const history = useQuery({
-    queryKey: ["traffic-history", id, filters.range, filters.assetId],
+    queryKey: ["traffic-timeline", id, options.range],
     queryFn: ({ signal }) =>
-      api.environmentMetrics(id, filters.range, signal, filters.assetId),
-    enabled: live,
-    refetchInterval: 10_000,
+      api.environmentMetrics(id, options.range, signal, undefined, false),
+    refetchInterval: options.paused ? false : 10000,
   });
-  const current = useQuery({
-    queryKey: ["traffic-current", id, filters.assetId],
-    queryFn: ({ signal }) =>
-      api.environmentMetrics(id, 60, signal, filters.assetId),
-    enabled: live,
-    refetchInterval: 10_000,
-  });
-  const security = useInfiniteQuery({
-    queryKey: ["security", id, filters],
-    initialPageParam: undefined as number | undefined,
-    queryFn: ({ signal, pageParam }) =>
-      api.security(id, { ...filters, before: pageParam }, signal),
-    getNextPageParam: (last) => last.nextCursor,
-    enabled: live,
-    refetchInterval: 5000,
-  });
-  const segments =
-    captures.data?.segments.filter((segment) => segment.id === captureId) ?? [];
-  const details = useQueries({
-    queries: segments.map((segment) => ({
-      queryKey: ["capture", id, segment.nodeId, segment.id],
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        api.captureDetail(id, segment.nodeId, segment.id, signal),
-      enabled: !live && (segment.status !== "failed" || segment.bytes > 0),
-      refetchInterval: activeCapture(segment) ? 2000 : false,
-    })),
-  });
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: ["captures", id] });
-    void client.invalidateQueries({ queryKey: ["capture", id] });
-  };
-  const start = useMutation({
-    mutationFn: (body: Schema<"CreateCapture">) => api.startCapture(id, body),
-    onSuccess: (result) => {
-      if (result.segments.length) setCaptureId(result.segments[0].id);
-      refresh();
-    },
-  });
-  const action = useMutation({
-    mutationFn: async ({
-      segments,
-      remove,
-    }: {
-      segments: Segment[];
-      remove: boolean;
-    }) => {
-      const results = await Promise.allSettled(
-        segments.map((segment) =>
-          remove
-            ? api.deleteCapture(id, segment.nodeId, segment.id)
-            : api.stopCapture(id, segment.nodeId, segment.id),
-        ),
-      );
-      const failures = results.flatMap((item) =>
-        item.status === "rejected" ? [String(item.reason)] : [],
-      );
-      if (failures.length) throw new Error(failures.join("；"));
-    },
-    onSuccess: (_, input) => {
-      if (
-        input.remove &&
-        segments.length &&
-        segments.every((segment) =>
-          input.segments.some(
-            (removed) =>
-              removed.id === segment.id && removed.nodeId === segment.nodeId,
-          ),
-        )
-      )
-        setCaptureId("live");
-    },
-    onSettled: refresh,
-  });
-  const flows = [
-    ...(live
-      ? traffic.isError
-        ? []
-        : (traffic.data?.flows ?? [])
-      : details.flatMap((item) => item.data?.flows ?? [])),
-  ].sort((a, b) => b.bytes - a.bytes);
-  const alerts = security.isError
-    ? []
-    : [
-        ...new Map(
-          [...(security.data?.pages ?? [])]
-            .reverse()
-            .flatMap((page) => page.alerts)
-            .map((alert) => [alert.id, alert]),
-        ).values(),
-      ].sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen));
-  const errors = [
-    captures,
-    ...(live ? [traffic, history, current, security] : details),
-    action,
-    start,
-  ].flatMap((item) => (item.error ? [item.error.message] : []));
+  const packets = [
+    ...new Map(
+      [
+        ...earlier.flatMap((page) => page.data?.packets ?? []),
+        ...(latest.data?.packets ?? []),
+      ].map((packet) => [packet.id, packet]),
+    ).values(),
+  ].sort(
+    (a, b) => Date.parse(a.time) - Date.parse(b.time) || a.number - b.number,
+  );
+  const cursor = earlier.length
+    ? earlier.at(-1)?.data?.nextCursor
+    : latest.data?.nextCursor;
+  const errors = [latest, ...earlier, traffic, history].flatMap((query) =>
+    query.error ? [query.error.message] : [],
+  );
+  errors.push(...Object.values(traffic.data?.errors ?? {}));
+  for (const page of [latest, ...earlier])
+    errors.push(...Object.values(page.data?.errors ?? {}));
   return {
-    live,
-    captures,
+    packets,
     traffic,
     history,
-    current,
-    security,
-    segments,
-    details,
-    flows,
-    alerts,
+    retention: latest.data?.retention ?? traffic.data?.retention,
+    loading: latest.isPending,
+    fetching: latest.isFetching || earlier.some((page) => page.isFetching),
     errors: [...new Set(errors)],
-    start,
-    action,
-    summary: security.data?.pages[0],
+    loadOlder: cursor
+      ? () => setPaging({ key, cursors: [...cursors, cursor] })
+      : undefined,
+    resetPaging: () => setPaging({ key, cursors: [] }),
   };
 }

@@ -1,0 +1,301 @@
+import type { Environment, Schema } from "../../api/client";
+import type {
+  EndpointKind,
+  TrafficSelection,
+  TrafficLink,
+} from "./TrafficGraph";
+
+type Spec = Environment["spec"];
+type Conversation = Pick<
+  Schema<"CaptureFlow">,
+  "source" | "destination" | "sourceAssetId" | "destinationAssetId"
+> & { networkId?: string };
+export const trafficPalette = [
+  "#507dc6",
+  "#bc8541",
+  "#8c6eb4",
+  "#458f9f",
+  "#bb6479",
+  "#708a48",
+  "#698296",
+  "#a17a65",
+];
+const ipv4 = (address: string) =>
+  address.split(".").reduce((value, part) => value * 256 + Number(part), 0);
+const contains = (cidr: string, address: string) => {
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(address) || !cidr.includes("."))
+    return false;
+  const [base, prefix] = cidr.split("/");
+  const block = 2 ** (32 - Number(prefix));
+  return Math.floor(ipv4(base) / block) === Math.floor(ipv4(address) / block);
+};
+export function describeEndpoint(
+  spec: Spec,
+  item: Conversation,
+  side: "source" | "destination",
+) {
+  const address = item[side],
+    assetId = item[`${side}AssetId`];
+  const asset = spec.assets.find((asset) => asset.id === assetId);
+  if (asset)
+    return {
+      id: asset.id,
+      name: asset.name,
+      kind: "asset" as EndpointKind,
+      members: [asset.id],
+    };
+  const peerId =
+    side === "source" ? item.destinationAssetId : item.sourceAssetId;
+  const peer = spec.assets.find((asset) => asset.id === peerId);
+  const peerAddress = side === "source" ? item.destination : item.source;
+  const peerInterface = peer?.interfaces.find(
+    (iface) =>
+      iface.address.split("/")[0] === peerAddress || iface.mac === peerAddress,
+  );
+  const network =
+    spec.networks.find((network) => network.id === item.networkId) ??
+    spec.networks.find((network) => network.id === peerInterface?.networkId) ??
+    spec.networks.find((network) => contains(network.cidr, address));
+  const gateway = network?.gateway === address ? network : undefined;
+  let kind: EndpointKind = gateway ? "gateway" : "external";
+  const mac = /^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(address);
+  if (address === "ff:ff:ff:ff:ff:ff" || address === "255.255.255.255")
+    kind = "broadcast";
+  else if (network && contains(network.cidr, address)) {
+    const prefix = Number(network.cidr.split("/")[1]);
+    if (prefix < 31 && (ipv4(address) + 1) % 2 ** (32 - prefix) === 0)
+      kind = "broadcast";
+  }
+  if (
+    /^ff[\da-f]{2}:/i.test(address) ||
+    /^2(?:2[4-9]|3\d)\./.test(address) ||
+    (mac &&
+      (parseInt(address.slice(0, 2), 16) & 1) === 1 &&
+      kind !== "broadcast")
+  )
+    kind = "multicast";
+  else if (mac && kind !== "broadcast") kind = "ethernet";
+  const grouped = kind === "broadcast" || kind === "multicast";
+  return {
+    id: grouped ? `group:${network?.id ?? "unbound"}:${kind}` : address,
+    name: grouped
+      ? `${network?.name ?? "链路"} · ${kind === "broadcast" ? "广播" : "组播"}`
+      : gateway
+        ? `${gateway.name} · 网关`
+        : address,
+    kind,
+    members: [address],
+  };
+}
+
+export function selectionMatches(
+  spec: Spec,
+  selection: TrafficSelection | undefined,
+  item: Conversation,
+) {
+  if (!selection) return true;
+  const source = describeEndpoint(spec, item, "source").id,
+    destination = describeEndpoint(spec, item, "destination").id;
+  return "asset" in selection
+    ? [source, destination].includes(selection.asset)
+    : (source === selection.source && destination === selection.destination) ||
+        (source === selection.destination && destination === selection.source);
+}
+
+export function addressFilter(address: string) {
+  if (/^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(address))
+    return `eth.addr == ${address}`;
+  return `${address.includes(":") ? "ipv6" : "ip"}.addr == ${address.split("/")[0]}`;
+}
+export function endpointFilter(spec: Spec, members: string[]) {
+  const expressions = members.flatMap((member) => {
+    if (member.startsWith("group:")) {
+      const [, networkId, kind] = member.split(":"),
+        network = spec.networks.find((item) => item.id === networkId);
+      if (kind === "multicast")
+        return ["(eth.dst.ig == 1 && eth.dst != ff:ff:ff:ff:ff:ff)"];
+      const [base, prefix] = network?.cidr.split("/") ?? [];
+      const broadcast = base?.includes(".")
+        ? (Math.floor(ipv4(base) / 2 ** (32 - Number(prefix))) + 1) *
+            2 ** (32 - Number(prefix)) -
+          1
+        : undefined;
+      return [
+        `(eth.addr == ff:ff:ff:ff:ff:ff || ip.addr == 255.255.255.255${broadcast !== undefined ? ` || ip.addr == ${[24, 16, 8, 0].map((shift) => Math.floor(broadcast / 2 ** shift) % 256).join(".")}` : ""})`,
+      ];
+    }
+    const asset = spec.assets.find((asset) => asset.id === member);
+    return asset
+      ? asset.interfaces.flatMap((iface) => [
+          addressFilter(iface.address),
+          `eth.addr == ${iface.mac}`,
+        ])
+      : [addressFilter(member)];
+  });
+  return `(${[...new Set(expressions)].join(" || ")})`;
+}
+export function selectionFilter(
+  spec: Spec,
+  selection: TrafficSelection | undefined,
+) {
+  if (!selection) return "";
+  return "asset" in selection
+    ? endpointFilter(spec, [selection.asset])
+    : `(${endpointFilter(spec, [selection.source])} && ${endpointFilter(spec, [selection.destination])})`;
+}
+export function selectionNetwork(selection: TrafficSelection | undefined) {
+  const ids = selection
+    ? "asset" in selection
+      ? [selection.asset]
+      : [selection.source, selection.destination]
+    : [];
+  const network = ids.find((id) => id.startsWith("group:"))?.split(":")[1];
+  return network && network !== "unbound" ? network : undefined;
+}
+
+export function packetAlerts(
+  packet: Schema<"CapturePacket">,
+  alerts: Schema<"SecurityAlert">[],
+) {
+  const timestamp = Date.parse(packet.time);
+  return alerts.filter((alert) => {
+    const forward =
+      packet.source === alert.source &&
+      packet.destination === alert.destination &&
+      packet.sourcePort === alert.sourcePort &&
+      packet.destinationPort === alert.destinationPort;
+    const reverse =
+      packet.source === alert.destination &&
+      packet.destination === alert.source &&
+      packet.sourcePort === alert.destinationPort &&
+      packet.destinationPort === alert.sourcePort;
+    return (
+      (forward || reverse) &&
+      packet.protocol.toLowerCase().replace("icmpv4", "icmp") ===
+        alert.protocol.toLowerCase().replace("icmpv4", "icmp") &&
+      timestamp >= Date.parse(alert.firstSeen) - 1000 &&
+      timestamp <= Date.parse(alert.lastSeen) + 1000
+    );
+  });
+}
+
+const pairKey = (source: string, target: string) =>
+  JSON.stringify([source, target].sort());
+export function buildTrafficLinks(
+  spec: Spec,
+  flows: Schema<"CaptureFlow">[],
+  alerts: Schema<"SecurityAlert">[],
+  packets?: Schema<"CapturePacket">[],
+  riskOnly = false,
+): TrafficLink[] {
+  const detected = new Map<
+    string,
+    {
+      source: ReturnType<typeof describeEndpoint>;
+      target: ReturnType<typeof describeEndpoint>;
+      severity: number;
+      count: number;
+    }
+  >();
+  for (const alert of alerts) {
+    const source = describeEndpoint(spec, alert, "source"),
+      target = describeEndpoint(spec, alert, "destination"),
+      key = pairKey(source.id, target.id),
+      previous = detected.get(key);
+    if (previous) {
+      previous.severity = Math.min(previous.severity, alert.severity);
+      previous.count += alert.count;
+    } else
+      detected.set(key, {
+        source,
+        target,
+        severity: alert.severity,
+        count: alert.count,
+      });
+  }
+  const make = (item: Conversation, value: number, rate?: number) => {
+    const source = describeEndpoint(spec, item, "source"),
+      target = describeEndpoint(spec, item, "destination");
+    return {
+      source: source.id,
+      target: target.id,
+      sourceName: source.name,
+      targetName: target.name,
+      sourceKind: source.kind,
+      targetKind: target.kind,
+      value,
+      rate,
+      label: "",
+      severity: detected.get(pairKey(source.id, target.id))?.severity,
+    };
+  };
+  const assetAddresses = new Map(
+    spec.assets.flatMap((asset) =>
+      asset.interfaces.flatMap(
+        (iface) =>
+          [
+            [iface.address.split("/")[0], asset.id],
+            [iface.mac, asset.id],
+          ] as [string, string][],
+      ),
+    ),
+  );
+  const links: TrafficLink[] = packets
+    ? packets.map((packet) =>
+        make(
+          {
+            ...packet,
+            sourceAssetId: assetAddresses.get(packet.source),
+            destinationAssetId: assetAddresses.get(packet.destination),
+          },
+          packet.length,
+        ),
+      )
+    : flows.map((flow) => make(flow, flow.bytes, flow.bytesPerSecond));
+  for (const { source, target, severity, count } of detected.values())
+    links.push({
+      source: source.id,
+      target: target.id,
+      sourceName: source.name,
+      targetName: target.name,
+      sourceKind: source.kind,
+      targetKind: target.kind,
+      value: 0,
+      label: "",
+      alerts: count,
+      severity,
+    });
+  return riskOnly ? links.filter((link) => link.severity !== undefined) : links;
+}
+export function selectionLabel(
+  spec: Spec,
+  selection: TrafficSelection | undefined,
+  links: TrafficLink[],
+) {
+  const name = (id: string) =>
+    spec.assets.find((asset) => asset.id === id)?.name ??
+    links.find((link) => link.source === id)?.sourceName ??
+    links.find((link) => link.target === id)?.targetName ??
+    id;
+  return selection
+    ? "asset" in selection
+      ? name(selection.asset)
+      : `${name(selection.source)} ↔ ${name(selection.destination)}`
+    : undefined;
+}
+export function alertFilter(alert: Schema<"SecurityAlert">) {
+  const protocol = alert.protocol.toLowerCase(),
+    portProtocol =
+      protocol === "tcp" || protocol === "udp" ? protocol : undefined;
+  return [
+    addressFilter(alert.source),
+    addressFilter(alert.destination),
+    portProtocol
+      ? `${portProtocol}.port == ${alert.sourcePort} && ${portProtocol}.port == ${alert.destinationPort}`
+      : protocol === "icmpv4"
+        ? "icmp"
+        : protocol === "icmpv6"
+          ? "icmpv6"
+          : protocol,
+  ].join(" && ");
+}
