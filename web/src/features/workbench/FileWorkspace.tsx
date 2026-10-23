@@ -27,6 +27,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type Asset, type Schema } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
+import { dateTime } from "../../foundation/format";
 import styles from "./FileWorkspace.module.css";
 
 type Entry = Schema<"FileEntry">;
@@ -389,18 +390,11 @@ export function FileWorkspace({
                           ? "—"
                           : item.size < 1024
                             ? item.size + " B"
-                            : (item.size / 1024).toLocaleString(undefined, {
+                            : (item.size / 1024).toLocaleString("zh-CN", {
                                 maximumFractionDigits: 1,
                               }) + " KiB"}
                       </td>
-                      <td>
-                        {new Date(item.modifiedAt).toLocaleString(undefined, {
-                          month: "2-digit",
-                          day: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </td>
+                      <td>{dateTime(item.modifiedAt)}</td>
                       <td>
                         <Menu position="bottom-end">
                           <Menu.Target>

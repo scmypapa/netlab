@@ -30,6 +30,9 @@ export function dateTime(value: string) {
     hour12: false,
   }).format(new Date(value));
 }
+export function clockTime(value: string | number) {
+  return new Date(value).toLocaleTimeString("zh-CN", { hour12: false });
+}
 export const statusLabels: Record<string, string> = {
   draft: "待运行",
   deploying: "部署中",

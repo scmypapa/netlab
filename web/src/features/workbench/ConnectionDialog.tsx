@@ -233,7 +233,7 @@ export function ConnectionDialog({
               )}
             </div>
           </details>
-          <details className={styles.options} open={!savedFingerprint}>
+          <details className={styles.options}>
             <summary>{kind === "ssh" ? "主机身份" : "服务器证书"}</summary>
             <div className={styles.identity}>
               <Button

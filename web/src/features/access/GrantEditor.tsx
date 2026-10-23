@@ -44,13 +44,14 @@ export function GrantEditor({
                   key={kind}
                   type="button"
                   aria-pressed={grant.scopeKind === kind}
-                  onClick={() =>
-                    update(index, {
-                      ...grant,
-                      scopeKind: kind as Grant["scopeKind"],
-                      scopeId: kind === "project" ? "default" : "",
-                    })
-                  }
+                  onClick={() => {
+                    if (kind !== grant.scopeKind)
+                      update(index, {
+                        ...grant,
+                        scopeKind: kind as Grant["scopeKind"],
+                        scopeId: kind === "project" ? "default" : "",
+                      });
+                  }}
                 >
                   {label}
                 </button>

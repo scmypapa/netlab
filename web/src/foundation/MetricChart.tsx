@@ -15,6 +15,7 @@ import {
 import { CanvasRenderer } from "echarts/renderers";
 import type { History, Metric } from "./metrics";
 import { assetMetricSeries } from "./metrics";
+import { clockTime } from "./format";
 import styles from "./MetricChart.module.css";
 
 echarts.use([
@@ -189,7 +190,7 @@ export function MetricChart({
               " " +
               unit +
               "，" +
-              new Date(latest.time).toLocaleTimeString(),
+              clockTime(latest.time),
           );
         return {
           id: [item.nodeId, item.assetId, item.interfaceId, item.metric].join(
@@ -293,7 +294,9 @@ export function MetricChart({
               color: text,
               formatter: (point: { axisDimension: string; value: number }) =>
                 point.axisDimension === "x"
-                  ? new Date(point.value).toLocaleString()
+                  ? new Date(point.value).toLocaleString("zh-CN", {
+                      hour12: false,
+                    })
                   : metricNumber(Number(point.value)) + " " + unit,
             },
           },

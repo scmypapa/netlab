@@ -1616,10 +1616,12 @@ test("template details create and run the selected immutable version", async ({
   await page.getByRole("button", { name: "混合组网模板", exact: true }).click();
   await page.getByRole("textbox", { name: "版本", exact: true }).click();
   await page.getByRole("option", { name: /^v1 ·/ }).click();
-  await expect(page.locator(".blueprint-objects")).toContainText("web-01");
-  await expect(page.locator(".blueprint-objects")).not.toContainText(
-    "windows-01",
-  );
+  const details = page.getByRole("dialog", {
+    name: "混合组网模板",
+    exact: true,
+  });
+  await expect(details).toContainText("web-01");
+  await expect(details).not.toContainText("windows-01");
   for (const width of [390, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     expect(

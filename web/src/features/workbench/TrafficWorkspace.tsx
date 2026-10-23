@@ -36,7 +36,12 @@ import {
 } from "react";
 import { api, type Environment, type Schema } from "../../api/client";
 import { MetricChart } from "../../foundation/MetricChart";
-import { byteUnit, dateTime, reading } from "../../foundation/format";
+import {
+  byteUnit,
+  clockTime,
+  dateTime,
+  reading,
+} from "../../foundation/format";
 import {
   TrafficGraph,
   riskLevels,
@@ -511,8 +516,7 @@ export default function TrafficWorkspace({
                 setField(undefined);
               }}
             >
-              {new Date(timeRange.start).toLocaleTimeString()} –{" "}
-              {new Date(timeRange.end).toLocaleTimeString()}
+              {clockTime(timeRange.start)} – {clockTime(timeRange.end)}
               <X size={12} />
             </button>
           )}
@@ -649,7 +653,7 @@ export default function TrafficWorkspace({
             >
               告警 <span>{visibleAlerts.length}</span>
             </button>
-            <span>{data.packets.length.toLocaleString()} 帧</span>
+            <span>{data.packets.length.toLocaleString("zh-CN")} 帧</span>
             {data.fetching && <i className={styles.fetching} />}
           </header>
           <div className={styles.paneBody}>
@@ -821,7 +825,7 @@ export default function TrafficWorkspace({
         <div className={styles.spacer} />
         <span>
           {retention?.oldestAt
-            ? `${new Date(retention.oldestAt).toLocaleTimeString()} – ${new Date(retention.newestAt!).toLocaleTimeString()}`
+            ? `${clockTime(retention.oldestAt)} – ${clockTime(retention.newestAt!)}`
             : ""}
         </span>
         {paused && <span>视图已暂停</span>}

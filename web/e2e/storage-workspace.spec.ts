@@ -241,8 +241,8 @@ test("本地环境磁盘按需迁入指定共享池", async ({ page }) => {
   await page.goto("/resources/storage?pool=default:one");
   await page.getByRole("tab", { name: "环境磁盘", exact: true }).click();
   await page.getByRole("button", { name: "迁移", exact: true }).click();
-  await page.getByRole("textbox", { name: "目标节点", exact: true }).click();
-  await page.getByRole("option", { name: /节点 two/ }).click();
+  await page.getByRole("radio", { name: /节点 two/ }).check();
+  await page.locator("summary").filter({ hasText: "存储位置" }).click();
   await page.getByRole("textbox", { name: "目标存储池", exact: true }).click();
   await page.getByRole("option", { name: "共享存储", exact: true }).click();
   await page

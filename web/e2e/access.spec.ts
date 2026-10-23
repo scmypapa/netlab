@@ -203,6 +203,10 @@ test("service token uses a scoped role with file permission removed, then revoke
     .click();
   await drawer.getByRole("textbox", { name: "环境", exact: true }).click();
   await page.getByRole("option", { name: "共享测试环境", exact: true }).click();
+  await drawer.getByRole("button", { name: "指定环境", exact: true }).click();
+  await expect(
+    drawer.getByRole("textbox", { name: "环境", exact: true }),
+  ).toHaveValue("共享测试环境");
   await drawer.getByRole("textbox", { name: "角色", exact: true }).click();
   await page.getByRole("option", { name: "操作员", exact: true }).click();
   await drawer.getByRole("button", { name: "细项权限", exact: true }).click();
