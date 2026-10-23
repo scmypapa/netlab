@@ -352,6 +352,8 @@ export default function TrafficWorkspace({
         </div>
         <div className={styles.spacer} />
         <Button
+          className={styles.liveToggle}
+          aria-label={paused ? "继续实时" : "暂停"}
           size="compact-xs"
           variant={paused ? "light" : "subtle"}
           leftSection={paused ? <Play size={13} /> : <Pause size={13} />}
@@ -374,7 +376,9 @@ export default function TrafficWorkspace({
             setPaused(!paused);
           }}
         >
-          {paused ? "继续实时" : "暂停"}
+          <span className={styles.liveLabel}>
+            {paused ? "继续实时" : "暂停"}
+          </span>
         </Button>
         <Tooltip label="导出筛选后的报文">
           <ActionIcon
@@ -511,6 +515,7 @@ export default function TrafficWorkspace({
               流量趋势
             </button>
             <span>接收 ┄　发送 ━</span>
+            <span>{unit.unit}/s</span>
             <div className={styles.spacer} />
             <Select
               comboboxProps={{ withinPortal: false }}

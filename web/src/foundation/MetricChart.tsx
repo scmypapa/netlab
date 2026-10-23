@@ -318,7 +318,7 @@ export function MetricChart({
           type: "value",
           min: 0,
           splitNumber: 3,
-          name: unit,
+          name: timeline ? "" : unit,
           nameTextStyle: {
             color: muted,
             align: "left",
@@ -409,7 +409,7 @@ export function MetricChart({
     <div
       ref={host}
       className={styles.chart}
-      data-timeline={timeline||undefined}
+      data-timeline={timeline || undefined}
       role="img"
       aria-label={measures.map((item) => titles[item]).join("、") + "历史曲线"}
     />

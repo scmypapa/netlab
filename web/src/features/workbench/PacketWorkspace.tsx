@@ -171,11 +171,15 @@ const covers = (field: Field, offset: number) =>
   offset >= field.offset &&
   offset < field.offset + field.length;
 export function fieldAt(fields: Field[], offset: number): Field | undefined {
+  let found: Field | undefined;
   for (const field of fields) {
-    const child = fieldAt(field.children, offset);
-    if (child) return child;
-    if (covers(field, offset)) return field;
+    const candidate =
+      fieldAt(field.children, offset) ??
+      (covers(field, offset) ? field : undefined);
+    if (candidate && (!found || candidate.length < found.length))
+      found = candidate;
   }
+  return found;
 }
 function ProtocolField({
   field,
@@ -378,7 +382,26 @@ export function PacketBytes({
     if (found) onSelect(found);
   };
   return (
-    <div className={styles.hex} aria-label="报文字节">
+    <div
+      className={styles.hex}
+      aria-label="报文字节"
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+          "button[data-offset]",
+        );
+        if (!button) return;
+        event.preventDefault();
+        const next =
+          Number(button.dataset.offset) + (event.key === "ArrowRight" ? 1 : -1);
+        if (next >= 0 && next < bytes.length) {
+          choose(next);
+          event.currentTarget
+            .querySelector<HTMLButtonElement>(`[data-offset="${next}"]`)
+            ?.focus();
+        }
+      }}
+    >
       {Array.from({ length: Math.ceil(bytes.length / 16) }, (_, row) => (
         <div className={styles.hexRow} key={row}>
           <span className={styles.offset}>
@@ -416,22 +439,6 @@ export function PacketBytes({
                   data-selected={selected(row * 16 + column)}
                   aria-label={`ASCII ${row * 16 + column}`}
                   onClick={() => choose(row * 16 + column)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
-                      return;
-                    event.preventDefault();
-                    const next =
-                      row * 16 + column + (event.key === "ArrowRight" ? 1 : -1);
-                    if (next >= 0 && next < bytes.length) {
-                      choose(next);
-                      event.currentTarget
-                        .closest(`.${styles.hex}`)
-                        ?.querySelector<HTMLButtonElement>(
-                          `[data-offset="${next}"]`,
-                        )
-                        ?.focus();
-                    }
-                  }}
                 >
                   {value >= 32 && value < 127
                     ? String.fromCharCode(value)

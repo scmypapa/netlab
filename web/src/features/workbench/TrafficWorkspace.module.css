@@ -32,6 +32,25 @@
 .spacer {
   flex: 1;
 }
+.liveToggle {
+  flex-shrink: 0;
+}
+@media (max-width: 540px) {
+  .liveLabel {
+    display: none;
+  }
+  .liveToggle {
+    width: 28px;
+    padding: 0;
+  }
+  .liveToggle :global(.mantine-Button-section) {
+    margin: 0;
+  }
+  .risks button {
+    padding-inline: 4px;
+    gap: 3px;
+  }
+}
 .risks {
   display: flex;
   gap: 3px;
@@ -151,7 +170,7 @@
 }
 .chart {
   height: 134px;
-  overflow:hidden;
+  overflow: hidden;
 }
 .collapsedTimeline {
   padding: 5px 14px;
