@@ -4,12 +4,12 @@ import type { Edge, Node } from "@xyflow/react";
 import type { EnvironmentSpec, Schema, Template } from "../../api/client";
 
 export const networkColors = [
-  "#0f9c8d",
-  "#6787d2",
-  "#a580ce",
-  "#cf9657",
-  "#68a277",
-  "#cc788c",
+  "#4c6bc4",
+  "#8965b3",
+  "#b17a32",
+  "#427f9e",
+  "#b35f7b",
+  "#69758d",
 ];
 export type TopologyData = {
   label: string;

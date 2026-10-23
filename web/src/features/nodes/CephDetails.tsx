@@ -73,7 +73,7 @@ export function CephDetails({
                 <Badge
                   color={
                     value.health === "HEALTH_OK"
-                      ? "teal"
+                      ? "green"
                       : value.health === "HEALTH_WARN"
                         ? "yellow"
                         : "red"

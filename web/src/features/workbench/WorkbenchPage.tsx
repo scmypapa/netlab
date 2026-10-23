@@ -576,7 +576,7 @@ function Workbench({ id }: { id: string }) {
               <div className="canvas-view-controls">
                 <ActionIcon
                   variant={tree ? "light" : "subtle"}
-                  color={tree ? "teal" : "gray"}
+                  color={tree ? "blue" : "gray"}
                   aria-label="对象列表"
                   aria-pressed={tree}
                   onClick={() => setTree(!tree)}

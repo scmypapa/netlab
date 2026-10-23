@@ -153,16 +153,19 @@ function ConsoleConnection({
         vnc.current = null;
       };
     }
+    const terminalStyle = getComputedStyle(element);
     const terminal = new Terminal({
       cursorBlink: !window.matchMedia("(prefers-reduced-motion: reduce)")
         .matches,
       fontSize: 13,
-      fontFamily: "Cascadia Code, Consolas, monospace",
+      fontFamily: terminalStyle.getPropertyValue("--font-mono").trim(),
       theme: {
-        background: "#142128",
-        foreground: "#d8e6ea",
-        cursor: "#66d3bb",
-        selectionBackground: "#345760",
+        background: terminalStyle.getPropertyValue("--terminal-bg").trim(),
+        foreground: terminalStyle.getPropertyValue("--terminal-text").trim(),
+        cursor: terminalStyle.getPropertyValue("--terminal-cursor").trim(),
+        selectionBackground: terminalStyle
+          .getPropertyValue("--terminal-selection")
+          .trim(),
       },
     });
     const fitter = new FitAddon();

@@ -1,6 +1,6 @@
 .panel {
   display: grid;
-  gap: 24px;
+  gap: 20px;
 }
 .versions {
   display: grid;
@@ -20,7 +20,7 @@
   color: var(--mantine-color-dimmed);
 }
 .versions strong {
-  font-size: 24px;
+  font-size: 22px;
   letter-spacing: -0.5px;
 }
 .release header {
@@ -51,7 +51,7 @@
   white-space: pre-wrap;
   padding: 12px;
   background: var(--mantine-color-default-hover);
-  border-radius: 8px;
+  border-radius: 4px;
 }
 .notes a {
   color: var(--mantine-primary-color-filled);
@@ -61,7 +61,7 @@
   gap: 12px;
   padding: 16px;
   background: var(--mantine-color-default-hover);
-  border-radius: 10px;
+  border-radius: 5px;
 }
 .activity > div:first-child {
   display: flex;

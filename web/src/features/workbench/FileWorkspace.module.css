@@ -27,15 +27,16 @@
 }
 .body {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-columns: 204px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
 .tree {
   overflow: auto;
   border-right: 1px solid var(--line);
-  padding: 12px 6px;
-  font-size: 12px;
+  padding: 10px 8px;
+  background: var(--canvas);
+  font-size: 13px;
 }
 .children {
   padding-left: 12px;
@@ -43,8 +44,8 @@
 .directory {
   display: flex;
   align-items: center;
-  min-height: 30px;
-  border-radius: 4px;
+  min-height: 32px;
+  border-radius: 3px;
 }
 .directory button {
   border: 0;
@@ -66,7 +67,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.directory:hover,
+.directory:hover {
+  background: var(--surface-hover);
+}
 .directory.active {
   background: var(--accent-soft);
 }
@@ -83,7 +86,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 44px;
+  min-height: 38px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--line);
   overflow: auto;
@@ -111,15 +114,16 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 13px;
 }
 .table th {
   white-space: nowrap;
   text-align: left;
-  padding: 9px 16px;
+  padding: 8px 16px;
   font-weight: 500;
   color: var(--muted);
-  background: var(--surface);
+  background: var(--canvas);
+  font-size: 12px;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -127,7 +131,7 @@
 }
 .table td {
   padding: 8px 16px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   white-space: nowrap;
 }
 .table td:first-child {
@@ -140,7 +144,7 @@
   background: var(--accent-soft);
 }
 .table tbody tr:hover {
-  background: var(--surface-hover, var(--accent-soft));
+  background: var(--surface-hover);
 }
 .table tr:focus-visible {
   outline: 2px solid var(--accent);

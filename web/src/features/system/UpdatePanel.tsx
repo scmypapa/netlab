@@ -165,7 +165,7 @@ export function UpdatePanel({ onClose }: { onClose: () => void }) {
                         data.currentVersion !== "dev" ? (
                         <Badge
                           variant="light"
-                          color="teal"
+                          color="green"
                           leftSection={<Check size={13} />}
                         >
                           已是最新版本

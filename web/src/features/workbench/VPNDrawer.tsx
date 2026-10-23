@@ -25,7 +25,7 @@ import styles from "./VPNDrawer.module.css";
 
 const states = {
   pending: { label: "等待配置", color: "gray" },
-  active: { label: "可用", color: "teal" },
+  active: { label: "可用", color: "green" },
   revoking: { label: "撤销中", color: "yellow" },
   failed: { label: "失败", color: "red" },
 };

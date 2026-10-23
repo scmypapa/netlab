@@ -1,18 +1,23 @@
 .workspace {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  gap: 24px;
+  gap: 0;
   align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
 }
 .pools {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+  padding: 8px;
 }
 .pool {
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
-  padding: 14px;
+  padding: 12px;
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -23,8 +28,8 @@
   background: var(--surface-hover);
 }
 .selected {
-  background: var(--surface);
-  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 var(--accent);
 }
 .label {
   display: flex;
@@ -39,9 +44,8 @@
 .detail {
   min-width: 0;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 24px;
+  border-left: 1px solid var(--line);
+  padding: 20px 24px;
 }
 .heading {
   display: flex;
@@ -53,16 +57,18 @@
 }
 .heading h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
 }
 .metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
-  margin: 24px 0;
+  margin: 20px 0;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
 }
 .metrics strong {
-  font-size: 24px;
+  font-size: 23px;
   display: block;
   line-height: 1.4;
   font-weight: 600;
@@ -74,9 +80,9 @@
 .setup {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 20px 24px;
-  margin-bottom: 20px;
+  border-radius: 6px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
 }
 .setup h2 {
   font-size: 17px;
@@ -110,8 +116,8 @@
   align-items: center;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 4px;
+  padding: 10px 12px;
   min-width: 0;
 }
 .disk span {
@@ -131,13 +137,15 @@
 @media (max-width: 850px) {
   .workspace {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: 0;
   }
   .pools {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
   .detail {
     padding: 16px;
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
   .metrics {
     gap: 10px;

@@ -15,13 +15,14 @@
   min-height: 0;
   margin: 0;
   padding: 16px;
-  background: var(--canvas);
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
   border: 1px solid var(--line);
   border-radius: 5px;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px/1.65 var(--font-mono, monospace);
+  font: 12px/1.7 var(--font-mono);
   tab-size: 4;
 }
 .stderr {

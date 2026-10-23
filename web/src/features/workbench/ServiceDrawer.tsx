@@ -80,7 +80,7 @@ export function ServiceDrawer({
                   {({ copied, copy }) => (
                     <ActionIcon
                       variant="subtle"
-                      color={copied ? "teal" : "gray"}
+                      color={copied ? "green" : "gray"}
                       aria-label="复制服务地址"
                       onClick={copy}
                     >

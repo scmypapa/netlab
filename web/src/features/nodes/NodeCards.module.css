@@ -1,17 +1,17 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
+  gap: 12px;
   margin-bottom: 12px;
 }
 .card {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 20px;
+  border-radius: 6px;
+  padding: 18px;
   color: var(--text);
   background: var(--surface);
   text-align: left;
@@ -19,7 +19,8 @@
   transition: border-color 0.15s;
 }
 .card:hover {
-  border-color: var(--accent);
+  border-color: var(--strong-line);
+  background: var(--surface-hover);
 }
 .card:focus-visible {
   outline: 2px solid var(--accent);
@@ -39,7 +40,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 13px;
 }
 .readings {
   display: flex;
@@ -62,7 +63,7 @@
   gap: 3px;
 }
 .dial strong {
-  font-size: 25px;
+  font-size: 24px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -85,7 +86,7 @@
   color: var(--muted);
 }
 .memory strong {
-  font-size: 24px;
+  font-size: 23px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }

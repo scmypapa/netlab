@@ -1,6 +1,6 @@
 .body {
   display: grid;
-  gap: 20px;
+  gap: 16px;
 }
 .toolbar {
   display: flex;
@@ -12,16 +12,16 @@
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding-block: 18px;
+  padding-block: 14px;
   border-bottom: 1px solid var(--line);
 }
 .icon {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 5px;
   background: var(--surface-hover);
   color: var(--muted);
 }
@@ -37,7 +37,7 @@
 }
 .heading h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .metadata {

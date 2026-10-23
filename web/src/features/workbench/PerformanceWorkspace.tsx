@@ -47,7 +47,7 @@ const plots: Record<
     scale: 1,
     measures: ["cpu"],
     icon: <Cpu size={17} />,
-    color: "#4087e9",
+    color: "#4c6bc4",
   },
   memory: {
     title: "内存",
@@ -55,7 +55,7 @@ const plots: Record<
     scale: 2 ** 30,
     measures: ["memory"],
     icon: <MemoryStick size={17} />,
-    color: "#9271dd",
+    color: "#8965b3",
   },
   network: {
     title: "资产网络",
@@ -63,7 +63,7 @@ const plots: Record<
     scale: 1,
     measures: ["receive", "transmit"],
     icon: <Activity size={17} />,
-    color: "#14a894",
+    color: "#427f9e",
   },
   disk: {
     title: "磁盘 I/O",
@@ -71,7 +71,7 @@ const plots: Record<
     scale: 1,
     measures: ["disk_read", "disk_write"],
     icon: <HardDrive size={17} />,
-    color: "#d69a43",
+    color: "#b17a32",
   },
   storage: {
     title: "节点工作盘",
@@ -79,7 +79,7 @@ const plots: Record<
     scale: 2 ** 30,
     measures: ["disk_used"],
     icon: <HardDrive size={17} />,
-    color: "#14a894",
+    color: "#69758d",
   },
 };
 

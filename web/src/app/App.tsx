@@ -122,7 +122,7 @@ export function App() {
           <Menu position="bottom-end">
             <Menu.Target>
               <button className="profile">
-                <Avatar size={28} radius="xl" color="teal">
+                <Avatar size={26} radius="sm" color="gray">
                   {identity.data?.name.slice(0, 1).toUpperCase()}
                 </Avatar>
                 <span>{identity.data?.name}</span>
