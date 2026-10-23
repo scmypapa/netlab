@@ -95,7 +95,7 @@ export function PacketList({
           </tr>
         </thead>
         <tbody>
-          {packets.map((packet) => {
+          {packets.map((packet, index) => {
             const related = packetAlerts(packet, alerts).sort(
                 (a, b) => a.severity - b.severity,
               ),
@@ -105,8 +105,18 @@ export function PacketList({
                 key={packet.id}
                 aria-selected={selectedId === packet.id}
                 data-protocol={packet.protocol.toLowerCase()}
-                tabIndex={selectedId === packet.id ? 0 : -1}
+                tabIndex={
+                  selectedId === packet.id || (!selectedId && index === 0)
+                    ? 0
+                    : -1
+                }
                 onClick={() => onSelect(packet.id!)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(packet.id!);
+                  }
+                }}
               >
                 <td>
                   <button
@@ -378,6 +388,16 @@ export function PacketBytes({
             {bytes.slice(row * 16, row * 16 + 16).map((byte, column) => (
               <button
                 key={column}
+                data-offset={row * 16 + column}
+                tabIndex={
+                  field
+                    ? field.offset === row * 16 + column
+                      ? 0
+                      : -1
+                    : row === 0 && column === 0
+                      ? 0
+                      : -1
+                }
                 data-selected={selected(row * 16 + column)}
                 aria-label={`字节 ${row * 16 + column}，${byte}`}
                 onClick={() => choose(row * 16 + column)}
@@ -396,6 +416,22 @@ export function PacketBytes({
                   data-selected={selected(row * 16 + column)}
                   aria-label={`ASCII ${row * 16 + column}`}
                   onClick={() => choose(row * 16 + column)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                      return;
+                    event.preventDefault();
+                    const next =
+                      row * 16 + column + (event.key === "ArrowRight" ? 1 : -1);
+                    if (next >= 0 && next < bytes.length) {
+                      choose(next);
+                      event.currentTarget
+                        .closest(`.${styles.hex}`)
+                        ?.querySelector<HTMLButtonElement>(
+                          `[data-offset="${next}"]`,
+                        )
+                        ?.focus();
+                    }
+                  }}
                 >
                   {value >= 32 && value < 127
                     ? String.fromCharCode(value)

@@ -218,7 +218,7 @@ export default function TrafficWorkspace({
     paused,
     filters,
   });
-  const selected = selectedId ?? data.packets.at(-1)?.id;
+  const selected = selectedId;
   const packet = useQuery({
     queryKey: ["environment-packet", environment.id, selected],
     queryFn: ({ signal }) =>
@@ -257,6 +257,10 @@ export default function TrafficWorkspace({
       filesOpen ? files.error : null,
     ].flatMap((error) => (error ? [error.message] : [])),
     ...(data.retention?.error ? [data.retention.error] : []),
+    ...(security.data?.pages[0]?.sensors
+      .filter((sensor) => sensor.error)
+      .map((sensor) => `${sensor.nodeName ?? "运行节点"}：${sensor.error}`) ??
+      []),
   ];
   const graphLinks = buildTrafficLinks(
     spec,

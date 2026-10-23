@@ -182,8 +182,8 @@ export function packetAlerts(
       packet.destinationPort === alert.sourcePort;
     return (
       (forward || reverse) &&
-      packet.protocol.toLowerCase().replace("icmpv4", "icmp") ===
-        alert.protocol.toLowerCase().replace("icmpv4", "icmp") &&
+      packet.protocol.toLowerCase().replace(/icmpv[46]|ipv6-icmp/g, "icmp") ===
+        alert.protocol.toLowerCase().replace(/icmpv[46]|ipv6-icmp/g, "icmp") &&
       timestamp >= Date.parse(alert.firstSeen) - 1000 &&
       timestamp <= Date.parse(alert.lastSeen) + 1000
     );
