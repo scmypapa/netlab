@@ -12,6 +12,7 @@ import {
 } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
 import { PermissionEditor } from "./PermissionEditor";
+import styles from "./AccessWorkspace.module.css";
 
 type Member = {
   principalId: string;
@@ -76,7 +77,7 @@ export function SharingDrawer({
       onClose={onClose}
       title="共享环境"
       position="right"
-      size={448}
+      size={720}
     >
       <ErrorMessage error={sharing.error} />
       {sharing.isPending ? (
@@ -142,17 +143,18 @@ function SharingEditor({
           : member,
       ),
     );
-  const current = items.find((member) => member.principalId === selected);
+  const current =
+    items.find((member) => member.principalId === selected) ?? items[0];
   return (
-    <div className="form-stack">
+    <div className={styles.editor}>
       {sharing.ownerId && subjects.has(sharing.ownerId) && (
-        <div className="share-owner">
+        <div className={styles.owner}>
           <UserRound size={17} />
           <strong>{subjects.get(sharing.ownerId)!.name}</strong>
           <span>所有者</span>
         </div>
       )}
-      <div className="sharing-add">
+      <div className={styles.memberAdd}>
         <Select
           aria-label="添加成员"
           placeholder="选择用户或 Token"
@@ -191,73 +193,71 @@ function SharingEditor({
           <Plus size={17} />
         </ActionIcon>
       </div>
-      <div className="sharing-members">
-        {items.map((member) => {
-          const subject = subjects.get(member.principalId);
-          return (
-            <div
-              className={`sharing-member ${selected === member.principalId ? "selected" : ""}`}
-              key={member.principalId}
-            >
-              <button
-                type="button"
-                onClick={() =>
-                  setSelected(
-                    selected === member.principalId
-                      ? undefined
-                      : member.principalId,
-                  )
-                }
-              >
-                {subject?.kind === "token" ? (
-                  <KeyRound size={17} />
-                ) : (
-                  <UserRound size={17} />
-                )}
-                <strong>{subject?.name ?? "已移除账号"}</strong>
-                <span>{roleName(member.permissions)}</span>
-              </button>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                aria-label={`移除${subject?.name ?? "成员"}`}
-                onClick={() =>
-                  setItems(
-                    items.filter(
-                      (item) => item.principalId !== member.principalId,
-                    ),
-                  )
-                }
-              >
-                <Trash2 size={15} />
-              </ActionIcon>
-            </div>
-          );
-        })}
-      </div>
       {current && (
-        <section className="sharing-edit">
-          <PermissionEditor
-            roles={roles}
-            value={current.permissions}
-            onChange={(permissions) =>
-              edit(current.principalId, { permissions })
-            }
-          />
-          <MultiSelect
-            label="授权资产"
-            placeholder="整个环境"
-            searchable
-            value={current.assetIds}
-            data={(environment.appliedSpec ?? environment.spec).assets.map(
-              (asset) => ({ value: asset.id, label: asset.name }),
-            )}
-            onChange={(assetIds) => edit(current.principalId, { assetIds })}
-          />
-        </section>
+        <div className={styles.members}>
+          <div className={styles.memberList}>
+            {items.map((member) => {
+              const subject = subjects.get(member.principalId);
+              return (
+                <div
+                  className={styles.member}
+                  data-selected={current.principalId === member.principalId}
+                  key={member.principalId}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={current.principalId === member.principalId}
+                    onClick={() => setSelected(member.principalId)}
+                  >
+                    {subject?.kind === "token" ? (
+                      <KeyRound size={17} />
+                    ) : (
+                      <UserRound size={17} />
+                    )}
+                    <strong>{subject?.name ?? "已移除账号"}</strong>
+                  </button>
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    aria-label={`移除${subject?.name ?? "成员"}`}
+                    onClick={() =>
+                      setItems(
+                        items.filter(
+                          (item) => item.principalId !== member.principalId,
+                        ),
+                      )
+                    }
+                  >
+                    <Trash2 size={15} />
+                  </ActionIcon>
+                </div>
+              );
+            })}
+          </div>
+          <section className={styles.memberEditor}>
+            <h3>{subjects.get(current.principalId)?.name ?? "已移除账号"}</h3>
+            <PermissionEditor
+              roles={roles}
+              value={current.permissions}
+              onChange={(permissions) =>
+                edit(current.principalId, { permissions })
+              }
+            />
+            <MultiSelect
+              label="授权资产"
+              placeholder="整个环境"
+              searchable
+              value={current.assetIds}
+              data={(environment.appliedSpec ?? environment.spec).assets.map(
+                (asset) => ({ value: asset.id, label: asset.name }),
+              )}
+              onChange={(assetIds) => edit(current.principalId, { assetIds })}
+            />
+          </section>
+        </div>
       )}
       {sharing.inherited.length > 0 && (
-        <section className="sharing-inherited">
+        <section className={styles.inherited}>
           <h3>项目授权</h3>
           {members(sharing.inherited).map((member) => (
             <div key={member.principalId}>
@@ -270,12 +270,11 @@ function SharingEditor({
         </section>
       )}
       <ErrorMessage error={save.error} />
-      <div className="drawer-footer">
-        <Button
-          fullWidth
-          onClick={() => save.mutate()}
-          loading={save.isPending}
-        >
+      <div className={styles.footer}>
+        <Button variant="default" onClick={onClose}>
+          取消
+        </Button>
+        <Button onClick={() => save.mutate()} loading={save.isPending}>
           保存授权
         </Button>
       </div>

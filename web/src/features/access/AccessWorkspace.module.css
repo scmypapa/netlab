@@ -1,0 +1,274 @@
+.editor {
+  display: grid;
+  gap: 24px;
+}
+.identity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.administrator {
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+}
+.accountName {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  padding: 3px 0;
+  color: var(--text);
+  background: none;
+  text-align: left;
+}
+.accountName svg {
+  color: var(--muted);
+}
+.accountName strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.accountName button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+}
+.accountName button:hover {
+  color: var(--accent);
+}
+.adminLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--positive);
+}
+.state[data-inactive="true"] {
+  color: var(--muted);
+}
+.state[data-inactive="true"]::before {
+  background: var(--muted);
+}
+.grants {
+  display: grid;
+  gap: 24px;
+}
+.grant {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.grantHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.scopeTabs {
+  display: flex;
+  gap: 18px;
+  min-width: 0;
+}
+.scopeTabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 7px 0;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.scopeTabs button[aria-pressed="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+.targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.permissions {
+  display: grid;
+  gap: 14px;
+}
+.permissionHeading {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+}
+.permissionHeading > :first-child {
+  flex: 1;
+}
+.permissionToggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+.permissionToggle[aria-expanded="true"] {
+  color: var(--accent);
+}
+.permissionToggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.permissionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  padding: 4px 0;
+}
+.addGrant {
+  justify-self: start;
+}
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.owner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.owner > span {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+.memberAdd {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.memberAdd > :first-child {
+  flex: 1;
+}
+.members {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 240px;
+  border-block: 1px solid var(--line);
+}
+.memberList {
+  border-right: 1px solid var(--line);
+  padding: 8px 12px 8px 0;
+}
+.member {
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 4px;
+}
+.member[data-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.member > button:first-child {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.member strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 550;
+}
+.member > button:first-child svg {
+  flex-shrink: 0;
+}
+.memberEditor {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  padding: 20px 0 20px 24px;
+}
+.memberEditor h3,
+.inherited h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.inherited {
+  display: grid;
+  gap: 14px;
+}
+.inherited > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.inherited span {
+  color: var(--muted);
+}
+.secret {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px;
+  background: var(--canvas);
+  border-left: 3px solid var(--accent);
+}
+.secret code {
+  flex: 1;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+@media (max-width: 600px) {
+  .identity,
+  .members {
+    grid-template-columns: 1fr;
+  }
+  .memberList {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+  }
+  .memberEditor {
+    padding: 20px 0;
+  }
+  .permissionHeading {
+    gap: 12px;
+  }
+  .scopeTabs {
+    gap: 14px;
+  }
+  .adminLabel {
+    display: flex;
+    margin: 4px 0 0 30px;
+  }
+}
