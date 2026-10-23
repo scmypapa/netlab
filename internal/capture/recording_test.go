@@ -16,6 +16,44 @@ import (
 	"netlab.local/core/api"
 )
 
+func (r *Recorder) walk(ctx context.Context, environment string, visit func(packetPart, api.CapturePacket, []byte) bool) error {
+	parts, err := r.openParts(environment)
+	if err != nil {
+		return err
+	}
+	for index := len(parts) - 1; index >= 0; index-- {
+		part := parts[index]
+		if err = r.openPart(environment, &part); err != nil {
+			return err
+		}
+		finished := false
+		err = readFrames(ctx, part.reader, !part.part.Sealed, func(packet api.CapturePacket, data []byte) bool {
+			if packet.Number > part.part.Packets {
+				return false
+			}
+			if packet.InterfaceIndex >= len(part.part.Interfaces) {
+				return false
+			}
+			iface := part.part.Interfaces[packet.InterfaceIndex]
+			id := packetIdentity(r.node, part.part.ID, packet.Number)
+			packet.Id, packet.NodeId, packet.AssetId, packet.InterfaceId, packet.NetworkId = &id, &r.node, &iface.AssetId, &iface.InterfaceId, &iface.NetworkId
+			if !visit(part.part, packet, data) {
+				finished = true
+				return false
+			}
+			return true
+		})
+		closeParts([]partRead{part})
+		if err != nil {
+			return err
+		}
+		if finished {
+			return nil
+		}
+	}
+	return nil
+}
+
 func recordingFixture(t *testing.T, quota int64) (*Recorder, string, []api.CaptureInterface) {
 	t.Helper()
 	node, environment := uuid.NewString(), uuid.NewString()
