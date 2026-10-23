@@ -2931,7 +2931,7 @@ export interface components {
       omittedFlows: number;
       /**
        * Format: int64
-       * @description Kernel capture drops from the pcapng interface statistics; present after the recorder reports statistics.
+       * @description Cumulative kernel drops reported by the native capture intervals contributing to this file; omitted until source statistics are available.
        */
       kernelDroppedPackets?: number;
     };

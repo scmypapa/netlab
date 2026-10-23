@@ -2288,7 +2288,7 @@ components:
         bytes: {type: integer, format: int64}
         packets: {type: integer, format: int64}
         omittedFlows: {type: integer, format: int64, description: Packets excluded from online aggregation due to distinct conversation limit; raw capture is unaffected.}
-        kernelDroppedPackets: {type: integer, format: int64, description: Kernel capture drops from the pcapng interface statistics; present after the recorder reports statistics.}
+        kernelDroppedPackets: {type: integer, format: int64, description: Cumulative kernel drops reported by the native capture intervals contributing to this file; omitted until source statistics are available.}
     CaptureList:
       type: object
       required: [segments, errors]

@@ -21,6 +21,7 @@ import (
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/layers"
 	"github.com/gopacket/gopacket/pcap"
+	"github.com/gopacket/gopacket/pcapgo"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/network"
 )
@@ -249,6 +250,38 @@ func (m *Manager) recordSubscriptions(environment, portName string, info gopacke
 				s.cancel()
 			}
 			s.persisted = time.Now()
+		}
+		s.mu.Unlock()
+	}
+}
+func (m *Manager) recordStatistics(environment, portName string, stats pcapgo.NgInterfaceStatistics) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.live {
+		if s.detail.Segment.EnvironmentId != environment {
+			continue
+		}
+		s.mu.Lock()
+		index := slices.Index(s.stats.capturePorts, portName)
+		if index < 0 || s.stopped {
+			s.mu.Unlock()
+			continue
+		}
+		m.recorder.mu.Lock()
+		err := s.writer.packets.WriteInterfaceStats(index, stats)
+		m.recorder.mu.Unlock()
+		// dumpcap emits one cumulative ISB per interface when a physical capture closes.
+		if stats.PacketsDropped != pcapgo.NgNoValue64 {
+			if s.detail.Segment.KernelDroppedPackets == nil {
+				s.detail.Segment.KernelDroppedPackets = new(int64)
+			}
+			*s.detail.Segment.KernelDroppedPackets += int64(stats.PacketsDropped)
+		}
+		if err != nil {
+			message := err.Error()
+			s.detail.Segment.Error = &message
+			s.stopped = true
+			s.cancel()
 		}
 		s.mu.Unlock()
 	}

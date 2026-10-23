@@ -42,10 +42,6 @@ func EmptyPacketCapture(output io.Writer) error {
 	return writer.Flush()
 }
 
-func packetInfo(packet api.CapturePacket) gopacket.CaptureInfo {
-	return gopacket.CaptureInfo{Timestamp: packet.Time, Length: packet.Length, CaptureLength: packet.CapturedLength, InterfaceIndex: packet.InterfaceIndex}
-}
-
 type RecentQuery struct {
 	Start, End                                                               time.Time
 	Asset, Interface, Network, Source, Destination, Protocol, Filter, Cursor string
