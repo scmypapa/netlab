@@ -244,6 +244,7 @@ b {
   margin: 0 auto;
   padding: 28px 32px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   flex: 1;
 }
 .page-heading {

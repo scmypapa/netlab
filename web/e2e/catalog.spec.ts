@@ -441,6 +441,31 @@ test("模板只读入口与安装权限保持服务端边界", async ({ page }) 
   });
 });
 
+test("资源分类切换不移动导航与标题", async ({ page }) => {
+  await fixture(page);
+  for (const width of [390, 1366, 1920, 2560]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/resources");
+    await page.evaluate(() => document.fonts.ready);
+    const navigation = page.getByRole("group", {
+      name: "资源分类",
+      exact: true,
+    });
+    const anchor = await navigation.boundingBox();
+    for (const name of ["存储", "集群性能", "计算节点"]) {
+      await navigation.getByRole("button", { name, exact: true }).click();
+      const position = await navigation.boundingBox();
+      expect(Math.abs(position!.x - anchor!.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(position!.y - anchor!.y)).toBeLessThanOrEqual(1);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
+  }
+});
+
 test("创建、导入、卷与备份操作在所属工作区直接可达", async ({ page }, info) => {
   page.on("pageerror", (error) => {
     throw error;

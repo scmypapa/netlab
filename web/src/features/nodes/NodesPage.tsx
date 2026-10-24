@@ -75,14 +75,6 @@ export function NodesPage() {
             </button>
           ))}
         </div>
-        {!storageView && (
-          <Button
-            leftSection={<Plus size={16} />}
-            onClick={() => setAdding(true)}
-          >
-            接入节点
-          </Button>
-        )}
       </div>
       {performanceView ? (
         <>
@@ -103,6 +95,12 @@ export function NodesPage() {
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
+            <Button
+              leftSection={<Plus size={16} />}
+              onClick={() => setAdding(true)}
+            >
+              接入节点
+            </Button>
           </div>
           <ErrorMessage error={nodes.error} />
           {nodes.isPending ? (
