@@ -34,6 +34,9 @@
 .node strong {
   max-width: 148px;
   margin-top: 7px;
+  padding-inline: 4px;
+  border-radius: 3px;
+  background: var(--canvas);
   font-size: clamp(13px, calc(13px / var(--graph-zoom)), 24px);
   font-weight: 500;
   line-height: 18px;
