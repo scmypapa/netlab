@@ -197,6 +197,7 @@ export function NodesPage() {
           />
           <TextInput
             label="节点服务地址"
+            classNames={{ input: styles.technical }}
             placeholder="https://node.example.com:9443"
             required
             value={endpoint}

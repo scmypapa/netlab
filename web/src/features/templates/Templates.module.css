@@ -15,7 +15,7 @@
 .catalogTools > :first-child {
   width: 260px;
 }
-.catalogTools > :last-child {
+.catalogTools > button {
   margin-left: auto;
 }
 .item:focus-visible {
