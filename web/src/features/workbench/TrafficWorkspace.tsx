@@ -6,6 +6,7 @@ import {
   Select,
   TextInput,
   Tooltip,
+  useComputedColorScheme,
 } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import {
@@ -64,7 +65,6 @@ import {
   selectionAsset,
   selectionFilter,
   selectionMatches,
-  trafficPalette,
 } from "./trafficModel";
 import styles from "./TrafficWorkspace.module.css";
 
@@ -97,6 +97,13 @@ export default function TrafficWorkspace({
   onClose: () => void;
   onView?: (view: Schema<"CanvasView">) => Promise<unknown>;
 }) {
+  const scheme = useComputedColorScheme();
+  const palette = useMemo(() => {
+    const css = getComputedStyle(document.documentElement);
+    return Array.from({ length: 8 }, (_, i) =>
+      css.getPropertyValue(`--chart-${i + 1}`).trim(),
+    );
+  }, [scheme]);
   const host = useRef<HTMLElement>(null),
     panes = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState("3600"),
@@ -159,10 +166,10 @@ export default function TrafficWorkspace({
       new Map(
         [...new Set(groups.values())].map((role, index) => [
           role,
-          trafficPalette[index % trafficPalette.length],
+          palette[index % palette.length],
         ]),
       ),
-    [groups],
+    [groups, palette],
   );
   const securityKey = [
     "security",
@@ -564,7 +571,7 @@ export default function TrafficWorkspace({
                 scale={unit.scale}
                 names={names}
                 seriesBy="asset"
-                colors={trafficPalette}
+                colors={palette}
                 timeline
                 timeWindow={timeRange}
                 annotations={alerts.map((alert) => ({

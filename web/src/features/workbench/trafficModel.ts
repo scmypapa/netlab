@@ -10,16 +10,6 @@ type Conversation = Pick<
   Schema<"CaptureFlow">,
   "source" | "destination" | "sourceAssetId" | "destinationAssetId"
 > & { networkId?: string };
-export const trafficPalette = [
-  "#507dc6",
-  "#bc8541",
-  "#8c6eb4",
-  "#458f9f",
-  "#bb6479",
-  "#708a48",
-  "#698296",
-  "#a17a65",
-];
 const ipv4 = (address: string) =>
   address.split(".").reduce((value, part) => value * 256 + Number(part), 0);
 const contains = (cidr: string, address: string) => {

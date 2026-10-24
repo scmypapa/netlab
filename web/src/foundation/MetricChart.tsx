@@ -119,14 +119,13 @@ export function MetricChart({
     const line = css.getPropertyValue("--line").trim();
     const text = css.getPropertyValue("--text").trim();
     const surface = css.getPropertyValue("--surface").trim();
-    const palette = colors ?? [
-      css.getPropertyValue("--accent").trim(),
-      theme === "dark" ? "#7eabf1" : "#3975d8",
-      "#dc8b39",
-      "#9861c7",
-      "#d25e77",
-      "#5b95a7",
-    ];
+    const palette = (
+      colors ?? Array.from({ length: 6 }, (_, i) => `var(--chart-${i + 1})`)
+    ).map((color) =>
+      color.startsWith("var(")
+        ? css.getPropertyValue(color.slice(4, -1)).trim()
+        : color,
+    );
     const readings: string[] = [];
     const plotted = timeline
       ? assetMetricSeries(history.series)
@@ -254,6 +253,7 @@ export function MetricChart({
     chart.current!.setOption(
       {
         animation: false,
+        textStyle: { fontFamily: css.fontFamily },
         aria: {
           enabled: true,
           label: {
@@ -311,7 +311,7 @@ export function MetricChart({
           axisLabel: {
             color: muted,
             hideOverlap: true,
-            fontSize: 10,
+            fontSize: 11,
             margin: 12,
           },
           axisTick: { show: false },
@@ -325,12 +325,12 @@ export function MetricChart({
           nameTextStyle: {
             color: muted,
             align: "left",
-            fontSize: 10,
+            fontSize: 11,
             padding: [0, 0, 2, 0],
           },
           axisLabel: {
             color: muted,
-            fontSize: 10,
+            fontSize: 11,
             formatter: (value: number) => metricNumber(value, 3),
           },
           splitLine: {
@@ -343,7 +343,7 @@ export function MetricChart({
           bottom: timeline ? undefined : 0,
           left: 12,
           type: "scroll",
-          textStyle: { color: muted, fontSize: 11 },
+          textStyle: { color: muted, fontSize: 12 },
           icon: "roundRect",
           itemWidth: 12,
           itemHeight: 3,

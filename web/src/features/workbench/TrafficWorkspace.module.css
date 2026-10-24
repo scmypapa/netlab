@@ -22,8 +22,8 @@
   flex-shrink: 0;
 }
 .toolbar strong {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   white-space: nowrap;
 }
 .toolbar > svg {
@@ -66,7 +66,7 @@
   color: var(--muted);
   padding: 5px 7px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
 }
@@ -115,7 +115,7 @@
 }
 .filter input {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 .protocolSelect {
   width: 115px;
@@ -132,7 +132,7 @@
   color: var(--accent);
   background: var(--accent-soft);
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 20px;
   cursor: pointer;
   overflow: hidden;
@@ -148,7 +148,7 @@
   padding: 7px 14px;
   color: var(--negative);
   background: color-mix(in srgb, var(--negative) 5%, var(--surface));
-  font-size: 11px;
+  font-size: 12px;
   flex-shrink: 0;
   overflow-wrap: anywhere;
   border-bottom: 1px solid var(--line);
@@ -167,7 +167,7 @@
 }
 .timeline header > span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .timeline header button,
 .collapsedTimeline {
@@ -177,7 +177,7 @@
   background: none;
   border: 0;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--muted);
   cursor: pointer;
@@ -207,7 +207,7 @@
   overflow: hidden;
 }
 .paneHeading {
-  height: 29px;
+  height: 32px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -219,14 +219,14 @@
 .paneHeading strong,
 .paneHeading button {
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
-  font-weight: 550;
+  font-weight: 500;
   color: var(--text);
 }
 .paneHeading span {
   color: var(--muted);
-  font: 10px/1.4 var(--font-mono);
+  font: 11px/1.4 var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -291,13 +291,13 @@
   display: flex;
   align-items: center;
   gap: 18px;
-  height: 25px;
+  height: 28px;
   flex-shrink: 0;
   padding: 0 13px;
   border-top: 1px solid var(--line);
   background: var(--canvas);
   color: var(--muted);
-  font: 10px/1.4 var(--font-mono);
+  font: 11px/1.4 var(--font-mono);
   white-space: nowrap;
 }
 .statusbar > span:first-child {
@@ -379,7 +379,7 @@
   .mobileTabs button {
     flex: 1;
     font-family: inherit;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 30px;
     border: 0;
     border-bottom: 2px solid transparent;

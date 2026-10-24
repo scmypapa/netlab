@@ -271,6 +271,16 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
   await fixture(page);
   for (const theme of ["light", "dark"]) {
     await page.goto("/environments");
+    expect(
+      await page.evaluate(async () => {
+        const fonts = await document.fonts.load(
+          '400 14px "Open Sans"',
+          "Netlab",
+        );
+        return fonts.length;
+      }),
+    ).toBe(1);
+    await expect(page.locator("body")).toHaveCSS("font-family", /"Open Sans"/);
     if (theme === "dark")
       await page
         .getByRole("button", { name: "切换夜间主题", exact: true })

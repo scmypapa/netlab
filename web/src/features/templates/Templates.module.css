@@ -16,7 +16,7 @@
 .sections button[aria-pressed="true"] {
   color: var(--text);
   border-bottom-color: var(--accent);
-  font-weight: 600;
+  font-weight: 500;
 }
 .sections button:focus-visible,
 .item:focus-visible {
@@ -28,7 +28,7 @@
   grid-template-columns: minmax(300px, 31%) minmax(0, 1fr);
   min-height: 530px;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: 8px;
   background: var(--surface);
   overflow: hidden;
 }
@@ -76,14 +76,14 @@
 }
 .itemText strong {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .itemText > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .symbol {
   color: var(--muted);
@@ -127,11 +127,11 @@
 }
 .specs strong {
   font-size: 18px;
-  font-weight: 550;
+  font-weight: 500;
 }
 .specs span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .detailColumns {
   display: grid;
@@ -145,14 +145,14 @@
 .section h3 {
   margin: 0 0 16px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .meta {
   display: grid;
   grid-template-columns: 78px minmax(0, 1fr);
   gap: 13px 16px;
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 .meta dt {
   color: var(--muted);
@@ -187,7 +187,7 @@
 .importSection h3 {
   margin: 0;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .importFooter {
   display: flex;
@@ -201,7 +201,7 @@
 }
 .hardware summary {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   padding: 0 0 16px;
 }

@@ -26,19 +26,20 @@
 }
 .accountName strong {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .accountName button {
   border: 0;
   padding: 0;
   background: none;
-  color: inherit;
+  color: var(--accent);
   text-align: left;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .accountName button:hover {
-  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .adminLabel {
   display: inline-flex;
@@ -210,8 +211,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 500;
 }
 .member > button:first-child svg {
   flex-shrink: 0;
@@ -225,7 +226,7 @@
 .memberEditor h3,
 .inherited h3 {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .inherited {
   display: grid;

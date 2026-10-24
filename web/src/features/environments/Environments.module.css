@@ -19,7 +19,7 @@
 }
 .environment strong {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .symbol {
   color: var(--muted);
@@ -38,7 +38,7 @@
 }
 .updated {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .creation {

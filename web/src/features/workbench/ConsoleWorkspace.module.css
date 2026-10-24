@@ -102,13 +102,13 @@
   padding: 8px 12px;
 }
 .vnc {
-  background: #151a23;
+  background: var(--terminal-bg);
 }
 .desktop {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #151a23;
+  background: var(--terminal-bg);
 }
 .desktop > div {
   outline: none;

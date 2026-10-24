@@ -5,7 +5,7 @@
   align-items: start;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: 8px;
   overflow: hidden;
 }
 .pools {
@@ -40,7 +40,7 @@
 }
 .meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .detail {
   min-width: 0;
@@ -72,11 +72,11 @@
   font-size: 21px;
   display: block;
   line-height: 1.4;
-  font-weight: 600;
+  font-weight: 500;
 }
 .metrics span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .setup {
   display: flex;
@@ -142,7 +142,7 @@
   display: grid;
   grid-template-columns: 90px minmax(0, 1fr);
   gap: 16px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .properties dt {
   color: var(--muted);
@@ -200,20 +200,21 @@
 .panelToolbar h2 {
   margin: 0;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .resourceName {
   border: 0;
   background: none;
-  color: var(--text);
+  color: var(--accent);
   padding: 0;
   cursor: pointer;
   text-align: left;
   font: inherit;
-  font-weight: 600;
+  font-weight: 500;
 }
 .resourceName:hover {
-  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .resourceName:focus-visible {
   outline: 2px solid var(--accent);

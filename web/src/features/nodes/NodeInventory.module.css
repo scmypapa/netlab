@@ -1,7 +1,7 @@
 .inventory {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: 8px;
   overflow: hidden;
 }
 .columns,
@@ -16,7 +16,7 @@
 }
 .columns {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   padding-top: 11px;
   padding-bottom: 11px;
   background: var(--canvas);
@@ -56,13 +56,13 @@
 }
 .name strong {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .name > span > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .load {
   display: grid;
@@ -72,7 +72,7 @@
 }
 .load strong {
   font-size: 16px;
-  font-weight: 550;
+  font-weight: 500;
 }
 .emptyTrack {
   height: 4px;
@@ -103,7 +103,7 @@
 }
 .drawerHeader strong {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .drawerHeader span {
   font-size: 12px;

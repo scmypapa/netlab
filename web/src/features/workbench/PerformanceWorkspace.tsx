@@ -47,7 +47,7 @@ const plots: Record<
     scale: 1,
     measures: ["cpu"],
     icon: <Cpu size={17} />,
-    color: "#255acb",
+    color: "var(--chart-1)",
   },
   memory: {
     title: "内存",
@@ -55,7 +55,7 @@ const plots: Record<
     scale: 2 ** 30,
     measures: ["memory"],
     icon: <MemoryStick size={17} />,
-    color: "#8058bc",
+    color: "var(--chart-2)",
   },
   network: {
     title: "资产网络",
@@ -63,7 +63,7 @@ const plots: Record<
     scale: 1,
     measures: ["receive", "transmit"],
     icon: <Activity size={17} />,
-    color: "#217c9c",
+    color: "var(--chart-4)",
   },
   disk: {
     title: "磁盘 I/O",
@@ -71,7 +71,7 @@ const plots: Record<
     scale: 1,
     measures: ["disk_read", "disk_write"],
     icon: <HardDrive size={17} />,
-    color: "#b17925",
+    color: "var(--chart-3)",
   },
   storage: {
     title: "节点工作盘",
@@ -79,7 +79,7 @@ const plots: Record<
     scale: 2 ** 30,
     measures: ["disk_used"],
     icon: <HardDrive size={17} />,
-    color: "#69758d",
+    color: "var(--chart-6)",
   },
 };
 
@@ -336,7 +336,7 @@ export default function PerformanceWorkspace(props: Scope) {
                         unit={item.unit}
                         scale={item.scale}
                         seriesBy="metric"
-                        colors={[item.color, "#667a94"]}
+                        colors={[item.color, "var(--chart-6)"]}
                         group={
                           "performance-" +
                           (environmentId ?? node?.id ?? "cluster")
