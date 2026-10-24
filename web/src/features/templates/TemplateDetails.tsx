@@ -8,6 +8,7 @@ import { api, type Template } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
+import { allowsProject } from "../access/permissions";
 import styles from "./Templates.module.css";
 
 const initializationNames = {
@@ -27,6 +28,7 @@ export function TemplateDetails({
   const navigate = useNavigate();
   const client = useQueryClient();
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
+  const canInstall = allowsProject(identity.data, "compose", "default");
   const [confirming, setConfirming] = useState(false);
   const [tab, setTab] = useState<string | null>("overview");
   const refresh = () => {
@@ -41,7 +43,10 @@ export function TemplateDetails({
     queryKey: ["template-cache", template.id],
     queryFn: () => api.templateCache(template.id),
     enabled:
-      tab === "cache" && template.kind === "vm" && template.state === "ready",
+      identity.data?.administrator === true &&
+      tab === "cache" &&
+      template.kind === "vm" &&
+      template.state === "ready",
   });
   const trim = useMutation({
     mutationFn: () => api.trimTemplateCache(template.id),
@@ -131,9 +136,11 @@ export function TemplateDetails({
       <Tabs value={tab} onChange={setTab}>
         <Tabs.List>
           <Tabs.Tab value="overview">规格与来源</Tabs.Tab>
-          {template.kind === "vm" && template.state === "ready" && (
-            <Tabs.Tab value="cache">节点缓存</Tabs.Tab>
-          )}
+          {identity.data?.administrator &&
+            template.kind === "vm" &&
+            template.state === "ready" && (
+              <Tabs.Tab value="cache">节点缓存</Tabs.Tab>
+            )}
         </Tabs.List>
         <Tabs.Panel value="cache" pt="md">
           <ErrorMessage error={cache.error} />
@@ -173,18 +180,20 @@ export function TemplateDetails({
           )}
         </Tabs.Panel>
         <Tabs.Panel value="overview" pt="lg">
-          {template.format === "iso" && template.state === "ready" && (
-            <>
-              <Button
-                leftSection={<Monitor size={16} />}
-                loading={install.isPending}
-                onClick={() => install.mutate()}
-              >
-                安装系统
-              </Button>
-              <ErrorMessage error={install.error} />
-            </>
-          )}
+          {canInstall &&
+            template.format === "iso" &&
+            template.state === "ready" && (
+              <>
+                <Button
+                  leftSection={<Monitor size={16} />}
+                  loading={install.isPending}
+                  onClick={() => install.mutate()}
+                >
+                  安装系统
+                </Button>
+                <ErrorMessage error={install.error} />
+              </>
+            )}
           <div className={styles.specs}>
             <div>
               <strong>

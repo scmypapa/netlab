@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { Identity } from "../src/api/client";
 
 const stamp = "2026-10-23T08:00:00Z";
 const resources = { cpu: 4, memoryMiB: 4096, diskGiB: 64 };
@@ -112,15 +113,17 @@ const environments = [
   createdAt: stamp,
   updatedAt: stamp,
 }));
-async function fixture(page: Page) {
+async function fixture(
+  page: Page,
+  identity: Identity = { id: "admin", name: "admin", administrator: true },
+) {
   const requests: string[] = [];
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url()),
       path = url.pathname.replace("/api/v1", "");
     requests.push(path);
     let response: unknown;
-    if (path === "/identity")
-      response = { id: "admin", name: "admin", administrator: true };
+    if (path === "/identity") response = identity;
     else if (path === "/environments/summary") {
       const matches = environments.filter((item) =>
         item.name.includes(url.searchParams.get("search") ?? ""),
@@ -358,6 +361,84 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
     }
   }
   expect(errors).toEqual([]);
+});
+
+test("模板只读入口与安装权限保持服务端边界", async ({ page }) => {
+  const identity: Identity = {
+    id: "user",
+    name: "operator",
+    administrator: false,
+  };
+  const requests = await fixture(page, identity);
+  const iso = {
+    ...templates[0],
+    id: "install-iso",
+    name: "Windows 安装介质",
+    format: "iso",
+  };
+  await page.route("**/api/v1/templates?*", (route) =>
+    route.fulfill({ json: [...templates, iso] }),
+  );
+  for (const scenario of [
+    { administrator: false, project: undefined, install: false },
+    { administrator: false, project: "another-project", install: false },
+    { administrator: false, project: "default", install: true },
+    { administrator: true, project: undefined, install: true },
+  ]) {
+    identity.administrator = scenario.administrator;
+    identity.grants = scenario.project
+      ? [
+          {
+            scopeKind: "project",
+            scopeId: scenario.project,
+            permissions: ["compose"],
+          },
+        ]
+      : [];
+    requests.length = 0;
+    await page.goto("/templates");
+    await expect(
+      page.getByRole("region", { name: "资产模板", exact: true }),
+    ).toContainText("Windows Server 2022");
+    await expect(
+      page.getByRole("tab", { name: "节点缓存", exact: true }),
+    ).toHaveCount(scenario.administrator ? 1 : 0);
+    if (scenario.administrator) {
+      await page.getByRole("tab", { name: "节点缓存", exact: true }).click();
+      await expect(
+        page.getByRole("tabpanel", { name: "节点缓存", exact: true }),
+      ).toContainText("16.00 GiB");
+      await expect(
+        page.getByRole("button", { name: "释放闲置基础盘", exact: true }),
+      ).toBeEnabled();
+    } else {
+      expect(requests.filter((path) => path.endsWith("/cache"))).toEqual([]);
+      await expect(
+        page.getByRole("button", { name: "导入模板", exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: "删除模板", exact: true }),
+      ).toHaveCount(0);
+    }
+    await page
+      .getByRole("button", { name: "Windows 安装介质", exact: true })
+      .click();
+    const install = page.getByRole("button", { name: "安装系统", exact: true });
+    await expect(install).toHaveCount(scenario.install ? 1 : 0);
+    if (scenario.install) await expect(install).toBeEnabled();
+  }
+  let submitted:
+    { spec: { assets: { templateId: string }[] }; run: boolean } | undefined;
+  await page.route("**/api/v1/environments", async (route) => {
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ status: 201, json: { id: "installed" } });
+  });
+  await page.getByRole("button", { name: "安装系统", exact: true }).click();
+  await expect(page).toHaveURL(/\/environments\/installed$/);
+  expect(submitted).toMatchObject({
+    run: true,
+    spec: { assets: [{ templateId: "install-iso" }] },
+  });
 });
 
 test("创建、导入、卷与备份操作在所属工作区直接可达", async ({ page }, info) => {
