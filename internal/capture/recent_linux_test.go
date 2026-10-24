@@ -30,6 +30,27 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
+	for name, query := range map[string]RecentQuery{
+		"asset":     {Asset: "absent-vm"},
+		"interface": {Interface: "absent-nic"},
+		"network":   {Network: "absent-lan"},
+	} {
+		t.Run("unrelated "+name+" returns no packets", func(t *testing.T) {
+			query.Limit, query.Filter = 10, "eth.addr == ff:ff:ff:ff:ff:ff || ip.addr == 192.0.2.255"
+			page, err := r.Recent(ctx, environment, query)
+			if err != nil || len(page.Packets) != 0 {
+				t.Fatalf("unrelated scope: page=%+v err=%v", page, err)
+			}
+			var output bytes.Buffer
+			if err = r.Export(ctx, environment, query, &output); err != nil {
+				t.Fatal(err)
+			}
+			count := 0
+			if err = readFrames(ctx, &output, false, func(api.CapturePacket, []byte) bool { count++; return true }); err != nil || count != 0 {
+				t.Fatalf("unrelated export: count=%d err=%v", count, err)
+			}
+		})
+	}
 	page, err := r.Recent(ctx, environment, RecentQuery{Limit: 2, Filter: "udp.dstport == 502", Network: "lan"})
 	if err != nil || len(page.Packets) != 2 || page.NextCursor == nil {
 		t.Fatalf("page=%+v err=%v", page, err)
@@ -130,5 +151,25 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 	detail, err = r.RecentPacket(ctx, environment, *page.Packets[0].Id)
 	if err != nil || detail.Packet.TransportProtocol == nil || *detail.Packet.TransportProtocol != "UDP" {
 		t.Fatalf("detail transport protocol: %+v %v", detail, err)
+	}
+	other := slicesCloneInterfaces(interfaces)
+	other[0].AssetId, other[0].InterfaceId = "other-vm", "other-nic"
+	if err = r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.Record(environment, other, 0, gopacket.CaptureInfo{Timestamp: at.Add(2 * time.Second), Length: len(frame), CaptureLength: len(frame)}, frame); err != nil {
+		t.Fatal(err)
+	}
+	page, err = r.Recent(ctx, environment, RecentQuery{Asset: "vm", Network: "lan", Limit: 10, Filter: "udp.dstport == 502"})
+	if err != nil || len(page.Packets) != 3 {
+		t.Fatalf("matching history beside unrelated segment: page=%+v err=%v", page, err)
+	}
+	exported.Reset()
+	if err = r.Export(ctx, environment, RecentQuery{Asset: "vm", Filter: "udp.dstport == 502"}, &exported); err != nil {
+		t.Fatal(err)
+	}
+	count = 0
+	if err = readFrames(ctx, &exported, false, func(api.CapturePacket, []byte) bool { count++; return true }); err != nil || count != 3 {
+		t.Fatalf("scoped history export: count=%d err=%v", count, err)
 	}
 }

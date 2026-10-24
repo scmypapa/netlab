@@ -86,7 +86,7 @@ func ParseRecentQuery(values url.Values) (RecentQuery, error) {
 	}
 	return q, nil
 }
-func (q RecentQuery) display(part packetPart) string {
+func (q RecentQuery) display(part packetPart) (string, bool) {
 	conditions := []string{}
 	if !q.Start.IsZero() {
 		conditions = append(conditions, fmt.Sprintf("frame.time_epoch >= %.9f", float64(q.Start.UnixNano())/1e9))
@@ -102,10 +102,9 @@ func (q RecentQuery) display(part packetPart) string {
 			}
 		}
 		if len(interfaces) == 0 {
-			conditions = append(conditions, "false")
-		} else {
-			conditions = append(conditions, "("+strings.Join(interfaces, " || ")+")")
+			return "", false
 		}
+		conditions = append(conditions, "("+strings.Join(interfaces, " || ")+")")
 	}
 	endpoint := func(side, address string) string {
 		if address == "" {
@@ -154,7 +153,7 @@ func (q RecentQuery) display(part packetPart) string {
 	if q.Filter != "" {
 		conditions = append(conditions, "("+q.Filter+")")
 	}
-	return strings.Join(conditions, " && ")
+	return strings.Join(conditions, " && "), true
 }
 func packetOrder(a, b api.CapturePacket) int {
 	if order := a.Time.Compare(b.Time); order != 0 {
@@ -233,6 +232,10 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 		if len(result.Packets) > q.Limit && part.part.End.Before(result.Packets[0].Time) {
 			break
 		}
+		filter, matches := q.display(part.part)
+		if !matches {
+			continue
+		}
 		if err = r.openPart(environment, &part); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -241,7 +244,7 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 		}
 		parts[index] = part
 		args := []string{"-n", "-r", "-", "-T", "fields", "-E", "separator=\t", "-E", "quote=d", "-E", "occurrence=f"}
-		if filter := q.display(part.part); filter != "" {
+		if filter != "" {
 			args = append(args, "-Y", filter)
 		}
 		for _, field := range []string{"frame.number", "frame.time_epoch", "frame.len", "frame.cap_len", "frame.interface_id", "eth.src", "eth.dst", "ip.src", "ip.dst", "ipv6.src", "ipv6.dst", "tcp.srcport", "tcp.dstport", "udp.srcport", "udp.dstport", "_ws.col.Protocol", "_ws.col.Info", "icmp.type", "icmpv6.type"} {
@@ -501,11 +504,15 @@ func (r *Recorder) Export(ctx context.Context, environment string, q RecentQuery
 		if part.part.CaptureID != "" {
 			continue
 		}
+		filter, matches := q.display(part.part)
+		if !matches {
+			continue
+		}
 		if err = r.openPart(environment, &part); err != nil {
 			return err
 		}
 		var selected []bool
-		if filter := q.display(part.part); filter != "" {
+		if filter != "" {
 			selected, err = matchingFrames(ctx, part, filter)
 			if err != nil {
 				closeParts([]partRead{part})

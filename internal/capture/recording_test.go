@@ -178,7 +178,10 @@ func TestRecentPacketQueryAndStableOlderPagination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter := q.display(packetPart{})
+	filter, matches := q.display(packetPart{})
+	if !matches {
+		t.Fatal("unscoped query excluded the segment")
+	}
 	for _, expected := range []string{"eth.src == 02:00:00:00:00:01", "ip.dst == 192.0.2.2", "tcp.flags.syn == 1", "frame.time_epoch"} {
 		if !strings.Contains(filter, expected) {
 			t.Fatal(filter)
