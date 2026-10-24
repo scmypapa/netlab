@@ -5,22 +5,24 @@ export function Status({ value }: { value: string }) {
     ? "positive"
     : ["failed", "offline", "partially_applied"].includes(value)
       ? "negative"
-      : [
-            "deploying",
-            "changing",
-            "destroying",
-            "queued",
-            "importing",
-            "deleting",
-            "capturing",
-            "creating",
-            "resizing",
-            "connecting",
-            "preparing",
-            "draining",
-          ].includes(value)
-        ? "active"
-        : "neutral";
+      : ["draft", "pending", "suspended"].includes(value)
+        ? "warning"
+        : [
+              "deploying",
+              "changing",
+              "destroying",
+              "queued",
+              "importing",
+              "deleting",
+              "capturing",
+              "creating",
+              "resizing",
+              "connecting",
+              "preparing",
+              "draining",
+            ].includes(value)
+          ? "active"
+          : "neutral";
   return (
     <span className={`status status-${tone}`}>
       <span className="status-dot" />
