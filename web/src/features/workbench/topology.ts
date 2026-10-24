@@ -20,6 +20,10 @@ export type TopologyData = {
   count?: number;
 };
 export type TopologyNode = Node<TopologyData, "asset" | "network">;
+export const topologyNodeSize = {
+  asset: { width: 188, height: 76 },
+  network: { width: 188, height: 60 },
+};
 
 export function topology(
   spec: EnvironmentSpec,
@@ -30,7 +34,7 @@ export function topology(
     .setGraph({
       rankdir: "TB",
       nodesep: 40,
-      ranksep: 100,
+      ranksep: 80,
       marginx: 56,
       marginy: 48,
     })
@@ -101,12 +105,7 @@ export function topology(
         },
       })),
   );
-  nodes.forEach((node) =>
-    graph.setNode(node.id, {
-      width: 188,
-      height: node.type === "network" ? 64 : 100,
-    }),
-  );
+  nodes.forEach((node) => graph.setNode(node.id, topologyNodeSize[node.type!]));
   edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
   dagre.layout(graph);
   return {
@@ -115,8 +114,8 @@ export function topology(
       return {
         ...node,
         position: view.positions?.[node.id] ?? {
-          x: point.x - 94,
-          y: point.y - (node.type === "network" ? 32 : 50),
+          x: point.x - topologyNodeSize[node.type!].width / 2,
+          y: point.y - topologyNodeSize[node.type!].height / 2,
         },
       };
     }),

@@ -2,14 +2,19 @@
 .network {
   width: 188px;
   background: var(--surface);
-  border: 1px solid var(--strong-line);
-  border-radius: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
   color: var(--text);
-  box-shadow: 0 2px 4px #10182806;
+  box-shadow: var(--shadow-panel);
 }
 .asset {
-  height: 100px;
-  padding: 12px 14px;
+  height: 76px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 3px solid var(--network-color);
+  position: relative;
 }
 .asset[data-selected="true"],
 .network[data-selected="true"] {
@@ -20,22 +25,30 @@
 .network:hover {
   border-color: var(--network-color);
 }
-.assetHeading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 26px;
-  margin-bottom: 8px;
-}
 .glyph {
-  display: flex;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 6px;
   color: var(--network-color);
+  background: color-mix(in srgb, var(--network-color) 10%, var(--surface));
+}
+.assetIdentity {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
 }
 .light {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--muted);
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 10%, transparent);
 }
 .light[data-state="running"] {
   background: var(--positive);
@@ -63,8 +76,8 @@
   line-height: 19px;
 }
 .network {
-  height: 64px;
-  padding: 11px 13px;
+  height: 60px;
+  padding: 9px 12px;
   border-top: 2px solid var(--network-color);
 }
 .networkHeading {

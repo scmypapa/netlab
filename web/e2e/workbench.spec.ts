@@ -1493,6 +1493,29 @@ test("canvas positioning only writes view", async ({ page }) => {
   ).toEqual(["/environments/env/view"]);
 });
 
+test("工作台直达视图可刷新，停止使用次级危险按钮", async ({ page }) => {
+  const calls = await fixture(page);
+  await page.goto("/environments/env?view=assets");
+  await expect(
+    page.getByRole("button", { name: "资产视图", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.reload();
+  await expect(page.getByRole("table", { name: "运行资产" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "停止", exact: true }),
+  ).toHaveAttribute("data-variant", "outline");
+  await page.getByRole("button", { name: "拓扑视图", exact: true }).click();
+  await expect(page).toHaveURL(/\/environments\/env$/);
+  const asset = page.locator(".react-flow__node-asset").first();
+  await expect(asset).toBeVisible();
+  const size = await asset.evaluate((element) => ({
+    width: element.clientWidth,
+    height: element.clientHeight,
+  }));
+  expect(size).toEqual({ width: 188, height: 76 });
+  expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
+});
+
 test("working area fits supported widths and both themes", async ({ page }) => {
   test.setTimeout(60_000);
   await fixture(page);

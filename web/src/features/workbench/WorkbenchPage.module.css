@@ -4,7 +4,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
+  background: var(--page);
 }
 .header {
   display: flex;
@@ -14,6 +14,7 @@
   min-height: 68px;
   padding: 12px 22px;
   border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
 .identity,
 .title,
@@ -26,7 +27,7 @@
 .title h1 {
   margin: 0;
   font-size: 20px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -57,19 +58,23 @@
   min-width: 0;
   display: flex;
   position: relative;
+  gap: 12px;
+  padding: 12px;
 }
 .tree {
   width: 220px;
   flex-shrink: 0;
-  padding: 14px 10px;
-  border-right: 1px solid var(--line);
+  padding: 16px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--surface);
+  box-shadow: var(--shadow-panel);
   overflow-y: auto;
 }
 .treeHeading {
   display: flex;
   justify-content: space-between;
-  margin: 22px 8px 8px;
+  margin: 24px 10px 10px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -78,13 +83,14 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 36px;
-  padding: 7px 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  margin: 3px 0;
   text-align: left;
   background: none;
-  border: 0;
-  border-radius: 5px;
-  font-size: 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 13px;
   color: var(--text);
   cursor: pointer;
 }
@@ -94,6 +100,8 @@
 .treeItem[aria-current="true"] {
   background: var(--accent-soft);
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  font-weight: 600;
 }
 .treeItem > span:first-of-type {
   overflow: hidden;
@@ -122,12 +130,16 @@
   min-width: 0;
   position: relative;
   background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
 }
 .canvas > :global(.react-flow) {
   flex: 1;
 }
 .toolbar {
-  min-height: 46px;
+  min-height: 50px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -146,26 +158,31 @@
 }
 .views {
   display: flex;
-  align-items: stretch;
-  align-self: stretch;
-  gap: 18px;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
 }
 .views button {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 46px;
-  padding: 0 2px;
+  height: 30px;
+  padding: 0 10px;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: 4px;
   background: none;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 .views button[aria-pressed="true"] {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 3px #00000012;
+  font-weight: 600;
 }
 .count {
   font-size: 12px;
@@ -194,7 +211,7 @@
 .assetTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: 13px;
   text-align: left;
 }
 .assetTable th {
@@ -209,7 +226,7 @@
   white-space: nowrap;
 }
 .assetTable td {
-  padding: 15px 20px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
@@ -234,7 +251,11 @@
   cursor: pointer;
 }
 .assetName svg {
-  color: var(--muted);
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 5px;
+  box-sizing: content-box;
+  border-radius: 6px;
 }
 .empty {
   padding: 50px 20px;
@@ -284,21 +305,28 @@
   }
   .toolbar {
     padding: 0 8px;
+    overflow-x: auto;
   }
   .views {
-    gap: 12px;
+    gap: 2px;
   }
   .views button {
     font-size: 12px;
+    padding: 0 7px;
+    white-space: nowrap;
   }
   .count {
     display: none;
   }
   .tree {
     position: absolute;
-    inset: 46px auto 0 0;
+    inset: 63px auto 8px 8px;
     width: 220px;
     z-index: 5;
+  }
+  .body {
+    padding: 8px;
+    gap: 8px;
   }
   .listTools {
     padding: 12px;

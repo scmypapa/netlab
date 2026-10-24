@@ -19,7 +19,7 @@ import { useComputedColorScheme } from "@mantine/core";
 import type { Edge } from "@xyflow/react";
 import type { Schema } from "../../api/client";
 import { stateLabel } from "../../foundation/format";
-import type { TopologyNode } from "./topology";
+import { topologyNodeSize, type TopologyNode } from "./topology";
 import styles from "./TopologyCanvas.module.css";
 
 const nodeTypes = { asset: AssetNode, network: NetworkNode };
@@ -143,9 +143,11 @@ function FocusSelection({ selection }: { selection?: string }) {
     const frame = requestAnimationFrame(() => {
       const node = getNode(selection);
       if (node)
-        void setCenter(node.position.x + 94, node.position.y + 50, {
-          zoom: Math.min(getViewport().zoom, 1),
-        });
+        void setCenter(
+          node.position.x + topologyNodeSize[node.type!].width / 2,
+          node.position.y + topologyNodeSize[node.type!].height / 2,
+          { zoom: Math.min(getViewport().zoom, 1) },
+        );
     });
     return () => cancelAnimationFrame(frame);
   }, [selection, getNode, setCenter, getViewport, width, height]);
@@ -160,20 +162,20 @@ function AssetNode({ data, selected }: NodeProps<TopologyNode>) {
       style={{ "--network-color": data.color } as React.CSSProperties}
     >
       <Handle type="target" position={Position.Top} />
-      <div className={styles.assetHeading}>
-        <span className={styles.glyph}>
-          {data.kind === "vm" ? <Monitor size={23} /> : <Box size={23} />}
-        </span>
-        <span
-          className={styles.light}
-          data-state={data.state}
-          title={stateLabel(data.state)}
-        />
-      </div>
-      <strong>{data.label}</strong>
-      <span className={styles.address}>
-        {data.secondary || (data.kind === "vm" ? "虚拟机" : "容器")}
+      <span className={styles.glyph}>
+        {data.kind === "vm" ? <Monitor size={20} /> : <Box size={20} />}
       </span>
+      <div className={styles.assetIdentity}>
+        <strong>{data.label}</strong>
+        <span className={styles.address}>
+          {data.secondary || (data.kind === "vm" ? "虚拟机" : "容器")}
+        </span>
+      </div>
+      <span
+        className={styles.light}
+        data-state={data.state}
+        title={stateLabel(data.state)}
+      />
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

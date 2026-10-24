@@ -273,6 +273,7 @@ export function ObjectInspector({
                       {canOperate && (
                         <>
                           <Menu.Item
+                            color={stopped ? undefined : "red"}
                             leftSection={<Power size={15} />}
                             disabled={busy}
                             onClick={() => onAction(stopped ? "start" : "stop")}
@@ -484,7 +485,9 @@ export function ObjectInspector({
                   {vm && (
                     <div>
                       <dt>固件</dt>
-                      <dd>{template.hardware?.firmware.toUpperCase()}</dd>
+                      <dd className={styles.technical}>
+                        {template.hardware?.firmware.toUpperCase()}
+                      </dd>
                     </div>
                   )}
                   {asset.interfaces.map(

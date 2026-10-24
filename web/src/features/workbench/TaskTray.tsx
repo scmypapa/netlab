@@ -67,11 +67,14 @@ export function TaskTray({
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
-  const latest =
-    operation && ["queued", "running"].includes(operation.state)
-      ? operation
-      : (operations[0] ?? operation);
-  const shown = operations.find((item) => item.id === selected) ?? latest;
+  const recent = operation
+    ? [operation, ...operations.filter((item) => item.id !== operation.id)]
+    : operations;
+  const latest = recent[0];
+  const shown = recent.find((item) => item.id === selected) ?? latest;
+  const active = recent.filter((item) =>
+    ["queued", "running"].includes(item.state),
+  ).length;
   useEffect(() => {
     if (latest?.state === "failed") setOpen(true);
   }, [latest?.id, latest?.state]);
@@ -85,15 +88,34 @@ export function TaskTray({
         <span>
           <ListChecks size={16} />
           任务
+          <span
+            className={styles.count}
+            aria-label={`${recent.length} 项近期任务`}
+          >
+            {recent.length}
+          </span>
           {latest && (
             <>
               <span className={styles.divider} />
               {actionLabels[latest.kind] ?? latest.kind}
               <Status value={latest.state} />
+              {["queued", "running"].includes(latest.state) && (
+                <span className={styles.phase}>
+                  {phaseLabels[latest.phase] ?? latest.phase}
+                </span>
+              )}
             </>
           )}
         </span>
         <span>
+          {active > 0 && (
+            <span className={styles.active}>{active} 项执行中</span>
+          )}
+          {latest && !active && (
+            <time className={styles.timestamp}>
+              {dateTime(latest.updatedAt)}
+            </time>
+          )}
           {latest &&
             latest.total > 0 &&
             ["running", "queued"].includes(latest.state) && (
@@ -107,8 +129,8 @@ export function TaskTray({
       {open && (
         <div className={styles.content}>
           <div className={styles.list} role="group" aria-label="任务列表">
-            {operations.length ? (
-              operations.map((item) => (
+            {recent.length ? (
+              recent.map((item) => (
                 <button
                   key={item.id}
                   aria-current={shown?.id === item.id}

@@ -4,8 +4,10 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--surface);
+  box-shadow: var(--shadow-panel);
 }
 .header {
   display: flex;
@@ -18,9 +20,9 @@
   height: 36px;
   display: grid;
   place-items: center;
-  color: var(--muted);
-  background: var(--canvas);
-  border-radius: 5px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 7px;
   flex-shrink: 0;
 }
 .identity {
@@ -32,7 +34,7 @@
 .identity h2 {
   margin: 0;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 .actions {
@@ -67,7 +69,7 @@
 .resources {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 18px 0;
+  padding: 16px 0;
   margin: 0;
   gap: 8px;
   border-bottom: 1px solid var(--line);
@@ -76,6 +78,10 @@
   display: grid;
   align-content: start;
   gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  padding: 10px 8px;
 }
 .resources dt {
   color: var(--muted);
@@ -84,8 +90,9 @@
 .resources dd {
   margin: 0;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 .resources dd span {
@@ -93,6 +100,7 @@
   font-size: 12px;
   font-weight: 400;
   color: var(--muted);
+  font-family: var(--font-ui);
 }
 .section {
   padding: 20px 0 0;
@@ -102,7 +110,7 @@
   gap: 6px;
   align-items: center;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--muted);
   margin: 0 0 10px;
 }
@@ -111,7 +119,7 @@
 }
 .items {
   display: grid;
-  gap: 2px;
+  gap: 6px;
 }
 .item {
   display: flex;
@@ -119,17 +127,18 @@
   align-items: center;
   gap: 9px;
   min-width: 0;
-  padding: 10px 0;
+  padding: 10px;
   text-align: left;
   color: var(--text);
-  border: 0;
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 6px;
   background: transparent;
   font: inherit;
   cursor: pointer;
 }
 .item:hover {
   color: var(--accent);
+  background: var(--surface-hover);
 }
 .item > svg:last-child {
   color: var(--muted);
@@ -143,7 +152,7 @@
 }
 .itemText strong {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 .marker {
@@ -177,10 +186,16 @@
 }
 .properties dt {
   color: var(--muted);
+  font-size: 12px;
 }
 .properties dd {
   margin: 0;
   overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.technical {
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 .details {
   margin-top: 20px;
@@ -220,8 +235,8 @@
 @media (max-width: 760px) {
   .inspector {
     position: absolute;
-    inset: 46px 0 0 auto;
-    width: min(340px, 100%);
+    inset: 63px 8px 8px auto;
+    width: min(340px, calc(100% - 16px));
     z-index: 6;
     box-shadow: -8px 0 24px #0000000a;
   }

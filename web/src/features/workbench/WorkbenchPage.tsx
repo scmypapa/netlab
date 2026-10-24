@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   api,
   ApiError,
@@ -66,6 +66,7 @@ const ConsoleWorkspace = lazy(() => import("./ConsoleWorkspace"));
 const ObservationWorkspace = lazy(() => import("./ObservationWorkspace"));
 const TrafficWorkspace = lazy(() => import("./TrafficWorkspace"));
 const PerformanceWorkspace = lazy(() => import("./PerformanceWorkspace"));
+type WorkbenchView = "topology" | "assets" | "traffic" | "performance";
 
 export function WorkbenchPage() {
   const { id = "" } = useParams();
@@ -79,9 +80,23 @@ function Workbench({ id }: { id: string }) {
   const [capturing, setCapturing] = useState<Asset>();
   const [selection, setSelection] = useState<string>();
   const [tree, setTree] = useState(false);
-  const [view, setView] = useState<
-    "topology" | "assets" | "traffic" | "performance"
-  >("topology");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedView = searchParams.get("view");
+  const view: WorkbenchView =
+    requestedView === "assets" ||
+    requestedView === "traffic" ||
+    requestedView === "performance"
+      ? requestedView
+      : "topology";
+  const setView = (value: WorkbenchView) =>
+    setSearchParams(
+      (params) => {
+        if (value === "topology") params.delete("view");
+        else params.set("view", value);
+        return params;
+      },
+      { replace: true },
+    );
   const list = view === "assets",
     traffic = view === "traffic",
     performance = view === "performance";
@@ -445,6 +460,8 @@ function Workbench({ id }: { id: string }) {
               )}
               {canOperate && (
                 <Button
+                  variant={activeAction === "stop" ? "outline" : "filled"}
+                  color={activeAction === "stop" ? "red" : undefined}
                   leftSection={
                     activeAction === "start" ? <Play size={15} /> : undefined
                   }
@@ -487,6 +504,7 @@ function Workbench({ id }: { id: string }) {
                         <Menu.Divider />
                         {status === "suspended" && (
                           <Menu.Item
+                            color="red"
                             onClick={() =>
                               workbench.action.mutate({ action: "stop" })
                             }
@@ -786,7 +804,7 @@ function Workbench({ id }: { id: string }) {
                 />
               </div>
               <div className={styles.tableScroll}>
-                <table className={styles.assetTable}>
+                <table className={styles.assetTable} aria-label="运行资产">
                   <thead>
                     <tr>
                       <th>资产</th>
