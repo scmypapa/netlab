@@ -95,6 +95,23 @@ const pools = [
     },
   },
 ];
+const environments = [
+  "企业网络实验室",
+  "工业控制联调",
+  "Windows 兼容性验证",
+  "网络基础课程",
+].map((name, index) => ({
+  id: `env-${index}`,
+  name,
+  projectId: "default",
+  externalReference: `LAB-2026-0${index + 1}`,
+  status: ["running", "running", "stopped", "draft"][index],
+  assetCount: [20, 12, 8, 0][index],
+  networkCount: [3, 2, 2, 0][index],
+  revision: 1,
+  createdAt: stamp,
+  updatedAt: stamp,
+}));
 async function fixture(page: Page) {
   const requests: string[] = [];
   await page.route("**/api/v1/**", async (route) => {
@@ -104,31 +121,26 @@ async function fixture(page: Page) {
     let response: unknown;
     if (path === "/identity")
       response = { id: "admin", name: "admin", administrator: true };
-    else if (path === "/environments")
-      response = [
-        "企业网络实验室",
-        "工业控制联调",
-        "Windows 兼容性验证",
-        "网络基础课程",
-      ]
-        .map((name, index) => ({
-          id: `env-${index}`,
-          name,
-          projectId: "default",
-          externalReference: `LAB-2026-0${index + 1}`,
-          status: ["running", "running", "stopped", "draft"][index],
-          assetCount: [20, 12, 8, 0][index],
-          networkCount: [3, 2, 2, 0][index],
-          revision: 1,
-          createdAt: stamp,
-          updatedAt: stamp,
-        }))
-        .filter(
-          (item) =>
-            item.name.includes(url.searchParams.get("search") ?? "") &&
-            (!url.searchParams.get("status") ||
-              item.status === url.searchParams.get("status")),
-        );
+    else if (path === "/environments/summary") {
+      const matches = environments.filter((item) =>
+        item.name.includes(url.searchParams.get("search") ?? ""),
+      );
+      response = {
+        total: matches.length,
+        statuses: Object.fromEntries(
+          [...new Set(matches.map((item) => item.status))].map((status) => [
+            status,
+            matches.filter((item) => item.status === status).length,
+          ]),
+        ),
+      };
+    } else if (path === "/environments")
+      response = environments.filter(
+        (item) =>
+          item.name.includes(url.searchParams.get("search") ?? "") &&
+          (!url.searchParams.get("status") ||
+            item.status === url.searchParams.get("status")),
+      );
     else if (path === "/templates")
       response = templates.filter(
         (item) =>
@@ -273,14 +285,11 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
     await page.goto("/environments");
     expect(
       await page.evaluate(async () => {
-        const fonts = await document.fonts.load(
-          '400 14px "Open Sans"',
-          "Netlab",
-        );
+        const fonts = await document.fonts.load('400 14px "Inter"', "Netlab");
         return fonts.length;
       }),
     ).toBe(1);
-    await expect(page.locator("body")).toHaveCSS("font-family", /"Open Sans"/);
+    await expect(page.locator("body")).toHaveCSS("font-family", /Inter/);
     if (theme === "dark")
       await page
         .getByRole("button", { name: "切换夜间主题", exact: true })
@@ -300,8 +309,27 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
           ).toBeVisible();
         if (section === "templates") {
           await expect(
+            page.getByRole("group", { name: "模板分类", exact: true }),
+          ).toBeVisible();
+          const library = page.getByRole("region", {
+            name: "资产模板库",
+            exact: true,
+          });
+          await expect(
+            library.getByRole("textbox", { name: "搜索模板", exact: true }),
+          ).toBeVisible();
+          await expect(
+            library.getByRole("group", { name: "模板类型", exact: true }),
+          ).toBeVisible();
+          await expect(
             page.getByRole("region", { name: "资产模板", exact: true }),
           ).toContainText("pc-q35-10.0");
+          await expect(
+            page
+              .getByRole("region", { name: "资产模板", exact: true })
+              .locator("dd")
+              .first(),
+          ).toHaveCSS("font-family", /JetBrains Mono/);
           await page
             .getByRole("button", { name: "Nginx 服务", exact: true })
             .focus();

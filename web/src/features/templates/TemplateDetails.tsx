@@ -115,7 +115,7 @@ export function TemplateDetails({
           template.state !== "deleting" && (
             <ActionIcon
               variant="subtle"
-              color="gray"
+              color="red"
               aria-label="删除模板"
               onClick={() => setConfirming(true)}
             >
@@ -211,27 +211,27 @@ export function TemplateDetails({
                 <h3>虚拟硬件</h3>
                 <dl className={styles.meta}>
                   <dt>机器</dt>
-                  <dd>{hardware.machine}</dd>
+                  <dd className={styles.technical}>{hardware.machine}</dd>
                   <dt>固件</dt>
-                  <dd>
+                  <dd className={styles.technical}>
                     {hardware.firmware.toUpperCase()}
                     {hardware.secureBoot ? " · Secure Boot" : ""}
                   </dd>
                   <dt>磁盘</dt>
-                  <dd>
+                  <dd className={styles.technical}>
                     {hardware.diskBus.toUpperCase()}
                     {hardware.diskController
                       ? ` · ${hardware.diskController}`
                       : ""}
                   </dd>
                   <dt>网卡</dt>
-                  <dd>
+                  <dd className={styles.technical}>
                     {template.nicModels?.join(" · ") || hardware.nicModel}
                   </dd>
                   {hardware.tpm && (
                     <>
                       <dt>安全芯片</dt>
-                      <dd>TPM 2.0</dd>
+                      <dd className={styles.technical}>TPM 2.0</dd>
                     </>
                   )}
                   <dt>初始化</dt>
@@ -248,7 +248,7 @@ export function TemplateDetails({
                   {template.disks.map((disk, index) => (
                     <div key={disk.id}>
                       <strong>磁盘 {index + 1}</strong>
-                      <span>
+                      <span className={styles.technical}>
                         {disk.bus.toUpperCase()} · {disk.sizeGiB} GiB
                       </span>
                       {disk.bootOrder === 1 && (
@@ -263,14 +263,14 @@ export function TemplateDetails({
               <h3>镜像来源</h3>
               <dl className={styles.meta}>
                 <dt>格式</dt>
-                <dd>
+                <dd className={styles.technical}>
                   {template.format?.toUpperCase() ??
                     (template.kind === "container" ? "OCI" : "—")}
                 </dd>
                 {template.source && (
                   <>
                     <dt>{localSource ? "文件" : "地址"}</dt>
-                    <dd className="template-source">
+                    <dd className={`${styles.technical} template-source`}>
                       {localSource
                         ? template.source.split("/").at(-1)
                         : template.source.startsWith("asset:")

@@ -70,17 +70,19 @@ async function baseFixture(page: Page) {
     const response =
       path === "/identity"
         ? { id: "user", name: "operator", administrator: true }
-        : path === "/environments/env"
-          ? environment
-          : path === "/environments/env/state"
-            ? {
-                id: "env",
-                revision: 1,
-                status: "running",
-                assets: [],
-                updatedAt: timestamp,
-              }
-            : [];
+        : path === "/environments/summary"
+          ? { total: 0, statuses: {} }
+          : path === "/environments/env"
+            ? environment
+            : path === "/environments/env/state"
+              ? {
+                  id: "env",
+                  revision: 1,
+                  status: "running",
+                  assets: [],
+                  updatedAt: timestamp,
+                }
+              : [];
     await route.fulfill({ json: response });
   });
 }
@@ -112,6 +114,23 @@ test("environment summaries paginate, preserve a failed page, and filter on the 
     updatedAt: timestamp,
   }));
   let rejectPage = true;
+  await page.route("**/api/v1/environments/summary?*", async (route) => {
+    const search =
+      new URL(route.request().url()).searchParams.get("search") ?? "";
+    const matches = summaries.filter(
+      (item) =>
+        item.name.includes(search) || item.externalReference.includes(search),
+    );
+    await route.fulfill({
+      json: {
+        total: matches.length,
+        statuses: {
+          running: matches.filter((item) => item.status === "running").length,
+          stopped: matches.filter((item) => item.status === "stopped").length,
+        },
+      },
+    });
+  });
   await page.route("**/api/v1/environments?*", async (route) => {
     const url = new URL(route.request().url());
     requests.push(url);
@@ -136,6 +155,13 @@ test("environment summaries paginate, preserve a failed page, and filter on the 
   });
   await page.goto("/environments");
   await expect(page.locator("tbody tr")).toHaveCount(100);
+  const counts = page.getByRole("group", { name: "环境状态", exact: true });
+  await expect(
+    counts.getByRole("button", { name: "全部环境", exact: true }),
+  ).toContainText("103");
+  await expect(
+    counts.getByRole("button", { name: "运行中", exact: true }),
+  ).toContainText("102");
   await expect(
     page.locator("tbody tr").first().getByRole("cell").nth(2),
   ).toContainText("20");
@@ -150,6 +176,15 @@ test("environment summaries paginate, preserve a failed page, and filter on the 
   await expect(page.locator("tbody tr")).toHaveCount(103);
   await page.getByRole("textbox", { name: "搜索环境" }).fill("team-102");
   await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(
+    counts.getByRole("button", { name: "全部环境", exact: true }),
+  ).toContainText("1");
+  await expect(
+    page.getByRole("link", { name: "进入拓扑", exact: true }),
+  ).toHaveAttribute("href", "/environments/env-102");
+  await expect(
+    page.getByRole("link", { name: "查看资产", exact: true }),
+  ).toHaveAttribute("href", "/environments/env-102?view=assets");
   await page.getByRole("button", { name: "已停止", exact: true }).click();
   await expect
     .poll(() => requests.at(-1)?.searchParams.get("status"))

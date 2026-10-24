@@ -70,12 +70,14 @@ export function BlueprintsPanel() {
                       <strong>{item.name}</strong>
                     </button>
                   </td>
-                  <td>v{item.latestVersion}</td>
+                  <td className={styles.technical}>v{item.latestVersion}</td>
                   <td className="numeric">
                     {item.assetCount} 资产
                     <span className="muted"> · {item.networkCount} 网段</span>
                   </td>
-                  <td className="muted">{dateTime(item.updatedAt)}</td>
+                  <td className={`${styles.technical} muted`}>
+                    {dateTime(item.updatedAt)}
+                  </td>
                   <td className="table-action">
                     <ActionIcon
                       variant="subtle"

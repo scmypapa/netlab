@@ -23,20 +23,22 @@ export function TemplatesPage() {
     <main className="collection-page">
       <div className="page-heading">
         <h1>模板</h1>
-      </div>
-      <div className={styles.sections} role="group" aria-label="模板分类">
-        {[
-          ["assets", "资产模板"],
-          ["environments", "环境模板"],
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            aria-pressed={section === value}
-            onClick={() => setParams(value === "assets" ? {} : { tab: value })}
-          >
-            {label}
-          </button>
-        ))}
+        <div className="module-switch" role="group" aria-label="模板分类">
+          {[
+            ["assets", "资产模板"],
+            ["environments", "环境模板"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              aria-pressed={section === value}
+              onClick={() =>
+                setParams(value === "assets" ? {} : { tab: value })
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
       {section === "assets" ? <AssetTemplatesPanel /> : <BlueprintsPanel />}
     </main>
@@ -70,103 +72,105 @@ function AssetTemplatesPanel() {
   const detail = items.find((item) => item.id === selected) ?? items[0];
   return (
     <>
-      <div className="collection-toolbar">
-        <div className="filter-tabs" role="group" aria-label="模板类型">
-          {[
-            ["all", "全部模板"],
-            ["vm", "虚拟机"],
-            ["container", "容器"],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              className={kind === value ? "selected" : ""}
-              onClick={() => setKind(value)}
-              aria-pressed={kind === value}
+      <section className={styles.catalog} aria-label="资产模板库">
+        <div className={styles.catalogTools}>
+          <TextInput
+            aria-label="搜索模板"
+            placeholder="搜索模板"
+            leftSection={<Search size={15} />}
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+          <div className="filter-pills" role="group" aria-label="模板类型">
+            {[
+              ["all", "全部模板"],
+              ["vm", "虚拟机"],
+              ["container", "容器"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                className={kind === value ? "selected" : ""}
+                onClick={() => setKind(value)}
+                aria-pressed={kind === value}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {identity.data?.administrator && (
+            <Button
+              leftSection={<Plus size={16} />}
+              onClick={() => setCreating(true)}
             >
-              {label}
-            </button>
-          ))}
-        </div>
-        {identity.data?.administrator && (
-          <Button
-            leftSection={<Plus size={16} />}
-            onClick={() => setCreating(true)}
-          >
-            导入模板
-          </Button>
-        )}
-      </div>
-      <ErrorMessage error={templates.error} />
-      {templates.isPending ? (
-        <Loading />
-      ) : items.length || query ? (
-        <div className={styles.library}>
-          <aside className={styles.directory} aria-label="资产模板目录">
-            <TextInput
-              aria-label="搜索模板"
-              placeholder="搜索模板"
-              leftSection={<Search size={15} />}
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-            <div className={styles.items}>
-              {items.map((template) => (
-                <button
-                  key={template.id}
-                  className={styles.item}
-                  aria-label={template.name}
-                  aria-pressed={template.id === detail?.id}
-                  onClick={() => setSelected(template.id)}
-                >
-                  <span className={styles.symbol}>
-                    {template.kind === "vm" ? (
-                      <Monitor size={20} />
-                    ) : (
-                      <Box size={20} />
-                    )}
-                  </span>
-                  <span className={styles.itemText}>
-                    <strong>{template.name}</strong>
-                    <span>
-                      {template.os} ·{" "}
-                      {template.format?.toUpperCase() ??
-                        (template.kind === "container" ? "OCI" : "—")}{" "}
-                      · v{template.version}
-                    </span>
-                    <span>
-                      {template.resources.cpu} 核 ·{" "}
-                      {memory(template.resources.memoryMiB)}
-                    </span>
-                  </span>
-                  <Status value={template.state ?? "importing"} />
-                </button>
-              ))}
-              {!items.length && (
-                <Empty icon={<Search size={24} />} title="没有匹配的模板" />
-              )}
-              <LoadMore list={templates} />
-            </div>
-          </aside>
-          {detail ? (
-            <TemplateDetails
-              key={detail.id}
-              template={detail}
-              onClose={() => setSelected(undefined)}
-            />
-          ) : (
-            <div />
+              导入模板
+            </Button>
           )}
         </div>
-      ) : (
-        !templates.error && (
-          <Empty
-            icon={<Boxes size={30} />}
-            title={kind !== "all" ? "没有匹配的模板" : "暂无资产模板"}
-            action={identity.data?.administrator ? "导入模板" : undefined}
-            onAction={() => setCreating(true)}
-          />
-        )
-      )}
+        <ErrorMessage error={templates.error} />
+        {templates.isPending ? (
+          <Loading />
+        ) : items.length || query || kind !== "all" ? (
+          <div className={styles.library}>
+            <aside className={styles.directory} aria-label="资产模板目录">
+              <div className={styles.items}>
+                {items.map((template) => (
+                  <button
+                    key={template.id}
+                    className={styles.item}
+                    aria-label={template.name}
+                    aria-pressed={template.id === detail?.id}
+                    onClick={() => setSelected(template.id)}
+                  >
+                    <span className={styles.symbol}>
+                      {template.kind === "vm" ? (
+                        <Monitor size={20} />
+                      ) : (
+                        <Box size={20} />
+                      )}
+                    </span>
+                    <span className={styles.itemText}>
+                      <strong>{template.name}</strong>
+                      <span>
+                        {template.os} ·{" "}
+                        {template.format?.toUpperCase() ??
+                          (template.kind === "container" ? "OCI" : "—")}{" "}
+                        · v{template.version}
+                      </span>
+                      <span>
+                        {template.resources.cpu} 核 ·{" "}
+                        {memory(template.resources.memoryMiB)}
+                      </span>
+                    </span>
+                    <Status value={template.state ?? "importing"} />
+                  </button>
+                ))}
+                {!items.length && (
+                  <Empty icon={<Search size={24} />} title="没有匹配的模板" />
+                )}
+                <LoadMore list={templates} />
+              </div>
+            </aside>
+            {detail ? (
+              <TemplateDetails
+                key={detail.id}
+                template={detail}
+                onClose={() => setSelected(undefined)}
+              />
+            ) : (
+              <div />
+            )}
+          </div>
+        ) : (
+          !templates.error && (
+            <Empty
+              icon={<Boxes size={30} />}
+              title={kind !== "all" ? "没有匹配的模板" : "暂无资产模板"}
+              action={identity.data?.administrator ? "导入模板" : undefined}
+              onAction={() => setCreating(true)}
+            />
+          )
+        )}
+      </section>
       <Drawer
         opened={creating}
         onClose={() => setCreating(false)}

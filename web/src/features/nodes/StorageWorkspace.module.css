@@ -5,20 +5,21 @@
   align-items: start;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-panel);
   overflow: hidden;
 }
 .pools {
   display: grid;
-  gap: 0;
-  padding: 0;
+  gap: 6px;
+  padding: 12px;
+  background: var(--surface-subtle);
 }
 .pool {
   border: 1px solid transparent;
-  border-radius: 0;
-  border-bottom: 1px solid var(--line);
+  border-radius: 7px;
   background: transparent;
-  padding: 18px 16px;
+  padding: 15px 12px;
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -30,7 +31,24 @@
 }
 .selected {
   background: var(--accent-soft);
-  box-shadow: inset 2px 0 var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
+}
+.pool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pool .label > svg {
+  padding: 6px;
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+.pool .label strong {
+  font-size: 13px;
+  font-weight: 600;
 }
 .label {
   display: flex;
@@ -63,16 +81,21 @@
 .metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 12px;
   margin: 20px 0;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--line);
+}
+.metrics > div {
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 14px 16px;
 }
 .metrics strong {
   font-size: 21px;
   display: block;
   line-height: 1.4;
-  font-weight: 500;
+  font-weight: 600;
+  font-family: var(--font-mono);
 }
 .metrics span {
   color: var(--muted);
@@ -146,10 +169,17 @@
 }
 .properties dt {
   color: var(--muted);
+  font-size: 12px;
+  align-self: center;
 }
 .properties dd {
   margin: 0;
   overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 500;
+}
+.technical {
+  font-family: var(--font-mono);
 }
 .diskMap {
   display: grid;
@@ -189,6 +219,7 @@
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
 }
 .panelToolbar {
   display: flex;
@@ -243,7 +274,10 @@
     gap: 10px;
   }
   .metrics strong {
-    font-size: 19px;
+    font-size: 16px;
+  }
+  .metrics > div {
+    padding: 12px 10px;
   }
 }
 @media (max-width: 650px) {

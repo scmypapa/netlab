@@ -45,7 +45,9 @@ export function NodeInventory({
               onClick={() => onSelect(node)}
             >
               <span className={styles.name}>
-                <Server size={21} />
+                <span className={styles.symbol}>
+                  <Server size={20} />
+                </span>
                 <span>
                   <strong>{node.name}</strong>
                   <span>

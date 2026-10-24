@@ -54,6 +54,27 @@ export function NodesPage() {
         <div>
           <h1>资源</h1>
         </div>
+        <div className="module-switch" role="group" aria-label="资源分类">
+          {[
+            ["/resources", "计算节点"],
+            ["/resources/performance", "集群性能"],
+            ["/resources/storage", "存储"],
+          ].map(([path, label]) => (
+            <button
+              key={path}
+              aria-pressed={
+                path === "/resources/storage"
+                  ? storageView
+                  : path === "/resources/performance"
+                    ? performanceView
+                    : !storageView && !performanceView
+              }
+              onClick={() => navigate(path)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {!storageView && (
           <Button
             leftSection={<Plus size={16} />}
@@ -63,27 +84,6 @@ export function NodesPage() {
           </Button>
         )}
       </div>
-      <Tabs
-        value={
-          storageView ? "storage" : performanceView ? "performance" : "nodes"
-        }
-        mb="lg"
-        onChange={(value) =>
-          navigate(
-            value === "storage"
-              ? "/resources/storage"
-              : value === "performance"
-                ? "/resources/performance"
-                : "/resources",
-          )
-        }
-      >
-        <Tabs.List>
-          <Tabs.Tab value="nodes">计算节点</Tabs.Tab>
-          <Tabs.Tab value="performance">集群性能</Tabs.Tab>
-          <Tabs.Tab value="storage">存储</Tabs.Tab>
-        </Tabs.List>
-      </Tabs>
       {performanceView ? (
         <>
           <Suspense fallback={<Loading />}>
@@ -139,7 +139,7 @@ export function NodesPage() {
                   {selected.capacity.memoryMiB / 1024} GiB 内存 ·{" "}
                   {selected.capacity.diskGiB} GiB 存储
                 </strong>
-                <span>{selected.endpoint}</span>
+                <span className={styles.technical}>{selected.endpoint}</span>
               </div>
               <Status value={selected.state ?? "unknown"} />
             </div>

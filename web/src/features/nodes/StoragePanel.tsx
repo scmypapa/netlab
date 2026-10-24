@@ -356,13 +356,17 @@ export function StoragePanel() {
                       {active.storage?.path && (
                         <>
                           <dt>路径</dt>
-                          <dd>{active.storage.path}</dd>
+                          <dd className={styles.technical}>
+                            {active.storage.path}
+                          </dd>
                         </>
                       )}
                       {active.storage?.filesystem && (
                         <>
                           <dt>文件系统</dt>
-                          <dd>{active.storage.filesystem}</dd>
+                          <dd className={styles.technical}>
+                            {active.storage.filesystem}
+                          </dd>
                         </>
                       )}
                       {active.storage?.nativeSnapshots && (
