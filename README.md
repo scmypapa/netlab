@@ -2,7 +2,7 @@
 
 Netlab 是一个用来快速搭建**隔离网络环境**、管理**虚拟机与容器混合拓扑**的独立组网平台。
 
-无论你是要做网络实验、工控协议仿真、安全攻防靶场，还是混合多节点的教学培训，Netlab 的目标都是让你像画架构图一样：拉几台 Windows、几台 Linux、几个容器，给它们划好子网、配上限速或丢包规则，一键启动。在浏览器里就能直接开 VNC/RDP 运维，随时点开任意接口抓包，玩坏了随时用快照恢复。
+无论你是要做网络实验、工控协议仿真、安全攻防靶场，还是混合多节点的教学培训，Netlab 的目标都是让你像画架构图一样：拉几台 Windows、几台 Linux、几个容器，给它们划好子网、配上限速或丢包规则，一键启动。在浏览器里就能直接开 VNC/RDP 运维，查看通信关系与近期报文，玩坏了随时用快照恢复。
 
 系统使用同一套 `/api/v1` 提供 Web 工作台与外部平台对接，采用 Linux 原生组件和 systemd 服务。
 
@@ -76,8 +76,8 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ### 3. 运维、监控与流量观测
 
 * **免客户端运维**：网页原生集成终端（xterm.js）、VM VNC、串口（Serial）、SSH，以及由 Guacamole 驱动的 RDP（支持剪贴板与窗口缩放自适应）。
-* **接口抓包**：直接从虚拟网卡采集，保留真实网段与接口身份。支持 BPF 规则过滤、分页报文浏览、协议树与原始字节联动，以及 PCAPNG 文件导出。
-* **流向可视化**：基于 OVS IPFIX 全量计数汇总最近一分钟的通信，展示资产、双向连接与传输速率；抓包历史展示累计传输量。
+* **报文分析**：自动从运行资产的虚拟网卡保留近期报文，保留真实网段与接口身份。每个环境共用 1 GiB 压缩后额度（多节点合计），循环覆盖最旧数据；支持 Wireshark 显示过滤、历史分页、协议树与原始字节联动，以及 PCAPNG 导出。按需抓包仍支持 BPF 过滤。
+* **流向可视化**：基于 OVS IPFIX 全量计数汇总最近一分钟的通信，展示资产、双向连接与传输速率。通信、风险、报文及流量趋势在同一工作区联动；刷新保留节点位置与视角，支持全屏和分栏调整。
 * **风险检测**：Suricata 使用 ET Open 规则被动检测 VM 与容器接口，按高、中、低风险筛选告警；通信图联动告警详情，历史告警保留 30 天。
 * **时序监控**：提供环境、节点和集群性能视图；CPU、内存、磁盘 I/O、网卡速率与丢包计数每 10 秒采集，历史保留 30 天。VM 内存按 QEMU 进程 RSS 统计，容器按 cgroup 统计。
 
@@ -119,7 +119,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.0.5/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.0.6/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -263,6 +263,7 @@ curl -H "Authorization: Bearer <Your-Token>" \
 
 - 本项目代码许可证待定，当前源码及发布包保留所有权利。
 - 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、Suricata、GoFlow2。
+- 界面使用 Inter 与 JetBrains Mono 字体，均遵循 SIL Open Font License 1.1；随前端文件保留许可文本。
 
 ## 文档
 
