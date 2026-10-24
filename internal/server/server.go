@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 		"GET /api/v1/identity":                                                               s.identity,
 		"POST /api/v1/sessions/logout":                                                       s.logout,
 		"GET /api/v1/environments":                                                           s.listEnvironments,
+		"GET /api/v1/environments/summary":                                                   s.environmentCounts,
 		"POST /api/v1/environments":                                                          s.createEnvironment,
 		"GET /api/v1/environments/{id}":                                                      s.getEnvironment,
 		"GET /api/v1/environments/{id}/state":                                                s.environmentState,

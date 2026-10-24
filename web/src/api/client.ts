@@ -551,6 +551,13 @@ export const api = {
   logout: () => request<void>("/sessions/logout", "POST"),
   environments: (options?: ListOptions) =>
     list<EnvironmentSummary>("/environments", options),
+  environmentCounts: (search: string, signal?: AbortSignal) =>
+    request<Schema<"EnvironmentCounts">>(
+      `/environments/summary?${new URLSearchParams({ search })}`,
+      "GET",
+      undefined,
+      signal,
+    ),
   environment: (id: string) => request<Environment>(`/environments/${id}`),
   createEnvironment: (body: Schema<"CreateEnvironment">) =>
     request<Environment>("/environments", "POST", body),

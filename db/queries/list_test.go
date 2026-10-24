@@ -3,6 +3,7 @@ package queries_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"testing"
 	"time"
@@ -79,6 +80,33 @@ func TestListCursorsAndFilters(t *testing.T) {
 		allowed, err := q.ListEnvironments(ctx, params)
 		if err != nil || len(allowed) != 1 || allowed[0].ID != prefix+"105" {
 			t.Fatalf("environment grant: rows=%v error=%v", allowed, err)
+		}
+	})
+	t.Run("environment counts preserve visibility and search beyond the first page", func(t *testing.T) {
+		for _, item := range []struct {
+			name      string
+			principal string
+			search    string
+			want      map[string]int32
+		}{
+			{"owner", owner, prefix, map[string]int32{"running": 104, "stopped": 1}},
+			{"granted", other, prefix, map[string]int32{"running": 1}},
+			{"search", owner, prefix + "ref-105", map[string]int32{"running": 1}},
+			{"no matches", owner, prefix + "missing", map[string]int32{}},
+		} {
+			t.Run(item.name, func(t *testing.T) {
+				rows, err := q.CountEnvironmentsByStatus(ctx, queries.CountEnvironmentsByStatusParams{PrincipalID: item.principal, IsUser: true, Search: item.search})
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := map[string]int32{}
+				for _, row := range rows {
+					got[row.Status] = row.Count
+				}
+				if !maps.Equal(got, item.want) {
+					t.Fatalf("counts=%v want=%v", got, item.want)
+				}
+			})
 		}
 	})
 	t.Run("template cursor kind and exact references", func(t *testing.T) {

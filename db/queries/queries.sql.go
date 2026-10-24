@@ -138,6 +138,60 @@ func (q *Queries) CommitEnvironment(ctx context.Context, arg CommitEnvironmentPa
 	return err
 }
 
+const countEnvironmentsByStatus = `-- name: CountEnvironmentsByStatus :many
+WITH readable AS (
+ SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.gateway_address, e.vpn_public_key, e.vpn_mtu,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
+ ($3::boolean OR ($4::boolean AND e.owner_id=$1) OR EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=$1 AND 'read'=ANY(g.permissions) AND
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
+ FROM environments e WHERE e.status<>'destroyed'
+)
+SELECT e.status,count(*)::integer AS count FROM readable e
+WHERE (e.full_read OR EXISTS
+ (SELECT 1 FROM jsonb_array_elements(e.runtime_spec->'assets') a WHERE EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=$1 AND g.scope_kind='asset'
+ AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))))
+ AND ($2::text='' OR e.name ILIKE '%'||$2||'%' OR e.external_reference ILIKE '%'||$2||'%')
+GROUP BY e.status
+`
+
+type CountEnvironmentsByStatusParams struct {
+	PrincipalID string
+	Search      string
+	IsAdmin     bool
+	IsUser      bool
+}
+
+type CountEnvironmentsByStatusRow struct {
+	Status string
+	Count  int32
+}
+
+func (q *Queries) CountEnvironmentsByStatus(ctx context.Context, arg CountEnvironmentsByStatusParams) ([]CountEnvironmentsByStatusRow, error) {
+	rows, err := q.db.Query(ctx, countEnvironmentsByStatus,
+		arg.PrincipalID,
+		arg.Search,
+		arg.IsAdmin,
+		arg.IsUser,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountEnvironmentsByStatusRow{}
+	for rows.Next() {
+		var i CountEnvironmentsByStatusRow
+		if err := rows.Scan(&i.Status, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countPrincipals = `-- name: CountPrincipals :one
 SELECT count(*) FROM principals
 `

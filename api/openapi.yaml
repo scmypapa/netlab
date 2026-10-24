@@ -434,6 +434,12 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateEnvironment'}}}}
       responses:
         '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Environment'}}}}
+  /environments/summary:
+    get:
+      operationId: environmentCounts
+      parameters: [{$ref: '#/components/parameters/Search'}]
+      responses:
+        '200': {description: Authorized environment counts by status, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentCounts'}}}}
   /environments/{id}:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -1438,6 +1444,12 @@ components:
     EnvironmentStatus:
       type: string
       enum: [draft, deploying, running, stopped, suspended, changing, destroying, destroyed, failed, unknown]
+    EnvironmentCounts:
+      type: object
+      required: [total, statuses]
+      properties:
+        total: {type: integer}
+        statuses: {type: object, additionalProperties: {type: integer}}
     EnvironmentSummary:
       type: object
       required: [id, projectId, name, revision, status, assetCount, networkCount, createdAt, updatedAt]

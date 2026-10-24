@@ -925,6 +925,12 @@ type Environment struct {
 	View               CanvasView               `json:"view"`
 }
 
+// EnvironmentCounts defines model for EnvironmentCounts.
+type EnvironmentCounts struct {
+	Statuses map[string]int `json:"statuses"`
+	Total    int            `json:"total"`
+}
+
 // EnvironmentGrant defines model for EnvironmentGrant.
 type EnvironmentGrant struct {
 	AssetIds    *[]string    `json:"assetIds,omitempty"`
@@ -2202,6 +2208,11 @@ type ListEnvironmentsParams struct {
 	Limit  *Limit             `form:"limit,omitempty" json:"limit,omitempty"`
 	Search *Search            `form:"search,omitempty" json:"search,omitempty"`
 	Status *EnvironmentStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// EnvironmentCountsParams defines parameters for EnvironmentCounts.
+type EnvironmentCountsParams struct {
+	Search *Search `form:"search,omitempty" json:"search,omitempty"`
 }
 
 // AssetConsoleParams defines parameters for AssetConsole.

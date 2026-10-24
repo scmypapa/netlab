@@ -177,6 +177,10 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		t.Fatalf("asset-scoped state leaked other assets: %+v", state)
 	}
 	var summaries []api.EnvironmentSummary
+	var counts api.EnvironmentCounts
+	if err = json.Unmarshal(call("GET", "/environments/summary", userSession, nil, 200), &counts); err != nil || counts.Total != 1 {
+		t.Fatalf("asset-scoped counts leaked environments: %+v %v", counts, err)
+	}
 	if err = json.Unmarshal(call("GET", "/environments", userSession, nil, 200), &summaries); err != nil {
 		t.Fatal(err)
 	}

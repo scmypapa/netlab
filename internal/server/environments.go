@@ -30,6 +30,20 @@ func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request, identi
 	return writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) environmentCounts(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	principal := identity.Principal.ID
+	rows, err := s.Queries.CountEnvironmentsByStatus(r.Context(), queries.CountEnvironmentsByStatusParams{IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: principal, Search: strings.TrimSpace(r.URL.Query().Get("search"))})
+	if err != nil {
+		return err
+	}
+	result := api.EnvironmentCounts{Statuses: map[string]int{}}
+	for _, row := range rows {
+		result.Statuses[row.Status] = int(row.Count)
+		result.Total += int(row.Count)
+	}
+	return writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) createEnvironment(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	var input api.CreateEnvironment
 	if err := decode(w, r, &input); err != nil {

@@ -36,6 +36,21 @@ FROM visible e WHERE (e.full_read OR jsonb_array_length(e.visible_assets)>0)
  AND (sqlc.arg(status)::text='' OR e.status=sqlc.arg(status))
  AND (sqlc.arg(cursor)::text='' OR (e.created_at,e.id)<(SELECT p.created_at,p.id FROM environments p WHERE p.id=sqlc.arg(cursor)))
  ORDER BY e.created_at DESC,e.id DESC LIMIT sqlc.arg(page_limit);
+-- name: CountEnvironmentsByStatus :many
+WITH readable AS (
+ SELECT e.*,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
+ (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
+ ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
+ FROM environments e WHERE e.status<>'destroyed'
+)
+SELECT e.status,count(*)::integer AS count FROM readable e
+WHERE (e.full_read OR EXISTS
+ (SELECT 1 FROM jsonb_array_elements(e.runtime_spec->'assets') a WHERE EXISTS
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='asset'
+ AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))))
+ AND (sqlc.arg(search)::text='' OR e.name ILIKE '%'||sqlc.arg(search)||'%' OR e.external_reference ILIKE '%'||sqlc.arg(search)||'%')
+GROUP BY e.status;
 -- name: GetEnvironment :one
 SELECT * FROM environments WHERE id=$1;
 -- name: GetEnvironmentByRequest :one

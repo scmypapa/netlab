@@ -795,6 +795,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/environments/summary": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["environmentCounts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}": {
     parameters: {
       query?: never;
@@ -2063,6 +2079,12 @@ export interface components {
       | "destroyed"
       | "failed"
       | "unknown";
+    EnvironmentCounts: {
+      total: number;
+      statuses: {
+        [key: string]: number;
+      };
+    };
     EnvironmentSummary: {
       id: string;
       projectId: string;
@@ -4536,6 +4558,28 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Environment"];
+        };
+      };
+    };
+  };
+  environmentCounts: {
+    parameters: {
+      query?: {
+        search?: components["parameters"]["Search"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Authorized environment counts by status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EnvironmentCounts"];
         };
       };
     };
