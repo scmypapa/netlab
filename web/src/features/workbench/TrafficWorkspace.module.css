@@ -41,6 +41,10 @@
   flex-shrink: 0;
 }
 @media (max-width: 540px) {
+  .toolbar > svg,
+  .toolbar > strong {
+    display: none;
+  }
   .liveLabel {
     display: none;
   }
@@ -196,6 +200,7 @@
   color: var(--muted);
   cursor: pointer;
   padding: 0;
+  white-space: nowrap;
 }
 .chart {
   flex: 1;
@@ -399,6 +404,14 @@
   .timeline {
     height: 200px;
   }
+  .timeline > header {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+  .timeline header > span {
+    font-size: 11px;
+    white-space: nowrap;
+  }
   .mobileTabs {
     display: flex !important;
     flex-shrink: 0;
@@ -420,7 +433,6 @@
   }
   .panes {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 60%) 8px minmax(0, 1fr);
   }
   .graphPane,
   .packetPane {

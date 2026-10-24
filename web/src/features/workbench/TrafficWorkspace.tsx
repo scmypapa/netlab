@@ -115,14 +115,16 @@ export default function TrafficWorkspace({
     [level, setLevel] = useState<string>(),
     [protocol, setProtocol] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<{ start: string; end: string }>(),
-    [timeline, setTimeline] = useState(() => window.innerHeight >= 760);
+    [timeline, setTimeline] = useState(
+      () => window.matchMedia("(min-height: 960px) and (min-width: 901px)").matches,
+    );
   const [packetTimeWindow] = useDebouncedValue(timeRange, 250);
   const [selectedId, setSelectedId] = useState<string>(),
     [field, setField] = useState<Field>();
   const [recordView, setRecordView] = useState("packets"),
     [chosenAlert, setChosenAlert] = useState<Schema<"SecurityAlert">>();
   const [columns, setColumns] = useState(42),
-    [rows, setRows] = useState(64),
+    [rows, setRows] = useState(58),
     [mobilePane, setMobilePane] = useState("packets"),
     [mobileDetail, setMobileDetail] = useState("protocol");
   const [filesOpen, setFilesOpen] = useState(false),

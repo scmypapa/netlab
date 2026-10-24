@@ -45,10 +45,10 @@
   background: var(--surface-hover);
 }
 .list tr[data-risk="high"] td {
-  background: var(--negative-soft);
+  background: color-mix(in srgb, var(--negative) 8%, var(--surface));
 }
 .list tr[data-risk="medium"] td {
-  background: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
 }
 .list tr[aria-selected="true"] td {
   background: var(--accent-soft);

@@ -886,8 +886,15 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
         .getByRole("button", { name: "切换夜间主题", exact: true })
         .click();
     for (const width of [1366, 1920, 2560, 390]) {
-      await page.setViewportSize({ width, height: width === 1366 ? 768 : 900 });
+      await page.setViewportSize({
+        width,
+        height: width === 1366 ? 768 : width === 390 ? 844 : 1080,
+      });
       await open(page);
+      const timeline = page.getByRole("region", { name: "环境流量时间轴" });
+      if (width === 1366 || width === 390)
+        await expect(timeline).toHaveCount(0);
+      else await expect(timeline).toBeVisible();
       if (width === 390)
         await page.getByRole("button", { name: "通信图", exact: true }).click();
       const graph = page.getByRole("region", { name: "资产通信图" });
@@ -966,8 +973,11 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
       const panes = await page.locator('[class*="panes"]').boundingBox();
       const packetList = await page
         .getByRole("grid", { name: "报文列表" })
+        .locator("..")
         .boundingBox();
       const protocols = await page.getByLabel("报文协议层").boundingBox();
+      expect(protocols!.height).toBeGreaterThanOrEqual(100);
+      expect(packetList!.height).toBeGreaterThanOrEqual(160);
       expect(packetList!.y).toBeLessThan(protocols!.y);
       expect(panes!.y + panes!.height).toBeLessThanOrEqual(
         (await page.viewportSize())!.height,
@@ -975,7 +985,33 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
       await page.screenshot({
         path: info.outputPath(`traffic-${width}-${theme}.png`),
       });
+      if (width === 1366 || width === 390) {
+        await page
+          .getByRole("button", { name: "流量趋势", exact: true })
+          .click();
+        await expect(timeline).toBeVisible();
+        await expect(
+          page.getByRole("textbox", { name: "趋势范围", exact: true }),
+        ).toBeVisible();
+        await page
+          .getByRole("button", { name: "流量趋势", exact: true })
+          .click();
+        await expect(timeline).toHaveCount(0);
+        await expect(page.getByLabel("报文协议层")).toContainText("Frame 2:");
+      }
       if (width === 390) {
+        const divider = page.getByRole("separator", {
+          name: "调整报文详情高度",
+          exact: true,
+        });
+        await divider.press("ArrowUp");
+        await expect
+          .poll(
+            async () =>
+              (await page.getByLabel("报文协议层").boundingBox())!.height,
+          )
+          .toBeGreaterThan(protocols!.height);
+        await divider.press("ArrowDown");
         await page.getByRole("button", { name: "通信图", exact: true }).click();
         await expect(
           page.getByRole("region", { name: "资产通信图" }),
