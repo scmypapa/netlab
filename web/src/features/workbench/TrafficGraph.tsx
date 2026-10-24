@@ -61,9 +61,9 @@ export type TrafficLink = {
   alerts?: number;
 };
 export const riskLevels = [
-  { value: "high", label: "高风险", color: "#d74b59" },
-  { value: "medium", label: "中风险", color: "#c28622" },
-  { value: "low", label: "低风险", color: "#537fc5" },
+  { value: "high", label: "高风险", color: "var(--negative)" },
+  { value: "medium", label: "中风险", color: "var(--warning)" },
+  { value: "low", label: "低风险", color: "var(--accent)" },
 ] as const;
 export const riskLevel = (severity: number) =>
   riskLevels[severity === 1 ? 0 : severity === 2 ? 1 : 2];

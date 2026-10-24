@@ -8,13 +8,13 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font: 12px/1.6 var(--font-mono, monospace);
+  font: 12px/1.5 var(--font-mono, monospace);
   white-space: nowrap;
 }
 .list th {
   position: sticky;
   top: 0;
-  background: var(--canvas);
+  background: var(--surface-subtle);
   border-bottom: 1px solid var(--line);
   font-family: var(--font-ui);
   font-weight: 500;
@@ -23,7 +23,7 @@
 }
 .list th,
 .list td {
-  padding: 5px 9px;
+  padding: 4px 10px;
   text-align: left;
 }
 .list tr td {
@@ -43,6 +43,12 @@
 }
 .list tr:hover td {
   background: var(--surface-hover);
+}
+.list tr[data-risk="high"] td {
+  background: var(--negative-soft);
+}
+.list tr[data-risk="medium"] td {
+  background: var(--warning-soft);
 }
 .list tr[aria-selected="true"] td {
   background: var(--accent-soft);
@@ -73,8 +79,29 @@
   padding: 0;
 }
 .protocolTag {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
   color: var(--muted);
+  background: var(--surface-subtle);
   font-size: 10px;
+  line-height: 16px;
+  font-weight: 500;
+}
+.list tr[data-protocol="tcp"] .protocolTag {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
+}
+.list tr[data-protocol="udp"] .protocolTag {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: var(--warning-line);
+}
+.list tr[data-protocol^="icmp"] .protocolTag {
+  color: var(--chart-2);
+  background: color-mix(in srgb, var(--chart-2) 10%, var(--surface));
 }
 .risk {
   display: flex;

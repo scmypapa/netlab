@@ -501,6 +501,7 @@ a.object-link:hover strong,
 }
 .status {
   display: inline-flex;
+  width: fit-content;
   align-items: center;
   gap: 6px;
   --status-bg: var(--surface-hover);

@@ -108,6 +108,7 @@ export function PacketList({
               <tr
                 key={packet.id}
                 aria-selected={selectedId === packet.id}
+                data-risk={risk?.value}
                 data-protocol={packet.protocol.toLowerCase()}
                 tabIndex={
                   selectedId === packet.id || (!selectedId && index === 0)
@@ -339,6 +340,7 @@ export function RiskRecords({
             return (
               <tr
                 key={alert.id}
+                data-risk={risk.value}
                 tabIndex={0}
                 onClick={() => onSelect(alert)}
                 onKeyDown={(event) => {

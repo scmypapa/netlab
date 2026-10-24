@@ -256,7 +256,7 @@ test("集群历史覆盖全量，节点卡片展示实测并下钻", async ({ pa
     )
     .toBe(true);
   await expect(page.getByText("没有匹配的节点", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "集群性能", exact: true }).click();
+  await page.getByRole("button", { name: "集群性能", exact: true }).click();
   const panel = page.getByRole("region", { name: "集群性能", exact: true });
   await expect(panel).toContainText("节点工作盘");
   await expect(panel.getByRole("button", { name: /计算节点 A/ })).toBeVisible();

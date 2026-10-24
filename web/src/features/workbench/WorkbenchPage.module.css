@@ -138,6 +138,18 @@
 .canvas > :global(.react-flow) {
   flex: 1;
 }
+.canvas[data-view="traffic"] {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  gap: 10px;
+  overflow: visible;
+}
+.canvas[data-view="traffic"] .toolbar {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
 .toolbar {
   min-height: 50px;
   display: flex;

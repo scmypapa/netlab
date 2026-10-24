@@ -621,7 +621,11 @@ function Workbench({ id }: { id: string }) {
               ))}
           </aside>
         )}
-        <section className={styles.canvas} aria-label="环境拓扑">
+        <section
+          className={styles.canvas}
+          data-view={view}
+          aria-label="环境拓扑"
+        >
           {!observedAsset && (
             <div className={styles.toolbar}>
               <div className={styles.viewControls}>

@@ -24,6 +24,7 @@ import {
   Ellipsis,
   Filter,
   Network,
+  ShieldCheck,
   Pause,
   Play,
   X,
@@ -114,7 +115,7 @@ export default function TrafficWorkspace({
     [level, setLevel] = useState<string>(),
     [protocol, setProtocol] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<{ start: string; end: string }>(),
-    [timeline, setTimeline] = useState(true);
+    [timeline, setTimeline] = useState(() => window.innerHeight >= 760);
   const [packetTimeWindow] = useDebouncedValue(timeRange, 250);
   const [selectedId, setSelectedId] = useState<string>(),
     [field, setField] = useState<Field>();
@@ -343,6 +344,7 @@ export default function TrafficWorkspace({
   const unit = byteUnit(peak),
     retention = data.retention;
   const counts = security.data?.pages[0]?.counts;
+  const sensors = security.data?.pages[0]?.sensors;
   return (
     <section
       ref={host}
@@ -420,7 +422,7 @@ export default function TrafficWorkspace({
             >
               <i />
               {risk.label.slice(0, 1)}
-              <b>{counts?.[risk.value] ?? 0}</b>
+              <b>{counts ? counts[risk.value] : "—"}</b>
             </button>
           ))}
         </div>
@@ -829,8 +831,24 @@ export default function TrafficWorkspace({
             ? `${volume(retention.usedBytes)} / ${volume(retention.limitBytes)}`
             : ""}
         </span>
+        {sensors && sensors.length > 0 && (
+          <span
+            className={styles.sensorStatus}
+            title={sensors
+              .map(
+                (sensor) =>
+                  `${sensor.nodeName ?? "节点"} · ${sensor.status}${sensor.error ? ` · ${sensor.error}` : ""}`,
+              )
+              .join("\n")}
+          >
+            <ShieldCheck size={13} />
+            Suricata{" "}
+            {sensors.filter((sensor) => sensor.status === "ready").length}/
+            {sensors.length}
+          </span>
+        )}
         <div className={styles.spacer} />
-        <span>
+        <span className={styles.coverage}>
           {retention?.oldestAt
             ? `${clockTime(retention.oldestAt)} – ${clockTime(retention.newestAt!)}`
             : ""}

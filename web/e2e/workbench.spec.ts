@@ -919,6 +919,18 @@ async function fixture(
       };
       response = createdEnvironment;
       status = 201;
+    } else if (path === "/environments/summary") {
+      const items = [
+        environment,
+        ...(createdEnvironment ? [createdEnvironment] : []),
+      ];
+      response = {
+        total: items.length,
+        statuses: items.reduce<Record<string, number>>((counts, item) => {
+          counts[item.status] = (counts[item.status] ?? 0) + 1;
+          return counts;
+        }, {}),
+      };
     } else if (path === "/environments")
       response = [
         environment,

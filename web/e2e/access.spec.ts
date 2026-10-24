@@ -110,7 +110,9 @@ async function fixture(page: Page) {
       principals.find((principal) => principal.id === "service")!.disabled =
         true;
       status = 204;
-    } else if (path === "/environments")
+    } else if (path === "/environments/summary")
+      response = { total: 1, statuses: { running: 1 } };
+    else if (path === "/environments")
       response = [{ ...environment, assetCount: 1, networkCount: 0 }];
     else if (path === "/environments/env") response = environment;
     else if (path === "/environments/env/state")

@@ -5,8 +5,10 @@
   flex-direction: column;
   overflow: hidden;
   color: var(--text);
-  background: var(--surface);
+  background: var(--page);
   font-size: 12px;
+  padding: 0;
+  gap: 10px;
 }
 .workspace:fullscreen {
   width: 100vw;
@@ -16,14 +18,17 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 14px;
-  min-height: 43px;
-  border-bottom: 1px solid var(--line);
+  padding: 8px 12px;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
   flex-shrink: 0;
 }
 .toolbar strong {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
 }
 .toolbar > svg {
@@ -60,9 +65,9 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  border: 0;
-  border-radius: 3px;
-  background: none;
+  border: 1px solid color-mix(in srgb, var(--risk) 16%, var(--line));
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--risk) 5%, var(--surface));
   color: var(--muted);
   padding: 5px 7px;
   font-family: inherit;
@@ -90,7 +95,9 @@
   align-items: center;
   gap: 8px;
   padding: 7px 14px;
-  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   min-height: 30px;
   flex-shrink: 0;
 }
@@ -155,11 +162,18 @@
 }
 .timeline {
   flex-shrink: 0;
-  height: 165px;
-  border-bottom: 1px solid var(--line);
+  height: clamp(200px, 24vh, 240px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
 }
 .timeline > header {
-  height: 30px;
+  min-height: 36px;
+  flex-shrink: 0;
   display: flex;
   gap: 18px;
   align-items: center;
@@ -184,7 +198,8 @@
   padding: 0;
 }
 .chart {
-  height: 134px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 .collapsedTimeline {
@@ -195,8 +210,10 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(240px, var(--columns)) 5px minmax(0, 1fr);
-  grid-template-rows: minmax(120px, var(--rows)) 5px minmax(100px, 1fr);
+  grid-template-columns:
+    minmax(240px, var(--columns)) 8px minmax(0, 1fr)
+    8px minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--rows)) 8px minmax(0, 1fr);
   overflow: hidden;
 }
 .panes > section {
@@ -205,6 +222,10 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .paneHeading {
   height: 32px;
@@ -213,7 +234,7 @@
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  background: var(--canvas);
+  background: var(--surface-subtle);
   border-bottom: 1px solid var(--line);
 }
 .paneHeading strong,
@@ -248,35 +269,35 @@
 }
 .graphPane {
   grid-column: 1;
-  grid-row: 1;
+  grid-row: 1 / -1;
 }
 .packetPane {
-  grid-column: 3;
+  grid-column: 3 / -1;
   grid-row: 1;
 }
 .protocolPane {
-  grid-column: 1;
+  grid-column: 3;
   grid-row: 3;
 }
 .bytesPane {
-  grid-column: 3;
+  grid-column: 5;
   grid-row: 3;
 }
 .columnDivider {
   grid-column: 2;
   grid-row: 1/-1;
   cursor: col-resize;
-  background: var(--canvas);
-  border-inline: 1px solid var(--line);
+  background: transparent;
+  border-radius: 4px;
   touch-action: none;
   z-index: 4;
 }
 .rowDivider {
-  grid-column: 1/-1;
+  grid-column: 3/-1;
   grid-row: 2;
   cursor: row-resize;
-  background: var(--canvas);
-  border-block: 1px solid var(--line);
+  background: transparent;
+  border-radius: 4px;
   touch-action: none;
   z-index: 5;
 }
@@ -294,8 +315,9 @@
   height: 28px;
   flex-shrink: 0;
   padding: 0 13px;
-  border-top: 1px solid var(--line);
-  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
   color: var(--muted);
   font: 11px/1.4 var(--font-mono);
   white-space: nowrap;
@@ -305,6 +327,11 @@
   align-items: center;
   gap: 5px;
   font-family: inherit;
+}
+.sensorStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .statusbar i {
   width: 5px;
@@ -351,9 +378,13 @@
   display: none !important;
 }
 @media (max-width: 900px) {
+  .workspace {
+    padding: 0;
+    gap: 8px;
+  }
   .toolbar {
     gap: 6px;
-    padding: 0 9px;
+    padding: 8px;
   }
   .risks {
     margin-left: 5px;
@@ -366,10 +397,7 @@
     max-width: 70%;
   }
   .timeline {
-    height: 145px;
-  }
-  .chart {
-    height: 114px;
+    height: 200px;
   }
   .mobileTabs {
     display: flex !important;
@@ -392,7 +420,7 @@
   }
   .panes {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(160px, 60%) 5px minmax(100px, 1fr);
+    grid-template-rows: minmax(0, 60%) 8px minmax(0, 1fr);
   }
   .graphPane,
   .packetPane {
@@ -406,6 +434,9 @@
   }
   .columnDivider {
     display: none;
+  }
+  .rowDivider {
+    grid-column: 1;
   }
   .panes[data-mobile="graph"] .packetPane,
   .panes[data-mobile="packets"] .graphPane,
@@ -423,15 +454,12 @@
     gap: 9px;
     overflow: hidden;
   }
-  .statusbar > span:nth-last-child(2) {
+  .statusbar .coverage {
     display: none;
   }
 }
 @media (max-height: 800px) and (min-width: 901px) {
   .timeline {
-    height: 135px;
-  }
-  .chart {
-    height: 105px;
+    height: 200px;
   }
 }

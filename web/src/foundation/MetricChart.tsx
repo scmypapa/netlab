@@ -119,13 +119,14 @@ export function MetricChart({
     const line = css.getPropertyValue("--line").trim();
     const text = css.getPropertyValue("--text").trim();
     const surface = css.getPropertyValue("--surface").trim();
-    const palette = (
-      colors ?? Array.from({ length: 6 }, (_, i) => `var(--chart-${i + 1})`)
-    ).map((color) =>
+    const subtle = css.getPropertyValue("--surface-subtle").trim();
+    const colorValue = (color: string) =>
       color.startsWith("var(")
         ? css.getPropertyValue(color.slice(4, -1)).trim()
-        : color,
-    );
+        : color;
+    const palette = (
+      colors ?? Array.from({ length: 6 }, (_, i) => `var(--chart-${i + 1})`)
+    ).map(colorValue);
     const readings: string[] = [];
     const plotted = timeline
       ? assetMetricSeries(history.series)
@@ -195,10 +196,12 @@ export function MetricChart({
           id: [item.nodeId, item.assetId, item.interfaceId, item.metric].join(
             ":",
           ),
-          name,
+          name: timeline ? identity : name,
           type: "line" as const,
           data: points,
           showSymbol: false,
+          smooth: timeline ? 0.15 : false,
+          smoothMonotone: "x" as const,
           sampling: "lttb" as const,
           connectNulls: false,
           lineStyle: {
@@ -218,7 +221,7 @@ export function MetricChart({
                       name: event.label,
                       xAxis: Date.parse(event.time),
                       lineStyle: {
-                        color: event.color,
+                        color: colorValue(event.color),
                         width: 1,
                         type: "dashed",
                       },
@@ -227,26 +230,21 @@ export function MetricChart({
                 }
               : undefined,
           symbolSize: 5,
-          areaStyle: timeline
-            ? undefined
-            : {
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  {
-                    offset: 0,
-                    color: echarts.color.modifyAlpha(
-                      palette[index % palette.length],
-                      theme === "dark" ? 0.22 : 0.14,
-                    ),
-                  },
-                  {
-                    offset: 1,
-                    color: echarts.color.modifyAlpha(
-                      palette[index % palette.length],
-                      0.01,
-                    ),
-                  },
-                ]),
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              {
+                offset: 0,
+                color: echarts.color.modifyAlpha(
+                  color,
+                  timeline ? 0.1 : theme === "dark" ? 0.22 : 0.14,
+                ),
               },
+              {
+                offset: 1,
+                color: echarts.color.modifyAlpha(color, 0.01),
+              },
+            ]),
+          },
           emphasis: { focus: "series" as const },
         };
       });
@@ -269,8 +267,8 @@ export function MetricChart({
         grid: {
           left: 12,
           right: 18,
-          top: timeline ? 24 : compact ? 25 : 30,
-          bottom: timeline ? 30 : compact ? 12 : 36,
+          top: timeline ? 30 : compact ? 25 : 30,
+          bottom: timeline ? 34 : compact ? 12 : 36,
           containLabel: true,
         },
         tooltip: {
@@ -282,6 +280,26 @@ export function MetricChart({
           padding: [10, 14],
           textStyle: { color: text, fontSize: 12 },
           order: "valueDesc",
+          formatter: timeline
+            ? (items: unknown) => {
+                const points = items as {
+                  axisValue: number;
+                  seriesId: string;
+                  seriesName: string;
+                  value: [number, number | null];
+                }[];
+                return [
+                  new Date(points[0].axisValue).toLocaleString("zh-CN", {
+                    hour12: false,
+                  }),
+                  ...points.map((point) => {
+                    const measure = point.seriesId.split(":").at(-1) as Metric;
+                    const value = point.value[1];
+                    return `${names.get(point.seriesName) ?? "历史资产"} · ${titles[measure]}    ${value === null ? "—" : metricNumber(value, 5) + " " + unit}`;
+                  }),
+                ].join("\n");
+              }
+            : undefined,
           axisPointer: {
             type: "cross",
             animation: false,
@@ -339,14 +357,32 @@ export function MetricChart({
         },
         legend: {
           show: !compact && (measures.length > 1 || series.length > 1),
-          top: timeline ? 0 : undefined,
+          top: timeline ? 4 : undefined,
           bottom: timeline ? undefined : 0,
           left: 12,
           type: "scroll",
-          textStyle: { color: muted, fontSize: 12 },
-          icon: "roundRect",
-          itemWidth: 12,
-          itemHeight: 3,
+          formatter: timeline
+            ? (name: string) => `{pill|${names.get(name) ?? "历史资产"}}`
+            : undefined,
+          textStyle: {
+            color: muted,
+            fontSize: 12,
+            rich: {
+              pill: {
+                color: text,
+                fontSize: 11,
+                backgroundColor: subtle,
+                borderColor: line,
+                borderWidth: 1,
+                borderRadius: 5,
+                padding: [4, 8],
+              },
+            },
+          },
+          itemGap: 12,
+          icon: timeline ? "circle" : "roundRect",
+          itemWidth: timeline ? 6 : 12,
+          itemHeight: timeline ? 6 : 3,
         },
         dataZoom: [
           {
@@ -375,12 +411,26 @@ export function MetricChart({
                   type: "slider",
                   xAxisIndex: 0,
                   filterMode: "none",
-                  height: 18,
-                  bottom: 5,
+                  height: 22,
+                  bottom: 6,
                   borderColor: line,
-                  backgroundColor: surface,
+                  borderRadius: 5,
+                  backgroundColor: subtle,
                   fillerColor: echarts.color.modifyAlpha(palette[0], 0.12),
-                  handleSize: "80%",
+                  handleSize: "90%",
+                  handleStyle: {
+                    color: surface,
+                    borderColor: muted,
+                    borderWidth: 1,
+                  },
+                  dataBackground: {
+                    lineStyle: { color: muted, opacity: 0.35 },
+                    areaStyle: { color: muted, opacity: 0.06 },
+                  },
+                  selectedDataBackground: {
+                    lineStyle: { color: palette[0], opacity: 0.5 },
+                    areaStyle: { color: palette[0], opacity: 0.1 },
+                  },
                   showDetail: false,
                   textStyle: { color: muted },
                   brushSelect: true,
