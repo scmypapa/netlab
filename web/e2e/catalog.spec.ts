@@ -285,7 +285,7 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
       await page
         .getByRole("button", { name: "切换夜间主题", exact: true })
         .click();
-    for (const width of [1366, 1920, 390]) {
+    for (const width of [1366, 1920, 2560, 390]) {
       await page.setViewportSize({ width, height: 900 });
       for (const [section, url] of [
         ["environments", "/environments"],
