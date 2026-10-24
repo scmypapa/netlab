@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -425,5 +426,33 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		empty := []api.ScopeGrant{}
 		call("PUT", "/principals/"+user.Id, admin, api.UpdateUser{Name: "operator", Grants: &empty}, 204)
 		call("GET", "/environments/env-b", login("operator", password), nil, 403)
+	})
+	t.Run("environment summary counts all visible results beyond the first page", func(t *testing.T) {
+		prefix := uuid.NewString()
+		if _, err := pool.Exec(ctx, `INSERT INTO environments(id,project_id,owner_id,name,external_reference,status,spec)
+		 SELECT $1||'-'||n,'default',$2,$1||'-environment-'||n,$1||'-reference-'||n,
+		 CASE n WHEN 1 THEN 'stopped' WHEN 2 THEN 'draft' WHEN 106 THEN 'destroyed' ELSE 'running' END,
+		 '{"assets":[],"networks":[]}'::jsonb FROM generate_series(1,106) n`, prefix, user.Id); err != nil {
+			t.Fatal(err)
+		}
+		token := login("operator", password)
+		var page []api.EnvironmentSummary
+		if err := json.Unmarshal(call("GET", "/environments?search="+prefix, token, nil, 200), &page); err != nil || len(page) != 100 {
+			t.Fatalf("first page: size=%d error=%v", len(page), err)
+		}
+		for _, scenario := range []struct {
+			search   string
+			total    int
+			statuses map[string]int
+		}{
+			{prefix, 105, map[string]int{"running": 103, "stopped": 1, "draft": 1}},
+			{prefix + "-reference-105", 1, map[string]int{"running": 1}},
+			{prefix + "-missing", 0, map[string]int{}},
+		} {
+			var counts api.EnvironmentCounts
+			if err := json.Unmarshal(call("GET", "/environments/summary?search="+scenario.search, token, nil, 200), &counts); err != nil || counts.Total != scenario.total || !maps.Equal(counts.Statuses, scenario.statuses) {
+				t.Fatalf("search=%s: counts=%+v error=%v", scenario.search, counts, err)
+			}
+		}
 	})
 }
