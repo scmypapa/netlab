@@ -66,20 +66,20 @@
   table-layout: fixed;
 }
 .table th:first-child {
-  width: auto;
+  width: 35%;
 }
 .table th:nth-child(2) {
-  width: 132px;
+  width: 13%;
 }
 .table th:nth-child(3),
 .table th:nth-child(4) {
-  width: 112px;
+  width: 12%;
 }
 .table th:nth-child(5) {
-  width: 190px;
+  width: 19%;
 }
 .table th:last-child {
-  width: 90px;
+  width: 96px;
 }
 .table td {
   height: 78px;
@@ -155,7 +155,7 @@
   padding-top: 20px;
   border-top: 1px solid var(--line);
 }
-@media (max-width: 650px) {
+@media (max-width: 850px) {
   .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
