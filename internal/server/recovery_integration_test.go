@@ -36,7 +36,7 @@ func testRecoveryAPI(t *testing.T, ctx context.Context, s *Server, admin string,
 		if err = json.Unmarshal(call("POST", path, admin, api.CaptureRecoveryPoint{Name: "Before change", ExpectedRevision: 1}, 201), &point); err != nil {
 			t.Fatal(err)
 		}
-		call("POST", path, admin, api.CaptureRecoveryPoint{Name: "Concurrent", ExpectedRevision: 1}, 400)
+		call("POST", path, admin, api.CaptureRecoveryPoint{Name: "Concurrent", ExpectedRevision: 1}, 409)
 		call("DELETE", path+"/"+point.Id, token.Token, nil, 403)
 		var points []api.RecoveryPointSummary
 		if err = json.Unmarshal(call("GET", path, token.Token, nil, 200), &points); err != nil || len(points) != 1 || points[0].State != api.RecoveryPointSummaryStateCapturing {

@@ -30,7 +30,11 @@ func (e *Engine) Packets(w http.ResponseWriter, r *http.Request) {
 			if output.Bytes > 0 {
 				panic(http.ErrAbortHandler)
 			}
-			http.Error(w, err.Error(), http.StatusConflict)
+			status := http.StatusConflict
+			if errors.Is(err, capture.ErrAnalysisBusy) {
+				status = http.StatusServiceUnavailable
+			}
+			http.Error(w, err.Error(), status)
 		}
 		return
 	}
@@ -46,6 +50,8 @@ func (e *Engine) Packets(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusConflict
 		if errors.Is(err, os.ErrNotExist) {
 			status = http.StatusGone
+		} else if errors.Is(err, capture.ErrAnalysisBusy) {
+			status = http.StatusServiceUnavailable
 		}
 		http.Error(w, err.Error(), status)
 		return

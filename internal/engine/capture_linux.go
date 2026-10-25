@@ -27,7 +27,11 @@ func (e *Engine) Capture(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodDelete && id == "":
 		err = e.captures.RemoveEnvironment(r.Context(), environment)
 	case r.Method == http.MethodPost && id == "":
-		unlock := e.lock(environment)
+		unlock, lockErr := e.lock(r.Context(), environment)
+		if lockErr != nil {
+			http.Error(w, lockErr.Error(), http.StatusRequestTimeout)
+			return
+		}
 		defer unlock()
 		var request api.NodeCaptureRequest
 		err = json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&request)

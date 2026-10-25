@@ -4,6 +4,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"mime/multipart"
 	"os"
@@ -41,7 +42,7 @@ func TestTemplateUploadKeepsRelativeFilesAndCleansFailedStreams(t *testing.T) {
 				raw = raw[:len(raw)-len(body.Boundary())-10]
 			}
 			parts := multipart.NewReader(bytes.NewReader(raw), body.Boundary())
-			path, err := e.ReceiveTemplate("test", 1, "upload", test.main, parts)
+			path, err := e.ReceiveTemplate(context.Background(), "test", 1, "upload", test.main, parts)
 			if test.valid {
 				if err != nil {
 					t.Fatal(err)
@@ -55,16 +56,16 @@ func TestTemplateUploadKeepsRelativeFilesAndCleansFailedStreams(t *testing.T) {
 						t.Fatalf("relative file %s: %v", name, err)
 					}
 				}
-				if _, err = e.ReceiveTemplate("test", 1, "other-upload", test.main, multipart.NewReader(bytes.NewReader(raw), body.Boundary())); err != nil {
+				if _, err = e.ReceiveTemplate(context.Background(), "test", 1, "other-upload", test.main, multipart.NewReader(bytes.NewReader(raw), body.Boundary())); err != nil {
 					t.Fatal(err)
 				}
-				if err = e.RemoveTemplateImport("test", 1, "upload"); err != nil {
+				if err = e.RemoveTemplateImport(context.Background(), "test", 1, "upload"); err != nil {
 					t.Fatal(err)
 				}
 				if _, err = os.Stat(filepath.Join(importDirectory(e.cfg.DataDir, "test", 1), "other-upload", test.main)); err != nil {
 					t.Fatalf("cleanup removed another request: %v", err)
 				}
-				if err = e.RemoveTemplateImport("test", 1, "other-upload"); err != nil {
+				if err = e.RemoveTemplateImport(context.Background(), "test", 1, "other-upload"); err != nil {
 					t.Fatal(err)
 				}
 			} else if err == nil {

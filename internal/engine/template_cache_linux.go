@@ -60,7 +60,10 @@ func (e *Engine) TemplateCache(ctx context.Context, id string, version int) (api
 
 func (e *Engine) TrimTemplateCache(ctx context.Context, input api.TemplateCacheRequest) (api.TemplateCache, error) {
 	t := input.Template
-	unlock := e.lock("template:" + t.Id)
+	unlock, err := e.lock(ctx, "template:"+t.Id)
+	if err != nil {
+		return api.TemplateCache{}, err
+	}
 	defer unlock()
 	result, err := e.TemplateCache(ctx, t.Id, t.Version)
 	if err != nil || result.Bytes == 0 {
@@ -89,9 +92,15 @@ func (e *Engine) TrimTemplateCache(ctx context.Context, input api.TemplateCacheR
 			return result, fmt.Errorf("磁盘 %d 尚未存入共享池", index+1)
 		}
 	}
-	unlockArtifact := e.lock(fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
+	unlockArtifact, err := e.lock(ctx, fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
+	if err != nil {
+		return result, err
+	}
 	defer unlockArtifact()
-	unlockReader := e.lock(fmt.Sprintf("template-reader:%s:%d", t.Id, t.Version))
+	unlockReader, err := e.lock(ctx, "template-reader:"+t.Id)
+	if err != nil {
+		return result, err
+	}
 	defer unlockReader()
 	for i := range *t.Disks {
 		if err = os.Remove(systemDiskPath(templateDirectory(e.cfg.DataDir, t.Id, t.Version), i)); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -105,6 +114,11 @@ func (e *Engine) hydrateTemplate(ctx context.Context, t api.Template) error {
 	if t.Kind != api.Vm || t.Disks == nil {
 		return nil
 	}
+	unlock, err := e.lock(ctx, fmt.Sprintf("template-hydration:%s:%d", t.Id, t.Version))
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	directory := templateDirectory(e.cfg.DataDir, t.Id, t.Version)
 	for i := range *t.Disks {
 		path := systemDiskPath(directory, i)

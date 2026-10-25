@@ -64,7 +64,7 @@ func guestAgentConnected(domain *libvirt.Domain) (bool, error) {
 	return false, nil
 }
 
-func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, domain *libvirt.Domain, a api.AssetExecution) error {
+func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, env string, a api.AssetExecution) error {
 	if !strings.EqualFold(a.Template.Os, "linux") || initializationMethod(a.Template) != api.None || a.Template.Hardware.GuestAgent == nil || !*a.Template.Hardware.GuestAgent {
 		return nil
 	}
@@ -75,6 +75,14 @@ func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, domain *libvirt.
 				return nil
 			}
 		}
+	}
+	domain, err := v.conn.LookupDomainByUUIDString(a.InstanceId)
+	if err != nil {
+		return err
+	}
+	defer domain.Free()
+	if _, err = v.owned(domain, env, a.Asset.Id); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()

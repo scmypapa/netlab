@@ -98,7 +98,7 @@ func testBackupsAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 			t.Fatal(err)
 		}
 		owner := uuid.NewString()
-		claimed, err := s.Queries.ClaimOperation(ctx, &owner)
+		claimed, err := s.Queries.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 		if err != nil || claimed.ID != *backup.OperationId {
 			t.Fatal("backup claim identity", err)
 		}

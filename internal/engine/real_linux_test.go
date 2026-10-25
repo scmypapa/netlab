@@ -378,7 +378,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	a := api.AssetExecution{Asset: api.Asset{Id: "modern", Name: "UEFI", Resources: api.Resources{Cpu: 1, MemoryMiB: 512, DiskGiB: 1}, Volumes: &volumes}, InstanceId: uuid.NewString(), Template: api.Template{Id: "modern", Source: base, Hardware: &api.Hardware{Firmware: api.Uefi, Machine: "pc-q35-8.2", DiskBus: api.HardwareDiskBusSata, NicModel: api.HardwareNicModelE1000e, SecureBoot: &yes, Tpm: &yes}}}
 	a.Template.Kind = api.Vm
 	a.Template.Hardware.Machine = "q35"
-	executor := &Engine{vm: vm, slots: make(chan struct{}, 1), locks: make(map[string]*objectLock)}
+	executor := &Engine{vm: vm, ioSlots: make(chan struct{}, 1), locks: make(map[string]*objectLock)}
 	prepared, err := executor.PrepareTemplate(ctx, api.NodeTemplatePreparation{Template: a.Template})
 	if err != nil {
 		t.Fatal(err)

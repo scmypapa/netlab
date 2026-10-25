@@ -19,13 +19,17 @@ import (
 
 func (e *Engine) ContainerFiles(w http.ResponseWriter, r *http.Request) {
 	env, asset, instance := r.PathValue("environmentId"), r.PathValue("assetId"), r.PathValue("instanceId")
-	unlock := e.lock(env + "/" + asset)
+	unlock, err := e.lock(r.Context(), env+"/"+asset)
+	if err != nil {
+		files.Failure(w, err, http.StatusRequestTimeout)
+		return
+	}
 	defer unlock()
 	if e.container == nil {
 		files.Failure(w, errors.New("节点未启用容器运行时"), http.StatusConflict)
 		return
 	}
-	err := e.container.withFiles(r.Context(), env, asset, instance, func(store files.Store) { files.Serve(w, r, store) })
+	err = e.container.withFiles(r.Context(), env, asset, instance, func(store files.Store) { files.Serve(w, r, store) })
 	if err != nil {
 		files.Failure(w, err, http.StatusUnprocessableEntity)
 	}

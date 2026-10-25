@@ -44,7 +44,10 @@ func (e *Engine) ImportCephAdmin(id string, input api.NodeCephAdmin) error {
 
 // Ceph orchestrator evacuates replicas before removing OSDs. The pool's replica count is unchanged.
 func (e *Engine) DepartCeph(ctx context.Context, id string, input api.NodeCephDeparture) error {
-	unlock := e.lock("ceph:" + id)
+	unlock, err := e.lock(ctx, "ceph:"+id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	out, err := e.managedCeph(ctx, id, "orch", "host", "ls", "--format", "json")
 	if err != nil {

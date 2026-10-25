@@ -14,6 +14,48 @@ import (
 	"netlab.local/core/internal/access"
 )
 
+type eventSubscription struct {
+	changed chan struct{}
+	readers int
+}
+
+func (s *Server) subscribeEvents(id string) (func() <-chan struct{}, func()) {
+	s.eventMu.Lock()
+	defer s.eventMu.Unlock()
+	if s.eventUpdates == nil {
+		s.eventUpdates = map[string]*eventSubscription{}
+	}
+	sub := s.eventUpdates[id]
+	if sub == nil {
+		sub = &eventSubscription{changed: make(chan struct{})}
+		s.eventUpdates[id] = sub
+	}
+	sub.readers++
+	watch := func() <-chan struct{} {
+		s.eventMu.Lock()
+		defer s.eventMu.Unlock()
+		return sub.changed
+	}
+	release := func() {
+		s.eventMu.Lock()
+		defer s.eventMu.Unlock()
+		sub.readers--
+		if sub.readers == 0 {
+			delete(s.eventUpdates, id)
+		}
+	}
+	return watch, release
+}
+
+func (s *Server) wakeEvents(id string) {
+	s.eventMu.Lock()
+	defer s.eventMu.Unlock()
+	if sub := s.eventUpdates[id]; sub != nil {
+		close(sub.changed)
+		sub.changed = make(chan struct{})
+	}
+}
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	id := r.PathValue("id")
 	_, visible, err := s.Environments.Readable(r.Context(), identity, id)
@@ -30,6 +72,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 		return err
 	}
 	defer release()
+	watch, unsubscribe := s.subscribeEvents(id)
+	defer unsubscribe()
+	changed := watch()
 	var cursor int64
 	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
 		value, err := strconv.ParseInt(raw, 10, 64)
@@ -54,8 +99,6 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 	if err := flusher.Flush(); err != nil {
 		return err
 	}
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -83,18 +126,24 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 				return nil
 			}
 		}
-		select {
-		case <-r.Context().Done():
-			return nil
-		case <-ticker.C:
-		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
+		// A full page may have more persisted events; drain without waiting for
+		// another notification. Capture the next wakeup before reading the DB.
+		if len(rows) < 200 {
+			select {
+			case <-r.Context().Done():
 				return nil
-			}
-			if err := flusher.Flush(); err != nil {
-				return nil
+			case <-changed:
+			case <-heartbeat.C:
+				if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
+					return nil
+				}
+				if err := flusher.Flush(); err != nil {
+					return nil
+				}
+				continue
 			}
 		}
+		changed = watch()
 		rows, err = s.Queries.ReadEvents(r.Context(), queries.ReadEventsParams{EnvironmentID: &id, Cursor: cursor})
 		if err != nil {
 			slog.ErrorContext(r.Context(), "event stream failed", "environment", id, "error", err)

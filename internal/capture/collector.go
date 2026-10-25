@@ -54,7 +54,7 @@ type Collector struct {
 	mu         sync.Mutex
 	interfaces map[uint32]string
 	samples    []sampled
-	index      map[sampleKey]int
+	index      map[samplePort]map[sampleKey]int
 	next       int
 	omitted    [ObservationWindow]sampleDrop
 	err        error
@@ -75,7 +75,7 @@ func NewCollector(ctx context.Context, ovs *network.OVS, node string) (*Collecto
 		conn.Close()
 		return nil, err
 	}
-	s := &Collector{ovs: ovs, node: node, conn: conn, interfaces: interfaces, index: map[sampleKey]int{}, templates: netflow.CreateTemplateSystem()}
+	s := &Collector{ovs: ovs, node: node, conn: conn, interfaces: interfaces, index: map[samplePort]map[sampleKey]int{}, templates: netflow.CreateTemplateSystem()}
 	s.workers.Add(1)
 	go func() { defer s.workers.Done(); s.receive() }()
 	return s, nil
@@ -141,7 +141,7 @@ func (s *Collector) ingest(data []byte, now time.Time) error {
 // Keep one record per flow-second, so a busy flow cannot evict an entire node's observations by packet count.
 func (s *Collector) add(sample Sample, port samplePort) {
 	key := sampleKey{sample.key(), port, sample.At.Unix()}
-	if index, exists := s.index[key]; exists {
+	if index, exists := s.index[port][key]; exists {
 		entry := &s.samples[index]
 		entry.Bytes += sample.Bytes
 		entry.Packets += sample.Packets
@@ -161,7 +161,10 @@ func (s *Collector) add(sample Sample, port samplePort) {
 	} else {
 		index = s.next
 		previous := s.samples[index]
-		delete(s.index, previous.key)
+		delete(s.index[previous.key.port], previous.key)
+		if len(s.index[previous.key.port]) == 0 {
+			delete(s.index, previous.key.port)
+		}
 		if sample.At.Sub(previous.LastSeen) < ObservationWindow*time.Second {
 			second := previous.At.Unix()
 			drop := &s.omitted[second%ObservationWindow]
@@ -175,7 +178,10 @@ func (s *Collector) add(sample Sample, port samplePort) {
 		s.samples[index] = entry
 		s.next = (index + 1) % sampleBudget
 	}
-	s.index[key] = index
+	if s.index[port] == nil {
+		s.index[port] = map[sampleKey]int{}
+	}
+	s.index[port][key] = index
 }
 
 func decodeFlow(record netflow.DataRecord, exported time.Time) (Sample, samplePort) {
@@ -273,13 +279,20 @@ func (s *Collector) snapshot(interfaces []api.CaptureInterface, resolved map[uin
 			}
 		}
 	}
-	for index := range s.samples {
-		observed := &s.samples[index]
-		if observed.PortName == "" {
-			observed.PortName, observed.portSide = observed.key.port.resolve(resolved)
+	for port, entries := range s.index {
+		if port.name != "" && !ports[port.name] {
+			continue
 		}
-		if ports[observed.PortName] && now.Sub(observed.LastSeen) <= ObservationWindow*time.Second {
-			samples = append(samples, observed.Sample)
+		// Only unresolved attachment buckets need late binding; named buckets
+		// let one environment avoid scanning every other environment's flows.
+		for _, index := range entries {
+			observed := &s.samples[index]
+			if observed.PortName == "" {
+				observed.PortName, observed.portSide = observed.key.port.resolve(resolved)
+			}
+			if ports[observed.PortName] && now.Sub(observed.LastSeen) <= ObservationWindow*time.Second {
+				samples = append(samples, observed.Sample)
+			}
 		}
 	}
 	s.mu.Unlock()

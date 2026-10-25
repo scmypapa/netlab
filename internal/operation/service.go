@@ -23,7 +23,7 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 		return false
 	}
 	if row.EnvironmentID == nil {
-		if row.ScopeKind == "backup-repository" && (environment.OperationID == nil || *environment.OperationID != row.ID) {
+		if environment.OperationID == nil || *environment.OperationID != row.ID {
 			return false
 		}
 		return identity.Administrator()
@@ -38,6 +38,19 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 func (s Service) CurrentOperationID(ctx context.Context, row queries.Operation, current *string) (*string, error) {
 	var err error
 	switch row.ScopeKind {
+	case "template":
+		rows, readErr := s.Queries.GetTemplates(ctx, []string{row.ScopeID})
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(rows) == 0 {
+			return nil, nil
+		}
+		var template api.Template
+		if err = json.Unmarshal(rows[0].Definition, &template); err != nil {
+			return nil, err
+		}
+		current = template.OperationId
 	case "node":
 		var latest queries.Operation
 		latest, err = s.Queries.NodeOperation(ctx, row.ScopeID)
@@ -143,6 +156,33 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	}
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
+	// Claim also locks the operation before its scope. Recheck state under that
+	// lock so a repeated retry cannot invert the order against a newly claimed task.
+	row, err = q.LockOperation(ctx, id)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	if row.State == "queued" || row.State == "running" {
+		var current *string
+		if row.EnvironmentID != nil {
+			runtime, err := q.GetEnvironment(ctx, *row.EnvironmentID)
+			if err != nil {
+				return api.Operation{}, err
+			}
+			current = runtime.OperationID
+		}
+		current, err = (Service{Queries: q}).CurrentOperationID(ctx, row, current)
+		if err != nil {
+			return api.Operation{}, err
+		}
+		if current == nil || *current != id {
+			return api.Operation{}, environment.ErrConflict
+		}
+		return environment.Operation(row)
+	}
+	if row.State != "failed" && row.State != "partially_applied" {
+		return api.Operation{}, environment.Invalid("当前任务不需要重试")
+	}
 	revision := row.ExpectedRevision
 	if row.ScopeKind == "environment" {
 		e, readErr := q.LockEnvironment(ctx, *row.EnvironmentID)
@@ -221,13 +261,6 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 			return api.Operation{}, err
 		}
 	}
-	row, err = q.LockOperation(ctx, id)
-	if err != nil {
-		return api.Operation{}, err
-	}
-	if row.State != "failed" && row.State != "partially_applied" {
-		return api.Operation{}, environment.Invalid("当前任务不需要重试")
-	}
 	var p Payload
 	if err = json.Unmarshal(row.Payload, &p); err != nil {
 		return api.Operation{}, err
@@ -252,6 +285,9 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		}
 		if template.State != nil && *template.State == api.TemplateStateDeleting && row.Kind != "delete-template" {
 			return api.Operation{}, environment.Invalid("模板正在删除")
+		}
+		if template.OperationId == nil || *template.OperationId != id {
+			return api.Operation{}, environment.ErrConflict
 		}
 		state := api.TemplateStateImporting
 		if row.Kind == "delete-template" {

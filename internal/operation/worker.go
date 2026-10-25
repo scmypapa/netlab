@@ -80,7 +80,9 @@ var errPersistence = errors.New("持久状态提交结果尚未确认")
 
 func (w Worker) Run(ctx context.Context) {
 	var wg sync.WaitGroup
-	for range runtime.GOMAXPROCS(0) {
+	// Keep one claimant available for lifecycle control when preparation and
+	// migrations occupy the normal workers. All work stays in the same queue.
+	for i := range runtime.GOMAXPROCS(0) + 1 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -88,7 +90,7 @@ func (w Worker) Run(ctx context.Context) {
 			timer := time.NewTicker(time.Second)
 			defer timer.Stop()
 			for ctx.Err() == nil {
-				op, err := w.Queries.ClaimOperation(ctx, &owner)
+				op, err := w.Queries.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner, ControlOnly: i == 0})
 				var pgerr *pgconn.PgError
 				if errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &pgerr) && pgerr.ConstraintName == "operations_one_running") {
 					select {
@@ -128,7 +130,9 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				count, err := w.Queries.RenewLease(ctx, queries.RenewLeaseParams{ID: op.ID, LeaseOwner: op.LeaseOwner})
+				renewal, finish := context.WithTimeout(ctx, 5*time.Second)
+				count, err := w.Queries.RenewLease(renewal, queries.RenewLeaseParams{ID: op.ID, LeaseOwner: op.LeaseOwner})
+				finish()
 				if err != nil || count != 1 {
 					cancel()
 					return
@@ -451,12 +455,13 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	}
 	responses := make(chan response, len(grouped))
 	var wg sync.WaitGroup
+	rollback := op.Phase == "rollback"
 	for id, assets := range grouped {
 		wg.Add(1)
 		go func(id string, assets []api.AssetExecution) {
 			defer wg.Done()
 			spec := p.Spec
-			if op.Phase == "rollback" && p.BeforeSpec != nil {
+			if rollback && p.BeforeSpec != nil {
 				spec = *p.BeforeSpec
 			}
 			plan := api.NodePlan{OperationId: op.ID, EnvironmentId: *op.EnvironmentID, Phase: phase, Assets: assets, Spec: spec, ArtifactEndpoints: &artifacts}
@@ -503,14 +508,21 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 			responses <- response{valid, err}
 		}(id, assets)
 	}
-	wg.Wait()
-	close(responses)
+	defer wg.Wait()
 	results := []api.ExecutionResult{}
 	var executionErr error
-	for r := range responses {
+	for range len(grouped) {
+		r := <-responses
 		results = append(results, r.results...)
 		executionErr = errors.Join(executionErr, r.err)
+		if err = w.saveBatch(ctx, op, p, phase, r.results); err != nil {
+			return results, errors.Join(executionErr, err)
+		}
 	}
+	return results, executionErr
+}
+
+func (w Worker) saveBatch(ctx context.Context, op *queries.Operation, p *Payload, phase api.NodePlanPhase, results []api.ExecutionResult) error {
 	latest := map[string]api.ExecutionResult{}
 	for _, r := range p.Results {
 		latest[r.InstanceId] = r
@@ -525,28 +537,28 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 	slices.SortFunc(p.Results, func(a, b api.ExecutionResult) int { return strings.Compare(a.InstanceId, b.InstanceId) })
 	raw, err := json.Marshal(results)
 	if err != nil {
-		return results, err
+		return err
 	}
 	tx, err := w.Pool.Begin(ctx)
 	if err != nil {
-		return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
+		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
 	if phase != api.NodePlanPhaseCleanupVolumes && phase != api.NodePlanPhaseCaptureRecovery && phase != api.NodePlanPhaseDeleteRecovery && phase != api.NodePlanPhasePrepareRecovery && phase != api.NodePlanPhaseCleanupRecovery {
 		if err = q.ApplyAssetResults(ctx, raw); err != nil {
-			return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
+			return fmt.Errorf("%w: %v", errPersistence, err)
 		}
 	}
 	transactionWorker := w
 	transactionWorker.Queries = q
 	if err = transactionWorker.phase(ctx, op, p, op.Phase); err != nil {
-		return results, errors.Join(executionErr, err)
+		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return results, errors.Join(executionErr, fmt.Errorf("%w: %v", errPersistence, err))
+		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
-	return results, executionErr
+	return nil
 }
 func (w Worker) network(ctx context.Context, op *queries.Operation, p *Payload, remove bool) error {
 	if remove {

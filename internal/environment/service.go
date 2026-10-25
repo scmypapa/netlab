@@ -21,6 +21,19 @@ type Service struct {
 
 var ErrConflict = errors.New("环境配置已变化，请重新确认本轮变更")
 var ErrInUse = errors.New("资源仍在使用")
+var ErrBusy = errors.New("环境已有任务正在执行，请等待当前任务完成")
+
+// The caller holds the environment row lock through submission.
+func RequireIdle(ctx context.Context, q *queries.Queries, id string) error {
+	pending, err := q.PendingEnvironmentOperations(ctx, id)
+	if err != nil {
+		return err
+	}
+	if pending {
+		return ErrBusy
+	}
+	return nil
+}
 
 func Templates(ctx context.Context, q *queries.Queries, assets []api.Asset) (map[string]api.Template, error) {
 	ids := make([]string, 0, len(assets))
@@ -402,6 +415,9 @@ func submit(ctx context.Context, q *queries.Queries, row queries.Environment, ki
 }
 
 func submitPayload(ctx context.Context, q *queries.Queries, row queries.Environment, kind string, asset *string, raw []byte, requestId *string) (queries.Operation, error) {
+	if err := RequireIdle(ctx, q, row.ID); err != nil {
+		return queries.Operation{}, err
+	}
 	op, err := q.CreateOperation(ctx, queries.CreateOperationParams{ID: uuid.NewString(), EnvironmentID: &row.ID, ScopeKind: "environment", ScopeID: row.ID, Kind: kind, AssetID: asset, Payload: raw, ExpectedRevision: row.Revision, ClientRequestID: requestId})
 	if err != nil {
 		return op, err
@@ -611,6 +627,9 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		return preview, nil, err
 	}
 	if row.AppliedSpec == nil {
+		if err = RequireIdle(ctx, q, id); err != nil {
+			return preview, nil, err
+		}
 		raw, marshalErr := json.Marshal(spec)
 		if marshalErr != nil {
 			return preview, nil, marshalErr

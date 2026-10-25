@@ -22,7 +22,7 @@ func (s Service) ConfigureManagedStorage(ctx context.Context, replicas *int) err
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(73421493)"); err != nil {
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('netlab/managed-storage', 0))"); err != nil {
 		return err
 	}
 	q := s.Queries.WithTx(tx)

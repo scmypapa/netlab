@@ -87,7 +87,7 @@ func sampleDatagram(frame []byte, ingress uint32, egress ...uint32) []byte {
 }
 
 func fixtureCollector(node string, interfaces map[uint32]string) *Collector {
-	return &Collector{node: node, interfaces: interfaces, index: map[sampleKey]int{}, templates: netflow.CreateTemplateSystem()}
+	return &Collector{node: node, interfaces: interfaces, index: map[samplePort]map[sampleKey]int{}, templates: netflow.CreateTemplateSystem()}
 }
 
 func TestCollectorRejectsOtherProtocols(t *testing.T) {
@@ -228,17 +228,17 @@ func TestSamplingBudgetIndexExpiryAndOutOfOrderTimes(t *testing.T) {
 		sample.DestinationPort = index / sampleBudget
 		s.add(sample, port)
 	}
-	if len(s.samples) != sampleBudget || len(s.index) != sampleBudget || s.omitted[now.Unix()%ObservationWindow].ports[port] != 3 {
+	if len(s.samples) != sampleBudget || len(s.index[port]) != sampleBudget || s.omitted[now.Unix()%ObservationWindow].ports[port] != 3 {
 		t.Fatal("unbounded or hidden overwrite", len(s.samples), len(s.index))
 	}
-	for key, index := range s.index {
+	for key, index := range s.index[port] {
 		if s.samples[index].key != key {
 			t.Fatal("slot overwrite left a stale index")
 		}
 	}
 	sample.SourcePort, sample.DestinationPort = 0, 0
 	s.add(sample, port)
-	index := s.index[sampleKey{sample.key(), port, now.Unix()}]
+	index := s.index[port][sampleKey{sample.key(), port, now.Unix()}]
 	if s.samples[index].Packets != 1 {
 		t.Fatal("overwritten flow merged with another slot")
 	}

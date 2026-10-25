@@ -550,7 +550,7 @@ func run() error {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		source, err := executor.ReceiveTemplate(r.PathValue("id"), version, r.PathValue("uploadId"), r.URL.Query().Get("source"), parts)
+		source, err := executor.ReceiveTemplate(r.Context(), r.PathValue("id"), version, r.PathValue("uploadId"), r.URL.Query().Get("source"), parts)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -563,7 +563,7 @@ func run() error {
 			http.Error(w, "invalid template identity", http.StatusBadRequest)
 			return
 		}
-		if err = executor.RemoveTemplateImport(r.PathValue("id"), version, r.PathValue("uploadId")); err != nil {
+		if err = executor.RemoveTemplateImport(r.Context(), r.PathValue("id"), version, r.PathValue("uploadId")); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

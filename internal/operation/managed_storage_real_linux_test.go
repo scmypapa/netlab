@@ -89,7 +89,7 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 				t.Fatal(err)
 			}
 			owner := "real-storage-test"
-			preparation, err := q.ClaimOperation(ctx, &owner)
+			preparation, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -108,7 +108,7 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 		}
 	}
 	owner := "real-storage-test"
-	op, err := q.ClaimOperation(ctx, &owner)
+	op, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 	if err = s.ConfigureManagedStorage(ctx, &replicas); err != nil {
 		t.Fatal(err)
 	}
-	op, err = q.ClaimOperation(ctx, &owner)
+	op, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 	if _, err = q.CreateOperation(ctx, queries.CreateOperationParams{ID: templateDeleteID, ScopeKind: "template", ScopeID: template.Id, Kind: "delete-template", Payload: templatePayload}); err != nil {
 		t.Fatal(err)
 	}
-	op, err = q.ClaimOperation(ctx, &owner)
+	op, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestRealManagedStorageTwoNodes(t *testing.T) {
 	if _, err = q.CreateOperation(ctx, queries.CreateOperationParams{ID: deleteID, ScopeKind: "storage-pool", ScopeID: storage.ID, Kind: "delete-storage-pool", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
-	op, err = q.ClaimOperation(ctx, &owner)
+	op, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func testRealStorageMigration(t *testing.T, ctx context.Context, w Worker, s Ser
 			t.Fatal(err)
 		}
 		owner := "real-migration-test"
-		op, err := s.Queries.ClaimOperation(ctx, &owner)
+		op, err := s.Queries.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 		if err != nil {
 			t.Fatal(err)
 		}

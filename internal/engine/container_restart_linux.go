@@ -132,9 +132,15 @@ func (e *Engine) restartContainer(ctx context.Context, instance string, pid, cod
 	if err != nil {
 		return err
 	}
-	unlocked := e.lock(labels[environmentLabel])
+	unlocked, err := e.lock(ctx, labels[environmentLabel])
+	if err != nil {
+		return err
+	}
 	defer unlocked()
-	unlockedAsset := e.lock(labels[environmentLabel] + "/" + labels[assetLabel])
+	unlockedAsset, err := e.lock(ctx, labels[environmentLabel]+"/"+labels[assetLabel])
+	if err != nil {
+		return err
+	}
 	defer unlockedAsset()
 	labels, err = container.Labels(ctx)
 	if errdefs.IsNotFound(err) {

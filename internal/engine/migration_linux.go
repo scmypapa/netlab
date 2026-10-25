@@ -86,7 +86,10 @@ func sharedDisk(a, b vmDisk) bool {
 }
 
 func (e *Engine) cleanupMigration(ctx context.Context, env string, source, target api.AssetExecution) error {
-	unlock := e.lock(env + "/" + source.Asset.Id)
+	unlock, err := e.lock(ctx, env+"/"+source.Asset.Id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if source.Template.Kind == api.Container {
 		state, err := e.container.Execute(ctx, env, api.NodePlanPhaseInspect, source)
@@ -183,7 +186,10 @@ func (e *Engine) prepareMigration(ctx context.Context, input api.NodeMigrationPr
 		return "", errors.New("virtual machine runtime is not configured")
 	}
 	a, env := input.Execution, input.EnvironmentId
-	unlock := e.lock(env + "/" + a.Asset.Id)
+	unlock, err := e.lock(ctx, env+"/"+a.Asset.Id)
+	if err != nil {
+		return "", err
+	}
 	defer unlock()
 	if existing, err := e.vm.conn.LookupDomainByUUIDString(a.InstanceId); err == nil {
 		defer existing.Free()

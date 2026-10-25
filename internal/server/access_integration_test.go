@@ -380,10 +380,10 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 				value := "env-b"
 				environmentID = &value
 			}
-			if _, err := pool.Exec(ctx, `INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,state,phase,payload,expected_revision) VALUES($1,$2,CASE WHEN $2::text IS NULL THEN 'template' ELSE 'environment' END,COALESCE($2,$1),$3,'failed',$4,$5,0)`, id, environmentID, scenario.kind, scenario.phase, scenario.payload); err != nil {
+			if _, err := pool.Exec(ctx, `INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,state,phase,payload,expected_revision) VALUES($1,$2,CASE WHEN $2::text IS NULL THEN 'template' ELSE 'environment' END,COALESCE($2,$5::jsonb->'template'->>'id'),$3,'failed',$4,$5,0)`, id, environmentID, scenario.kind, scenario.phase, scenario.payload); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `INSERT INTO templates(id,definition) SELECT $1::jsonb->'template'->>'id',$1::jsonb->'template'`, scenario.payload); err != nil {
+			if _, err := pool.Exec(ctx, `INSERT INTO templates(id,definition) SELECT $1::jsonb->'template'->>'id',($1::jsonb->'template')||jsonb_build_object('operationId',$2::text)`, scenario.payload, id); err != nil {
 				t.Fatal(err)
 			}
 			if environmentID != nil {
@@ -391,6 +391,7 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			call("POST", "/operations/"+id+"/retry", admin, nil, 202)
 			call("POST", "/operations/"+id+"/retry", admin, nil, 202)
 			var raw []byte
 			if err := pool.QueryRow(ctx, `SELECT payload FROM operations WHERE id=$1`, id).Scan(&raw); err != nil {
@@ -455,4 +456,5 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 			}
 		}
 	})
+	t.Run("notified event streams do not poll while idle", func(t *testing.T) { testNotifiedEventStreams(t, ctx, s, admin) })
 }

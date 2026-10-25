@@ -26,7 +26,10 @@ func (e *Engine) managedCeph(ctx context.Context, id string, args ...string) ([]
 }
 
 func (e *Engine) BootstrapCeph(ctx context.Context, id string) (api.NodeCephBootstrap, error) {
-	unlock := e.lock("ceph:" + id)
+	unlock, err := e.lock(ctx, "ceph:"+id)
+	if err != nil {
+		return api.NodeCephBootstrap{}, err
+	}
 	defer unlock()
 	root := e.cephRoot(id)
 	config := filepath.Join(root, "ceph.conf")
@@ -89,7 +92,10 @@ func (e *Engine) JoinCeph(ctx context.Context, id string, input api.NodeCephBoot
 	if err != nil || len(strings.TrimSpace(string(rest))) > 0 {
 		return api.NodeCephHost{}, errors.New("无效的集群 SSH 公钥")
 	}
-	unlock := e.lock("ceph-ssh")
+	unlock, err := e.lock(ctx, "ceph-ssh")
+	if err != nil {
+		return api.NodeCephHost{}, err
+	}
 	defer unlock()
 	if err = os.MkdirAll("/root/.ssh", 0700); err != nil {
 		return api.NodeCephHost{}, err
@@ -116,7 +122,10 @@ func (e *Engine) JoinCeph(ctx context.Context, id string, input api.NodeCephBoot
 }
 
 func (e *Engine) ConfigureCeph(ctx context.Context, id string, input api.NodeCephConfiguration) (api.CephConnection, error) {
-	unlock := e.lock("ceph:" + id)
+	unlock, err := e.lock(ctx, "ceph:"+id)
+	if err != nil {
+		return api.CephConnection{}, err
+	}
 	defer unlock()
 	for _, host := range input.Hosts {
 		if host.Device == nil {

@@ -159,11 +159,12 @@ WITH maintenance AS MATERIALIZED (
 ), candidate AS (
  SELECT o.id FROM operations o WHERE (o.state='queued' OR (o.state='running' AND o.lease_until<now()))
  AND o.scope_kind<>'system'
+ AND (NOT sqlc.arg(control_only)::boolean OR o.kind IN ('stop','force-stop','destroy','suspend','resume','reboot','vpn-revoke'))
  AND EXISTS(SELECT 1 FROM maintenance)
  AND NOT EXISTS(SELECT 1 FROM operations live WHERE live.scope_kind=o.scope_kind AND live.scope_id=o.scope_id AND live.id<>o.id AND live.state='running')
  ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1
 ), claimed AS (
- UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
+ UPDATE operations o SET state='running',lease_owner=sqlc.narg(lease_owner)::text,lease_until=now()+interval '30 seconds',updated_at=now()
  FROM candidate c WHERE o.id=c.id RETURNING o.*
 ), active AS (
  UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
@@ -218,11 +219,16 @@ AND (sqlc.arg(search)::text='' OR n.name ILIKE '%'||sqlc.arg(search)||'%')
 GROUP BY n.id,v.disk_gib ORDER BY n.id LIMIT sqlc.arg(page_limit);
 -- name: ListVisibleOperations :many
 SELECT sqlc.embed(o),COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
- COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
+ COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id
+ WHEN 'template' THEN t.definition->>'operationId' WHEN 'storage-pool' THEN sp.operation_id
+ WHEN 'node' THEN (SELECT latest.id FROM operations latest WHERE latest.scope_kind='node' AND latest.scope_id=o.scope_id ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1)
+ ELSE e.operation_id END,'')::text AS current_operation_id
 FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
  LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
  LEFT JOIN persistent_volumes v ON o.scope_kind='volume' AND v.id=o.scope_id
+ LEFT JOIN templates t ON o.scope_kind='template' AND t.id=o.scope_id
+ LEFT JOIN storage_pools sp ON o.scope_kind='storage-pool' AND sp.id=o.scope_id
 WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))
 AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
 AND (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS

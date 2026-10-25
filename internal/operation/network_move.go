@@ -33,10 +33,8 @@ func (s Service) enqueueNetworkMove(ctx context.Context, row queries.Environment
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return queries.Operation{}, err
 	}
-	if pending, err := q.PendingEnvironmentOperations(ctx, row.ID); err != nil {
+	if err = environment.RequireIdle(ctx, q, row.ID); err != nil {
 		return queries.Operation{}, err
-	} else if pending {
-		return queries.Operation{}, environment.ErrInUse
 	}
 	var spec api.EnvironmentSpec
 	if err = json.Unmarshal(row.AppliedSpec, &spec); err != nil {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/namespaces"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/buildinfo"
@@ -56,7 +58,7 @@ type Engine struct {
 	securityError error
 }
 type objectLock struct {
-	mu   sync.RWMutex
+	mu   *semaphore.Weighted
 	refs int
 }
 
@@ -150,30 +152,24 @@ func (e *Engine) Close() {
 		e.ovs.Close()
 	}
 }
-func (e *Engine) lock(id string) func() {
-	return e.acquire(id, false)
+func (e *Engine) lock(ctx context.Context, id string) (func(), error) {
+	return e.acquire(ctx, id, false)
 }
 
-func (e *Engine) acquire(id string, shared bool) func() {
+func (e *Engine) acquire(ctx context.Context, id string, shared bool) (func(), error) {
 	e.mu.Lock()
 	l := e.locks[id]
 	if l == nil {
-		l = &objectLock{}
+		l = &objectLock{mu: semaphore.NewWeighted(math.MaxInt64)}
 		e.locks[id] = l
 	}
 	l.refs++
 	e.mu.Unlock()
+	weight := int64(math.MaxInt64)
 	if shared {
-		l.mu.RLock()
-	} else {
-		l.mu.Lock()
+		weight = 1
 	}
-	return func() {
-		if shared {
-			l.mu.RUnlock()
-		} else {
-			l.mu.Unlock()
-		}
+	release := func() {
 		e.mu.Lock()
 		l.refs--
 		if l.refs == 0 {
@@ -181,6 +177,11 @@ func (e *Engine) acquire(id string, shared bool) func() {
 		}
 		e.mu.Unlock()
 	}
+	if err := l.mu.Acquire(ctx, weight); err != nil {
+		release()
+		return nil, err
+	}
+	return func() { l.mu.Release(weight); release() }, nil
 }
 func (e *Engine) Info() (api.NodeInfo, error) {
 	var mem unix.Sysinfo_t
@@ -237,9 +238,13 @@ func (e *Engine) DiscoverExternal(ctx context.Context, input api.ExternalDiscove
 	return e.external.Discover(ctx, input)
 }
 func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult {
-	unlocked := e.lock(plan.EnvironmentId)
-	defer unlocked()
 	result := api.NodeResult{Results: []api.ExecutionResult{}}
+	unlocked, err := e.lock(ctx, plan.EnvironmentId)
+	if err != nil {
+		result.Error = ptr(err.Error())
+		return result
+	}
+	defer unlocked()
 	if (plan.Phase == api.NodePlanPhaseDestroy || plan.Phase == api.NodePlanPhaseMigrate || plan.Phase == api.NodePlanPhaseStop) && e.captures != nil {
 		if err := e.captures.StopAssets(ctx, plan.EnvironmentId, plan.Assets); err != nil {
 			result.Error = ptr(err.Error())
@@ -307,7 +312,11 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 			defer wg.Done()
 			if a.Template.Kind == api.Vm && (plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery) {
 				// Instances share template reads; cache trimming and deletion remain exclusive.
-				unlockTemplate := e.acquire("template:"+a.Template.Id, true)
+				unlockTemplate, err := e.acquire(ctx, "template:"+a.Template.Id, true)
+				if err != nil {
+					result.Results[i] = executionResult(a, "unknown", err)
+					return
+				}
 				defer unlockTemplate()
 			}
 			if plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery {
@@ -326,17 +335,21 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 					return
 				}
 			}
+			unlock, err := e.lock(ctx, plan.EnvironmentId+"/"+a.Asset.Id)
+			if err != nil {
+				result.Results[i] = executionResult(a, "unknown", err)
+				return
+			}
+			defer unlock()
 			select {
 			case e.slots <- struct{}{}:
 			case <-ctx.Done():
 				result.Results[i] = executionResult(a, "unknown", ctx.Err())
 				return
 			}
-			defer func() { <-e.slots }()
-			unlock := e.lock(plan.EnvironmentId + "/" + a.Asset.Id)
-			defer unlock()
+			releaseSlot := sync.OnceFunc(func() { <-e.slots })
+			defer releaseSlot()
 			var state string
-			var err error
 			phase := plan.Phase
 			if phase == api.NodePlanPhaseMigrate {
 				destination, ok := plan.Migrations[a.Asset.Id]
@@ -409,6 +422,12 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 						}
 					}
 					state, err = e.vm.Execute(ctx, plan.EnvironmentId, phase, a)
+					if phase == api.NodePlanPhaseStart && err == nil {
+						// Guest readiness is not host compute work. Keep the asset lock,
+						// but let other guests boot while this agent comes online.
+						releaseSlot()
+						err = e.vm.bindGuestNetwork(ctx, plan.EnvironmentId, a)
+					}
 				}
 			default:
 				err = fmt.Errorf("invalid compute kind %s", a.Template.Kind)
@@ -463,18 +482,17 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePreparation) (api.Template, error) {
 	t := request.Template
 	if request.Capture != nil {
-		unlock := e.lock(request.Capture.EnvironmentId)
+		unlock, err := e.lock(ctx, request.Capture.EnvironmentId)
+		if err != nil {
+			return t, err
+		}
 		defer unlock()
 	}
-	unlock := e.lock("template:" + t.Id)
-	defer unlock()
-	select {
-	case e.slots <- struct{}{}:
-	case <-ctx.Done():
-		return t, ctx.Err()
+	unlock, err := e.lock(ctx, "template:"+t.Id)
+	if err != nil {
+		return t, err
 	}
-	defer func() { <-e.slots }()
-	var err error
+	defer unlock()
 	if request.StoragePoolId != nil {
 		if t.Kind != api.Vm || t.Disks == nil {
 			return t, errors.New("共享存储需要已准备的虚拟机模板")
@@ -514,6 +532,12 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 	if t.ArtifactNodeId == nil {
 		t.ArtifactNodeId = ptr(e.cfg.ID)
 	}
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return t, ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
 	switch t.Kind {
 	case api.Container:
 		if e.container == nil {

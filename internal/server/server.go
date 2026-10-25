@@ -39,6 +39,8 @@ type Server struct {
 	Web          http.Handler
 	connectionMu sync.Mutex
 	connections  map[*accessConnection]struct{}
+	eventMu      sync.Mutex
+	eventUpdates map[string]*eventSubscription
 }
 
 func New(pool *pgxpool.Pool, nodes *transport.Client, web http.Handler) *Server {
@@ -267,7 +269,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status, detail = http.StatusForbidden, err.Error()
 	case errors.Is(err, pgx.ErrNoRows):
 		status, detail = http.StatusNotFound, "对象不存在"
-	case errors.Is(err, environment.ErrConflict) || errors.Is(err, environment.ErrInUse):
+	case errors.Is(err, environment.ErrConflict) || errors.Is(err, environment.ErrInUse) || errors.Is(err, environment.ErrBusy):
 		status, detail = http.StatusConflict, err.Error()
 	case errors.As(err, &validation):
 		status, detail = http.StatusBadRequest, validation.Error()

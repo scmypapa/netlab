@@ -56,12 +56,8 @@ func (s Service) Migrate(ctx context.Context, identity access.Identity, id, asse
 	if int(row.Revision) != input.ExpectedRevision {
 		return api.Operation{}, environment.ErrConflict
 	}
-	pending, err := q.PendingEnvironmentOperations(ctx, id)
-	if err != nil {
+	if err = environment.RequireIdle(ctx, q, id); err != nil {
 		return api.Operation{}, err
-	}
-	if pending {
-		return api.Operation{}, environment.ErrInUse
 	}
 	source, err := q.GetCurrentAsset(ctx, queries.GetCurrentAssetParams{EnvironmentID: id, AssetID: asset})
 	if err != nil {

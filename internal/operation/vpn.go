@@ -140,7 +140,7 @@ func (w Worker) prepareVPN(ctx context.Context, op *queries.Operation, spec api.
 			next.Peers = append(next.Peers, peer)
 		}
 	}
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(73421494)"); err != nil {
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('netlab/vpn-routes', 0))"); err != nil {
 		return nil, nil, err
 	}
 	next.Peers, err = environment.VPNRoutes(ctx, q, row.ID, spec, next.Peers)

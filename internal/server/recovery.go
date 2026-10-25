@@ -67,6 +67,9 @@ func (s *Server) captureRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 	if int(row.Revision) != input.ExpectedRevision {
 		return environment.ErrConflict
 	}
+	if err = environment.RequireIdle(ctx, q, id); err != nil {
+		return err
+	}
 	if row.Status != "running" && row.Status != "stopped" && row.Status != "suspended" {
 		return environment.Invalid("请等待环境进入稳定运行状态")
 	}
@@ -148,8 +151,8 @@ func (s *Server) restoreRecoveryPoint(w http.ResponseWriter, r *http.Request, id
 	if int(row.Revision) != input.ExpectedRevision {
 		return environment.ErrConflict
 	}
-	if row.Status == "deploying" || row.Status == "changing" || row.Status == "destroying" {
-		return httpError{http.StatusConflict, "请等待当前任务完成"}
+	if err = environment.RequireIdle(ctx, q, id); err != nil {
+		return err
 	}
 	assets, err := q.ListRuntimeAssets(ctx, id)
 	if err != nil {
@@ -249,8 +252,8 @@ func (s *Server) deleteRecoveryPoint(w http.ResponseWriter, r *http.Request, ide
 	if err != nil {
 		return err
 	}
-	if row.Status == "deploying" || row.Status == "changing" || row.Status == "destroying" {
-		return httpError{http.StatusConflict, "请等待当前任务完成"}
+	if err = environment.RequireIdle(ctx, q, id); err != nil {
+		return err
 	}
 	point, err := q.LockRecoveryPoint(ctx, queries.LockRecoveryPointParams{ID: r.PathValue("pointId"), EnvironmentID: id})
 	if err != nil {

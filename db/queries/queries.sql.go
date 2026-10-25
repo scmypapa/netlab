@@ -45,11 +45,12 @@ WITH maintenance AS MATERIALIZED (
 ), candidate AS (
  SELECT o.id FROM operations o WHERE (o.state='queued' OR (o.state='running' AND o.lease_until<now()))
  AND o.scope_kind<>'system'
+ AND (NOT $1::boolean OR o.kind IN ('stop','force-stop','destroy','suspend','resume','reboot','vpn-revoke'))
  AND EXISTS(SELECT 1 FROM maintenance)
  AND NOT EXISTS(SELECT 1 FROM operations live WHERE live.scope_kind=o.scope_kind AND live.scope_id=o.scope_id AND live.id<>o.id AND live.state='running')
  ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1
 ), claimed AS (
- UPDATE operations o SET state='running',lease_owner=$1,lease_until=now()+interval '30 seconds',updated_at=now()
+ UPDATE operations o SET state='running',lease_owner=$2::text,lease_until=now()+interval '30 seconds',updated_at=now()
  FROM candidate c WHERE o.id=c.id RETURNING o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id
 ), active AS (
  UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
@@ -57,6 +58,11 @@ WITH maintenance AS MATERIALIZED (
 )
 SELECT claimed.id, claimed.environment_id, claimed.scope_kind, claimed.scope_id, claimed.kind, claimed.asset_id, claimed.state, claimed.phase, claimed.payload, claimed.results, claimed.error, claimed.expected_revision, claimed.lease_owner, claimed.lease_until, claimed.created_at, claimed.updated_at, claimed.client_request_id FROM claimed
 `
+
+type ClaimOperationParams struct {
+	ControlOnly bool
+	LeaseOwner  *string
+}
 
 type ClaimOperationRow struct {
 	ID               string
@@ -78,8 +84,8 @@ type ClaimOperationRow struct {
 	ClientRequestID  *string
 }
 
-func (q *Queries) ClaimOperation(ctx context.Context, leaseOwner *string) (ClaimOperationRow, error) {
-	row := q.db.QueryRow(ctx, claimOperation, leaseOwner)
+func (q *Queries) ClaimOperation(ctx context.Context, arg ClaimOperationParams) (ClaimOperationRow, error) {
+	row := q.db.QueryRow(ctx, claimOperation, arg.ControlOnly, arg.LeaseOwner)
 	var i ClaimOperationRow
 	err := row.Scan(
 		&i.ID,
@@ -1256,11 +1262,16 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]Template, error) {
 
 const listVisibleOperations = `-- name: ListVisibleOperations :many
 SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id,COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
- COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id ELSE e.operation_id END,'')::text AS current_operation_id
+ COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id
+ WHEN 'template' THEN t.definition->>'operationId' WHEN 'storage-pool' THEN sp.operation_id
+ WHEN 'node' THEN (SELECT latest.id FROM operations latest WHERE latest.scope_kind='node' AND latest.scope_id=o.scope_id ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1)
+ ELSE e.operation_id END,'')::text AS current_operation_id
 FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
 LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
  LEFT JOIN backup_repositories r ON o.scope_kind='backup-repository' AND r.id=o.scope_id
  LEFT JOIN persistent_volumes v ON o.scope_kind='volume' AND v.id=o.scope_id
+ LEFT JOIN templates t ON o.scope_kind='template' AND t.id=o.scope_id
+ LEFT JOIN storage_pools sp ON o.scope_kind='storage-pool' AND sp.id=o.scope_id
 WHERE ($1::text='' OR o.environment_id=$1)
 AND ($2::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=$2))
 AND ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS

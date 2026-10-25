@@ -84,7 +84,7 @@ func TestRolloutDrainAndClaim(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-	if _, err := queries.New(pool).ClaimOperation(ctx, &owner); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := queries.New(pool).ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("maintenance allowed claim: %v", err)
 	}
 	if _, err := pool.Exec(ctx, "UPDATE operations SET state='succeeded' WHERE id='running'"); err != nil {
@@ -95,13 +95,13 @@ func TestRolloutDrainAndClaim(t *testing.T) {
 		t.Fatal(completed.err)
 	}
 	defer completed.release(nil)
-	if _, err := queries.New(pool).ClaimOperation(ctx, &owner); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := queries.New(pool).ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("maintenance released before controller switch: %v", err)
 	}
 	if err := completed.release(nil); err != nil {
 		t.Fatal(err)
 	}
-	if operation, err := queries.New(pool).ClaimOperation(ctx, &owner); err != nil || operation.ID != "queued" {
+	if operation, err := queries.New(pool).ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner}); err != nil || operation.ID != "queued" {
 		t.Fatalf("queued task did not resume: %+v %v", operation, err)
 	}
 }
@@ -199,7 +199,7 @@ func TestRolloutInterruptedResume(t *testing.T) {
 		t.Fatal("lost update session was accepted")
 	}
 	owner := "worker"
-	if _, err := queries.New(pool).ClaimOperation(ctx, &owner); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := queries.New(pool).ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("claim resumed during interrupted update: %v", err)
 	}
 	if _, err := Rollout(ctx, pool, nil, directory, "v1.2.0"); err == nil {
@@ -212,7 +212,7 @@ func TestRolloutInterruptedResume(t *testing.T) {
 	if err := finish(nil); err != nil {
 		t.Fatal(err)
 	}
-	if operation, err := queries.New(pool).ClaimOperation(ctx, &owner); err != nil || operation.ID != "queued" {
+	if operation, err := queries.New(pool).ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner}); err != nil || operation.ID != "queued" {
 		t.Fatalf("completed update did not resume claims: %+v %v", operation, err)
 	}
 }
@@ -301,7 +301,11 @@ func TestClaimWaitsForMaintenanceWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := make(chan error, 1)
-	go func() { owner := "worker"; _, err := queries.New(pool).ClaimOperation(ctx, &owner); result <- err }()
+	go func() {
+		owner := "worker"
+		_, err := queries.New(pool).ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
+		result <- err
+	}()
 	select {
 	case err := <-result:
 		t.Fatalf("claim ignored maintenance row lock: %v", err)

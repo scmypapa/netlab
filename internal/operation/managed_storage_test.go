@@ -104,12 +104,12 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	put("c", nil)
 	worker := Worker{Pool: pool, Queries: q, Client: &transport.Client{HTTP: server.Client()}}
 	owner := "test"
-	claimed, err := q.ClaimOperation(ctx, &owner)
+	claimed, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
 	worker.execute(ctx, queries.Operation(claimed))
-	claimed, err = q.ClaimOperation(ctx, &owner)
+	claimed, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal("node registered during preparation was omitted", err)
 	}
@@ -126,7 +126,7 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	if _, err = service.Retry(ctx, identity, op.ID); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err = q.ClaimOperation(ctx, &owner)
+	claimed, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	if err = service.ConfigureManagedStorage(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err = q.ClaimOperation(ctx, &owner)
+	claimed, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal("existing compute member's disk selection was omitted", err)
 	}
@@ -152,7 +152,7 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	if err = service.ConfigureManagedStorage(ctx, &replicas); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err = q.ClaimOperation(ctx, &owner)
+	claimed, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestManagedStorageMembershipAndRetry(t *testing.T) {
 	if err = service.ConfigureManagedStorage(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = q.ClaimOperation(ctx, &owner); err != pgx.ErrNoRows {
+	if _, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner}); err != pgx.ErrNoRows {
 		t.Fatal("unchanged desired storage created another operation", err)
 	}
 	replicas = 3

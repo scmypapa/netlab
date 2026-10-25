@@ -38,7 +38,10 @@ func (e *Engine) ConnectBackupRepository(ctx context.Context, repository api.Nod
 }
 
 func (e *Engine) BackupRecovery(ctx context.Context, id string, plan api.NodeBackupPlan) (api.NodeBackupResult, error) {
-	unlock := e.lock("backup:" + id)
+	unlock, err := e.lock(ctx, "backup:"+id)
+	if err != nil {
+		return api.NodeBackupResult{}, err
+	}
 	defer unlock()
 	select {
 	case e.ioSlots <- struct{}{}:
@@ -116,7 +119,15 @@ func (e *Engine) BackupCatalog(ctx context.Context, repository api.NodeBackupRep
 
 func (e *Engine) RestoreBackupTemplate(ctx context.Context, request api.NodeRestoreBackupTemplate) (api.Template, error) {
 	t := request.Template
-	unlock := e.lock("artifact:" + fmt.Sprintf("%s:%d", t.Id, t.Version))
+	unlockTemplate, err := e.acquire(ctx, "template:"+t.Id, true)
+	if err != nil {
+		return t, err
+	}
+	defer unlockTemplate()
+	unlock, err := e.lock(ctx, "artifact:"+fmt.Sprintf("%s:%d", t.Id, t.Version))
+	if err != nil {
+		return t, err
+	}
 	defer unlock()
 	path := filepath.Join(templateDirectory(e.cfg.DataDir, t.Id, t.Version), "template.json")
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -149,7 +160,10 @@ func (e *Engine) RestoreBackupTemplate(ctx context.Context, request api.NodeRest
 }
 
 func (e *Engine) DeleteBackup(ctx context.Context, id string, repository api.NodeBackupRepository) error {
-	unlock := e.lock("backup:" + id)
+	unlock, err := e.lock(ctx, "backup:"+id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	return e.backupStore(repository).Delete(ctx, "netlab:backup:"+id)
 }

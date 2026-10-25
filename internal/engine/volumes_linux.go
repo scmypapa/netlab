@@ -37,7 +37,10 @@ func persistentDirectory(volume api.NodeVolume) string {
 }
 
 func (e *Engine) Volume(ctx context.Context, action string, volume api.NodeVolume) error {
-	unlock := e.lock("volume:" + volume.Id)
+	unlock, err := e.lock(ctx, "volume:"+volume.Id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	select {
 	case e.ioSlots <- struct{}{}:

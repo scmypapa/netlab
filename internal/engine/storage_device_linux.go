@@ -142,7 +142,10 @@ func (e *Engine) StorageDevices(ctx context.Context) (api.NodeStorageDevices, er
 }
 
 func (e *Engine) ConfigureStorageDevice(ctx context.Context, input api.ConfigureNodeStorage) (api.NodeInfo, error) {
-	unlock := e.lock("storage-device")
+	unlock, err := e.lock(ctx, "storage-device")
+	if err != nil {
+		return api.NodeInfo{}, err
+	}
 	defer unlock()
 	current, err := e.storageSelection()
 	if err != nil {

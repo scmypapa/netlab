@@ -3,13 +3,13 @@ package operation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/transport"
@@ -149,25 +149,20 @@ func (w Worker) prepareSharedTemplates(ctx context.Context, targets []Target, ar
 	return nil
 }
 
-func (w Worker) prepareSharedTemplate(ctx context.Context, key, endpoint string, request api.NodeTemplatePreparation) (err error) {
-	conn, err := w.Pool.Acquire(ctx)
+func (w Worker) prepareSharedTemplate(ctx context.Context, key, endpoint string, request api.NodeTemplatePreparation) error {
+	// The session lock spans node I/O; it must not occupy an API or lease-renewal connection.
+	conn, err := pgx.ConnectConfig(ctx, w.Pool.Config().ConnConfig.Copy())
 	if err != nil {
-		return err
-	}
-	defer conn.Release()
-	// Serialize publication across operations and nodes without a slow DB transaction.
-	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock(hashtextextended($1, 0))", "shared-template/"+key); err != nil {
 		return err
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, unlockErr := conn.Exec(cleanup, "SELECT pg_advisory_unlock(hashtextextended($1, 0))", "shared-template/"+key)
-		if unlockErr != nil {
-			conn.Conn().Close(cleanup)
-		}
-		err = errors.Join(err, unlockErr)
+		conn.Close(cleanup)
 	}()
+	if _, err = conn.Exec(ctx, "SELECT pg_advisory_lock(hashtextextended($1, 0))", "shared-template/"+key); err != nil {
+		return err
+	}
 	var prepared api.Template
 	return w.Client.Do(ctx, http.MethodPost, endpoint, "/node/v1/templates/prepare", request, &prepared)
 }

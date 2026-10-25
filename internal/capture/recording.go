@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/gopacket/gopacket/layers"
 	"github.com/gopacket/gopacket/pcapgo"
 	"github.com/klauspost/compress/zstd"
+	"golang.org/x/sync/singleflight"
 	"netlab.local/core/api"
 )
 
@@ -38,6 +40,7 @@ type packetPart struct {
 	Pinned     bool                   `json:"-"`
 }
 type environmentRecording struct {
+	mu      sync.Mutex
 	Quota   int64         `json:"quota"`
 	Parts   []*packetPart `json:"parts"`
 	active  *packetWriter
@@ -52,10 +55,11 @@ type packetWriter struct {
 	packets    *pcapgo.NgWriter
 }
 type Recorder struct {
-	mu              sync.Mutex
+	mu              sync.RWMutex
 	directory, node string
 	environments    map[string]*environmentRecording
-	err             error
+	analysisSlots   chan struct{}
+	analyses        singleflight.Group
 }
 type compressedWriter struct {
 	recorder    *Recorder
@@ -64,7 +68,7 @@ type compressedWriter struct {
 }
 
 func NewRecorder(directory, node string) (*Recorder, error) {
-	r := &Recorder{directory: filepath.Join(directory, "packets"), node: node, environments: map[string]*environmentRecording{}}
+	r := &Recorder{directory: filepath.Join(directory, "packets"), node: node, environments: map[string]*environmentRecording{}, analysisSlots: make(chan struct{}, max(1, min(4, runtime.NumCPU()/2)))}
 	if err := os.MkdirAll(r.directory, 0700); err != nil {
 		return nil, err
 	}
@@ -125,6 +129,20 @@ func (r *Recorder) save(environment string) error {
 		return err
 	}
 	return os.Rename(temporary, filepath.Join(directory, "manifest.json"))
+}
+
+func (r *Recorder) lockRecording(environment string) (*environmentRecording, func()) {
+	r.mu.RLock()
+	state := r.environments[environment]
+	if state != nil {
+		state.mu.Lock()
+	}
+	return state, func() {
+		if state != nil {
+			state.mu.Unlock()
+		}
+		r.mu.RUnlock()
+	}
 }
 func (r *Recorder) filename(environment, id string) string {
 	return filepath.Join(r.directory, environment, id+".pcapng.zst")
@@ -281,10 +299,12 @@ func (r *Recorder) configure(quotas map[string]int64, interfaces []api.SecurityI
 	return nil
 }
 func (r *Recorder) Record(environment string, interfaces []api.CaptureInterface, index int, info gopacket.CaptureInfo, data []byte) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	state := r.environments[environment]
-	if state == nil || state.Quota == 0 {
+	state, release := r.lockRecording(environment)
+	defer release()
+	if state == nil {
+		return nil
+	}
+	if state.Quota == 0 {
 		return nil
 	}
 	rawLimit := min(partSize, max(int64(1024), state.Quota/4))
@@ -315,10 +335,12 @@ func pcapInterface(iface api.CaptureInterface) pcapgo.NgInterface {
 	return pcapgo.NgInterface{Name: iface.PortName, Description: iface.AssetName + " / " + iface.InterfaceId, LinkType: layers.LinkTypeEthernet, TimestampResolution: 9}
 }
 func (r *Recorder) interfaceStatistics(environment, port string, stats pcapgo.NgInterfaceStatistics) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	state := r.environments[environment]
-	if state == nil || state.active == nil {
+	state, release := r.lockRecording(environment)
+	defer release()
+	if state == nil {
+		return nil
+	}
+	if state.active == nil {
 		return nil
 	}
 	index := slices.IndexFunc(state.active.part.Interfaces, func(iface api.CaptureInterface) bool { return iface.PortName == port })
@@ -328,14 +350,13 @@ func (r *Recorder) interfaceStatistics(environment, port string, stats pcapgo.Ng
 	return state.active.packets.WriteInterfaceStats(index, stats)
 }
 func (r *Recorder) Flush() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	var result error
 	for environment, state := range r.environments {
-		if len(state.writers) == 0 {
-			continue
-		}
+		state.mu.Lock()
 		err := r.flushEnvironment(environment)
+		state.mu.Unlock()
 		result = errors.Join(result, err)
 	}
 	return result
@@ -381,38 +402,48 @@ func (r *Recorder) remove(environment string) error {
 	return nil
 }
 func (r *Recorder) Retention() map[string]api.PacketRetention {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	result := map[string]api.PacketRetention{}
 	for environment, state := range r.environments {
-		status := api.PacketRetentionStatusIdle
-		if state.running {
-			status = api.PacketRetentionStatusRecording
-		}
-		info := api.PacketRetention{LimitBytes: state.Quota, UsedBytes: recordingSize(state), Status: status}
-		for _, part := range state.Parts {
-			if info.OldestAt == nil || part.Start.Before(*info.OldestAt) {
-				at := part.Start
-				info.OldestAt = &at
-			}
-			if info.NewestAt == nil || part.End.After(*info.NewestAt) {
-				at := part.End
-				info.NewestAt = &at
-			}
-		}
-		if r.err != nil {
-			message := r.err.Error()
-			info.Error = &message
-			info.Status = api.PacketRetentionStatusUnavailable
-		}
-		if state.Error != "" {
-			message := state.Error
-			info.Error = &message
-			info.Status = api.PacketRetentionStatusUnavailable
-		}
-		result[environment] = info
+		state.mu.Lock()
+		result[environment] = recordingRetention(state)
+		state.mu.Unlock()
 	}
 	return result
+}
+
+func (r *Recorder) retentionFor(environment string) api.PacketRetention {
+	state, release := r.lockRecording(environment)
+	defer release()
+	if state == nil {
+		return api.PacketRetention{}
+	}
+	return recordingRetention(state)
+}
+
+func recordingRetention(state *environmentRecording) api.PacketRetention {
+	status := api.PacketRetentionStatusIdle
+	if state.running {
+		status = api.PacketRetentionStatusRecording
+	}
+	info := api.PacketRetention{LimitBytes: state.Quota, UsedBytes: recordingSize(state), Status: status}
+	for _, part := range state.Parts {
+		if info.OldestAt == nil || part.Start.Before(*info.OldestAt) {
+			at := part.Start
+			info.OldestAt = &at
+		}
+		if info.NewestAt == nil || part.End.After(*info.NewestAt) {
+			at := part.End
+			info.NewestAt = &at
+		}
+	}
+	if state.Error != "" {
+		message := state.Error
+		info.Error = &message
+		info.Status = api.PacketRetentionStatusUnavailable
+	}
+	return info
 }
 func packetIdentity(node, part string, frame int64) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(node + "/" + part + "/" + strconv.FormatInt(frame, 10)))
@@ -476,14 +507,13 @@ type partRead struct {
 }
 
 func (r *Recorder) openParts(environment string) ([]partRead, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if err := r.flushEnvironment(environment); err != nil {
-		return nil, err
-	}
-	state := r.environments[environment]
+	state, release := r.lockRecording(environment)
+	defer release()
 	if state == nil {
 		return []partRead{}, nil
+	}
+	if err := r.flushEnvironment(environment); err != nil {
+		return nil, err
 	}
 	result := []partRead{}
 	for _, part := range state.Parts {
@@ -492,8 +522,11 @@ func (r *Recorder) openParts(environment string) ([]partRead, error) {
 	return result, nil
 }
 func (r *Recorder) openPart(environment string, part *partRead) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	state, release := r.lockRecording(environment)
+	defer release()
+	if state == nil {
+		return os.ErrNotExist
+	}
 	file, err := os.Open(r.filename(environment, part.part.ID))
 	if err != nil {
 		return err

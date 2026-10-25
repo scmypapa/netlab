@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -200,7 +201,47 @@ func mergeRetention(total *api.PacketRetention, part api.PacketRetention) {
 	}
 }
 func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery) (api.RecentPacketPage, error) {
-	result := api.RecentPacketPage{Packets: []api.CapturePacket{}, Errors: map[string]string{}, Retention: r.Retention()[environment]}
+	key, err := json.Marshal(q)
+	if err != nil {
+		return api.RecentPacketPage{}, err
+	}
+	result := r.analyses.DoChan(environment+"/"+string(key), func() (any, error) {
+		// A viewer leaving must not cancel a query shared with other viewers.
+		analysis, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		return r.recent(analysis, environment, q)
+	})
+	select {
+	case <-ctx.Done():
+		return api.RecentPacketPage{}, ctx.Err()
+	case value := <-result:
+		if value.Err != nil {
+			return api.RecentPacketPage{}, value.Err
+		}
+		return value.Val.(api.RecentPacketPage), nil
+	}
+}
+
+func (r *Recorder) analyze(ctx context.Context) (func(), error) {
+	select {
+	case r.analysisSlots <- struct{}{}:
+		return func() { <-r.analysisSlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return nil, ErrAnalysisBusy
+	}
+}
+
+var ErrAnalysisBusy = errors.New("报文解析繁忙，请稍后重试")
+
+func (r *Recorder) recent(ctx context.Context, environment string, q RecentQuery) (api.RecentPacketPage, error) {
+	release, err := r.analyze(ctx)
+	if err != nil {
+		return api.RecentPacketPage{}, err
+	}
+	defer release()
+	result := api.RecentPacketPage{Packets: []api.CapturePacket{}, Errors: map[string]string{}, Retention: r.retentionFor(environment)}
 	cursor, err := parsePacketCursor(q.Cursor)
 	if err != nil {
 		return result, err
@@ -374,6 +415,11 @@ func completePartReader(ctx context.Context, part partRead, selected []bool) *io
 	return reader
 }
 func (r *Recorder) RecentPacket(ctx context.Context, environment, id string) (api.CapturePacketDetail, error) {
+	release, err := r.analyze(ctx)
+	if err != nil {
+		return api.CapturePacketDetail{}, err
+	}
+	defer release()
 	node, partID, number, err := ParsePacketIdentity(id)
 	result := api.CapturePacketDetail{Layers: []api.PacketField{}}
 	if err != nil {
@@ -491,6 +537,11 @@ func matchingFrames(ctx context.Context, part partRead, filter string) ([]bool, 
 }
 
 func (r *Recorder) Export(ctx context.Context, environment string, q RecentQuery, output io.Writer) error {
+	release, err := r.analyze(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	parts, err := r.openParts(environment)
 	if err != nil {
 		return err

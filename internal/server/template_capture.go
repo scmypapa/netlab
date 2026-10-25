@@ -49,8 +49,8 @@ func (s *Server) captureTemplate(w http.ResponseWriter, r *http.Request, identit
 	if execution.Template.Kind != api.Vm || current.State != "stopped" {
 		return httpError{http.StatusConflict, "请先关闭虚拟机，再固化模板"}
 	}
-	if row.Status == "deploying" || row.Status == "changing" || row.Status == "destroying" {
-		return httpError{http.StatusConflict, "请等待当前任务完成"}
+	if err = environment.RequireIdle(r.Context(), q, id); err != nil {
+		return err
 	}
 	format, initialization, state := api.Qcow2, api.None, api.TemplateStateImporting
 	operationID := uuid.NewString()

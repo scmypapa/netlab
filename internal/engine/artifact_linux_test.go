@@ -37,7 +37,7 @@ func TestCachedTemplatePreservesNodeIdentity(t *testing.T) {
 			if err = os.WriteFile(filepath.Join(directory, "template.json"), manifest, 0640); err != nil {
 				t.Fatal(err)
 			}
-			executor := &Engine{cfg: Config{ID: "local-node", DataDir: data}, slots: make(chan struct{}, 1), locks: make(map[string]*objectLock), container: &Containers{data: data}, vm: &VirtualMachines{data: data}}
+			executor := &Engine{cfg: Config{ID: "local-node", DataDir: data}, ioSlots: make(chan struct{}, 1), locks: make(map[string]*objectLock), container: &Containers{data: data}, vm: &VirtualMachines{data: data}}
 			prepared, err := executor.PrepareTemplate(context.Background(), api.NodeTemplatePreparation{Template: input})
 			if err != nil {
 				t.Fatal(err)

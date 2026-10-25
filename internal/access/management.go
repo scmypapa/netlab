@@ -156,7 +156,7 @@ func (s Service) UpdateUser(ctx context.Context, identity Identity, id string, i
 	}
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
-	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(73421494)"); err != nil {
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('netlab/access-administrators', 0))"); err != nil {
 		return err
 	}
 	p, err := q.LockPrincipal(ctx, id)

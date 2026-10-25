@@ -50,7 +50,11 @@ func TestObservationWhileEnvironmentLocked(t *testing.T) {
 	 INSERT INTO environments(id,project_id,name,spec,status) VALUES('env','default','Env','{}','running');
 	 INSERT INTO nodes(id,name,endpoint,info) VALUES('node','Node','https://test.invalid','{}');
 	 INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,state,cpu,memory_mib,disk_gib,current)
-	 VALUES('env','asset','instance','node','{}','stopped',1,64,1,true)`); err != nil {
+	 VALUES('env','asset','instance','node','{}','stopped',1,64,1,true),
+	 ('env','new-asset','new-instance','node','{}','reserved',1,64,1,false);
+	 INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,state,payload,expected_revision)
+	 VALUES('start','env','environment','env','start','running','{"targets":[{"execution":{"instanceId":"new-instance"}}]}',0);
+	 UPDATE environments SET operation_id='start' WHERE id='env'`); err != nil {
 		t.Fatal(err)
 	}
 	control, err := pool.Begin(ctx)
@@ -65,9 +69,14 @@ func TestObservationWhileEnvironmentLocked(t *testing.T) {
 	observation, finish := context.WithTimeout(ctx, time.Second)
 	defer finish()
 	now := time.Now()
-	results, _ := json.Marshal([]map[string]any{{"environmentId": "env", "assetId": "asset", "instanceId": "instance", "state": "running", "observedAt": now}})
+	results, _ := json.Marshal([]map[string]any{{"environmentId": "env", "assetId": "asset", "instanceId": "instance", "state": "running", "observedAt": now},
+		{"environmentId": "env", "assetId": "new-asset", "instanceId": "new-instance", "state": "running", "observedAt": now}})
 	if err = queries.New(pool).ApplyNodeObservation(observation, queries.ApplyNodeObservationParams{NodeID: "node", Results: results, ObservedAt: pgtype.Timestamptz{Time: now, Valid: true}}); err != nil {
 		t.Fatalf("observation was blocked by lifecycle transaction: %v", err)
+	}
+	var state string
+	if err = pool.QueryRow(ctx, "SELECT state FROM runtime_assets WHERE instance_id='new-instance'").Scan(&state); err != nil || state != "running" {
+		t.Fatalf("first-start observation was lost: state=%s error=%v", state, err)
 	}
 	competitor, err := pool.Acquire(ctx)
 	if err != nil {

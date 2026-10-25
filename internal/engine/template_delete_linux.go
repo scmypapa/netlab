@@ -45,8 +45,16 @@ func (e *Engine) CleanRetiredNode(ctx context.Context) error {
 }
 
 func (e *Engine) RemoveTemplate(ctx context.Context, id string, poolIDs []string) error {
-	unlock := e.lock("template:" + id)
+	unlock, err := e.lock(ctx, "template:"+id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
+	unlockReader, err := e.lock(ctx, "template-reader:"+id)
+	if err != nil {
+		return err
+	}
+	defer unlockReader()
 	if err := e.removeSharedTemplate(ctx, id, poolIDs); err != nil {
 		return err
 	}

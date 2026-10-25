@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -17,8 +18,11 @@ func importDirectory(data, id string, version int) string {
 	return filepath.Join(data, "imports", id, strconv.Itoa(version))
 }
 
-func (e *Engine) ReceiveTemplate(id string, version int, uploadID, source string, parts *multipart.Reader) (string, error) {
-	unlock := e.lock("template:" + id)
+func (e *Engine) ReceiveTemplate(ctx context.Context, id string, version int, uploadID, source string, parts *multipart.Reader) (string, error) {
+	unlock, err := e.lock(ctx, "template:"+id)
+	if err != nil {
+		return "", err
+	}
 	defer unlock()
 	directory := filepath.Join(importDirectory(e.cfg.DataDir, id, version), uploadID)
 	main, err := artifactPath(directory, source)
@@ -81,8 +85,11 @@ func (e *Engine) ReceiveTemplate(id string, version int, uploadID, source string
 	return main, nil
 }
 
-func (e *Engine) RemoveTemplateImport(id string, version int, uploadID string) error {
-	unlock := e.lock("template:" + id)
+func (e *Engine) RemoveTemplateImport(ctx context.Context, id string, version int, uploadID string) error {
+	unlock, err := e.lock(ctx, "template:"+id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	return os.RemoveAll(filepath.Join(importDirectory(e.cfg.DataDir, id, version), uploadID))
 }

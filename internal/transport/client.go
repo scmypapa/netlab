@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"netlab.local/core/api"
@@ -38,9 +39,19 @@ func NewClient(caFile, certFile, keyFile string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{HTTP: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{cert}}, MaxIdleConns: 256, MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second, ResponseHeaderTimeout: 20 * time.Minute}}}, nil
+	transport := &http.Transport{
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{cert}},
+		DialContext:         (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConns:        256, MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second,
+		ResponseHeaderTimeout: 20 * time.Minute,
+	}
+	return &Client{HTTP: &http.Client{Transport: transport}}, nil
 }
 func (c *Client) Do(ctx context.Context, method, endpoint, path string, input, output any) error {
+	// Include response-body decoding in the command deadline, not just headers.
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
 	var body io.Reader
 	if input != nil {
 		raw, err := json.Marshal(input)
@@ -80,6 +91,8 @@ func (c *Client) Stream(ctx context.Context, method, endpoint, path, contentType
 	return json.NewDecoder(resp.Body).Decode(output)
 }
 func (c *Client) Info(ctx context.Context, endpoint string) (api.NodeInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var result api.NodeInfo
 	err := c.Do(ctx, http.MethodGet, endpoint, "/node/v1/info", nil, &result)
 	return result, err

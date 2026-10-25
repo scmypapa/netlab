@@ -74,7 +74,7 @@ func TestVolumeRetryBeforeFirstPhase(t *testing.T) {
 			if err := q.CreatePersistentVolume(ctx, queries.CreatePersistentVolumeParams{ID: id, NodeID: "node", StoragePoolID: "default:node", Name: "Volume", Kind: "vm", SizeGib: 1, OperationID: &opID}); err != nil {
 				t.Fatal(err)
 			}
-			claimed, err := q.ClaimOperation(ctx, &owner)
+			claimed, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +93,7 @@ func TestVolumeRetryBeforeFirstPhase(t *testing.T) {
 			if _, err = service.Retry(ctx, access.Identity{Principal: queries.Principal{Kind: "user", Administrator: true}}, opID); err != nil {
 				t.Fatal(err)
 			}
-			claimed, err = q.ClaimOperation(ctx, &owner)
+			claimed, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 			if err != nil {
 				t.Fatal(err)
 			}

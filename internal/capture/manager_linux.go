@@ -33,7 +33,8 @@ type Manager struct {
 	live            map[string]*session
 	control         sync.Mutex
 	recorder        *Recorder
-	recording       *recordingRun
+	recordings      map[string]*recordingRun
+	ctx             context.Context
 	flushCancel     context.CancelFunc
 }
 type session struct {
@@ -50,7 +51,7 @@ type session struct {
 }
 
 func New(ctx context.Context, ovs *network.OVS, directory, node string) (*Manager, error) {
-	m := &Manager{ovs: ovs, directory: filepath.Join(directory, "captures"), node: node, live: map[string]*session{}}
+	m := &Manager{ovs: ovs, directory: filepath.Join(directory, "captures"), node: node, live: map[string]*session{}, recordings: map[string]*recordingRun{}, ctx: ctx}
 	if err := os.MkdirAll(m.directory, 0700); err != nil {
 		return nil, err
 	}
@@ -138,9 +139,9 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (ap
 	if err = os.Mkdir(legacyDirectory, 0700); err != nil {
 		return api.CaptureSegment{}, err
 	}
-	m.recorder.mu.Lock()
+	_, releaseWriter := m.recorder.lockRecording(request.EnvironmentId)
 	writer, err := m.recorder.startPart(request.EnvironmentId, local, request.Id, now)
-	m.recorder.mu.Unlock()
+	releaseWriter()
 	if err != nil {
 		return api.CaptureSegment{}, errors.Join(err, os.RemoveAll(legacyDirectory))
 	}
@@ -149,9 +150,9 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (ap
 		s.stats.capturePorts = append(s.stats.capturePorts, iface.PortName)
 	}
 	if err = m.save(s.detail); err != nil {
-		m.recorder.mu.Lock()
+		_, releaseWriter := m.recorder.lockRecording(request.EnvironmentId)
 		cleanupErr := m.recorder.finishWriter(request.EnvironmentId, writer)
-		m.recorder.mu.Unlock()
+		releaseWriter()
 		return api.CaptureSegment{}, errors.Join(err, cleanupErr, os.RemoveAll(legacyDirectory))
 	}
 	lifetime, cancel := context.WithTimeout(context.Background(), time.Duration(settings.DurationSeconds)*time.Second)
@@ -162,8 +163,8 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (ap
 		s.mu.Lock()
 		s.stopped = true
 		finishErr := func() error {
-			m.recorder.mu.Lock()
-			defer m.recorder.mu.Unlock()
+			_, releaseWriter := m.recorder.lockRecording(request.EnvironmentId)
+			defer releaseWriter()
 			return m.recorder.finishWriter(request.EnvironmentId, writer)
 		}()
 		s.detail = s.snapshot()
@@ -216,14 +217,14 @@ func (m *Manager) recordSubscriptions(environment, portName string, info gopacke
 			continue
 		}
 		info.InterfaceIndex = index
-		m.recorder.mu.Lock()
+		_, releaseWriter := m.recorder.lockRecording(environment)
 		err := s.writer.packets.WritePacket(info, data)
 		if err == nil {
 			s.writer.part.Raw += int64(len(data)) + 32
 			s.writer.part.Packets++
 			s.writer.part.End = info.Timestamp.UTC()
 		}
-		m.recorder.mu.Unlock()
+		releaseWriter()
 		if err != nil {
 			message := err.Error()
 			s.detail.Segment.Error = &message
@@ -256,20 +257,23 @@ func (m *Manager) recordSubscriptions(environment, portName string, info gopacke
 }
 func (m *Manager) recordStatistics(environment, portName string, stats pcapgo.NgInterfaceStatistics) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	sessions := []*session{}
 	for _, s := range m.live {
-		if s.detail.Segment.EnvironmentId != environment {
-			continue
+		if s.detail.Segment.EnvironmentId == environment {
+			sessions = append(sessions, s)
 		}
+	}
+	m.mu.Unlock()
+	for _, s := range sessions {
 		s.mu.Lock()
 		index := slices.Index(s.stats.capturePorts, portName)
 		if index < 0 || s.stopped {
 			s.mu.Unlock()
 			continue
 		}
-		m.recorder.mu.Lock()
+		_, releaseWriter := m.recorder.lockRecording(environment)
 		err := s.writer.packets.WriteInterfaceStats(index, stats)
-		m.recorder.mu.Unlock()
+		releaseWriter()
 		// dumpcap emits one cumulative ISB per interface when a physical capture closes.
 		if stats.PacketsDropped != pcapgo.NgNoValue64 {
 			if s.detail.Segment.KernelDroppedPackets == nil {
@@ -421,8 +425,8 @@ func (m *Manager) Close() {
 		m.flushCancel()
 	}
 	m.control.Lock()
-	if m.recording != nil {
-		m.stopRecording()
+	for environment := range m.recordings {
+		m.stopRecording(environment)
 	}
 	m.control.Unlock()
 	m.mu.Lock()

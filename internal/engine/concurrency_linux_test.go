@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,12 +18,94 @@ import (
 	"netlab.local/core/api"
 )
 
+func TestCancelledLockWaitReleasesReference(t *testing.T) {
+	e := &Engine{locks: map[string]*objectLock{}}
+	unlock, err := e.lock(context.Background(), "environment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := e.Execute(ctx, api.NodePlan{EnvironmentId: "environment"})
+	if result.Error == nil || !strings.Contains(*result.Error, context.Canceled.Error()) {
+		t.Fatalf("cancelled execute: %+v", result)
+	}
+	e.mu.Lock()
+	refs := e.locks["environment"].refs
+	e.mu.Unlock()
+	if refs != 1 {
+		t.Fatalf("cancelled waiter retained %d references", refs)
+	}
+	unlock()
+	if len(e.locks) != 0 {
+		t.Fatal("lock was retained")
+	}
+	if _, err = e.lock(ctx, "new"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled new lock: %v", err)
+	}
+}
+
+func TestTemplateReadersShareTransferAndExcludeDeletion(t *testing.T) {
+	e := &Engine{cfg: Config{DataDir: t.TempDir()}, locks: map[string]*objectLock{}}
+	template := api.Template{Id: "source", Kind: api.Container, Version: 1}
+	directory := templateDirectory(e.cfg.DataDir, template.Id, template.Version)
+	if err := os.MkdirAll(directory, 0711); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(template)
+	if err := os.WriteFile(filepath.Join(directory, "template.json"), raw, 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "image.tar"), []byte("image"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	one, _, err := e.OpenTemplateArtifact(ctx, template.Id, template.Version, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer one.Close()
+	two, _, err := e.OpenTemplateArtifact(ctx, template.Id, template.Version, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer two.Close()
+	done := make(chan error, 1)
+	go func() { done <- e.RemoveTemplate(ctx, template.Id, nil) }()
+	one.Close()
+	select {
+	case err := <-done:
+		t.Fatalf("removed template while reader active: %v", err)
+	default:
+	}
+	two.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatalf("template still exists: %v", err)
+	}
+}
+
 func TestParallelTemplatePreparationAndTrim(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	e := &Engine{cfg: Config{DataDir: t.TempDir()}, locks: map[string]*objectLock{}, slots: make(chan struct{}, 2)}
 	template := api.Template{Id: "system", Kind: api.Vm, Version: 1}
-	first, second := e.lock("one/guest"), e.lock("two/guest")
+	first, err := e.lock(ctx, "one/guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := e.lock(ctx, "two/guest")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
 		if first != nil {
 			first()
@@ -39,12 +122,21 @@ func TestParallelTemplatePreparationAndTrim(t *testing.T) {
 	}
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
-	for len(e.slots) != 2 {
+	for {
+		e.mu.Lock()
+		waiting := e.locks["one/guest"].refs == 2 && e.locks["two/guest"].refs == 2
+		e.mu.Unlock()
+		if waiting {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			t.Fatal("same-template preparation did not enter both instance slots")
 		case <-ticker.C:
 		}
+	}
+	if len(e.slots) != 0 {
+		t.Fatal("asset lock wait occupied compute slots")
 	}
 	trimmed := make(chan error, 1)
 	go func() {

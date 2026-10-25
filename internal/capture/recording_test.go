@@ -3,6 +3,7 @@ package capture
 import (
 	"bytes"
 	"context"
+	"errors"
 	"math/rand"
 	"net/url"
 	"os"
@@ -15,6 +16,46 @@ import (
 	"github.com/gopacket/gopacket"
 	"netlab.local/core/api"
 )
+
+func TestEnvironmentRecordingDoesNotBlockAnotherEnvironment(t *testing.T) {
+	r, one, interfaces := recordingFixture(t, 1<<20)
+	two := uuid.NewString()
+	if err := r.configure(map[string]int64{one: 1 << 20, two: 1 << 20}, nil); err != nil {
+		t.Fatal(err)
+	}
+	state, release := r.lockRecording(one)
+	if state == nil {
+		t.Fatal("missing first environment")
+	}
+	defer release()
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Record(two, interfaces, 0, gopacket.CaptureInfo{Timestamp: time.Now(), Length: 64, CaptureLength: 64}, make([]byte, 64))
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("another environment waited for the first environment writer")
+	}
+}
+
+func TestPacketAnalysisBudgetObservesCancellation(t *testing.T) {
+	r, _, _ := recordingFixture(t, 1<<20)
+	for range cap(r.analysisSlots) {
+		r.analysisSlots <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := r.analyze(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("analysis wait: %v", err)
+	}
+	if len(r.analysisSlots) != cap(r.analysisSlots) {
+		t.Fatal("cancelled analysis consumed capacity")
+	}
+}
 
 func (r *Recorder) walk(ctx context.Context, environment string, visit func(packetPart, api.CapturePacket, []byte) bool) error {
 	parts, err := r.openParts(environment)

@@ -47,7 +47,7 @@ func (s *Server) AccessUpdates(ctx context.Context) (func() error, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err = connection.Exec(ctx, "LISTEN netlab_access"); err != nil {
+	if _, err = connection.Exec(ctx, "LISTEN netlab_access; LISTEN netlab_events"); err != nil {
 		connection.Close(ctx)
 		return nil, err
 	}
@@ -58,7 +58,11 @@ func (s *Server) AccessUpdates(ctx context.Context) (func() error, error) {
 			if err != nil {
 				return err
 			}
-			s.refreshSessions(ctx, notification.Payload)
+			if notification.Channel == "netlab_events" {
+				s.wakeEvents(notification.Payload)
+			} else {
+				s.refreshSessions(ctx, notification.Payload)
+			}
 		}
 	}, nil
 }

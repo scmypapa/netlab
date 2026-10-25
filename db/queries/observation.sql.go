@@ -29,7 +29,12 @@ WITH previous_node AS MATERIALIZED (
  AND NOT EXISTS(SELECT 1 FROM reported r WHERE r.instance_id=a.instance_id AND r.asset_id=a.asset_id AND r.environment_id=a.environment_id)
 ), changed AS (
  UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r.observed_at
- FROM observations r WHERE a.node_id=$1 AND a.current
+ FROM observations r WHERE a.node_id=$1
+ AND (a.current OR EXISTS (
+  SELECT 1 FROM environments e JOIN operations o ON o.id=e.operation_id
+  WHERE e.id=a.environment_id AND o.state='running'
+   AND o.payload->'targets' @> jsonb_build_array(jsonb_build_object('execution',jsonb_build_object('instanceId',a.instance_id)))
+ ))
  AND a.environment_id=r.environment_id AND a.asset_id=r.asset_id AND a.instance_id=r.instance_id
  AND a.observed_at<r.observed_at
  RETURNING a.environment_id

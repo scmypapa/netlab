@@ -52,7 +52,10 @@ func (e *Engine) PrepareCephRemoval(ctx context.Context, id string) error {
 }
 
 func (e *Engine) RemoveCeph(ctx context.Context, id string) error {
-	unlockSelection := e.lock("storage-device")
+	unlockSelection, err := e.lock(ctx, "storage-device")
+	if err != nil {
+		return err
+	}
 	defer unlockSelection()
 	device, err := e.storageSelection()
 	if err != nil {
@@ -61,7 +64,10 @@ func (e *Engine) RemoveCeph(ctx context.Context, id string) error {
 	if device == "" {
 		return nil
 	}
-	unlock := e.lock("ceph:" + id)
+	unlock, err := e.lock(ctx, "ceph:"+id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	out, err := commandOutput(ctx, "cephadm", "ls")
 	if err != nil {

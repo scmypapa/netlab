@@ -34,7 +34,10 @@ type artifactReader struct {
 }
 
 func (e *Engine) TransferTemplate(ctx context.Context, request api.NodeTemplatePreparation) error {
-	unlock := e.lock("template:" + request.Template.Id)
+	unlock, err := e.lock(ctx, "template:"+request.Template.Id)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if request.ArtifactEndpoint == nil {
 		return errors.New("缺少模板源节点")
@@ -45,7 +48,10 @@ func (e *Engine) TransferTemplate(ctx context.Context, request api.NodeTemplateP
 func (r *artifactReader) Close() error { err := r.ReadCloser.Close(); r.once.Do(r.unlock); return err }
 
 func (e *Engine) OpenTemplateArtifact(ctx context.Context, id string, version int, runtimeOnly bool) (io.ReadCloser, int64, error) {
-	unlock := e.lock(fmt.Sprintf("template-reader:%s:%d", id, version))
+	unlock, err := e.acquire(ctx, "template-reader:"+id, true)
+	if err != nil {
+		return nil, 0, err
+	}
 	handed := false
 	defer func() {
 		if !handed {
@@ -142,7 +148,10 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 	if t.ArtifactNodeId == nil {
 		return nil
 	}
-	unlock := e.lock(fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
+	unlock, err := e.lock(ctx, fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	select {
 	case e.ioSlots <- struct{}{}:

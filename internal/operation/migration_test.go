@@ -201,7 +201,7 @@ func testMigrationOwnershipHandoff(t *testing.T, rejected bool) {
 	}
 	owner := "test"
 	worker := Worker{Pool: pool, Queries: q, Client: &transport.Client{HTTP: http.DefaultClient}}
-	claimed, err := q.ClaimOperation(ctx, &owner)
+	claimed, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func testMigrationOwnershipHandoff(t *testing.T, rejected bool) {
 	if _, err = service.Retry(ctx, identity, op.Id); err != nil {
 		t.Fatal(err)
 	}
-	claimed, err = q.ClaimOperation(ctx, &owner)
+	claimed, err = q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}

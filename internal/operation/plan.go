@@ -356,6 +356,10 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			}
 		}
 	}
+	nodeStorage := map[string][]storageCandidate{}
+	for _, pool := range storage {
+		nodeStorage[pool.node] = append(nodeStorage[pool.node], pool)
+	}
 	capacity, used := map[string]api.Resources{}, map[string]api.Resources{}
 	reservations, err := q.GetNodeReservations(ctx, ids)
 	if err != nil {
@@ -490,7 +494,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			if !fits(api.Resources{Cpu: u.Cpu, MemoryMiB: u.MemoryMiB}, c) {
 				continue
 			}
-			for _, pool := range storage {
+			for _, pool := range nodeStorage[n.ID] {
 				key := pool.filesystem()
 				if pool.node != n.ID || !pool.ready || pool.err != nil || preferred != "" && preferred != pool.id || diskUsed[key]+diskRequirement > diskCapacity[key] {
 					continue
