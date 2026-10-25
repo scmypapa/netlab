@@ -14,7 +14,7 @@ import {
   type NodeProps,
   type OnConnect,
 } from "@xyflow/react";
-import { Box, Monitor, Network } from "lucide-react";
+import { Box, Monitor, Network, Router } from "lucide-react";
 import { useComputedColorScheme } from "@mantine/core";
 import type { Edge } from "@xyflow/react";
 import type { Schema } from "../../api/client";
@@ -92,7 +92,13 @@ export function TopologyCanvas({
       isValidConnection={(connection) => {
         const source = nodes.find((node) => node.id === connection.source);
         const target = nodes.find((node) => node.id === connection.target);
-        return Boolean(source && target && source.type !== target.type);
+        return Boolean(
+          source &&
+          target &&
+          source.type !== target.type &&
+          source.data.kind !== "external" &&
+          target.data.kind !== "external",
+        );
       }}
       nodesConnectable={editing}
       edgesReconnectable={editing}
@@ -161,9 +167,19 @@ function AssetNode({ data, selected }: NodeProps<TopologyNode>) {
       data-selected={selected}
       style={{ "--network-color": data.color } as React.CSSProperties}
     >
-      <Handle type="target" position={Position.Top} />
+      <Handle
+        type="target"
+        position={Position.Top}
+        isConnectable={data.kind !== "external"}
+      />
       <span className={styles.glyph}>
-        {data.kind === "vm" ? <Monitor size={20} /> : <Box size={20} />}
+        {data.kind === "external" ? (
+          <Router size={20} />
+        ) : data.kind === "vm" ? (
+          <Monitor size={20} />
+        ) : (
+          <Box size={20} />
+        )}
       </span>
       <div className={styles.assetIdentity}>
         <strong>{data.label}</strong>
@@ -171,12 +187,16 @@ function AssetNode({ data, selected }: NodeProps<TopologyNode>) {
           {data.secondary || (data.kind === "vm" ? "虚拟机" : "容器")}
         </span>
       </div>
-      <span
-        className={styles.light}
-        data-state={data.state}
-        title={stateLabel(data.state)}
-      />
-      <Handle type="source" position={Position.Bottom} />
+      {data.kind !== "external" && (
+        <span
+          className={styles.light}
+          data-state={data.state}
+          title={stateLabel(data.state)}
+        />
+      )}
+      {data.kind !== "external" && (
+        <Handle type="source" position={Position.Bottom} />
+      )}
     </div>
   );
 }

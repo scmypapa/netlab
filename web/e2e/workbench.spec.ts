@@ -2191,23 +2191,32 @@ test("external LAN editor reads live interfaces and preserves the LAN gateway", 
   await page.getByRole("button", { name: "应用网段", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "编辑网段" });
-  await editor.getByText("已有 LAN", { exact: true }).click();
+  await editor.getByText("现场网络", { exact: true }).click();
   await editor.getByRole("textbox", { name: "接入节点", exact: true }).click();
   await page.getByRole("option", { name: "计算节点", exact: true }).click();
-  await editor.getByRole("textbox", { name: "外部接口", exact: true }).click();
+  await editor.getByRole("textbox", { name: "接入网口", exact: true }).click();
   await expect(page.getByRole("option", { name: /eth0/ })).toHaveCount(0);
   await page
-    .getByRole("option", { name: "br-lan · 192.0.2.254/24", exact: true })
+    .getByRole("option", {
+      name: "虚拟网桥 · br-lan · 192.0.2.254/24",
+      exact: true,
+    })
     .click();
+  if (
+    (await editor
+      .getByRole("button", { name: "网络参数", exact: true })
+      .getAttribute("aria-expanded")) === "false"
+  )
+    await editor.getByRole("button", { name: "网络参数", exact: true }).click();
   await editor.getByRole("textbox", { name: "VLAN", exact: true }).fill("100");
   await editor
-    .getByRole("textbox", { name: "网络地址 / 前缀", exact: true })
+    .getByRole("textbox", { name: "现场网段", exact: true })
     .fill("192.0.2.0/24");
   await editor
-    .getByRole("textbox", { name: "Netlab 可分配地址段", exact: true })
+    .getByRole("textbox", { name: "虚拟资产预留地址段", exact: true })
     .fill("192.0.2.128/26");
   await editor
-    .getByRole("textbox", { name: "LAN 网关", exact: true })
+    .getByRole("textbox", { name: "现有网关", exact: true })
     .fill("192.0.2.1");
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.screenshot({ path: "test-results/external-lan-1366.png" });

@@ -25,14 +25,16 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 	prefixes := map[string]netip.Prefix{}
 	addresses := map[string]map[netip.Addr]bool{}
 	attachments := map[string]bool{}
+	objects, macs := map[string]bool{}, map[string]bool{}
 	for i := range spec.Networks {
 		n := &spec.Networks[i]
 		if n.Id == "" {
 			n.Id = uuid.NewString()
 		}
-		if _, ok := networks[n.Id]; ok {
-			return spec, Invalid("网段 %s 的标识重复", n.Name)
+		if objects[n.Id] {
+			return spec, Invalid("画布对象标识重复：%s", n.Name)
 		}
+		objects[n.Id] = true
 		p, err := netip.ParsePrefix(n.Cidr)
 		if err != nil {
 			return spec, Invalid("网段 %s：%v", n.Name, err)
@@ -95,17 +97,48 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		if n.External != nil {
 			addresses[n.Id][pool.Addr().Next()] = true
 		}
+		if len(n.Devices) > 0 && n.External == nil {
+			return spec, Invalid("外部设备只能加入现场网络")
+		}
+		deviceAddresses := map[netip.Addr]bool{}
+		for j := range n.Devices {
+			device := &n.Devices[j]
+			if device.Id == "" {
+				device.Id = uuid.NewString()
+			}
+			if objects[device.Id] {
+				return spec, Invalid("外部设备标识重复：%s", device.Name)
+			}
+			objects[device.Id] = true
+			address, err := netip.ParseAddr(device.Address)
+			if err != nil || !usable(p, address) || deviceAddresses[address] {
+				return spec, Invalid("外部设备 %s 的地址无效或重复", device.Name)
+			}
+			if address == pool.Addr().Next() {
+				return spec, Invalid("外部设备地址 %s 与 Netlab 保留路由地址冲突", device.Address)
+			}
+			mac, err := net.ParseMAC(device.Mac)
+			if err != nil || len(mac) != 6 || mac[0]&1 != 0 || macs[n.Id+"/"+mac.String()] {
+				return spec, Invalid("外部设备 %s 的 MAC 地址无效或重复", device.Name)
+			}
+			device.Address, device.Mac = address.String(), mac.String()
+			device.Name = strings.TrimSpace(device.Name)
+			if device.Name == "" {
+				device.Name = device.Address
+			}
+			deviceAddresses[address], addresses[n.Id][address], macs[n.Id+"/"+device.Mac] = true, true, true
+		}
 	}
-	assetIDs, interfaceIDs, macs := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	interfaceIDs := map[string]bool{}
 	for i := range spec.Assets {
 		a := &spec.Assets[i]
 		if a.Id == "" {
 			a.Id = uuid.NewString()
 		}
-		if assetIDs[a.Id] {
+		if objects[a.Id] {
 			return spec, Invalid("资产 %s 的标识重复", a.Name)
 		}
-		assetIDs[a.Id] = true
+		objects[a.Id] = true
 		t, ok := templates[a.TemplateId]
 		if !ok {
 			return spec, Invalid("资产 %s 引用的模板不存在", a.Name)

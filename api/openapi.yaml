@@ -385,6 +385,16 @@ paths:
       operationId: listNodeInterfaces
       responses:
         '200': {description: Current host interfaces, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ExternalInterface'}}}}}
+  /nodes/{id}/external-devices:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      operationId: discoverExternalDevices
+      description: Administrator-only ARP discovery on a selected external interface. Does not change device addresses or scan service ports.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ExternalDiscovery'}}}}
+      responses:
+        '200': {description: Devices that answered discovery, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/DiscoveredDevice'}}}}}
+        '403': {description: Administrator access required}
+        '422': {description: Invalid interface or discovery range}
   /principals:
     get:
       operationId: listPrincipals
@@ -1183,6 +1193,7 @@ components:
         gateway: {type: string}
         allocationPool: {type: string, description: Address prefix reserved for Netlab on an existing LAN}
         external: {$ref: '#/components/schemas/ExternalAttachment'}
+        devices: {type: array, items: {$ref: '#/components/schemas/ExternalDevice'}, x-go-type-skip-optional-pointer: true, description: Physical devices registered on this external network; never provisioned or reconfigured by Netlab.}
         dnsAssetId: {type: string}
         dnsServers: {type: array, items: {type: string}}
         mtu: {type: integer}
@@ -2017,6 +2028,30 @@ components:
         mtu: {type: integer}
         addresses: {type: array, items: {type: string}}
         available: {type: boolean}
+        linkUp: {type: boolean, x-go-type-skip-optional-pointer: true}
+    ExternalDiscovery:
+      type: object
+      required: [interface, cidr]
+      properties:
+        interface: {type: string}
+        cidr: {type: string, description: IPv4 prefix with at most 1024 addresses.}
+        vlan: {type: integer, minimum: 1, maximum: 4094}
+    DiscoveredDevice:
+      type: object
+      required: [address, mac, observedAt]
+      properties:
+        address: {type: string}
+        mac: {type: string}
+        observedAt: {type: string, format: date-time}
+    ExternalDevice:
+      type: object
+      required: [id, name, address, mac]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        address: {type: string, description: Existing device address; registering it does not configure the physical device.}
+        mac: {type: string}
+        observedAt: {type: string, format: date-time}
     VmHardware:
       type: object
       required: [machines, cpuModes, cpuModels, nicModels, diskControllers]

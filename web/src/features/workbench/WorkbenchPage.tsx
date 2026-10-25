@@ -28,6 +28,7 @@ import {
   KeyRound,
   Activity,
   Gauge,
+  Router,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,6 +46,7 @@ import { Status } from "../../foundation/Status";
 import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
 import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
+import { ExternalDeviceEditor } from "./ExternalDeviceEditor";
 import { ObjectInspector } from "./ObjectInspector";
 import { MigrationDialog } from "./MigrationDialog";
 import { FileWorkspace } from "./FileWorkspace";
@@ -102,7 +104,9 @@ function Workbench({ id }: { id: string }) {
     performance = view === "performance";
   const [query, setQuery] = useState("");
   const [assetFilter, setAssetFilter] = useState("all");
-  const [editor, setEditor] = useState<"asset" | "network">();
+  const [editor, setEditor] = useState<
+    "asset" | "network" | "external" | "external-network"
+  >();
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
   const [recoveryOpened, setRecoveryOpened] = useState(false);
@@ -175,6 +179,20 @@ function Workbench({ id }: { id: string }) {
     [layout, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
+  const externalDevices = spec.networks.flatMap((network) =>
+    (network.devices ?? []).map((device) => ({ device, network })),
+  );
+  const externalDevice = externalDevices.find(
+    (item) => item.device.id === selection,
+  );
+  const listedExternalDevices =
+    assetFilter === "all"
+      ? externalDevices.filter(({ device }) =>
+          `${device.name} ${device.address} ${device.mac}`
+            .toLocaleLowerCase()
+            .includes(query.toLocaleLowerCase()),
+        )
+      : [];
   const listedAssets = spec.assets.filter(
     (item) =>
       (assetFilter === "all" || assetStates.get(item.id) === assetFilter) &&
@@ -265,14 +283,16 @@ function Workbench({ id }: { id: string }) {
     setFilesOpened(false);
     workbench.beginEdit();
   };
-  const adding = (kind: "asset" | "network") => {
+  const adding = (
+    kind: "asset" | "network" | "external" | "external-network",
+  ) => {
     if (!workbench.editing) beginEdit();
     setEditingObject(false);
     setEditor(kind);
   };
   const editObject = () => {
     setEditingObject(true);
-    setEditor(asset ? "asset" : "network");
+    setEditor(externalDevice ? "external" : asset ? "asset" : "network");
   };
   const updateAsset = (value: Asset) => {
     workbench.setSpec((current) => ({
@@ -292,7 +312,7 @@ function Workbench({ id }: { id: string }) {
         : [...current.networks, value],
     }));
     setSelection(value.id);
-    setEditor(undefined);
+    setEditor(editor === "external-network" ? "external" : undefined);
   };
   const remove = () => {
     workbench.setSpec((current) => ({
@@ -305,7 +325,12 @@ function Workbench({ id }: { id: string }) {
             (iface) => iface.networkId !== selection,
           ),
         })),
-      networks: current.networks.filter((item) => item.id !== selection),
+      networks: current.networks
+        .filter((item) => item.id !== selection)
+        .map((item) => ({
+          ...item,
+          devices: item.devices?.filter((device) => device.id !== selection),
+        })),
       routes: current.routes?.filter((item) => item.networkId !== selection),
       policies: current.policies?.filter(
         (item) => item.networkId !== selection,
@@ -596,6 +621,30 @@ function Workbench({ id }: { id: string }) {
                   />
                 </button>
               ))}
+            {externalDevices.length > 0 && (
+              <>
+                <div className={styles.treeHeading}>
+                  外部设备<span>{externalDevices.length}</span>
+                </div>
+                {externalDevices
+                  .filter(({ device }) =>
+                    `${device.name} ${device.address}`
+                      .toLocaleLowerCase()
+                      .includes(query.toLocaleLowerCase()),
+                  )
+                  .map(({ device }) => (
+                    <button
+                      className={styles.treeItem}
+                      aria-current={selection === device.id}
+                      key={device.id}
+                      onClick={() => setSelection(device.id)}
+                    >
+                      <Router size={16} />
+                      <span>{device.name}</span>
+                    </button>
+                  ))}
+              </>
+            )}
             <div className={styles.treeHeading}>
               网段<span>{spec.networks.length}</span>
             </div>
@@ -709,11 +758,21 @@ function Workbench({ id }: { id: string }) {
                       >
                         网段
                       </Menu.Item>
+                      {identity.data?.administrator && (
+                        <Menu.Item
+                          leftSection={<Router size={16} />}
+                          onClick={() => adding("external")}
+                        >
+                          外部设备
+                        </Menu.Item>
+                      )}
                     </Menu.Dropdown>
                   </Menu>
                 )}
                 <span className={styles.count}>
                   {spec.assets.length} 资产 · {spec.networks.length} 网段
+                  {externalDevices.length > 0 &&
+                    ` · ${externalDevices.length} 外部设备`}
                 </span>
               </div>
             </div>
@@ -868,9 +927,29 @@ function Workbench({ id }: { id: string }) {
                         </td>
                       </tr>
                     ))}
+                    {listedExternalDevices.map(({ device, network }) => (
+                      <tr
+                        key={device.id}
+                        aria-selected={selection === device.id}
+                        onClick={() => setSelection(device.id)}
+                      >
+                        <td>
+                          <button
+                            className={styles.assetName}
+                            onClick={() => setSelection(device.id)}
+                          >
+                            <Router size={17} />
+                            {device.name}
+                          </button>
+                        </td>
+                        <td>外部设备</td>
+                        <td>{network.name}</td>
+                        <td className="mono">{device.address}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-                {!listedAssets.length && (
+                {!listedAssets.length && !listedExternalDevices.length && (
                   <div className={styles.empty}>没有匹配的资产</div>
                 )}
               </div>
@@ -916,7 +995,7 @@ function Workbench({ id }: { id: string }) {
             />
           )}
         </section>
-        {(asset || network) &&
+        {(asset || network || externalDevice) &&
           !fileAsset &&
           !observedAsset &&
           !traffic &&
@@ -924,6 +1003,8 @@ function Workbench({ id }: { id: string }) {
             <ObjectInspector
               asset={asset}
               network={network}
+              device={externalDevice?.device}
+              deviceNetwork={externalDevice?.network}
               spec={spec}
               template={asset && templatesById.get(asset.templateId)}
               state={workbench.state.data}
@@ -964,6 +1045,11 @@ function Workbench({ id }: { id: string }) {
                 setServing(asset?.id);
               }}
               onSelect={setSelection}
+              onDiscover={
+                identity.data?.administrator && canCompose
+                  ? () => adding("external")
+                  : undefined
+              }
             />
           )}
       </div>
@@ -1110,8 +1196,23 @@ function Workbench({ id }: { id: string }) {
           onClose={() => setEditor(undefined)}
         />
       )}
-      {editor === "network" && (
+      {editor === "external" && (
+        <ExternalDeviceEditor
+          networks={spec.networks}
+          assets={spec.assets}
+          selectedNetwork={
+            externalDevice?.network.id ??
+            (network?.external ? network.id : undefined)
+          }
+          device={editingObject ? externalDevice?.device : undefined}
+          onSave={updateNetwork}
+          onConnectNetwork={() => adding("external-network")}
+          onClose={() => setEditor(undefined)}
+        />
+      )}
+      {(editor === "network" || editor === "external-network") && (
         <NetworkEditor
+          initialExternal={editor === "external-network"}
           network={editingObject ? network : undefined}
           spec={spec}
           onSave={updateNetwork}

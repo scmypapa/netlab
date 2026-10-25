@@ -132,6 +132,11 @@ func instantiate(spec *api.EnvironmentSpec, view *api.CanvasView) {
 		id := uuid.NewString()
 		networks[network.Id], objects[network.Id] = id, id
 		network.Id = id
+		for j := range network.Devices {
+			device := &network.Devices[j]
+			id := uuid.NewString()
+			objects[device.Id], device.Id = id, id
+		}
 	}
 	for i := range spec.Assets {
 		asset := &spec.Assets[i]

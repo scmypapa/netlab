@@ -501,6 +501,15 @@ func run() error {
 		stream.Console(r.Context(), socket, console, console.Resize)
 	})
 	mux.HandleFunc("GET /node/v1/info", func(w http.ResponseWriter, r *http.Request) { value, err := executor.Info(); respond(w, value, err) })
+	mux.HandleFunc("POST /node/v1/external-devices", func(w http.ResponseWriter, r *http.Request) {
+		var input api.ExternalDiscovery
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		value, err := executor.DiscoverExternal(r.Context(), input)
+		respond(w, value, err)
+	})
 	mux.HandleFunc("GET /node/v1/inventory", func(w http.ResponseWriter, r *http.Request) {
 		value, err := executor.Inventory(r.Context(), r.URL.Query().Get("environmentId"))
 		respond(w, value, err)

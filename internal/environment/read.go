@@ -51,6 +51,7 @@ func VisibleRecord(row queries.Environment, visible map[string]bool) (api.Enviro
 		}
 		spec.Networks = slices.DeleteFunc(spec.Networks, func(network api.Network) bool { return !networks[network.Id] })
 		for i := range spec.Networks {
+			spec.Networks[i].Devices = nil
 			if dns := spec.Networks[i].DnsAssetId; dns != nil && !visible[*dns] {
 				spec.Networks[i].DnsAssetId = nil
 			}

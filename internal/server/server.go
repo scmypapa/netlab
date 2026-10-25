@@ -159,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 		"GET /api/v1/nodes":                                                                  s.listNodes,
 		"GET /api/v1/nodes/metrics":                                                          s.nodeMetrics,
 		"GET /api/v1/nodes/{id}/interfaces":                                                  s.nodeInterfaces,
+		"POST /api/v1/nodes/{id}/external-devices":                                           s.discoverExternalDevices,
 		"POST /api/v1/nodes":                                                                 s.registerNode,
 		"GET /api/v1/nodes/{id}/retirement":                                                  s.nodeRetirement,
 		"POST /api/v1/nodes/{id}/retirement":                                                 s.nodeRetirement,

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -58,6 +59,9 @@ func (e *External) Interfaces(ctx context.Context) ([]api.ExternalInterface, err
 	result := []api.ExternalInterface{}
 	for _, link := range links {
 		a := link.Attrs()
+		if a.Flags&net.FlagLoopback != 0 || len(a.HardwareAddr) != 6 {
+			continue
+		}
 		if a.Name == e.ovs.bridge || a.Name == ProviderBridge || a.Name == "ovs-system" || strings.HasPrefix(a.Name, "nle") || strings.HasPrefix(a.Name, "nlx") || strings.HasPrefix(a.Name, "nly") || strings.HasPrefix(a.Name, "veth") && a.MasterIndex != 0 && !managed[a.Name] {
 			continue
 		}
@@ -73,7 +77,7 @@ func (e *External) Interfaces(ctx context.Context) ([]api.ExternalInterface, err
 		if err != nil {
 			return nil, err
 		}
-		item := api.ExternalInterface{Name: a.Name, Kind: kind, Mac: a.HardwareAddr.String(), Mtu: a.MTU, Addresses: []string{}, Available: true}
+		item := api.ExternalInterface{Name: a.Name, Kind: kind, Mac: a.HardwareAddr.String(), Mtu: a.MTU, Addresses: []string{}, Available: true, LinkUp: a.Flags&net.FlagUp != 0 && a.OperState != netlink.OperDown && a.OperState != netlink.OperLowerLayerDown}
 		for _, address := range addresses {
 			if address.IP.IsGlobalUnicast() {
 				item.Addresses = append(item.Addresses, address.IPNet.String())

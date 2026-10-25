@@ -2,6 +2,19 @@
   display: grid;
   gap: 20px;
 }
+.interfaceOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.interfaceOption svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.interfaceOption span {
+  overflow-wrap: anywhere;
+}
 .columns,
 .resources {
   display: grid;

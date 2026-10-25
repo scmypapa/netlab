@@ -11,8 +11,8 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Cable, ChevronDown, GitBranch, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   api,
@@ -519,24 +519,30 @@ export function AssetEditor({
 
 export function NetworkEditor({
   network,
+  initialExternal = false,
   spec,
   onSave,
   onClose,
 }: {
   network?: Network;
+  initialExternal?: boolean;
   spec: EnvironmentSpec;
   onSave: (network: Network) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(
-    network?.name ?? `网段 ${spec.networks.length + 1}`,
+    network?.name ??
+      (initialExternal ? "现场网络" : `网段 ${spec.networks.length + 1}`),
   );
   const [cidr, setCidr] = useState(
-    network?.cidr ?? `10.${spec.networks.length + 1}.0.0/24`,
+    network?.cidr ??
+      (initialExternal ? "" : `10.${spec.networks.length + 1}.0.0/24`),
   );
   const [gateway, setGateway] = useState(network?.gateway ?? "");
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
-  const [external, setExternal] = useState(Boolean(network?.external));
+  const [external, setExternal] = useState(
+    Boolean(network?.external) || initialExternal,
+  );
   const [nodeId, setNodeId] = useState(network?.external?.nodeId ?? "");
   const [interfaceName, setInterfaceName] = useState(
     network?.external?.interface ?? "",
@@ -550,11 +556,15 @@ export function NetworkEditor({
     (page) => api.nodes(page),
     { enabled: external && identity.data?.administrator },
   );
-  const selectedNode = nodes.data?.find((item) => item.id === nodeId);
+  useEffect(() => {
+    const ready = nodes.data?.filter((item) => item.state === "ready") ?? [];
+    if (!nodeId && ready.length === 1 && !nodes.hasNextPage)
+      setNodeId(ready[0].id);
+  }, [nodeId, nodes.data, nodes.hasNextPage]);
   const interfaces = useQuery({
     queryKey: ["node-interfaces", nodeId],
     queryFn: () => api.nodeInterfaces(nodeId),
-    enabled: external && Boolean(selectedNode) && identity.data?.administrator,
+    enabled: external && Boolean(nodeId) && identity.data?.administrator,
   });
   const [dnsAssetId, setDnsAssetId] = useState<string | null>(
     network?.dnsAssetId ?? null,
@@ -582,6 +592,7 @@ export function NetworkEditor({
           }
         : undefined,
       allocationPool: external ? pool : undefined,
+      devices: external ? network?.devices : undefined,
       dnsAssetId: dnsAssetId || undefined,
       dnsServers: dnsServers
         .split(",")
@@ -593,7 +604,9 @@ export function NetworkEditor({
     <Drawer
       opened
       onClose={onClose}
-      title={network ? "编辑网段" : "添加网段"}
+      title={
+        network ? "编辑网段" : initialExternal ? "接入现场网络" : "添加网段"
+      }
       position="right"
       size={504}
     >
@@ -610,17 +623,23 @@ export function NetworkEditor({
           value={name}
           onChange={(event) => setName(event.currentTarget.value)}
         />
-        {identity.data?.administrator && (
+        {identity.data?.administrator && !initialExternal && (
           <SegmentedControl
             aria-label="网络接入方式"
             value={external ? "external" : "internal"}
             onChange={(value) => {
               setExternal(value === "external");
               setGateway("");
+              if (!network)
+                setCidr(
+                  value === "external"
+                    ? ""
+                    : `10.${spec.networks.length + 1}.0.0/24`,
+                );
             }}
             data={[
               { value: "internal", label: "虚拟网络" },
-              { value: "external", label: "已有 LAN" },
+              { value: "external", label: "现场网络" },
             ]}
           />
         )}
@@ -645,33 +664,58 @@ export function NetworkEditor({
             />
             <LoadMore list={nodes} />
             <Select
-              label="外部接口"
+              label="接入网口"
               required
               value={interfaceName}
               onChange={(value) => setInterfaceName(value ?? "")}
-              data={(interfaces.data ?? [])
-                .filter((item) => item.available)
-                .map((item) => ({
-                  value: item.name,
-                  label: `${item.name}${item.addresses.length ? ` · ${item.addresses.join(", ")}` : ""}`,
-                }))}
-              disabled={!identity.data?.administrator}
-            />
-            <NumberInput
-              label="VLAN"
-              placeholder="不打标签"
-              value={vlan}
-              min={1}
-              max={4094}
-              allowDecimal={false}
-              onChange={setVlan}
+              placeholder={
+                interfaces.isFetching
+                  ? "正在读取网口"
+                  : "选择连接现场设备的网口"
+              }
+              data={[
+                {
+                  group: "以太网口",
+                  items: (interfaces.data ?? [])
+                    .filter(
+                      (item) => item.available && item.kind === "ethernet",
+                    )
+                    .map((item) => ({
+                      value: item.name,
+                      label: `以太网口 · ${item.name}${item.linkUp ? "" : " · 未连接"}`,
+                    })),
+                },
+                {
+                  group: "网桥",
+                  items: (interfaces.data ?? [])
+                    .filter(
+                      (item) => item.available && item.kind !== "ethernet",
+                    )
+                    .map((item) => ({
+                      value: item.name,
+                      label: `虚拟网桥 · ${item.name}${item.addresses.length ? ` · ${item.addresses.join(", ")}` : ""}`,
+                    })),
+                },
+              ].filter((group) => group.items.length)}
+              renderOption={({ option }) => (
+                <span className={styles.interfaceOption}>
+                  {interfaces.data?.find((item) => item.name === option.value)
+                    ?.kind === "ethernet" ? (
+                    <Cable size={16} />
+                  ) : (
+                    <GitBranch size={16} />
+                  )}
+                  <span>{option.label}</span>
+                </span>
+              )}
+              nothingFoundMessage="没有可用接入口"
               disabled={!identity.data?.administrator}
             />
           </>
         )}
         <TextInput
-          label="网络地址 / 前缀"
-          placeholder="10.1.0.0/24"
+          label={external ? "现场网段" : "网络地址 / 前缀"}
+          placeholder={external ? "例如 192.168.10.0/24" : "10.1.0.0/24"}
           required
           value={cidr}
           onChange={(event) => setCidr(event.currentTarget.value)}
@@ -679,15 +723,15 @@ export function NetworkEditor({
         {external && (
           <>
             <TextInput
-              label="Netlab 可分配地址段"
-              placeholder="192.168.1.128/26"
+              label="虚拟资产预留地址段"
+              placeholder="例如 192.168.10.128/26"
               required
               value={pool}
               onChange={(event) => setPool(event.currentTarget.value)}
               disabled={!identity.data?.administrator}
             />
             <TextInput
-              label="LAN 网关"
+              label="现有网关"
               placeholder="无网关可留空"
               value={gateway}
               onChange={(event) => setGateway(event.currentTarget.value)}
@@ -705,6 +749,18 @@ export function NetworkEditor({
         </button>
         <Collapse in={advanced}>
           <div className={styles.form}>
+            {external && (
+              <NumberInput
+                label="VLAN"
+                placeholder="不使用 VLAN"
+                value={vlan}
+                min={1}
+                max={4094}
+                allowDecimal={false}
+                onChange={setVlan}
+                disabled={!identity.data?.administrator}
+              />
+            )}
             {!external && (
               <TextInput
                 label="网关"
@@ -733,7 +789,7 @@ export function NetworkEditor({
             />
             <NumberInput
               label="MTU"
-              min={576}
+              min={1280}
               max={9000}
               value={mtu}
               onChange={(value) => setMtu(Number(value))}

@@ -14,7 +14,7 @@ export const networkColors = [
 export type TopologyData = {
   label: string;
   secondary: string;
-  kind: "network" | "container" | "vm";
+  kind: "network" | "container" | "vm" | "external";
   state: string;
   color: string;
   count?: number;
@@ -51,6 +51,12 @@ export function topology(
       counts.set(id, (counts.get(id) ?? 0) + 1),
     ),
   );
+  spec.networks.forEach((network) =>
+    counts.set(
+      network.id,
+      (counts.get(network.id) ?? 0) + (network.devices?.length ?? 0),
+    ),
+  );
   const templateMap = new Map(
     templates.map((template) => [template.id, template]),
   );
@@ -85,6 +91,20 @@ export function topology(
           networkColors[0],
       },
     })),
+    ...spec.networks.flatMap((network) =>
+      (network.devices ?? []).map((device) => ({
+        id: device.id,
+        type: "asset" as const,
+        position: { x: 0, y: 0 },
+        data: {
+          label: device.name,
+          secondary: device.address,
+          kind: "external" as const,
+          state: "",
+          color: networks.get(network.id)!.color,
+        },
+      })),
+    ),
   ];
   const edges: Edge[] = spec.assets.flatMap((asset) =>
     asset.interfaces
@@ -104,6 +124,21 @@ export function topology(
           address: item.address,
         },
       })),
+  );
+  spec.networks.forEach((network) =>
+    (network.devices ?? []).forEach((device) =>
+      edges.push({
+        id: `external-${device.id}`,
+        source: network.id,
+        target: device.id,
+        type: "smoothstep",
+        style: {
+          stroke: networks.get(network.id)!.color,
+          strokeWidth: 1.5,
+          strokeDasharray: "5 4",
+        },
+      }),
+    ),
   );
   nodes.forEach((node) => graph.setNode(node.id, topologyNodeSize[node.type!]));
   edges.forEach((edge) => graph.setEdge(edge.source, edge.target));

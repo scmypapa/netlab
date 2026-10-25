@@ -57,3 +57,31 @@ func TestExternalLANWithoutGateway(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestExternalDevicesUseExistingAddressAndReserveIt(t *testing.T) {
+	pool := "192.0.2.128/26"
+	spec := api.EnvironmentSpec{
+		Networks: []api.Network{{Id: "lan", Name: "现场", Cidr: "192.0.2.0/24", External: &api.ExternalAttachment{NodeId: "node", Interface: "eth1"}, AllocationPool: &pool,
+			Devices: []api.ExternalDevice{{Id: "plc", Name: "PLC", Address: "192.0.2.130", Mac: "02:00:00:00:01:20"}}}},
+		Assets: []api.Asset{{Id: "vm", TemplateId: "test", Interfaces: []api.Interface{{Id: "nic", NetworkId: "lan"}}}},
+	}
+	templates := map[string]api.Template{"test": {Resources: api.Resources{Cpu: 1, MemoryMiB: 512, DiskGiB: 5}}}
+	normalized, err := Normalize(spec, templates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.Networks[0].Devices[0].Address != "192.0.2.130" || normalized.Assets[0].Interfaces[0].Address != "192.0.2.131" {
+		t.Fatal("physical address changed or allocated twice", normalized)
+	}
+	after := normalized
+	after.Networks = append([]api.Network{}, normalized.Networks...)
+	after.Networks[0].Devices = nil
+	preview := Diff(1, normalized, after, templates)
+	if len(preview.Changes) != 1 || preview.Changes[0].Kind != api.ChangeItemKindNetwork {
+		t.Fatal("removing registration restarted a virtual asset", preview)
+	}
+	normalized.Assets[0].Interfaces[0].Address = "192.0.2.130"
+	if _, err := Normalize(normalized, templates); err == nil {
+		t.Fatal("physical address reused by virtual asset")
+	}
+}

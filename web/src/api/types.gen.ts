@@ -693,6 +693,25 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/nodes/{id}/external-devices": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Administrator-only ARP discovery on a selected external interface. Does not change device addresses or scan service ports. */
+    post: operations["discoverExternalDevices"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/principals": {
     parameters: {
       query?: never;
@@ -1849,6 +1868,8 @@ export interface components {
       /** @description Address prefix reserved for Netlab on an existing LAN */
       allocationPool?: string;
       external?: components["schemas"]["ExternalAttachment"];
+      /** @description Physical devices registered on this external network; never provisioned or reconfigured by Netlab. */
+      devices?: components["schemas"]["ExternalDevice"][];
       dnsAssetId?: string;
       dnsServers?: string[];
       mtu?: number;
@@ -2658,6 +2679,28 @@ export interface components {
       mtu: number;
       addresses: string[];
       available: boolean;
+      linkUp?: boolean;
+    };
+    ExternalDiscovery: {
+      interface: string;
+      /** @description IPv4 prefix with at most 1024 addresses. */
+      cidr: string;
+      vlan?: number;
+    };
+    DiscoveredDevice: {
+      address: string;
+      mac: string;
+      /** Format: date-time */
+      observedAt: string;
+    };
+    ExternalDevice: {
+      id: string;
+      name: string;
+      /** @description Existing device address; registering it does not configure the physical device. */
+      address: string;
+      mac: string;
+      /** Format: date-time */
+      observedAt?: string;
     };
     VmHardware: {
       machines: components["schemas"]["VmMachine"][];
@@ -4347,6 +4390,46 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["ExternalInterface"][];
         };
+      };
+    };
+  };
+  discoverExternalDevices: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ExternalDiscovery"];
+      };
+    };
+    responses: {
+      /** @description Devices that answered discovery */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DiscoveredDevice"][];
+        };
+      };
+      /** @description Administrator access required */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid interface or discovery range */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

@@ -693,6 +693,12 @@ export const api = {
     request<Operation>(`/storage-pools/${id}`, "DELETE"),
   nodeInterfaces: (id: string) =>
     request<Schema<"ExternalInterface">[]>(`/nodes/${id}/interfaces`),
+  discoverExternal: (id: string, body: Schema<"ExternalDiscovery">) =>
+    request<Schema<"DiscoveredDevice">[]>(
+      `/nodes/${id}/external-devices`,
+      "POST",
+      body,
+    ),
   registerNode: (body: Schema<"NodeRegistration">) =>
     request<Node>("/nodes", "POST", body),
   nodeRetirement: (id: string) =>

@@ -898,6 +898,13 @@ type CreateVolume struct {
 	StoragePoolId string       `json:"storagePoolId"`
 }
 
+// DiscoveredDevice defines model for DiscoveredDevice.
+type DiscoveredDevice struct {
+	Address    string    `json:"address"`
+	Mac        string    `json:"mac"`
+	ObservedAt time.Time `json:"observedAt"`
+}
+
 // Draft defines model for Draft.
 type Draft struct {
 	BaseRevision int             `json:"baseRevision"`
@@ -1002,11 +1009,30 @@ type ExternalAttachment struct {
 	Vlan      *int   `json:"vlan,omitempty"`
 }
 
+// ExternalDevice defines model for ExternalDevice.
+type ExternalDevice struct {
+	// Address Existing device address; registering it does not configure the physical device.
+	Address    string     `json:"address"`
+	Id         string     `json:"id"`
+	Mac        string     `json:"mac"`
+	Name       string     `json:"name"`
+	ObservedAt *time.Time `json:"observedAt,omitempty"`
+}
+
+// ExternalDiscovery defines model for ExternalDiscovery.
+type ExternalDiscovery struct {
+	// Cidr IPv4 prefix with at most 1024 addresses.
+	Cidr      string `json:"cidr"`
+	Interface string `json:"interface"`
+	Vlan      *int   `json:"vlan,omitempty"`
+}
+
 // ExternalInterface defines model for ExternalInterface.
 type ExternalInterface struct {
 	Addresses []string              `json:"addresses"`
 	Available bool                  `json:"available"`
 	Kind      ExternalInterfaceKind `json:"kind"`
+	LinkUp    bool                  `json:"linkUp,omitempty"`
 	Mac       string                `json:"mac"`
 	Mtu       int                   `json:"mtu"`
 	Name      string                `json:"name"`
@@ -1166,15 +1192,18 @@ type MigrationRequest struct {
 // Network defines model for Network.
 type Network struct {
 	// AllocationPool Address prefix reserved for Netlab on an existing LAN
-	AllocationPool *string             `json:"allocationPool,omitempty"`
-	Cidr           string              `json:"cidr"`
-	DnsAssetId     *string             `json:"dnsAssetId,omitempty"`
-	DnsServers     *[]string           `json:"dnsServers,omitempty"`
-	External       *ExternalAttachment `json:"external,omitempty"`
-	Gateway        *string             `json:"gateway,omitempty"`
-	Id             string              `json:"id"`
-	Mtu            *int                `json:"mtu,omitempty"`
-	Name           string              `json:"name"`
+	AllocationPool *string `json:"allocationPool,omitempty"`
+	Cidr           string  `json:"cidr"`
+
+	// Devices Physical devices registered on this external network; never provisioned or reconfigured by Netlab.
+	Devices    []ExternalDevice    `json:"devices,omitempty"`
+	DnsAssetId *string             `json:"dnsAssetId,omitempty"`
+	DnsServers *[]string           `json:"dnsServers,omitempty"`
+	External   *ExternalAttachment `json:"external,omitempty"`
+	Gateway    *string             `json:"gateway,omitempty"`
+	Id         string              `json:"id"`
+	Mtu        *int                `json:"mtu,omitempty"`
+	Name       string              `json:"name"`
 }
 
 // Node defines model for Node.
@@ -2478,6 +2507,9 @@ type ChangePasswordJSONRequestBody = ChangePassword
 
 // RegisterNodeJSONRequestBody defines body for RegisterNode for application/json ContentType.
 type RegisterNodeJSONRequestBody = NodeRegistration
+
+// DiscoverExternalDevicesJSONRequestBody defines body for DiscoverExternalDevices for application/json ContentType.
+type DiscoverExternalDevicesJSONRequestBody = ExternalDiscovery
 
 // ConfigureNodeStorageJSONRequestBody defines body for ConfigureNodeStorage for application/json ContentType.
 type ConfigureNodeStorageJSONRequestBody = ConfigureNodeStorage

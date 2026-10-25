@@ -18,6 +18,8 @@ import {
   SquareChartGantt,
   Trash2,
   X,
+  Router,
+  Radar,
 } from "lucide-react";
 import type {
   Asset,
@@ -35,6 +37,9 @@ import styles from "./ObjectInspector.module.css";
 type Props = {
   asset?: Asset;
   network?: NetworkModel;
+  device?: Schema<"ExternalDevice">;
+  deviceNetwork?: NetworkModel;
+  onDiscover?: () => void;
   spec: EnvironmentSpec;
   template?: Template;
   state?: EnvironmentState;
@@ -66,6 +71,9 @@ type Props = {
 export function ObjectInspector({
   asset,
   network,
+  device,
+  deviceNetwork,
+  onDiscover,
   spec,
   template,
   state,
@@ -101,7 +109,9 @@ export function ObjectInspector({
     <aside className={styles.inspector} aria-label="对象详情">
       <header className={styles.header}>
         <span className={styles.symbol}>
-          {network ? (
+          {device ? (
+            <Router size={22} />
+          ) : network ? (
             <Network size={22} />
           ) : vm ? (
             <Monitor size={22} />
@@ -110,11 +120,13 @@ export function ObjectInspector({
           )}
         </span>
         <div className={styles.identity}>
-          <h2>{asset?.name ?? network?.name}</h2>
+          <h2>{device?.name ?? asset?.name ?? network?.name}</h2>
           {asset ? (
             <Status value={assetState?.state ?? "draft"} />
           ) : (
-            <span className={styles.address}>{network?.cidr}</span>
+            <span className={styles.address}>
+              {device ? "外部设备" : network?.cidr}
+            </span>
           )}
         </div>
         <ActionIcon
@@ -264,7 +276,7 @@ export function ObjectInspector({
                       leftSection={<Trash2 size={15} />}
                       onClick={onRemove}
                     >
-                      移除{asset ? "资产" : "网段"}
+                      {device ? "移除设备" : asset ? "移除资产" : "移除网段"}
                     </Menu.Item>
                   </>
                 ) : (
@@ -382,6 +394,42 @@ export function ObjectInspector({
         </div>
       )}
       <div className={styles.body}>
+        {device && deviceNetwork && (
+          <>
+            <dl className={styles.properties}>
+              <div>
+                <dt>IP 地址</dt>
+                <dd className={styles.address}>{device.address}</dd>
+              </div>
+              <div>
+                <dt>MAC 地址</dt>
+                <dd className={styles.address}>{device.mac}</dd>
+              </div>
+              {device.observedAt && (
+                <div>
+                <dt>发现时间</dt>
+                  <dd>{new Date(device.observedAt).toLocaleString()}</dd>
+                </div>
+              )}
+            </dl>
+            <section className={styles.section}>
+              <h3>接入网络</h3>
+              <button
+                className={styles.item}
+                onClick={() => onSelect(deviceNetwork.id)}
+              >
+                <Network size={16} />
+                <span className={styles.itemText}>
+                  <strong>{deviceNetwork.name}</strong>
+                  <span className={styles.address}>
+                    {deviceNetwork.external?.interface}
+                  </span>
+                </span>
+                <ArrowRight size={13} />
+              </button>
+            </section>
+          </>
+        )}
         {asset && (
           <>
             <dl className={styles.resources}>
@@ -529,7 +577,7 @@ export function ObjectInspector({
               {network.external && (
                 <>
                   <div>
-                    <dt>外部接口</dt>
+                    <dt>接入网口</dt>
                     <dd>
                       {network.external.interface}
                       {network.external.vlan
@@ -538,12 +586,44 @@ export function ObjectInspector({
                     </dd>
                   </div>
                   <div>
-                    <dt>地址池</dt>
+                    <dt>虚拟资产地址段</dt>
                     <dd className={styles.address}>{network.allocationPool}</dd>
                   </div>
                 </>
               )}
             </dl>
+            {network.external && (
+              <section className={styles.section}>
+                <h3>
+                  外部设备 <span>{network.devices?.length ?? 0}</span>
+                </h3>
+                <div className={styles.items}>
+                  {network.devices?.map((device) => (
+                    <button
+                      key={device.id}
+                      className={styles.item}
+                      onClick={() => onSelect(device.id)}
+                    >
+                      <Router size={16} />
+                      <span className={styles.itemText}>
+                        <strong>{device.name}</strong>
+                        <span className={styles.address}>{device.address}</span>
+                      </span>
+                      <ArrowRight size={13} />
+                    </button>
+                  ))}
+                </div>
+                {onDiscover && (
+                  <Button
+                    variant="default"
+                    leftSection={<Radar size={15} />}
+                    onClick={onDiscover}
+                  >
+                    发现设备
+                  </Button>
+                )}
+              </section>
+            )}
             <section className={styles.section}>
               <h3>连接资产</h3>
               <div className={styles.items}>

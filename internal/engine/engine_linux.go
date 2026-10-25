@@ -232,6 +232,10 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 	}
 	return info, nil
 }
+
+func (e *Engine) DiscoverExternal(ctx context.Context, input api.ExternalDiscovery) ([]api.DiscoveredDevice, error) {
+	return e.external.Discover(ctx, input)
+}
 func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult {
 	unlocked := e.lock(plan.EnvironmentId)
 	defer unlocked()
