@@ -121,7 +121,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.1.0/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.1.1/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -266,6 +266,7 @@ curl -H "Authorization: Bearer <Your-Token>" \
 - 本项目代码许可证待定，当前源码及发布包保留所有权利。
 - 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、Suricata、GoFlow2。
 - 界面使用 Inter 与 JetBrains Mono 字体，均遵循 SIL Open Font License 1.1；随前端文件保留许可文本。
+- 拓扑自动布局使用 ELK.js，遵循 Eclipse Public License 2.0；随前端文件保留许可及来源说明。
 
 ## 文档
 
