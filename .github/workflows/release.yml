@@ -29,8 +29,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libvirt-dev libpcap-dev openvswitch-switch ovn-central suricata suricata-update tshark
       - name: Verify resource, networking and execution changes
         run: |
-          go test ./internal/security ./internal/metrics ./internal/capture ./internal/network ./internal/observation ./internal/server ./internal/update -count=1
-          go test -tags libvirt_dlopen ./internal/engine -run 'TestParallelTemplatePreparationAndTrim|TestColdTemplateSourceDoesNotOccupyComputeSlot|TestMetricsRetainHostWhenContainerdUnavailable' -count=1
+          go test -tags libvirt_dlopen ./... -count=1
           NETLAB_REAL_NETWORK=1 go test ./internal/network -run TestRealOVNMutualTLS -count=1
           go build -trimpath ./cmd/controller
           go build -trimpath -tags libvirt_dlopen ./cmd/node

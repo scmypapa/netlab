@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"netlab.local/core/db"
 	"netlab.local/core/db/queries"
 )
 
@@ -17,12 +18,15 @@ func TestListCursorsAndFilters(t *testing.T) {
 		t.Skip("NETLAB_DATABASE_URL is not set")
 	}
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, dsn)
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close(ctx)
-	tx, err := conn.Begin(ctx)
+	defer pool.Close()
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
