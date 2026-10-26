@@ -1285,8 +1285,7 @@ function Workbench({ id }: { id: string }) {
       {vpnOpened && environment.permissions?.includes("access") && (
         <VPNDrawer
           vpn={vpn}
-          networks={environment.appliedSpec?.networks ?? []}
-          routers={environment.appliedSpec?.routers}
+          spec={environment.appliedSpec ?? { networks: [], assets: [] }}
           busy={
             busy ||
             status === "destroyed" ||

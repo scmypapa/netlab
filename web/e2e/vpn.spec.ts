@@ -9,14 +9,41 @@ async function fixture(
     assetOnly?: boolean;
     existing?: boolean;
     rejectCreate?: boolean;
+    empty?: boolean;
   } = {},
 ) {
   const spec = {
     networks: [
       { id: "lan", name: "应用网段", cidr: "10.10.0.0/24" },
       { id: "lan6", name: "IPv6 网段", cidr: "fd10::/64" },
+      { id: "empty", name: "空网段", cidr: "10.20.0.0/24" },
     ],
-    assets: [],
+    assets: options.empty
+      ? []
+      : [
+          {
+            id: "web",
+            name: "应用服务",
+            templateId: "linux",
+            resources: { cpu: 0.5, memoryMiB: 64, diskGiB: 1 },
+            interfaces: [
+              {
+                id: "nic4",
+                networkId: "lan",
+                mac: "02:00:00:00:00:01",
+                address: "10.10.0.10",
+                primary: true,
+              },
+              {
+                id: "nic6",
+                networkId: "lan6",
+                mac: "02:00:00:00:00:02",
+                address: "fd10::10",
+                primary: false,
+              },
+            ],
+          },
+        ],
   };
   const environment: Environment = {
     id: "env",
@@ -202,6 +229,16 @@ test("VPN uses environment-level access, not an asset grant", async ({
   expect(calls.some((item) => item.path.includes("vpn-access"))).toBe(false);
 });
 
+test("VPN does not offer empty networks as access targets", async ({
+  page,
+}) => {
+  const { calls } = await fixture(page, { empty: true });
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "VPN", exact: true }).click();
+  await expect(page.getByRole("button", { name: "新建连接" })).toBeDisabled();
+  expect(calls.some((item) => item.method === "POST")).toBe(false);
+});
+
 test("VPN download waits for applied task and contains a matching private key and dual-stack routes", async ({
   page,
 }) => {
@@ -213,6 +250,9 @@ test("VPN download waits for applied task and contains a matching private key an
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.goto("/environments/env");
   await create(page);
+  await expect(
+    page.getByRole("dialog", { name: "VPN", exact: true }),
+  ).not.toContainText("空网段");
   const body = calls.find((item) => item.method === "POST")!
     .body as Schema<"CreateVPNAccess">;
   expect(Object.keys(body).sort()).toEqual([

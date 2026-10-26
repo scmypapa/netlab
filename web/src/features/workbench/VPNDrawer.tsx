@@ -18,7 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
-import type { Network, Schema } from "../../api/client";
+import type { EnvironmentSpec } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
 import type { useVPNAccess, VPNInput } from "./useVPNAccess";
 import { networkOptions, networksOverlap } from "./networking";
@@ -33,26 +33,35 @@ const states = {
 
 export function VPNDrawer({
   vpn,
-  networks,
-  routers,
+  spec,
   busy,
   onClose,
 }: {
   vpn: ReturnType<typeof useVPNAccess>;
-  networks: Network[];
-  routers?: Schema<"LogicalRouter">[];
+  spec: EnvironmentSpec;
   busy: boolean;
   onClose: () => void;
 }) {
+  const accessible = new Set(
+    spec.assets.flatMap((asset) =>
+      asset.interfaces.map((iface) => iface.networkId),
+    ),
+  );
+  for (const network of spec.networks) {
+    if (network.devices?.length) accessible.add(network.id);
+  }
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [networkIds, setNetworkIds] = useState<string[]>(
-    networks.map((item) => item.id),
+    spec.networks
+      .filter((network) => accessible.has(network.id))
+      .map((network) => network.id),
   );
   const [mode, setMode] = useState<VPNInput["mode"]>("original");
-  const selectedNetworks = networks.filter((network) =>
-    networkIds.includes(network.id),
+  const selectedNetworks = spec.networks.filter(
+    (network) => accessible.has(network.id) && networkIds.includes(network.id),
   );
+  const selectedIds = selectedNetworks.map((network) => network.id);
   const overlapping = selectedNetworks.some((network, index) =>
     selectedNetworks
       .slice(index + 1)
@@ -66,7 +75,7 @@ export function VPNDrawer({
     vpn.revoke.error ??
     vpn.download.error ??
     vpn.copy.error;
-  const options = networkOptions({ networks, routers });
+  const options = networkOptions(spec);
   const networkName = (id: string) =>
     options.find((item) => item.value === id)?.title;
 
@@ -172,7 +181,7 @@ export function VPNDrawer({
           <Button
             variant="default"
             leftSection={<Plus size={15} />}
-            disabled={pending || !networks.length}
+            disabled={pending || !accessible.size}
             onClick={() => setCreating(true)}
           >
             新建连接
@@ -184,7 +193,11 @@ export function VPNDrawer({
             onSubmit={(event) => {
               event.preventDefault();
               vpn.create.mutate(
-                { name: name.trim(), networkIds, mode: accessMode },
+                {
+                  name: name.trim(),
+                  networkIds: selectedIds,
+                  mode: accessMode,
+                },
                 {
                   onSuccess: () => {
                     setCreating(false);
@@ -203,9 +216,9 @@ export function VPNDrawer({
             />
             <MultiSelect
               label="授权网段"
-              value={networkIds}
+              value={selectedIds}
               onChange={setNetworkIds}
-              data={options}
+              data={options.filter((option) => accessible.has(option.value))}
               required
             />
             <SegmentedControl
@@ -224,7 +237,7 @@ export function VPNDrawer({
               <Button
                 type="submit"
                 loading={vpn.create.isPending}
-                disabled={pending || !name.trim() || !networkIds.length}
+                disabled={pending || !name.trim() || !selectedIds.length}
               >
                 创建连接
               </Button>

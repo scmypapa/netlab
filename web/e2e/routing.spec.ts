@@ -16,7 +16,21 @@ import {
 
 function scenario(): EnvironmentSpec {
   return {
-    assets: [],
+    assets: ["a", "b"].map((networkId, index) => ({
+      id: `app-${networkId}`,
+      name: `应用 ${networkId.toUpperCase()}`,
+      templateId: "linux",
+      resources: { cpu: 0.5, memoryMiB: 64, diskGiB: 1 },
+      interfaces: [
+        {
+          id: `nic-${networkId}`,
+          networkId,
+          mac: `02:00:00:00:00:0${index + 1}`,
+          address: "10.0.0.10",
+          primary: true,
+        },
+      ],
+    })),
     networks: [
       { id: "a", name: "生产网", cidr: "10.0.0.0/24", gateway: "10.0.0.1" },
       { id: "b", name: "隔离网", cidr: "10.0.0.0/24", gateway: "10.0.0.1" },
@@ -72,7 +86,11 @@ async function fixture(page: Page, spec = scenario()) {
   };
   const calls: {
     path: string;
-    body: { spec?: EnvironmentSpec; mode?: string } | null;
+    body: {
+      spec?: EnvironmentSpec;
+      mode?: string;
+      networkIds?: string[];
+    } | null;
   }[] = [];
   await page.addInitScript(() => {
     Object.assign(window, {
@@ -347,6 +365,9 @@ test("overlapping VPN networks automatically use independent access addresses", 
   const { calls } = await fixture(page);
   await page.getByRole("button", { name: "VPN", exact: true }).click();
   await page.getByRole("button", { name: "新建连接" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "VPN", exact: true }),
+  ).not.toContainText("中转网");
   await page.getByLabel("连接名称").fill("测试接入");
   await expect(page.getByRole("radio", { name: "独立访问地址" })).toBeChecked();
   await expect(
@@ -360,6 +381,49 @@ test("overlapping VPN networks automatically use independent access addresses", 
           ?.body?.mode,
     )
     .toBe("translated");
+  expect(
+    calls.find((call) => call.path.endsWith("/vpn-access") && call.body)?.body
+      ?.networkIds,
+  ).toEqual(["a", "b"]);
+});
+
+test("VPN can authorize a registered device on a routerless layer-two network", async ({
+  page,
+}) => {
+  const spec: EnvironmentSpec = {
+    assets: [],
+    routers: [],
+    networks: [
+      {
+        id: "plant",
+        name: "现场设备网",
+        cidr: "192.168.8.0/24",
+        devices: [
+          {
+            id: "plc",
+            name: "PLC",
+            address: "192.168.8.10",
+            mac: "02:00:00:00:00:01",
+          },
+        ],
+      },
+    ],
+  };
+  const { calls } = await fixture(page, spec);
+  await page.getByRole("button", { name: "VPN", exact: true }).click();
+  await page.getByRole("button", { name: "新建连接" }).click();
+  await page.getByLabel("连接名称").fill("现场接入");
+  await expect(
+    page.getByRole("dialog", { name: "VPN", exact: true }),
+  ).toContainText("现场设备网 · 192.168.8.0/24");
+  await page.getByRole("button", { name: "创建连接", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        calls.find((call) => call.path.endsWith("/vpn-access") && call.body)
+          ?.body?.networkIds,
+    )
+    .toEqual(["plant"]);
 });
 
 test("new ordinary networks attach to the only router with an allocated interface identity", async ({
