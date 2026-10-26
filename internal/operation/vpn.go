@@ -41,6 +41,9 @@ func (w Worker) vpnOperation(ctx context.Context, op *queries.Operation, p *Payl
 		}
 	}
 	err := w.upgradeRouting(ctx, op, p)
+	if ctx.Err() != nil || errors.Is(err, errPersistence) {
+		return errors.Join(err, ctx.Err())
+	}
 	if op.Phase == "rollback" {
 		if err != nil {
 			return errors.Join(err, w.status(ctx, op, p, err))
@@ -92,6 +95,13 @@ func (w Worker) rollbackVPN(ctx context.Context, op *queries.Operation, p *Paylo
 		}
 	}
 	if err = q.DeleteUnusedVPNAliases(ctx, *op.EnvironmentID); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	raw, err := json.Marshal(p.Spec)
+	if err == nil {
+		err = q.RefreshEnvironmentNetwork(ctx, queries.RefreshEnvironmentNetworkParams{ID: *op.EnvironmentID, AppliedSpec: raw})
+	}
+	if err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	transactionWorker := w
