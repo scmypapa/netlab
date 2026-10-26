@@ -36,7 +36,7 @@ func (e *Engine) GuestAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	raw, err := e.access.Dial(ctx, r.PathValue("environmentId"), address, uint16(target.Settings.Port))
+	raw, err := e.access.Dial(ctx, r.PathValue("environmentId"), target.NetworkId, address, uint16(target.Settings.Port))
 	cancel()
 	if err != nil {
 		files.Failure(w, err, http.StatusBadGateway)

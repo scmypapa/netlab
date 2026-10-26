@@ -20,42 +20,38 @@ func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 	if err != nil {
 		return err
 	}
-	if plan.Gateway != nil {
-		var router *Router
-		for _, item := range models {
-			if current, ok := item.(*Router); ok {
-				router = current
-				break
-			}
-		}
-		if router == nil {
-			router = &Router{UUID: "router", Name: objectName("lr", plan.EnvironmentId, "gateway"), ExternalIDs: ownership(plan.EnvironmentId)}
-			models = append(models, router)
-		}
-		gateway, err := gatewayModels(plan, router, n.provider, n.chassis)
-		if err != nil {
-			return err
-		}
-		models = append(models, gateway...)
-	}
 	if n.accessRecord != nil {
 		if record := n.accessRecord(plan.EnvironmentId); record != nil {
 			desired, err := accessNetwork(*record, plan)
 			if err != nil {
 				return err
 			}
-			record = &desired
-			var router *Router
-			for _, item := range models {
-				if current, ok := item.(*Router); ok {
-					router = current
-					break
+			var gateway *api.ServiceGateway
+			if n.gatewayRecord != nil {
+				stored := n.gatewayRecord(plan.EnvironmentId)
+				if stored.Gateway.Address != "" {
+					gateway = &stored.Gateway
 				}
 			}
-			if router == nil {
-				return fmt.Errorf("VPN environment router is missing")
+			if plan.Gateway != nil {
+				gateway = plan.Gateway
 			}
-			models = append(models, accessModels(plan.EnvironmentId, record, router, n.chassis)...)
+			access, err := accessModels(plan.EnvironmentId, &desired, gateway, n.provider)
+			if err != nil {
+				return err
+			}
+			for _, item := range access {
+				port, ok := item.(*SwitchPort)
+				if !ok || port.ExternalIDs["netlab.network"] == "" {
+					continue
+				}
+				for _, business := range models {
+					if sw, ok := business.(*Switch); ok && sw.Name == objectName("ls", plan.EnvironmentId, port.ExternalIDs["netlab.network"]) {
+						sw.Ports = append(sw.Ports, port.UUID)
+					}
+				}
+			}
+			models = append(models, access...)
 		}
 	}
 	ops, err := n.deleteOperations(ctx, plan.EnvironmentId)

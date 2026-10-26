@@ -883,8 +883,9 @@ components:
         passphrase: {type: string, writeOnly: true}
     NodeSSH:
       type: object
-      required: [address, settings]
+      required: [networkId, address, settings]
       properties:
+        networkId: {type: string}
         address: {type: string}
         settings: {$ref: '#/components/schemas/SSHSettings'}
     RDPSettings:
@@ -899,8 +900,9 @@ components:
         password: {type: string, writeOnly: true}
     NodeRDP:
       type: object
-      required: [address, settings]
+      required: [networkId, address, settings]
       properties:
+        networkId: {type: string}
         address: {type: string}
         settings: {$ref: '#/components/schemas/RDPSettings'}
     FileEntry:
@@ -1425,11 +1427,12 @@ components:
         address: {type: string}
     NodeServiceBinding:
       type: object
-      required: [id, assetId, interfaceId, protocol, targetAddress, targetPort, listenPort]
+      required: [id, assetId, interfaceId, networkId, protocol, targetAddress, targetPort, listenPort]
       properties:
         id: {type: string}
         assetId: {type: string}
         interfaceId: {type: string}
+        networkId: {type: string}
         protocol: {$ref: '#/components/schemas/ServiceProtocol'}
         targetAddress: {type: string}
         targetPort: {type: integer}

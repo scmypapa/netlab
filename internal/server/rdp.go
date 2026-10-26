@@ -91,11 +91,11 @@ func (s *Server) rdpTarget(ctx context.Context, identity access.Identity, env, a
 			return "", nil, err
 		}
 	}
-	endpoint, address, err := s.guestAddress(ctx, env, asset, settings.InterfaceId)
+	endpoint, nic, err := s.guestAddress(ctx, env, asset, settings.InterfaceId)
 	if err != nil {
 		return "", nil, err
 	}
-	raw, err := json.Marshal(api.NodeRDP{Address: address, Settings: settings})
+	raw, err := json.Marshal(api.NodeRDP{NetworkId: nic.NetworkId, Address: nic.Address, Settings: settings})
 	return endpoint, http.Header{"X-Netlab-Rdp": []string{base64.StdEncoding.EncodeToString(raw)}}, err
 }
 

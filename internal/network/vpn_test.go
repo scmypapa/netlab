@@ -30,7 +30,7 @@ func TestVPNReplayRestoresAddressesAfterReuse(t *testing.T) {
 }
 
 func TestVPNNetworkUpdateConflictsOnlyWithAllocatedRanges(t *testing.T) {
-	record := accessRecord{Transit: []string{"198.18.16.0/30", "fdff:0:0:1::/64"}, Clients: []string{"198.18.0.0/20", "fdff::/64"}}
+	record := accessRecord{Clients: []string{"198.18.0.0/20", "fdff::/64"}}
 	plan := api.NodePlan{Spec: api.EnvironmentSpec{Networks: []api.Network{{Name: "ordinary", Cidr: "10.18.0.0/24"}}}}
 	if err := vpnRangeConflict(record, plan); err != nil {
 		t.Fatal(err)
@@ -42,8 +42,8 @@ func TestVPNNetworkUpdateConflictsOnlyWithAllocatedRanges(t *testing.T) {
 }
 
 func TestEnvironmentAccessReallocatesUnusedInternalRanges(t *testing.T) {
-	record := accessRecord{Transit: []string{"198.18.16.0/30", "fdff:0:0:1::/64"}, Clients: []string{"198.18.0.0/20", "fdff::/64"}}
-	plan := api.NodePlan{Spec: api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "198.18.16.0/24"}}}}
+	record := accessRecord{Clients: []string{"198.18.0.0/20", "fdff::/64"}}
+	plan := api.NodePlan{Spec: api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "198.18.0.0/24"}}}}
 	desired, err := accessNetwork(record, plan)
 	if err != nil {
 		t.Fatal(err)
@@ -51,8 +51,8 @@ func TestEnvironmentAccessReallocatesUnusedInternalRanges(t *testing.T) {
 	if err = vpnRangeConflict(desired, plan); err != nil {
 		t.Fatal(err)
 	}
-	if slices.Equal(record.Transit, desired.Transit) {
-		t.Fatal("internal transit did not move out of the target LAN")
+	if slices.Equal(record.Clients, desired.Clients) {
+		t.Fatal("internal client pool did not move out of the target LAN")
 	}
 	record.Peers = []vpnPeer{{Peer: api.VPNPeer{Id: "active"}}}
 	if _, err = accessNetwork(record, plan); err == nil {

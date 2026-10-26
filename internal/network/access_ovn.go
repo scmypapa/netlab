@@ -2,52 +2,61 @@ package network
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/ovn-org/libovsdb/ovsdb"
+	"netlab.local/core/api"
+	"slices"
 )
 
-func (n *OVN) applyAccess(ctx context.Context, environment string, record *accessRecord) error {
-	var routers []Router
-	if err := n.client.Where(&Router{Name: objectName("lr", environment, "gateway")}).List(ctx, &routers); err != nil {
-		return err
-	}
-	if len(routers) != 1 {
-		return fmt.Errorf("environment access router: expected one match, found %d", len(routers))
-	}
-	router := &routers[0]
-	owned := func(ids map[string]string) bool {
-		return ids["netlab.environment"] == environment && ids["netlab.component"] == "access"
-	}
-	var ports []RouterPort
-	if err := n.client.WhereCache(func(port *RouterPort) bool { return owned(port.ExternalIDs) }).List(ctx, &ports); err != nil {
-		return err
-	}
-	var nats []NAT
-	if err := n.client.WhereCache(func(nat *NAT) bool { return owned(nat.ExternalIDs) }).List(ctx, &nats); err != nil {
-		return err
-	}
-	removeAccessReferences(router, ports, nats)
-	ids := ownership(environment)
-	ids["netlab.component"] = "access"
-	value, err := ovsdb.NewOvsMap(ids)
+func (n *OVN) applyAccess(ctx context.Context, environment string, record *accessRecord, gateway *api.ServiceGateway) error {
+	models, err := accessModels(environment, record, gateway, n.provider)
 	if err != nil {
 		return err
 	}
-	var operations []ovsdb.Operation
-	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "Logical_Router_Port", "NAT", "Address_Set"} {
-		operations = append(operations, ovsdb.Operation{Op: ovsdb.OperationDelete, Table: table, Where: []ovsdb.Condition{{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: value}}})
+	owned := func(ids map[string]string) bool {
+		return ids["netlab.environment"] == environment && ids["netlab.component"] == "access"
 	}
-	if models := accessModels(environment, record, router, n.chassis); len(models) > 0 {
+	var ports []SwitchPort
+	if err = n.client.WhereCache(func(p *SwitchPort) bool { return owned(p.ExternalIDs) }).List(ctx, &ports); err != nil {
+		return err
+	}
+	old := map[string]bool{}
+	for _, port := range ports {
+		old[port.UUID] = true
+	}
+	var switches []Switch
+	if err = n.client.WhereCache(func(sw *Switch) bool {
+		return sw.ExternalIDs["netlab.environment"] == environment && !owned(sw.ExternalIDs)
+	}).List(ctx, &switches); err != nil {
+		return err
+	}
+	value, err := ovsdb.NewOvsMap(map[string]string{"netlab.environment": environment, "netlab.component": "access"})
+	if err != nil {
+		return err
+	}
+	var ops []ovsdb.Operation
+	for _, table := range []string{"Logical_Switch", "Logical_Switch_Port", "Logical_Router_Port", "NAT", "Address_Set"} {
+		ops = append(ops, ovsdb.Operation{Op: ovsdb.OperationDelete, Table: table, Where: []ovsdb.Condition{{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: value}}})
+	}
+	if len(models) > 0 {
 		create, err := n.client.Create(models...)
 		if err != nil {
 			return err
 		}
-		operations = append(operations, create...)
+		ops = append(ops, create...)
 	}
-	update, err := n.client.Where(router).Update(router, &router.Ports, &router.NAT, &router.Options)
-	if err != nil {
-		return err
+	for i := range switches {
+		sw := &switches[i]
+		sw.Ports = slices.DeleteFunc(sw.Ports, func(id string) bool { return old[id] })
+		for _, item := range models {
+			if port, ok := item.(*SwitchPort); ok && port.ExternalIDs["netlab.network"] != "" && sw.Name == objectName("ls", environment, port.ExternalIDs["netlab.network"]) {
+				sw.Ports = append(sw.Ports, port.UUID)
+			}
+		}
+		update, err := n.client.Where(sw).Update(sw, &sw.Ports)
+		if err != nil {
+			return err
+		}
+		ops = append(ops, update...)
 	}
-	return transact(ctx, n.client, append(operations, update...))
+	return transact(ctx, n.client, ops)
 }

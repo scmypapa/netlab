@@ -1599,6 +1599,7 @@ export interface components {
       passphrase?: string;
     };
     NodeSSH: {
+      networkId: string;
       address: string;
       settings: components["schemas"]["SSHSettings"];
     };
@@ -1612,6 +1613,7 @@ export interface components {
       password?: string;
     };
     NodeRDP: {
+      networkId: string;
       address: string;
       settings: components["schemas"]["RDPSettings"];
     };
@@ -2077,6 +2079,7 @@ export interface components {
       id: string;
       assetId: string;
       interfaceId: string;
+      networkId: string;
       protocol: components["schemas"]["ServiceProtocol"];
       targetAddress: string;
       targetPort: number;

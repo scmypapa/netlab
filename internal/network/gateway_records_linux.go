@@ -20,11 +20,6 @@ import (
 	"netlab.local/core/api"
 )
 
-type gatewayRecord struct {
-	Gateway  api.ServiceGateway       `json:"gateway"`
-	Services []api.NodeServiceBinding `json:"services"`
-}
-
 type portReservation struct {
 	environment, service string
 	fd                   int
@@ -108,6 +103,45 @@ func NewGateway(ctx context.Context, directory, nodeID, cidr string, ovs *OVS, o
 	}
 	if err = gateway.applyKernel(gateway.records); err != nil {
 		return nil, err
+	}
+	ovn.gatewayRecord = func(environment string) gatewayRecord {
+		gateway.mu.Lock()
+		defer gateway.mu.Unlock()
+		return gateway.records[environment]
+	}
+	ovn.upgradeServices = func(environment string, spec api.EnvironmentSpec) error {
+		gateway.mu.Lock()
+		defer gateway.mu.Unlock()
+		record := gateway.records[environment]
+		record.Services = slices.Clone(record.Services)
+		changed := false
+		for i := range record.Services {
+			binding := &record.Services[i]
+			if binding.NetworkId != "" {
+				continue
+			}
+			for _, asset := range spec.Assets {
+				if asset.Id != binding.AssetId {
+					continue
+				}
+				for _, iface := range asset.Interfaces {
+					if iface.Id == binding.InterfaceId {
+						binding.NetworkId = iface.NetworkId
+					}
+				}
+			}
+			if binding.NetworkId == "" {
+				return fmt.Errorf("service %s interface no longer exists", binding.Id)
+			}
+			changed = true
+		}
+		if changed {
+			if err := gateway.writeRecord(environment, record); err != nil {
+				return err
+			}
+			gateway.records[environment] = record
+		}
+		return nil
 	}
 	return gateway, nil
 }
@@ -211,7 +245,7 @@ func (g *Gateway) Apply(ctx context.Context, plan api.NodePlan) ([]api.NodeServi
 		used[port] = true
 	}
 	plan.Services = &services
-	if err := g.ovn.ApplyServices(ctx, plan); err != nil {
+	if err := g.ovn.applyServices(ctx, plan, previous); err != nil {
 		return nil, err
 	}
 	next := gatewayRecord{Gateway: *plan.Gateway, Services: services}
@@ -225,7 +259,7 @@ func (g *Gateway) Apply(ctx context.Context, plan api.NodePlan) ([]api.NodeServi
 		if previous.Gateway.Address != "" {
 			oldPlan.Gateway = &previous.Gateway
 		}
-		return errors.Join(cause, g.ovn.ApplyServices(cleanup, oldPlan), g.applyKernel(g.records))
+		return errors.Join(cause, g.ovn.applyServices(cleanup, oldPlan, next), g.applyKernel(g.records))
 	}
 	if err := g.applyKernel(records); err != nil {
 		return nil, rollback(err)

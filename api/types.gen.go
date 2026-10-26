@@ -1395,8 +1395,9 @@ type NodePlanPhase string
 
 // NodeRDP defines model for NodeRDP.
 type NodeRDP struct {
-	Address  string      `json:"address"`
-	Settings RDPSettings `json:"settings"`
+	Address   string      `json:"address"`
+	NetworkId string      `json:"networkId"`
+	Settings  RDPSettings `json:"settings"`
 }
 
 // NodeRecoverySource defines model for NodeRecoverySource.
@@ -1438,8 +1439,9 @@ type NodeRetirement struct {
 
 // NodeSSH defines model for NodeSSH.
 type NodeSSH struct {
-	Address  string      `json:"address"`
-	Settings SSHSettings `json:"settings"`
+	Address   string      `json:"address"`
+	NetworkId string      `json:"networkId"`
+	Settings  SSHSettings `json:"settings"`
 }
 
 // NodeScheduling defines model for NodeScheduling.
@@ -1471,6 +1473,7 @@ type NodeServiceBinding struct {
 	Id            string          `json:"id"`
 	InterfaceId   string          `json:"interfaceId"`
 	ListenPort    int             `json:"listenPort"`
+	NetworkId     string          `json:"networkId"`
 	Protocol      ServiceProtocol `json:"protocol"`
 	TargetAddress string          `json:"targetAddress"`
 	TargetPort    int             `json:"targetPort"`

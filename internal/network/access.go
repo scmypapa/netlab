@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/ovn-org/libovsdb/model"
 	"netlab.local/core/api"
 )
@@ -16,12 +17,24 @@ type vpnPeer struct {
 }
 
 type accessRecord struct {
+	Version    int           `json:"version"`
 	PrivateKey string        `json:"privateKey"`
-	Transit    []string      `json:"transit"`
 	Clients    []string      `json:"clients"`
 	Networks   []api.Network `json:"networks"`
 	Peers      []vpnPeer     `json:"peers"`
 	ListenPort int           `json:"listenPort"`
+}
+
+type gatewayRecord struct {
+	Gateway  api.ServiceGateway       `json:"gateway"`
+	Services []api.NodeServiceBinding `json:"services"`
+}
+
+func accessLinkID(environment, network string) string {
+	return strings.ReplaceAll(uuid.NewSHA1(uuid.NameSpaceOID, []byte(environment+"/"+network)).String(), "-", "")[:12]
+}
+func accessNetworkPort(environment, network string) string {
+	return objectName("management", environment, network)
 }
 
 const vpnMTU = 1280
@@ -67,12 +80,12 @@ func freePrefix(bits int, pools []string, occupied []netip.Prefix) (netip.Prefix
 	return netip.Prefix{}, fmt.Errorf("no private access range outside environment and VPN networks")
 }
 
-func vpnRanges(plan api.NodePlan) ([]string, []string, error) {
+func vpnRanges(plan api.NodePlan) ([]string, error) {
 	var used []netip.Prefix
 	for _, network := range plan.Spec.Networks {
 		prefix, err := netip.ParsePrefix(network.Cidr)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		used = append(used, prefix)
 	}
@@ -80,34 +93,24 @@ func vpnRanges(plan api.NodePlan) ([]string, []string, error) {
 		for _, route := range peer.Routes {
 			prefix, err := netip.ParsePrefix(route.AccessCidr)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			used = append(used, prefix)
 		}
 	}
-	var transit, clients []string
+	var clients []string
 	for _, family := range []struct {
 		pools []string
 		bits  int
 	}{{[]string{"198.18.0.0/15", "172.16.0.0/12", "10.0.0.0/8"}, 20}, {[]string{"fdff::/16", "fdfe::/16", "fd00::/8"}, 64}} {
 		client, err := freePrefix(family.bits, family.pools, used)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		used = append(used, client)
-		linkBits := 64
-		if client.Addr().Is4() {
-			linkBits = 30
-		}
-		link, err := freePrefix(linkBits, family.pools, used)
-		if err != nil {
-			return nil, nil, err
-		}
-		used = append(used, link)
 		clients = append(clients, client.String())
-		transit = append(transit, link.String())
 	}
-	return transit, clients, nil
+	return clients, nil
 }
 
 func assignVPNPeers(record accessRecord, peers []api.VPNPeer) ([]vpnPeer, error) {
@@ -168,7 +171,7 @@ func assignVPNPeers(record accessRecord, peers []api.VPNPeer) ([]vpnPeer, error)
 }
 
 func vpnRangeConflict(record accessRecord, plan api.NodePlan) error {
-	for _, value := range append(slices.Clone(record.Transit), record.Clients...) {
+	for _, value := range record.Clients {
 		reserved := netip.MustParsePrefix(value)
 		for _, network := range plan.Spec.Networks {
 			if reserved.Overlaps(netip.MustParsePrefix(network.Cidr)) {
@@ -188,49 +191,45 @@ func vpnRangeConflict(record accessRecord, plan api.NodePlan) error {
 	return nil
 }
 
-func accessModels(environment string, record *accessRecord, router *Router, chassis string) []model.Model {
+func accessModels(environment string, record *accessRecord, gateway *api.ServiceGateway, provider netip.Prefix) ([]model.Model, error) {
 	if record == nil {
-		return nil
+		return nil, nil
 	}
 	owner := func() map[string]string {
 		ids := ownership(environment)
 		ids["netlab.component"] = "access"
 		return ids
 	}
-	rp := &RouterPort{UUID: "access_rp", Name: objectName("access_rp", environment, "access"), ExternalIDs: owner()}
-	var addresses []string
-	for _, value := range record.Transit {
-		prefix := netip.MustParsePrefix(value)
-		rp.Networks = append(rp.Networks, netip.PrefixFrom(prefix.Addr().Next(), prefix.Bits()).String())
-		addresses = append(addresses, prefix.Addr().Next().Next().String())
-	}
-	rp.MAC = routerMAC(netip.MustParsePrefix(record.Transit[0]).Addr().Next())
-	portMAC := routerMAC(netip.MustParsePrefix(record.Transit[0]).Addr().Next().Next())
-	port := &SwitchPort{UUID: "access_port", Name: accessPort(environment), Addresses: []string{portMAC + " " + strings.Join(addresses, " ")}, PortSecurity: []string{portMAC + " " + strings.Join(addresses, " ")}, ExternalIDs: owner()}
-	connection := &SwitchPort{UUID: "access_connection", Name: objectName("access_sp", environment, "router"), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": rp.Name}, ExternalIDs: owner()}
-	sw := &Switch{UUID: "access_switch", Name: objectName("access_ls", environment, "access"), Ports: []string{port.UUID, connection.UUID}, ExternalIDs: owner()}
-	router.Ports = append(router.Ports, rp.UUID)
-	if router.Options == nil {
-		router.Options = map[string]string{}
-	}
-	router.Options["chassis"] = chassis
-	models := []model.Model{rp, port, connection, sw}
-	// SNAT to each existing gateway also covers secondary guest NICs without a default route.
+	var models []model.Model
 	for index, network := range record.Networks {
-		prefix := netip.MustParsePrefix(network.Cidr)
-		var source netip.Addr
-		for _, value := range record.Transit {
-			transit := netip.MustParsePrefix(value)
-			if transit.Addr().Is4() == prefix.Addr().Is4() {
-				source = transit.Addr().Next().Next()
+		if network.AccessAddress == nil {
+			continue
+		}
+		address, err := netip.ParseAddr(*network.AccessAddress)
+		if err != nil {
+			return nil, err
+		}
+		ids := owner()
+		ids["netlab.network"] = network.Id
+		security := routerMAC(address) + " " + address.String()
+		models = append(models, &SwitchPort{UUID: fmt.Sprintf("management%d", index), Name: accessNetworkPort(environment, network.Id), Addresses: []string{security}, PortSecurity: []string{security}, ExternalIDs: ids})
+	}
+	if gateway != nil {
+		address, err := netip.ParseAddr(gateway.Address)
+		if err != nil || !provider.IsValid() || !provider.Contains(address) || address == provider.Addr().Next() {
+			return nil, fmt.Errorf("environment gateway is outside the node service address pool")
+		}
+		for _, network := range record.Networks {
+			if provider.Overlaps(netip.MustParsePrefix(network.Cidr)) {
+				return nil, fmt.Errorf("network %s overlaps reserved service network %s", network.Name, provider)
 			}
 		}
-		set := &AddressSet{UUID: fmt.Sprintf("vpn_targets%d", index), Name: strings.ReplaceAll(objectName("access_targets", environment, network.Id), "-", "_"), Addresses: []string{prefix.String()}, ExternalIDs: owner()}
-		nat := &NAT{UUID: fmt.Sprintf("vpn_nat%d", index), Type: "snat", LogicalIP: source.String(), ExternalIP: network.RouterAddress(), AllowedExtIPs: &set.UUID, ExternalIDs: owner()}
-		router.NAT = append(router.NAT, nat.UUID)
-		models = append(models, set, nat)
+		security := routerMAC(address) + " " + address.String()
+		port := &SwitchPort{UUID: "access_provider", Name: accessPort(environment), Addresses: []string{security}, PortSecurity: []string{security}, ExternalIDs: owner()}
+		local := &SwitchPort{UUID: "access_localnet", Name: objectName("access_localnet", environment, "provider"), Type: "localnet", Addresses: []string{"unknown"}, Options: map[string]string{"network_name": providerNetwork(gateway.NodeId)}, ExternalIDs: owner()}
+		models = append(models, port, local, &Switch{UUID: "access_provider_switch", Name: objectName("access_ls", environment, "provider"), Ports: []string{port.UUID, local.UUID}, ExternalIDs: owner()})
 	}
-	return models
+	return models, nil
 }
 
 func accessNetwork(record accessRecord, plan api.NodePlan) (accessRecord, error) {
@@ -242,19 +241,11 @@ func accessNetwork(record accessRecord, plan api.NodePlan) (accessRecord, error)
 			plan.Vpn = &api.NodeVPNPlan{}
 		}
 		var err error
-		if record.Transit, record.Clients, err = vpnRanges(plan); err != nil {
+		if record.Clients, err = vpnRanges(plan); err != nil {
 			return record, err
 		}
 	}
 	record.Networks = slices.Clone(plan.Spec.Networks)
+	record.Version = 2
 	return record, nil
-}
-
-func removeAccessReferences(router *Router, ports []RouterPort, nats []NAT) {
-	for _, port := range ports {
-		router.Ports = slices.DeleteFunc(router.Ports, func(id string) bool { return id == port.UUID })
-	}
-	for _, nat := range nats {
-		router.NAT = slices.DeleteFunc(router.NAT, func(id string) bool { return id == nat.UUID })
-	}
 }

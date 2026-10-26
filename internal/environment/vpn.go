@@ -55,6 +55,9 @@ func VPNRoutes(ctx context.Context, q *queries.Queries, environmentID string, sp
 	result := slices.Clone(peers)
 	for index := range result {
 		peer := &result[index]
+		if _, err := vpnAddressMode(&peer.Mode, peer.Routes, networks); err != nil {
+			return nil, err
+		}
 		routes := []api.VPNRoute{}
 		for _, route := range peer.Routes {
 			nw, exists := networks[route.NetworkId]
@@ -92,6 +95,31 @@ func VPNRoutes(ctx context.Context, q *queries.Queries, environmentID string, sp
 		peer.Routes = routes
 	}
 	return result, nil
+}
+
+func vpnAddressMode(requested *api.VPNMode, routes []api.VPNRoute, networks map[string]api.Network) (api.VPNMode, error) {
+	if requested != nil && *requested == api.Translated {
+		return api.Translated, nil
+	}
+	for i, route := range routes {
+		left, exists := networks[route.NetworkId]
+		if !exists {
+			continue
+		}
+		for _, other := range routes[:i] {
+			right, exists := networks[other.NetworkId]
+			if !exists {
+				continue
+			}
+			if netip.MustParsePrefix(left.Cidr).Overlaps(netip.MustParsePrefix(right.Cidr)) {
+				if requested != nil {
+					return api.Original, Invalid("网段 %s 与 %s 地址重叠，请使用独立访问地址", left.Name, right.Name)
+				}
+				return api.Translated, nil
+			}
+		}
+	}
+	return api.Original, nil
 }
 
 func freeVPNPrefix(pool netip.Prefix, bits int, occupied []netip.Prefix) (netip.Prefix, error) {
@@ -205,7 +233,20 @@ func (s Service) changeVPN(ctx context.Context, identity access.Identity, id, ac
 				return api.Operation{}, Invalid("选择的网段不存在或重复")
 			}
 			delete(found, networkID)
+			for _, nw := range spec.Networks {
+				if nw.Id == networkID && nw.AccessAddress == nil {
+					return api.Operation{}, Invalid("网段 %s 是中转网络，没有可访问的资产", nw.Name)
+				}
+			}
 			peer.Routes = append(peer.Routes, api.VPNRoute{NetworkId: networkID})
+		}
+		networks := map[string]api.Network{}
+		for _, nw := range spec.Networks {
+			networks[nw.Id] = nw
+		}
+		peer.Mode, err = vpnAddressMode(request.Mode, peer.Routes, networks)
+		if err != nil {
+			return api.Operation{}, err
 		}
 		accessID = peer.Id
 	} else if _, err = q.GetVPNAccess(ctx, queries.GetVPNAccessParams{EnvironmentID: id, ID: accessID}); err != nil {

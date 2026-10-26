@@ -15,7 +15,7 @@ import (
 )
 
 func serviceBinding(spec api.EnvironmentSpec, service api.ServiceExposure, port int) api.NodeServiceBinding {
-	address := ""
+	address, networkID := "", ""
 	for _, asset := range spec.Assets {
 		if asset.Id != service.AssetId {
 			continue
@@ -23,10 +23,11 @@ func serviceBinding(spec api.EnvironmentSpec, service api.ServiceExposure, port 
 		for _, nic := range asset.Interfaces {
 			if nic.Id == service.InterfaceId {
 				address = nic.Address
+				networkID = nic.NetworkId
 			}
 		}
 	}
-	return api.NodeServiceBinding{Id: service.Id, AssetId: service.AssetId, InterfaceId: service.InterfaceId, Protocol: api.ServiceProtocol(service.Protocol), TargetAddress: address, TargetPort: service.TargetPort, ListenPort: port}
+	return api.NodeServiceBinding{Id: service.Id, AssetId: service.AssetId, InterfaceId: service.InterfaceId, NetworkId: networkID, Protocol: api.ServiceProtocol(service.Protocol), TargetAddress: address, TargetPort: service.TargetPort, ListenPort: port}
 }
 
 func (w Worker) loadServices(ctx context.Context, row queries.Environment, p *Payload) error {

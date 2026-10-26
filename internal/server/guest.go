@@ -108,38 +108,38 @@ func (s *Server) sshTarget(ctx context.Context, identity access.Identity, env, a
 			return "", nil, err
 		}
 	}
-	endpoint, address, err := s.guestAddress(ctx, env, asset, settings.InterfaceId)
+	endpoint, nic, err := s.guestAddress(ctx, env, asset, settings.InterfaceId)
 	if err != nil {
 		return "", nil, err
 	}
-	raw, err := json.Marshal(api.NodeSSH{Address: address, Settings: settings})
+	raw, err := json.Marshal(api.NodeSSH{NetworkId: nic.NetworkId, Address: nic.Address, Settings: settings})
 	if err != nil {
 		return "", nil, err
 	}
 	return endpoint, http.Header{"X-Netlab-Ssh": []string{base64.StdEncoding.EncodeToString(raw)}}, nil
 }
 
-func (s *Server) guestAddress(ctx context.Context, env, asset string, selected *string) (string, string, error) {
+func (s *Server) guestAddress(ctx context.Context, env, asset string, selected *string) (string, api.Interface, error) {
 	current, err := s.Queries.GetCurrentAsset(ctx, queries.GetCurrentAssetParams{EnvironmentID: env, AssetID: asset})
 	if err != nil {
-		return "", "", err
+		return "", api.Interface{}, err
 	}
 	var execution api.AssetExecution
 	if err = json.Unmarshal(current.Execution, &execution); err != nil {
-		return "", "", err
+		return "", api.Interface{}, err
 	}
-	var address string
+	var nic api.Interface
 	for _, item := range execution.Asset.Interfaces {
 		if selected != nil && item.Id == *selected || selected == nil && item.Primary {
-			address = item.Address
+			nic = item
 			break
 		}
 	}
-	if address == "" {
-		return "", "", httpError{http.StatusConflict, "资产没有可用于连接的网络地址"}
+	if nic.Address == "" {
+		return "", nic, httpError{http.StatusConflict, "资产没有可用于连接的网络地址"}
 	}
 	endpoint, err := s.Queries.GetEnvironmentNetworkEndpoint(ctx, env)
-	return endpoint, address, err
+	return endpoint, nic, err
 }
 
 func (s *Server) assetSSHHostKey(w http.ResponseWriter, r *http.Request, identity access.Identity) error {

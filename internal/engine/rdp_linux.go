@@ -41,7 +41,7 @@ func (e *Engine) RDPAccess(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		probe, stop := context.WithTimeout(ctx, 15*time.Second)
 		defer stop()
-		connection, err := e.access.Dial(probe, r.PathValue("environmentId"), address, uint16(target.Settings.Port))
+		connection, err := e.access.Dial(probe, r.PathValue("environmentId"), target.NetworkId, address, uint16(target.Settings.Port))
 		if err != nil {
 			files.Failure(w, err, http.StatusBadGateway)
 			return
@@ -82,7 +82,7 @@ func (e *Engine) RDPAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer listener.Close()
-	go e.rdpForward(ctx, listener, r.PathValue("environmentId"), address, uint16(target.Settings.Port))
+	go e.rdpForward(ctx, listener, r.PathValue("environmentId"), target.NetworkId, address, uint16(target.Settings.Port))
 	connection, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", e.cfg.GuacdAddress)
 	if err != nil {
 		files.Failure(w, err, http.StatusBadGateway)
@@ -151,7 +151,7 @@ func (e *Engine) RDPAccess(w http.ResponseWriter, r *http.Request) {
 	<-done
 }
 
-func (e *Engine) rdpForward(ctx context.Context, listener net.Listener, env string, address netip.Addr, port uint16) {
+func (e *Engine) rdpForward(ctx context.Context, listener net.Listener, env, networkID string, address netip.Addr, port uint16) {
 	for {
 		local, err := listener.Accept()
 		if err != nil {
@@ -159,7 +159,7 @@ func (e *Engine) rdpForward(ctx context.Context, listener net.Listener, env stri
 		}
 		go func() {
 			defer local.Close()
-			remote, err := e.access.Dial(ctx, env, address, port)
+			remote, err := e.access.Dial(ctx, env, networkID, address, port)
 			if err != nil {
 				return
 			}

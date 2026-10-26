@@ -65,9 +65,14 @@ func NewAccess(ctx context.Context, directory string, ovs *OVS, ovn *OVN) (*Acce
 		}
 		return &record
 	}
+	ovn.applyServices = v.applyServiceBindings
 	for environment, record := range v.records {
+		// Legacy files have no canonical management addresses; refresh-network migrates them without changing VPN identity.
+		if record.Version != 2 {
+			continue
+		}
 		// OVN topology persists independently; startup restores only host resources.
-		if err := v.applyKernel(ctx, environment, &record, record); err != nil {
+		if err := v.applyKernel(ctx, environment, &record, record, v.serviceRecord(environment)); err != nil {
 			return nil, fmt.Errorf("restore environment access %s: %w", environment, err)
 		}
 		if err := v.writeRecord(environment, record); err != nil {
@@ -107,11 +112,11 @@ func (v *Access) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResul
 		if err != nil {
 			return api.NodeVPNResult{}, err
 		}
-		transit, clients, err := vpnRanges(plan)
+		clients, err := vpnRanges(plan)
 		if err != nil {
 			return api.NodeVPNResult{}, err
 		}
-		previous = accessRecord{PrivateKey: key.String(), Transit: transit, Clients: clients, Networks: slices.Clone(plan.Spec.Networks)}
+		previous = accessRecord{PrivateKey: key.String(), Clients: clients, Networks: slices.Clone(plan.Spec.Networks)}
 		// The server key belongs to the environment, including while it has no peers.
 		if err := v.writeRecord(plan.EnvironmentId, previous); err != nil {
 			return api.NodeVPNResult{}, err
@@ -134,9 +139,9 @@ func (v *Access) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResul
 	rollback := func(cause error) (api.NodeVPNResult, error) {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 		defer cancel()
-		return api.NodeVPNResult{}, errors.Join(cause, v.apply(cleanup, plan.EnvironmentId, &previous, next))
+		return api.NodeVPNResult{}, errors.Join(cause, v.apply(cleanup, plan.EnvironmentId, &previous, next, v.serviceRecord(plan.EnvironmentId)))
 	}
-	if err := v.apply(ctx, plan.EnvironmentId, &next, previous); err != nil {
+	if err := v.apply(ctx, plan.EnvironmentId, &next, previous, v.serviceRecord(plan.EnvironmentId)); err != nil {
 		return rollback(err)
 	}
 	if err := v.writeRecord(plan.EnvironmentId, next); err != nil {
@@ -153,27 +158,31 @@ func (v *Access) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResul
 	return result, nil
 }
 
-func (v *Access) apply(ctx context.Context, environment string, record *accessRecord, previous accessRecord) error {
-	if err := v.applyKernel(ctx, environment, record, previous); err != nil {
+func (v *Access) apply(ctx context.Context, environment string, record *accessRecord, previous accessRecord, services gatewayRecord) error {
+	if err := v.applyKernel(ctx, environment, record, previous, services); err != nil {
 		return err
 	}
-	return v.ovn.applyAccess(ctx, environment, record)
+	var gateway *api.ServiceGateway
+	if services.Gateway.Address != "" {
+		gateway = &services.Gateway
+	}
+	return v.ovn.applyAccess(ctx, environment, record, gateway)
 }
 
-func (v *Access) applyKernel(ctx context.Context, environment string, record *accessRecord, previous accessRecord) error {
+func (v *Access) applyKernel(ctx context.Context, environment string, record *accessRecord, previous accessRecord, services gatewayRecord) error {
 	handle, err := accessNamespace(environment)
 	if err != nil {
 		return err
 	}
 	defer handle.Close()
-	if err = v.connect(ctx, environment, handle, record); err != nil {
-		return err
+	if err = v.connect(ctx, environment, handle, record, services); err != nil {
+		return fmt.Errorf("connect environment management interfaces: %w", err)
 	}
 	if err = v.configureWireguard(environment, handle, record); err != nil {
-		return err
+		return fmt.Errorf("configure environment WireGuard: %w", err)
 	}
-	if err = handle.Do(func(_ ns.NetNS) error { return applyAccessFilter(record) }); err != nil {
-		return err
+	if err = handle.Do(func(_ ns.NetNS) error { return applyAccessFilter(environment, record, services) }); err != nil {
+		return fmt.Errorf("configure environment access rules: %w", err)
 	}
 	if len(record.Peers) == 0 {
 		record.ListenPort = 0
@@ -251,80 +260,6 @@ func accessNamespace(environment string) (ns.NetNS, error) {
 	return ns.GetNS(path)
 }
 
-func (v *Access) connect(ctx context.Context, environment string, handle ns.NetNS, record *accessRecord) error {
-	var missing netlink.LinkNotFoundError
-	hostName := accessDevice(environment)
-	host, err := netlink.LinkByName(hostName)
-	if errors.As(err, &missing) {
-		link := &netlink.Veth{LinkAttrs: netlink.LinkAttrs{Name: hostName, MTU: 1400}, PeerName: "access0", PeerNamespace: netlink.NsFd(handle.Fd())}
-		if err = netlink.LinkAdd(link); err != nil {
-			return err
-		}
-		host, err = netlink.LinkByName(hostName)
-	}
-	if err != nil {
-		return err
-	}
-	if err = netlink.LinkSetUp(host); err != nil {
-		return err
-	}
-	if err = v.ovs.Attach(ctx, hostName, accessPort(environment), environment, "access", "access"); err != nil {
-		return err
-	}
-	return handle.Do(func(_ ns.NetNS) error {
-		peer, err := netlink.LinkByName("access0")
-		if err != nil {
-			return err
-		}
-		address := netip.MustParsePrefix(record.Transit[0]).Addr().Next().Next()
-		mac, _ := net.ParseMAC(routerMAC(address))
-		if err = netlink.LinkSetHardwareAddr(peer, mac); err != nil {
-			return err
-		}
-		if err = replaceAccessAddresses(peer, record.Transit, 2); err != nil {
-			return err
-		}
-		if err = netlink.LinkSetUp(peer); err != nil {
-			return err
-		}
-		desired := make(map[string]bool, len(record.Networks))
-		for _, network := range record.Networks {
-			desired[netip.MustParsePrefix(network.Cidr).Masked().String()] = true
-		}
-		routes, err := netlink.RouteList(peer, netlink.FAMILY_ALL)
-		if err != nil {
-			return err
-		}
-		for _, route := range routes {
-			if route.Gw == nil || (route.Dst != nil && desired[route.Dst.String()]) {
-				continue
-			}
-			if err = netlink.RouteDel(&route); err != nil {
-				return err
-			}
-		}
-		for _, network := range record.Networks {
-			prefix := netip.MustParsePrefix(network.Cidr)
-			for _, value := range record.Transit {
-				transit := netip.MustParsePrefix(value)
-				if transit.Addr().Is4() != prefix.Addr().Is4() {
-					continue
-				}
-				_, dst, _ := net.ParseCIDR(prefix.String())
-				if err = netlink.RouteReplace(&netlink.Route{LinkIndex: peer.Attrs().Index, Dst: dst, Gw: net.IP(transit.Addr().Next().AsSlice())}); err != nil {
-					return err
-				}
-			}
-		}
-		for _, path := range []string{"/proc/sys/net/ipv4/ip_forward", "/proc/sys/net/ipv6/conf/all/forwarding"} {
-			if err = os.WriteFile(path, []byte("1"), 0644); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
 func (v *Access) configureWireguard(environment string, handle ns.NetNS, record *accessRecord) error {
 	hostName := accessDevice(environment)
 	var missing netlink.LinkNotFoundError
@@ -395,18 +330,7 @@ func (v *Access) removeKernel(ctx context.Context, environment string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if _, err := v.ovs.Detach(ctx, accessDevice(environment), environment, "access", "access"); err != nil {
-		return err
-	}
-	link, err := netlink.LinkByName(accessDevice(environment))
-	var missing netlink.LinkNotFoundError
-	if errors.As(err, &missing) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return netlink.LinkDel(link)
+	return v.removeAccessPorts(ctx, environment, nil)
 }
 
 func (v *Access) Remove(ctx context.Context, environment string) error {
@@ -444,11 +368,11 @@ func (v *Access) Seed(plan api.NodePlan, key string) error {
 		}
 		return nil
 	}
-	transit, clients, err := vpnRanges(plan)
+	clients, err := vpnRanges(plan)
 	if err != nil {
 		return err
 	}
-	record := accessRecord{PrivateKey: key, Transit: transit, Clients: clients, Networks: plan.Spec.Networks}
+	record := accessRecord{PrivateKey: key, Clients: clients, Networks: plan.Spec.Networks}
 	if err = v.writeRecord(plan.EnvironmentId, record); err != nil {
 		return err
 	}

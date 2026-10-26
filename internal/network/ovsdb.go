@@ -16,6 +16,7 @@ import (
 	"github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
+	"netlab.local/core/api"
 )
 
 type Switch struct {
@@ -126,10 +127,13 @@ type Interface struct {
 }
 
 type OVN struct {
-	client       client.Client
-	provider     netip.Prefix
-	chassis      string
-	accessRecord func(string) *accessRecord
+	client          client.Client
+	provider        netip.Prefix
+	chassis         string
+	accessRecord    func(string) *accessRecord
+	gatewayRecord   func(string) gatewayRecord
+	applyServices   func(context.Context, api.NodePlan, gatewayRecord) error
+	upgradeServices func(string, api.EnvironmentSpec) error
 }
 type OVS struct {
 	client client.Client

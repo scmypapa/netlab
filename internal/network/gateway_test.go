@@ -2,50 +2,34 @@ package network
 
 import (
 	"net/netip"
-	"testing"
-
 	"netlab.local/core/api"
+	"testing"
 )
 
 func TestServiceGatewayNativeModels(t *testing.T) {
-	prefix := netip.MustParsePrefix("100.127.0.0/16")
-	port := 24443
-	bindings := []api.NodeServiceBinding{{Id: "web", AssetId: "vm", InterfaceId: "lan", Protocol: api.Tcp, TargetAddress: "192.168.10.2", TargetPort: 443, ListenPort: port}, {Id: "dns", AssetId: "container", InterfaceId: "lan", Protocol: api.Udp, TargetAddress: "192.168.10.3", TargetPort: 53, ListenPort: 0}}
-	plan := api.NodePlan{EnvironmentId: "environment", Gateway: &api.ServiceGateway{NodeId: "node-business-id", Address: "100.127.0.2"}, Services: &bindings, Spec: api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "192.168.10.0/24"}}}}
-	router := &Router{}
-	models, err := gatewayModels(plan, router, prefix, "real-ovs-system-id")
+	address := "10.0.0.254"
+	record := &accessRecord{Version: 2, Networks: []api.Network{{Id: "left", Cidr: "10.0.0.0/24", AccessAddress: &address}, {Id: "right", Cidr: "10.0.0.0/24", AccessAddress: &address}}}
+	gateway := &api.ServiceGateway{NodeId: "node", Address: "100.127.0.2"}
+	models, err := accessModels("environment", record, gateway, netip.MustParsePrefix("100.127.0.0/16"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var lb *LoadBalancer
-	for _, model := range models {
-		switch current := model.(type) {
-		case *LoadBalancer:
-			if lb != nil {
-				t.Fatal("unallocated auto port was compiled as an OVN VIP")
+	ports := map[string]bool{}
+	for _, item := range models {
+		switch value := item.(type) {
+		case *SwitchPort:
+			if id := value.ExternalIDs["netlab.network"]; id != "" {
+				ports[id] = true
 			}
-			lb = current
+		case *Router, *RouterPort, *LoadBalancer, *NAT:
+			t.Fatal("management access changes business routing", item)
 		}
 	}
-	if lb == nil || lb.VIPs["100.127.0.2:24443"] != "192.168.10.2:443" || router.Options["lb_force_snat_ip"] != "router_ip" || router.Options["chassis"] != "real-ovs-system-id" {
-		t.Fatal("native mapping or return SNAT was not configured")
+	if !ports["left"] || !ports["right"] {
+		t.Fatal("overlapping networks lost their own management ports")
 	}
-	if len(router.LoadBalancers) != 1 || len(router.Ports) != 1 {
-		t.Fatal("gateway did not attach to the environment router")
-	}
-	first := lb.Name
-	plan.Assets = []api.AssetExecution{{InstanceId: "replacement-instance"}}
-	models, err = gatewayModels(plan, &Router{}, prefix, "real-ovs-system-id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, model := range models {
-		if current, ok := model.(*LoadBalancer); ok && current.Name != first {
-			t.Fatal("replacement changed the stable service identity")
-		}
-	}
-	plan.Spec.Networks[0].Cidr = "100.127.0.0/24"
-	if _, err = gatewayModels(plan, &Router{}, prefix, "real-ovs-system-id"); err == nil {
-		t.Fatal("overlapping provider and guest CIDRs were accepted")
+	record.Networks[0].Cidr = "100.127.0.0/24"
+	if _, err = accessModels("environment", record, gateway, netip.MustParsePrefix("100.127.0.0/16")); err == nil {
+		t.Fatal("provider overlap accepted")
 	}
 }
