@@ -3,17 +3,23 @@
 package network
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/google/nftables"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
+	"netlab.local/core/api"
 )
 
 func inGatewayNamespace(t *testing.T, run func()) {
@@ -119,5 +125,117 @@ func TestServiceConntrackFilter(t *testing.T) {
 		if filter.MatchConntrackFlow(flow) != test.match {
 			t.Fatalf("conntrack ownership for %s:%d zone %d", test.destination, test.port, test.zone)
 		}
+	}
+}
+
+func TestGatewayIndependentEnvironmentCommit(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		name := "success"
+		if fail {
+			name = "rollback"
+		}
+		t.Run(name, func(t *testing.T) {
+			inGatewayNamespace(t, func() {
+				handle, err := ns.GetCurrentNS()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer handle.Close()
+				gateway := &Gateway{
+					directory: t.TempDir(), table: "gateway_concurrent", address: netip.MustParseAddr("100.127.0.1"),
+					records: map[string]gatewayRecord{}, sockets: map[servicePort]portReservation{},
+				}
+				defer gateway.Close()
+				entered := make(chan int, 1)
+				release := make(chan struct{})
+				defer close(release)
+				failure := errors.New("injected Access failure")
+				gateway.ovn = &OVN{applyServices: func(ctx context.Context, plan api.NodePlan, _ gatewayRecord) error {
+					if plan.EnvironmentId == "slow" && len(*plan.Services) > 0 {
+						entered <- (*plan.Services)[0].ListenPort
+						select {
+						case <-release:
+						case <-ctx.Done():
+							return ctx.Err()
+						}
+						if fail {
+							return failure
+						}
+					}
+					return nil
+				}}
+				plan := func(environment, address string) api.NodePlan {
+					services := []api.NodeServiceBinding{{Id: "web", NetworkId: "network", Protocol: api.Tcp, TargetAddress: "192.0.2.10", TargetPort: 80}}
+					return api.NodePlan{EnvironmentId: environment, Gateway: &api.ServiceGateway{Address: address}, Services: &services}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				slow := make(chan error, 1)
+				go func() {
+					slow <- handle.Do(func(_ ns.NetNS) error {
+						_, err := gateway.Apply(ctx, plan("slow", "100.127.0.2"))
+						return err
+					})
+				}()
+				var port int
+				select {
+				case port = <-entered:
+				case err := <-slow:
+					t.Fatalf("slow operation did not enter Access: %v", err)
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+				fast := make(chan error, 1)
+				go func() {
+					fast <- handle.Do(func(_ ns.NetNS) error {
+						_, err := gateway.Apply(ctx, plan("fast", "100.127.0.3"))
+						return err
+					})
+				}()
+				select {
+				case err := <-fast:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("unrelated environment waited for slow Access work")
+				}
+				release <- struct{}{}
+				if err := <-slow; (!fail && err != nil) || (fail && !errors.Is(err, failure)) {
+					t.Fatalf("slow result: %v", err)
+				}
+				want := 2
+				if fail {
+					want = 1
+					fd, _, err := reservePort(servicePort{protocol: unix.IPPROTO_TCP, port: uint16(port)})
+					if err != nil {
+						t.Fatalf("failed operation retained its host port: %v", err)
+					}
+					unix.Close(fd)
+				}
+				if len(gateway.records) != want || len(gateway.sockets) != want || len(gateway.records["fast"].Services) != 1 {
+					t.Fatalf("concurrent commit lost a record or port: records=%v sockets=%v", gateway.records, gateway.sockets)
+				}
+				c := &nftables.Conn{}
+				set, err := c.GetSetByName(&nftables.Table{Name: gateway.table, Family: nftables.TableFamilyIPv4}, "ports")
+				if err != nil {
+					t.Fatal(err)
+				}
+				values, err := c.GetSetElements(set)
+				if err != nil || len(values) != want {
+					t.Fatalf("concurrent commit lost native NAT bindings: %v, %v", values, err)
+				}
+				for environment, record := range gateway.records {
+					data, err := os.ReadFile(filepath.Join(gateway.directory, environment+".json"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					var stored gatewayRecord
+					if err := json.Unmarshal(data, &stored); err != nil || stored.Gateway != record.Gateway || len(stored.Services) != 1 {
+						t.Fatalf("persisted concurrent state: %+v, %v", stored, err)
+					}
+				}
+			})
+		})
 	}
 }

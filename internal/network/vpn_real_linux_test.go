@@ -315,6 +315,28 @@ func TestRealVPNDualStackLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	applyServices := ovn.applyServices
+	failWrite := true
+	ovn.applyServices = func(ctx context.Context, next api.NodePlan, previous gatewayRecord) error {
+		if !failWrite {
+			return applyServices(ctx, next, previous)
+		}
+		failWrite = false
+		directory := vpn.directory
+		vpn.directory = filepath.Join(directory, "missing")
+		err := applyServices(ctx, next, previous)
+		vpn.directory = directory
+		return err
+	}
+	broken := plan
+	brokenBindings := slices.Clone(resolved)
+	brokenBindings[0].TargetPort = 8088
+	broken.Services = &brokenBindings
+	_, err = gateway.Apply(ctx, broken)
+	ovn.applyServices = applyServices
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Access write failure was not reported: %v", err)
+	}
 	for _, service := range resolved {
 		response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d", service.ListenPort))
 		if err != nil {

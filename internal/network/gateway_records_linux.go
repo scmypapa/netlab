@@ -196,16 +196,10 @@ func changedPorts(previous, next gatewayRecord) []servicePort {
 }
 
 func (g *Gateway) Apply(ctx context.Context, plan api.NodePlan) ([]api.NodeServiceBinding, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	if plan.Gateway == nil || plan.Services == nil {
 		return nil, fmt.Errorf("service application requires a gateway and the complete binding set")
 	}
-	previous := g.records[plan.EnvironmentId]
-	byID := map[string]api.NodeServiceBinding{}
-	for _, service := range previous.Services {
-		byID[service.Id] = service
-	}
+	var previous gatewayRecord
 	services := slices.Clone(*plan.Services)
 	created := map[servicePort]portReservation{}
 	committed := false
@@ -217,40 +211,47 @@ func (g *Gateway) Apply(ctx context.Context, plan api.NodePlan) ([]api.NodeServi
 		}
 	}()
 	used := map[servicePort]bool{}
-	for index := range services {
-		service := &services[index]
-		if old, exists := byID[service.Id]; service.ListenPort == 0 && exists && old.Protocol == service.Protocol {
-			service.ListenPort = old.ListenPort
+	if err := func() error {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		previous = g.records[plan.EnvironmentId]
+		byID := map[string]api.NodeServiceBinding{}
+		for _, service := range previous.Services {
+			byID[service.Id] = service
 		}
-		port, err := bindingPort(*service)
-		if err != nil {
-			return nil, err
-		}
-		if socket, exists := g.sockets[port]; exists {
-			if socket.environment != plan.EnvironmentId || socket.service != service.Id {
-				return nil, fmt.Errorf("service %s conflicts with a reserved host port", service.Id)
+		for index := range services {
+			service := &services[index]
+			if old, exists := byID[service.Id]; service.ListenPort == 0 && exists && old.Protocol == service.Protocol {
+				service.ListenPort = old.ListenPort
 			}
-		} else {
-			fd, actual, err := reservePort(port)
+			port, err := bindingPort(*service)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			port = actual
-			created[port] = portReservation{environment: plan.EnvironmentId, service: service.Id, fd: fd}
-			service.ListenPort = int(port.port)
+			if socket, exists := g.sockets[port]; exists {
+				if socket.environment != plan.EnvironmentId || socket.service != service.Id {
+					return fmt.Errorf("service %s conflicts with a reserved host port", service.Id)
+				}
+			} else {
+				fd, actual, err := reservePort(port)
+				if err != nil {
+					return err
+				}
+				port = actual
+				created[port] = portReservation{environment: plan.EnvironmentId, service: service.Id, fd: fd}
+				service.ListenPort = int(port.port)
+			}
+			if used[port] {
+				return fmt.Errorf("multiple services use the same host port")
+			}
+			used[port] = true
 		}
-		if used[port] {
-			return nil, fmt.Errorf("multiple services use the same host port")
-		}
-		used[port] = true
-	}
-	plan.Services = &services
-	if err := g.ovn.applyServices(ctx, plan, previous); err != nil {
+		return nil
+	}(); err != nil {
 		return nil, err
 	}
+	plan.Services = &services
 	next := gatewayRecord{Gateway: *plan.Gateway, Services: services}
-	records := maps.Clone(g.records)
-	records[plan.EnvironmentId] = next
 	rollback := func(cause error) error {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -259,65 +260,71 @@ func (g *Gateway) Apply(ctx context.Context, plan api.NodePlan) ([]api.NodeServi
 		if previous.Gateway.Address != "" {
 			oldPlan.Gateway = &previous.Gateway
 		}
-		return errors.Join(cause, g.ovn.applyServices(cleanup, oldPlan, next), g.applyKernel(g.records))
+		accessErr := g.ovn.applyServices(cleanup, oldPlan, next)
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		return errors.Join(cause, accessErr, g.applyKernel(g.records))
 	}
-	if err := g.applyKernel(records); err != nil {
+	// Engine serializes one environment; unrelated environments need not wait for namespace/OVN work.
+	if err := g.ovn.applyServices(ctx, plan, previous); err != nil {
 		return nil, rollback(err)
 	}
-	if ports := changedPorts(previous, next); len(ports) > 0 {
-		if err := clearBindingConnections(netip.MustParseAddr(previous.Gateway.Address), ports); err != nil {
-			return nil, rollback(err)
+	if err := func() error {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		records := maps.Clone(g.records)
+		records[plan.EnvironmentId] = next
+		if err := g.applyKernel(records); err != nil {
+			return err
 		}
-	}
-	if err := g.writeRecord(plan.EnvironmentId, next); err != nil {
+		if ports := changedPorts(previous, next); len(ports) > 0 {
+			if err := clearBindingConnections(netip.MustParseAddr(previous.Gateway.Address), ports); err != nil {
+				return err
+			}
+		}
+		if err := g.writeRecord(plan.EnvironmentId, next); err != nil {
+			return err
+		}
+		g.records = records
+		for port, socket := range g.sockets {
+			if socket.environment == plan.EnvironmentId && !used[port] {
+				unix.Close(socket.fd)
+				delete(g.sockets, port)
+			}
+		}
+		for port, socket := range created {
+			g.sockets[port] = socket
+		}
+		committed = true
+		return nil
+	}(); err != nil {
 		return nil, rollback(err)
 	}
-	g.records = records
-	for port, socket := range g.sockets {
-		if socket.environment == plan.EnvironmentId && !used[port] {
-			unix.Close(socket.fd)
-			delete(g.sockets, port)
-		}
-	}
-	for port, socket := range created {
-		g.sockets[port] = socket
-	}
-	committed = true
 	return services, nil
 }
 
 func (g *Gateway) Remove(ctx context.Context, environment string, topology bool) error {
+	if topology {
+		if err := g.ovn.Remove(ctx, environment); err != nil {
+			return err
+		}
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	previous, exists := g.records[environment]
 	if !exists {
-		if topology {
-			return g.ovn.Remove(ctx, environment)
-		}
 		return nil
 	}
 	records := maps.Clone(g.records)
 	delete(records, environment)
-	draining := maps.Clone(g.records)
-	old := previous
-	old.Services = nil
-	draining[environment] = old
-	if err := g.applyKernel(draining); err != nil {
+	if err := g.applyKernel(records); err != nil {
 		return err
 	}
 	if err := clearBindingConnections(netip.MustParseAddr(previous.Gateway.Address), changedPorts(previous, gatewayRecord{})); err != nil {
 		return errors.Join(err, g.applyKernel(g.records))
 	}
-	if topology {
-		if err := g.ovn.Remove(ctx, environment); err != nil {
-			return errors.Join(err, g.applyKernel(g.records))
-		}
-	}
-	if err := g.applyKernel(records); err != nil {
-		return err
-	}
 	if err := os.Remove(filepath.Join(g.directory, environment+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return errors.Join(err, g.applyKernel(g.records))
 	}
 	g.records = records
 	for port, socket := range g.sockets {
