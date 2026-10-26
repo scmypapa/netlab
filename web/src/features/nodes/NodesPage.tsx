@@ -11,6 +11,7 @@ import { BackupRepositoryPanel } from "./BackupRepositoryPanel";
 import { RetirementPanel } from "./RetirementPanel";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { NodeInventory } from "./NodeInventory";
+import { NodeScheduling } from "./NodeScheduling";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { Status } from "../../foundation/Status";
@@ -150,6 +151,7 @@ export function NodesPage() {
                 <Tabs.Tab value="retirement">退出节点</Tabs.Tab>
               </Tabs.List>
               <Tabs.Panel value="performance">
+                <NodeScheduling key={selected.id} node={selected} onSaved={setSelected} />
                 <Suspense fallback={<Loading />}>
                   <PerformanceWorkspace node={selected} />
                 </Suspense>

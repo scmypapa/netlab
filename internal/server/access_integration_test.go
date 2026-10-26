@@ -407,6 +407,7 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		}
 	})
 	testTemplateLifecycleAPI(t, ctx, pool, s, admin, call)
+	testNodeSchedulingAPI(t, ctx, s, admin, login("operator", password), call)
 	testStoragePoolsAPI(t, ctx, s, admin, login("operator", password), call)
 	testRecoveryAPI(t, ctx, s, admin, call)
 	testBackupsAPI(t, ctx, s, admin, call)

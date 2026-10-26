@@ -119,7 +119,7 @@ type NodeAssetsRow struct {
 	NodeID          string
 	Execution       []byte
 	State           string
-	Cpu             int32
+	Cpu             float64
 	MemoryMib       int64
 	DiskGib         int64
 	Current         bool

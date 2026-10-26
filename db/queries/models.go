@@ -131,26 +131,26 @@ type MigrationAssetReservation struct {
 	EnvironmentID string
 	NodeID        interface{}
 	Execution     interface{}
-	Cpu           int32
+	Cpu           float64
 	MemoryMib     int64
 	DiskGib       int64
 	VolumeGib     int64
 }
 
 type Node struct {
-	ID               string
-	Name             string
-	Endpoint         string
-	Info             []byte
-	CapacityOverride []byte
-	State            string
-	ObservedAt       pgtype.Timestamptz
-	Retiring         bool
+	ID                 string
+	Name               string
+	Endpoint           string
+	Info               []byte
+	State              string
+	ObservedAt         pgtype.Timestamptz
+	Retiring           bool
+	CpuAllocationRatio float64
 }
 
 type NodeAssetReservation struct {
 	NodeID    string
-	Cpu       int32
+	Cpu       float64
 	MemoryMib int64
 	DiskGib   int64
 }
@@ -229,7 +229,7 @@ type RuntimeAsset struct {
 	NodeID        string
 	Execution     []byte
 	State         string
-	Cpu           int32
+	Cpu           float64
 	MemoryMib     int64
 	DiskGib       int64
 	Current       bool

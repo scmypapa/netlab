@@ -41,7 +41,7 @@ func (c *Containers) observedExecution(ctx context.Context, container containerd
 	if err = json.Unmarshal([]byte(labels[executionLabel]), &execution); err != nil {
 		return nil, err
 	}
-	execution.Asset.Resources.Cpu = int(*spec.Linux.Resources.CPU.Quota / int64(*spec.Linux.Resources.CPU.Period))
+	execution.Asset.Resources.Cpu = float64(*spec.Linux.Resources.CPU.Quota) / float64(*spec.Linux.Resources.CPU.Period)
 	execution.Asset.Resources.MemoryMiB = *spec.Linux.Resources.Memory.Limit / (1 << 20)
 	state, err := containerState(ctx, container)
 	if err != nil {
@@ -62,7 +62,7 @@ func (c *Containers) observedExecution(ctx context.Context, container containerd
 	return &execution, nil
 }
 
-func taskLimits(pid uint32) (int, int64, error) {
+func taskLimits(pid uint32) (float64, int64, error) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
 	if err != nil {
 		return 0, 0, err
@@ -94,7 +94,7 @@ func taskLimits(pid uint32) (int, int64, error) {
 		return 0, 0, err
 	}
 	memory, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-	return int(quota / period), memory / (1 << 20), err
+	return float64(quota) / float64(period), memory / (1 << 20), err
 }
 
 func diskCapacity(ctx context.Context, domain *libvirt.Domain, disk libvirtxml.DomainDisk, execution api.AssetExecution, active bool) (int64, error) {
@@ -165,7 +165,7 @@ func (v *VirtualMachines) observedExecution(ctx context.Context, domain *libvirt
 		hardware.NicModel = api.HardwareNicModel(config.Devices.Interfaces[0].Model.Type)
 	}
 	execution.Template.Hardware = &hardware
-	execution.Asset.Resources.Cpu = int(config.VCPU.Value)
+	execution.Asset.Resources.Cpu = float64(config.VCPU.Value)
 	info, err := domain.GetInfo()
 	if err != nil {
 		return nil, err

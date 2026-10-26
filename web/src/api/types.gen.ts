@@ -1439,6 +1439,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/nodes/{id}/scheduling": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["configureNodeScheduling"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/nodes/metrics": {
     parameters: {
       query?: never;
@@ -1708,6 +1726,10 @@ export interface components {
       password: string;
     };
     Resources: {
+      /**
+       * Format: double
+       * @description Container CPU limit in cores; virtual machines require whole vCPUs.
+       */
       cpu: number;
       /** Format: int64 */
       memoryMiB: number;
@@ -2201,6 +2223,12 @@ export interface components {
       endpoint: string;
       capacity: components["schemas"]["Resources"];
       reserved: components["schemas"]["Resources"];
+      /**
+       * Format: double
+       * @description Maximum total assigned vCPUs per physical CPU; does not change physical capacity.
+       * @default 4
+       */
+      cpuAllocationRatio: number;
       capabilities: string[];
       vmHardware?: components["schemas"]["VmHardware"];
       /** @description Dedicated Ceph disk selected during node installation */
@@ -2209,7 +2237,10 @@ export interface components {
       /** Format: date-time */
       observedAt: string;
       state?: string;
-      override?: components["schemas"]["Resources"];
+    };
+    NodeScheduling: {
+      /** Format: double */
+      cpuAllocationRatio: number;
     };
     ResolvedInterface: {
       id: string;
@@ -5747,6 +5778,30 @@ export interface operations {
         content: {
           "application/problem+json": components["schemas"]["Problem"];
         };
+      };
+    };
+  };
+  configureNodeScheduling: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["NodeScheduling"];
+      };
+    };
+    responses: {
+      /** @description CPU allocation ratio updated; existing assets keep their configuration. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

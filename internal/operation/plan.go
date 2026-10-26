@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"sort"
@@ -366,7 +367,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		return err
 	}
 	for _, r := range reservations {
-		used[r.NodeID] = api.Resources{Cpu: int(r.Cpu), MemoryMiB: r.MemoryMib, DiskGiB: r.DiskGib}
+		used[r.NodeID] = api.Resources{Cpu: r.Cpu, MemoryMiB: r.MemoryMib, DiskGiB: r.DiskGib}
 	}
 	deviceRows, err := q.DeviceReservations(ctx, ids)
 	if err != nil {
@@ -387,14 +388,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		info.ExternalInterfaces = infos[n.ID].ExternalInterfaces
 		info.NetworkChassis = infos[n.ID].NetworkChassis
 		infos[n.ID] = info
-		capacity[n.ID] = infos[n.ID].Capacity
-		if len(n.CapacityOverride) > 0 {
-			var override api.Resources
-			if err = json.Unmarshal(n.CapacityOverride, &override); err != nil {
-				return err
-			}
-			capacity[n.ID] = override
-		}
+		capacity[n.ID] = schedulingCapacity(info, n.CpuAllocationRatio)
 	}
 	for i := range p.Updates {
 		t := &p.Updates[i]
@@ -413,7 +407,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			delta.DiskGiB = resources(t.Execution.Asset).DiskGiB
 		}
 		u := add(used[t.NodeID], delta)
-		if !fits(api.Resources{Cpu: u.Cpu, MemoryMiB: u.MemoryMiB}, capacity[t.NodeID]) {
+		if delta.Cpu > 0 && u.Cpu > capacity[t.NodeID].Cpu || delta.MemoryMiB > 0 && u.MemoryMiB > capacity[t.NodeID].MemoryMiB {
 			return fmt.Errorf("资产 %s 的节点容量不足", t.Execution.Asset.Name)
 		}
 		if restoring && !supports(infos[t.NodeID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
@@ -523,7 +517,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 					failures = append(failures, pool.err.Error())
 				}
 			}
-			return fmt.Errorf("没有节点可承载资产 %s（%d 核，%d MiB，%d GiB）%s", t.Execution.Asset.Name, requirement.Cpu, requirement.MemoryMiB, requirement.DiskGiB, strings.Join(failures, "；"))
+			return fmt.Errorf("没有节点可承载资产 %s（%g 核，%d MiB，%d GiB）%s", t.Execution.Asset.Name, requirement.Cpu, requirement.MemoryMiB, requirement.DiskGiB, strings.Join(failures, "；"))
 		}
 		t.NodeID = best
 		t.Execution.PciDevices, _ = deviceBindings(best, infos[best].VmHardware, t.Execution.Asset.PciBinding, row.ID, t.Execution.Asset.Id, occupiedDevices)
@@ -639,7 +633,12 @@ func resources(a api.Asset) api.Resources {
 	return r
 }
 func add(a, b api.Resources) api.Resources {
-	return api.Resources{Cpu: a.Cpu + b.Cpu, MemoryMiB: a.MemoryMiB + b.MemoryMiB, DiskGiB: a.DiskGiB + b.DiskGiB}
+	return api.Resources{Cpu: math.Round((a.Cpu+b.Cpu)*100) / 100, MemoryMiB: a.MemoryMiB + b.MemoryMiB, DiskGiB: a.DiskGiB + b.DiskGiB}
+}
+func schedulingCapacity(info api.NodeInfo, cpuRatio float64) api.Resources {
+	capacity := info.Capacity
+	capacity.Cpu *= cpuRatio
+	return capacity
 }
 func fits(a, b api.Resources) bool {
 	return a.Cpu <= b.Cpu && a.MemoryMiB <= b.MemoryMiB

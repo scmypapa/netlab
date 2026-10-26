@@ -25,7 +25,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		return "", fmt.Errorf("template %s has no virtual hardware", a.Template.Name)
 	}
 	h := a.Template.Hardware
-	if err := guest.ValidateCPU(h, a.Asset.Resources); err != nil {
+	if err := guest.ValidateCPU(api.Vm, h, a.Asset.Resources); err != nil {
 		return "", err
 	}
 	if a.Template.Disks == nil || len(*a.Template.Disks) == 0 {
@@ -39,16 +39,17 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	if err != nil {
 		return "", err
 	}
+	cpu := int(a.Asset.Resources.Cpu)
 	d := libvirtxml.Domain{Type: "kvm", Name: "netlab-" + a.InstanceId, UUID: a.InstanceId, GenID: &libvirtxml.DomainGenID{},
 		Title: a.Asset.Name, Metadata: &libvirtxml.DomainMetadata{XML: string(metadata)},
 		Memory: &libvirtxml.DomainMemory{Value: uint(a.Asset.Resources.MemoryMiB), Unit: "MiB"}, VCPU: &libvirtxml.DomainVCPU{Value: uint(a.Asset.Resources.Cpu)},
 		OS:         &libvirtxml.DomainOS{Type: &libvirtxml.DomainOSType{Arch: "x86_64", Machine: h.Machine, Type: "hvm"}},
 		Features:   &libvirtxml.DomainFeatureList{ACPI: &libvirtxml.DomainFeature{}, APIC: &libvirtxml.DomainFeatureAPIC{}},
-		CPU:        &libvirtxml.DomainCPU{Mode: "host-model", Topology: &libvirtxml.DomainCPUTopology{Sockets: 1, Cores: a.Asset.Resources.Cpu, Threads: 1}},
+		CPU:        &libvirtxml.DomainCPU{Mode: "host-model", Topology: &libvirtxml.DomainCPUTopology{Sockets: 1, Cores: cpu, Threads: 1}},
 		OnPoweroff: "destroy", OnReboot: "restart", OnCrash: "destroy", Devices: &libvirtxml.DomainDeviceList{},
 	}
 	if t := h.CpuTopology; t != nil {
-		d.CPU.Topology = &libvirtxml.DomainCPUTopology{Sockets: t.Sockets, Threads: t.Threads, Cores: a.Asset.Resources.Cpu / t.Sockets / t.Threads}
+		d.CPU.Topology = &libvirtxml.DomainCPUTopology{Sockets: t.Sockets, Threads: t.Threads, Cores: cpu / t.Sockets / t.Threads}
 	}
 	if d.Devices.Hostdevs, err = domainHostDevices(a.PciDevices); err != nil {
 		return "", err
@@ -60,7 +61,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 	if h.NumaNodes != nil && *h.NumaNodes > 1 {
 		d.CPU.Numa = &libvirtxml.DomainNuma{}
 		nodes := *h.NumaNodes
-		cpus := a.Asset.Resources.Cpu / nodes
+		cpus := cpu / nodes
 		for i := range nodes {
 			id := uint(i)
 			d.CPU.Numa.Cell = append(d.CPU.Numa.Cell, libvirtxml.DomainCell{ID: &id, CPUs: fmt.Sprintf("%d-%d", i*cpus, (i+1)*cpus-1), Memory: uint(a.Asset.Resources.MemoryMiB / int64(nodes)), Unit: "MiB"})

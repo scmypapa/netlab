@@ -1208,16 +1208,18 @@ type Network struct {
 
 // Node defines model for Node.
 type Node struct {
-	Capabilities []string   `json:"capabilities"`
-	Capacity     Resources  `json:"capacity"`
-	Endpoint     string     `json:"endpoint"`
-	Id           string     `json:"id"`
-	Name         string     `json:"name"`
-	ObservedAt   time.Time  `json:"observedAt"`
-	Override     *Resources `json:"override,omitempty"`
-	Reserved     Resources  `json:"reserved"`
-	Slots        int        `json:"slots"`
-	State        *string    `json:"state,omitempty"`
+	Capabilities []string  `json:"capabilities"`
+	Capacity     Resources `json:"capacity"`
+
+	// CpuAllocationRatio Maximum total assigned vCPUs per physical CPU; does not change physical capacity.
+	CpuAllocationRatio float64   `json:"cpuAllocationRatio"`
+	Endpoint           string    `json:"endpoint"`
+	Id                 string    `json:"id"`
+	Name               string    `json:"name"`
+	ObservedAt         time.Time `json:"observedAt"`
+	Reserved           Resources `json:"reserved"`
+	Slots              int       `json:"slots"`
+	State              *string   `json:"state,omitempty"`
 
 	// StorageDevice Dedicated Ceph disk selected during node installation
 	StorageDevice *string     `json:"storageDevice,omitempty"`
@@ -1425,6 +1427,11 @@ type NodeRetirement struct {
 type NodeSSH struct {
 	Address  string      `json:"address"`
 	Settings SSHSettings `json:"settings"`
+}
+
+// NodeScheduling defines model for NodeScheduling.
+type NodeScheduling struct {
+	CpuAllocationRatio float64 `json:"cpuAllocationRatio"`
 }
 
 // NodeSecurityObservation defines model for NodeSecurityObservation.
@@ -1715,9 +1722,10 @@ type ResolvedInterface struct {
 
 // Resources defines model for Resources.
 type Resources struct {
-	Cpu       int   `json:"cpu"`
-	DiskGiB   int64 `json:"diskGiB"`
-	MemoryMiB int64 `json:"memoryMiB"`
+	// Cpu Container CPU limit in cores; virtual machines require whole vCPUs.
+	Cpu       float64 `json:"cpu"`
+	DiskGiB   int64   `json:"diskGiB"`
+	MemoryMiB int64   `json:"memoryMiB"`
 }
 
 // RestartPolicy Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.
@@ -2510,6 +2518,9 @@ type RegisterNodeJSONRequestBody = NodeRegistration
 
 // DiscoverExternalDevicesJSONRequestBody defines body for DiscoverExternalDevices for application/json ContentType.
 type DiscoverExternalDevicesJSONRequestBody = ExternalDiscovery
+
+// ConfigureNodeSchedulingJSONRequestBody defines body for ConfigureNodeScheduling for application/json ContentType.
+type ConfigureNodeSchedulingJSONRequestBody = NodeScheduling
 
 // ConfigureNodeStorageJSONRequestBody defines body for ConfigureNodeStorage for application/json ContentType.
 type ConfigureNodeStorageJSONRequestBody = ConfigureNodeStorage

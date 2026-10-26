@@ -104,7 +104,7 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 	}
 	used := map[string]api.Resources{}
 	for _, r := range reserved {
-		used[r.NodeID] = api.Resources{Cpu: int(r.Cpu), MemoryMiB: r.MemoryMib}
+		used[r.NodeID] = api.Resources{Cpu: r.Cpu, MemoryMiB: r.MemoryMib}
 	}
 	result := []api.MigrationDestination{}
 	for _, node := range nodes {
@@ -118,12 +118,7 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 		if !supports(info, source.Execution.Template, source.Execution.Asset.Resources.Cpu) || len(source.Execution.Interfaces) > 0 && !slices.Contains(info.Capabilities, "network") {
 			continue
 		}
-		capacity := info.Capacity
-		if len(node.CapacityOverride) > 0 {
-			if err := json.Unmarshal(node.CapacityOverride, &capacity); err != nil {
-				return nil, err
-			}
-		}
+		capacity := schedulingCapacity(info, node.CpuAllocationRatio)
 		needed := add(used[node.ID], resources(source.Execution.Asset))
 		if node.ID == source.NodeID {
 			needed = used[node.ID]
@@ -138,7 +133,7 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 			}
 			return false
 		}
-		if !fits(needed, capacity) {
+		if node.ID != source.NodeID && !fits(needed, capacity) {
 			continue
 		}
 		live := node.ID != source.NodeID && source.Execution.Template.Kind == api.Vm && source.Execution.Rbd != nil && !matches(source.State, "stopped") && accessible(actualPool(source.NodeID, source.Execution))
@@ -148,7 +143,7 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 				break
 			}
 		}
-		result = append(result, api.MigrationDestination{Id: node.ID, Name: node.Name, Live: live, Current: node.ID == source.NodeID, SourceStoragePoolId: actualPool(source.NodeID, source.Execution), Available: api.Resources{Cpu: capacity.Cpu - used[node.ID].Cpu, MemoryMiB: capacity.MemoryMiB - used[node.ID].MemoryMiB}})
+		result = append(result, api.MigrationDestination{Id: node.ID, Name: node.Name, Live: live, Current: node.ID == source.NodeID, SourceStoragePoolId: actualPool(source.NodeID, source.Execution), Available: api.Resources{Cpu: max(0, capacity.Cpu-used[node.ID].Cpu), MemoryMiB: max(0, capacity.MemoryMiB-used[node.ID].MemoryMiB)}})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].Available.MemoryMiB == result[j].Available.MemoryMiB {
@@ -265,7 +260,7 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 	}
 	for i := range nodes {
 		latest := byID[nodes[i].ID]
-		nodes[i].State, nodes[i].Info, nodes[i].CapacityOverride = latest.State, latest.Info, latest.CapacityOverride
+		nodes[i].State, nodes[i].Info, nodes[i].CpuAllocationRatio = latest.State, latest.Info, latest.CpuAllocationRatio
 		nodes[i].Retiring = latest.Retiring
 	}
 	reserved, err := q.GetNodeReservations(ctx, ids)

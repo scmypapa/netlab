@@ -765,6 +765,13 @@ paths:
       responses:
         '202': {$ref: '#/components/responses/Accepted'}
         '409': {description: Template is referenced or has an active operation, content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+  /nodes/{id}/scheduling:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    put:
+      operationId: configureNodeScheduling
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NodeScheduling'}}}}
+      responses:
+        '204': {description: CPU allocation ratio updated; existing assets keep their configuration.}
   /nodes/metrics:
     get:
       operationId: getNodeMetrics
@@ -1018,7 +1025,7 @@ components:
       type: object
       required: [cpu, memoryMiB, diskGiB]
       properties:
-        cpu: {type: integer, minimum: 1}
+        cpu: {type: number, format: double, minimum: 0.01, multipleOf: 0.01, description: Container CPU limit in cores; virtual machines require whole vCPUs.}
         memoryMiB: {type: integer, format: int64, minimum: 64}
         diskGiB: {type: integer, format: int64, minimum: 1}
     Hardware:
@@ -1538,20 +1545,25 @@ components:
         updatedAt: {type: string, format: date-time}
     Node:
       type: object
-      required: [id, name, endpoint, capacity, reserved, capabilities, slots, observedAt]
+      required: [id, name, endpoint, capacity, reserved, cpuAllocationRatio, capabilities, slots, observedAt]
       properties:
         id: {type: string}
         name: {type: string}
         endpoint: {type: string}
         capacity: {$ref: '#/components/schemas/Resources'}
         reserved: {$ref: '#/components/schemas/Resources'}
+        cpuAllocationRatio: {type: number, format: double, minimum: 1, default: 4, description: Maximum total assigned vCPUs per physical CPU; does not change physical capacity.}
         capabilities: {type: array, items: {type: string}}
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
         storageDevice: {type: string, description: Dedicated Ceph disk selected during node installation}
         slots: {type: integer}
         observedAt: {type: string, format: date-time}
         state: {type: string}
-        override: {$ref: '#/components/schemas/Resources'}
+    NodeScheduling:
+      type: object
+      required: [cpuAllocationRatio]
+      properties:
+        cpuAllocationRatio: {type: number, format: double, minimum: 1}
     ResolvedInterface:
       type: object
       required: [id, networkId, mac, address, prefix, primary, portName, mtu]

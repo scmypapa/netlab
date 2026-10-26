@@ -92,7 +92,8 @@ export function NodeInventory({
                 )}
               </span>
               <span className={styles.reserved} aria-label="已分配">
-                {node.reserved.cpu} 核{" "}
+                {reading(node.reserved.cpu)} /{" "}
+                {reading(node.capacity.cpu * node.cpuAllocationRatio)} vCPU{" "}
                 <span>· {memory(node.reserved.memoryMiB)}</span>
               </span>
               <ChevronRight size={17} className={styles.arrow} />

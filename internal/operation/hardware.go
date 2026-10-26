@@ -6,7 +6,7 @@ import (
 	"netlab.local/core/api"
 )
 
-func supports(info api.NodeInfo, template api.Template, cpu int) bool {
+func supports(info api.NodeInfo, template api.Template, cpu float64) bool {
 	if !slices.Contains(info.Capabilities, string(template.Kind)) {
 		return false
 	}
@@ -42,7 +42,7 @@ func supports(info api.NodeInfo, template api.Template, cpu int) bool {
 		if machine.Name != h.Machine && !slices.Contains(machine.Aliases, h.Machine) {
 			continue
 		}
-		if !(cpu <= machine.MaxVcpus && slices.Contains(machine.Firmware, string(h.Firmware)) &&
+		if !(cpu <= float64(machine.MaxVcpus) && slices.Contains(machine.Firmware, string(h.Firmware)) &&
 			slices.Contains(machine.DiskBuses, string(h.DiskBus)) &&
 			(h.SecureBoot == nil || !*h.SecureBoot || machine.SecureBoot) &&
 			(h.Tpm == nil || !*h.Tpm || machine.Tpm2) &&

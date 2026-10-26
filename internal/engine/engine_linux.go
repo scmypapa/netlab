@@ -199,7 +199,7 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 	if e.vm != nil {
 		caps = append(caps, "vm")
 	}
-	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Version: buildinfo.Version, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: runtime.NumCPU(), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
+	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Version: buildinfo.Version, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: float64(runtime.NumCPU()), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
 	storage, err := StorageInfo(e.cfg.DataDir)
 	if err != nil {
 		return api.NodeInfo{}, err

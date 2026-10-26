@@ -211,7 +211,10 @@ export function AssetEditor({
             <div className={styles.resources}>
               <NumberInput
                 label="CPU · 核"
-                min={1}
+                min={template?.kind === "container" ? 0.01 : 1}
+                step={template?.kind === "container" ? 0.25 : 1}
+                decimalScale={template?.kind === "container" ? 2 : 0}
+                allowDecimal={template?.kind === "container"}
                 value={cpu}
                 onChange={(value) => setCpu(Number(value))}
               />

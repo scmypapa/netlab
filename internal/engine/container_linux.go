@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -407,7 +408,7 @@ func (c *Containers) adoptImage(ctx context.Context, name string, image containe
 	}
 	return c.client.GetImage(ctx, name)
 }
-func cpuLimit(cpus int) oci.SpecOpts {
+func cpuLimit(cpus float64) oci.SpecOpts {
 	return func(ctx context.Context, client oci.Client, c *containers.Container, s *oci.Spec) error {
 		if s.Linux.Resources == nil {
 			s.Linux.Resources = &specs.LinuxResources{}
@@ -416,7 +417,7 @@ func cpuLimit(cpus int) oci.SpecOpts {
 			s.Linux.Resources.CPU = &specs.LinuxCPU{}
 		}
 		period := uint64(100000)
-		quota := int64(cpus) * int64(period)
+		quota := int64(math.Round(cpus * float64(period)))
 		s.Linux.Resources.CPU.Period = &period
 		s.Linux.Resources.CPU.Quota = &quota
 		return nil

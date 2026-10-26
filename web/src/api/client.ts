@@ -701,6 +701,8 @@ export const api = {
     ),
   registerNode: (body: Schema<"NodeRegistration">) =>
     request<Node>("/nodes", "POST", body),
+  configureNodeScheduling: (id: string, body: Schema<"NodeScheduling">) =>
+    request<void>(`/nodes/${id}/scheduling`, "PUT", body),
   nodeRetirement: (id: string) =>
     request<Schema<"NodeRetirement">>(`/nodes/${id}/retirement`),
   retireNode: (id: string) =>

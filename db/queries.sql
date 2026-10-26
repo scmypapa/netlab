@@ -117,7 +117,7 @@ WHERE o.state IN ('queued','running') AND (
 -- name: CreateTemplate :exec
 INSERT INTO templates(id,definition) VALUES($1,$2);
 -- name: ListNodes :many
-SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+SELECT n.*,COALESCE(sum(a.cpu),0)::numeric AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 GROUP BY n.id,v.disk_gib ORDER BY n.id;
@@ -125,12 +125,14 @@ GROUP BY n.id,v.disk_gib ORDER BY n.id;
 INSERT INTO nodes(id,name,endpoint,info) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,endpoint=EXCLUDED.endpoint,info=EXCLUDED.info,state='ready',observed_at=now();
 -- name: SetNodeState :exec
 UPDATE nodes SET state=$2,observed_at=CASE WHEN $2='ready' THEN now() ELSE observed_at END WHERE id=$1;
--- name: SetNodeCapacity :exec
-UPDATE nodes SET capacity_override=$2 WHERE id=$1;
+-- name: SetNodeScheduling :execrows
+UPDATE nodes SET cpu_allocation_ratio=$2 WHERE id=$1;
+-- name: GetNodeScheduling :one
+SELECT cpu_allocation_ratio FROM nodes WHERE id=$1;
 -- name: LockNode :one
 SELECT * FROM nodes WHERE id=$1 FOR UPDATE;
 -- name: GetReservedResources :one
-SELECT COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,
+SELECT COALESCE(sum(cpu),0)::numeric AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,
 (COALESCE(sum(disk_gib),0)+(SELECT COALESCE(sum(v.size_gib),0) FROM persistent_volumes v WHERE v.node_id=$1))::bigint AS disk_gib FROM node_asset_reservations WHERE node_id=$1;
 -- name: ListRuntimeAssets :many
 SELECT * FROM runtime_assets WHERE environment_id=$1 ORDER BY asset_id,instance_id;
@@ -188,7 +190,7 @@ SELECT * FROM nodes WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE;
 -- name: ReserveAssets :exec
 INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib)
 SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu,r."memoryMiB",r."diskGiB"
-FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu integer,"memoryMiB" bigint,"diskGiB" bigint);
+FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint);
 -- name: ApplyAssetResults :exec
 UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
 FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,"nodeId" text,state text,error text,"observedAt" timestamptz)
@@ -201,7 +203,7 @@ UPDATE runtime_assets SET current=false WHERE environment_id=$1 AND asset_id=ANY
 UPDATE runtime_assets SET current=true WHERE instance_id=ANY($1::text[]);
 -- name: UpdateExecutions :exec
 UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r."memoryMiB",disk_gib=r."diskGiB"
-FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu integer,"memoryMiB" bigint,"diskGiB" bigint)
+FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
 WHERE a.instance_id=r."instanceId";
 -- name: ListTemplatePage :many
 SELECT t.* FROM templates t
@@ -211,7 +213,7 @@ AND (sqlc.arg(kind)::text='' OR t.definition->>'kind'=sqlc.arg(kind))
 AND (cardinality(sqlc.arg(ids)::text[])=0 OR t.id=ANY(sqlc.arg(ids)::text[]))
 ORDER BY t.created_at DESC,t.id DESC LIMIT sqlc.arg(page_limit);
 -- name: ListNodePage :many
-SELECT n.*,COALESCE(sum(a.cpu),0)::bigint AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+SELECT n.*,COALESCE(sum(a.cpu),0)::numeric AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor))
@@ -244,10 +246,10 @@ WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at
 INSERT INTO events(environment_id,kind,payload) SELECT environment_id,'operation.progress',jsonb_build_object('operationId',id,'phase',phase) FROM changed;
 -- name: ReserveResourceUpdates :exec
 UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r."memoryMiB"),disk_gib=GREATEST(a.disk_gib,r."diskGiB")
-FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu integer,"memoryMiB" bigint,"diskGiB" bigint)
+FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
 WHERE a.instance_id=r."instanceId";
 -- name: GetNodeReservations :many
-SELECT node_id,COALESCE(sum(cpu),0)::bigint AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM node_asset_reservations WHERE node_id=ANY($1::text[]) GROUP BY node_id;
+SELECT node_id,COALESCE(sum(cpu),0)::numeric AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM node_asset_reservations WHERE node_id=ANY($1::text[]) GROUP BY node_id;
 -- name: DeviceReservations :many
 SELECT DISTINCT node_id,environment_id,asset_id,group_id::text FROM runtime_assets
 CROSS JOIN LATERAL jsonb_array_elements_text(execution->'asset'->'pciBinding'->'groupIds') group_id

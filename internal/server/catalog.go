@@ -89,13 +89,13 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request, identity
 	if input.Kind != api.Container && input.Kind != api.Vm {
 		return httpError{http.StatusBadRequest, "模板类型应为 container 或 vm"}
 	}
-	if input.Resources.Cpu < 1 || input.Resources.MemoryMiB < 64 || input.Resources.DiskGiB < 1 {
-		return httpError{http.StatusBadRequest, "模板规格应至少为 1 核、64 MiB 内存、1 GiB 磁盘"}
+	if input.Resources.MemoryMiB < 64 || input.Resources.DiskGiB < 1 {
+		return httpError{http.StatusBadRequest, "模板规格应至少为 64 MiB 内存、1 GiB 磁盘"}
 	}
 	if input.Kind == api.Vm && input.Hardware == nil && (input.Format == nil || (*input.Format != "ova" && *input.Format != "ovf")) {
 		return httpError{http.StatusBadRequest, "虚拟机模板需要虚拟硬件配置"}
 	}
-	if err := guest.ValidateCPU(input.Hardware, input.Resources); err != nil {
+	if err := guest.ValidateCPU(input.Kind, input.Hardware, input.Resources); err != nil {
 		return httpError{http.StatusBadRequest, err.Error()}
 	}
 	if input.Id == "" {
@@ -230,19 +230,13 @@ func nodeRecord(row queries.ListNodePageRow) (api.Node, error) {
 	if err := json.Unmarshal(row.Info, &info); err != nil {
 		return api.Node{}, err
 	}
-	result := api.Node{Id: row.ID, Name: row.Name, Endpoint: row.Endpoint, Capacity: info.Capacity, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: int(row.ReservedCpu), MemoryMiB: row.ReservedMemory, DiskGiB: row.ReservedDisk}, State: &row.State, ObservedAt: row.ObservedAt.Time}
+	result := api.Node{Id: row.ID, Name: row.Name, Endpoint: row.Endpoint, Capacity: info.Capacity, CpuAllocationRatio: row.CpuAllocationRatio, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: row.ReservedCpu, MemoryMiB: row.ReservedMemory, DiskGiB: row.ReservedDisk}, State: &row.State, ObservedAt: row.ObservedAt.Time}
 	if row.Retiring && row.State == "ready" {
 		state := "draining"
 		result.State = &state
 	}
 	result.VmHardware = info.VmHardware
 	result.StorageDevice = info.StorageDevice
-	if len(row.CapacityOverride) > 0 {
-		if err := json.Unmarshal(row.CapacityOverride, &result.Override); err != nil {
-			return result, err
-		}
-		result.Capacity = *result.Override
-	}
 	return result, nil
 }
 
@@ -324,7 +318,11 @@ func (s *Server) registerNode(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	state := "ready"
-	result := api.Node{Id: info.Id, Name: input.Name, Endpoint: input.Endpoint, Capacity: info.Capacity, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: int(reserved.Cpu), MemoryMiB: reserved.MemoryMib, DiskGiB: reserved.DiskGib}, State: &state, ObservedAt: time.Now().UTC()}
+	ratio, err := s.Queries.GetNodeScheduling(r.Context(), info.Id)
+	if err != nil {
+		return err
+	}
+	result := api.Node{Id: info.Id, Name: input.Name, Endpoint: input.Endpoint, Capacity: info.Capacity, CpuAllocationRatio: ratio, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: reserved.Cpu, MemoryMiB: reserved.MemoryMib, DiskGiB: reserved.DiskGib}, State: &state, ObservedAt: time.Now().UTC()}
 	result.VmHardware = info.VmHardware
 	result.StorageDevice = info.StorageDevice
 	return writeJSON(w, http.StatusCreated, result)

@@ -41,7 +41,7 @@ func TestMigrationDestinationsUsePoolCapacity(t *testing.T) {
 		Template: api.Template{Kind: api.Vm, Hardware: &api.Hardware{Machine: "q35", Firmware: api.Bios, DiskBus: api.HardwareDiskBusVirtio, NicModel: api.HardwareNicModelVirtio}},
 		Asset:    api.Asset{Resources: api.Resources{Cpu: 1, MemoryMiB: 1024, DiskGiB: 20}},
 	}}
-	nodes := []queries.ListNodesRow{{ID: "target", Name: "Target", State: "ready", Info: raw}}
+	nodes := []queries.ListNodesRow{{ID: "target", Name: "Target", State: "ready", Info: raw, CpuAllocationRatio: 4}}
 	pools := []queries.ListStoragePoolsRow{{ID: "shared", NodeIds: []string{"target"}, State: "ready", Driver: "rbd"}}
 	result, err := migrationCandidates(source, nodes, pools, nil)
 	if err != nil || len(result) != 1 || result[0].Live {
@@ -216,7 +216,7 @@ func testMigrationOwnershipHandoff(t *testing.T, rejected bool) {
 	}
 	for _, id := range []string{"source", "target"} {
 		r, err := q.GetReservedResources(ctx, id)
-		cpu, memory := int64(2), int64(1024)
+		cpu, memory := float64(2), int64(1024)
 		if rejected && id == "target" {
 			cpu, memory = 0, 0
 		}
@@ -255,7 +255,7 @@ func testMigrationOwnershipHandoff(t *testing.T, rejected bool) {
 	if err != nil || actual.NodeID != "target" || actual.InstanceID != execution.InstanceId {
 		t.Fatal("ownership handoff failed", err)
 	}
-	for id, cpu := range map[string]int64{"source": 0, "target": 2} {
+	for id, cpu := range map[string]float64{"source": 0, "target": 2} {
 		r, err := q.GetReservedResources(ctx, id)
 		if err != nil || r.Cpu != cpu {
 			t.Fatal("capacity after commit", r, err)

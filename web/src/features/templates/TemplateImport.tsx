@@ -385,7 +385,10 @@ export function TemplateImportForm({ onCreated }: { onCreated: () => void }) {
           <div className="form-columns three">
             <NumberInput
               label="CPU · 核"
-              min={1}
+              min={kind === "container" ? 0.01 : 1}
+              step={kind === "container" ? 0.25 : 1}
+              decimalScale={kind === "container" ? 2 : 0}
+              allowDecimal={kind === "container"}
               value={cpu}
               onChange={(value) => setCpu(Number(value))}
             />

@@ -348,10 +348,11 @@ func ovfDisks(descriptor string, t api.Template) (api.Template, []importDisk, ma
 		subtype := strings.ToLower(item.Subtype)
 		switch item.Type {
 		case 3:
-			t.Resources.Cpu, err = strconv.Atoi(strings.TrimSpace(item.Quantity))
-			if err != nil || t.Resources.Cpu < 1 {
+			cpu, err := strconv.Atoi(strings.TrimSpace(item.Quantity))
+			if err != nil || cpu < 1 {
 				return t, nil, nil, fmt.Errorf("OVF vCPU quantity %q is invalid", item.Quantity)
 			}
+			t.Resources.Cpu = float64(cpu)
 		case 4:
 			units := item.Units
 			if units == "" {
