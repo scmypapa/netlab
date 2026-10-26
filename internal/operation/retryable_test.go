@@ -61,3 +61,25 @@ func TestRetryableUsesCurrentTaskAndTargetPermission(t *testing.T) {
 		})
 	}
 }
+
+func TestNetworkRefreshRetryableUsesNetworkPermissionWithoutReplacingBusinessTask(t *testing.T) {
+	environmentID, businessID := "environment", "business-task"
+	op := queries.Operation{ID: "refresh-task", EnvironmentID: &environmentID, Kind: "refresh-network", State: "failed"}
+	env := queries.Environment{ID: environmentID, ProjectID: "project", OperationID: &businessID}
+	identity := access.Identity{
+		Principal: queries.Principal{ID: "network-operator", Kind: "user"},
+		Grants:    []queries.Grant{{ScopeKind: "environment", ScopeID: environmentID, Permissions: []string{"network"}}},
+	}
+	if !Retryable(identity, op, env) {
+		t.Fatal("network operator cannot retry auxiliary network refresh")
+	}
+	identity.Grants[0].Permissions = []string{"operate"}
+	if Retryable(identity, op, env) {
+		t.Fatal("general asset operation permission granted network management")
+	}
+	identity.Grants[0].Permissions = []string{"network"}
+	op.State = "running"
+	if Retryable(identity, op, env) {
+		t.Fatal("running network refresh was exposed as failed/retryable")
+	}
+}

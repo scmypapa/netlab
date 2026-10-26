@@ -32,7 +32,8 @@ func Retryable(identity access.Identity, row queries.Operation, environment quer
 	if row.AssetID != nil {
 		asset = *row.AssetID
 	}
-	return environment.OperationID != nil && *environment.OperationID == row.ID && authorizedOperation(identity, row, environment, asset) == nil
+	current := row.Kind == "refresh-network" || environment.OperationID != nil && *environment.OperationID == row.ID
+	return current && authorizedOperation(identity, row, environment, asset) == nil
 }
 
 func (s Service) CurrentOperationID(ctx context.Context, row queries.Operation, current *string) (*string, error) {
@@ -163,6 +164,9 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		return api.Operation{}, err
 	}
 	if row.State == "queued" || row.State == "running" {
+		if row.Kind == "refresh-network" {
+			return environment.Operation(row)
+		}
 		var current *string
 		if row.EnvironmentID != nil {
 			runtime, err := q.GetEnvironment(ctx, *row.EnvironmentID)
@@ -189,7 +193,7 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		if readErr != nil {
 			return api.Operation{}, readErr
 		}
-		if e.OperationID == nil || *e.OperationID != id {
+		if row.Kind != "refresh-network" && (e.OperationID == nil || *e.OperationID != id) {
 			return api.Operation{}, environment.ErrConflict
 		}
 		revision = e.Revision
@@ -345,11 +349,14 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 	if err != nil {
 		return api.Operation{}, err
 	}
+	if row.Kind == "refresh-network" {
+		phase, raw = "queued", []byte("{}")
+	}
 	row, err = q.RetryOperation(ctx, queries.RetryOperationParams{ID: id, Phase: phase, Payload: raw, ExpectedRevision: revision})
 	if err != nil {
 		return api.Operation{}, err
 	}
-	if row.ScopeKind == "environment" {
+	if row.ScopeKind == "environment" && row.Kind != "refresh-network" {
 		if row.Kind == "delete-recovery" {
 			err = q.SetRecoveryDeleteOperation(ctx, queries.SetRecoveryDeleteOperationParams{ID: *row.EnvironmentID, OperationID: &id})
 		} else {
