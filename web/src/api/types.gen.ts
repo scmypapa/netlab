@@ -1887,6 +1887,8 @@ export interface components {
       name: string;
       cidr: string;
       gateway?: string;
+      /** @description Address reserved for platform management on this network; assigned automatically. */
+      readonly accessAddress?: string;
       /** @description Address prefix reserved for Netlab on an existing LAN */
       allocationPool?: string;
       external?: components["schemas"]["ExternalAttachment"];
@@ -1947,7 +1949,18 @@ export interface components {
       username?: string;
       sshAuthorizedKeys?: string[];
     };
+    RouterInterface: {
+      id: string;
+      networkId: string;
+      address: string;
+    };
+    LogicalRouter: {
+      id: string;
+      name: string;
+      interfaces: components["schemas"]["RouterInterface"][];
+    };
     Route: {
+      routerId?: string;
       networkId: string;
       destination: string;
       nextHop: string;
@@ -1969,6 +1982,8 @@ export interface components {
     EnvironmentSpec: {
       assets: components["schemas"]["Asset"][];
       networks: components["schemas"]["Network"][];
+      /** @description Omitted creates the default routed topology; an empty array keeps networks at layer 2. Responses contain the resolved routers. */
+      routers?: components["schemas"]["LogicalRouter"][];
       routes?: components["schemas"]["Route"][];
       policies?: components["schemas"]["Policy"][];
       services?: components["schemas"]["ServiceExposure"][];
