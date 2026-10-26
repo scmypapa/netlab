@@ -1485,24 +1485,25 @@ test("asset creation carries template resources and optional guest configuration
   });
 });
 
-test("canvas positioning only writes view", async ({ page }) => {
+test("automatic topology cannot be repositioned and performs no view write", async ({
+  page,
+}) => {
   const calls = await fixture(page);
   await page.goto("/environments/env");
-  const node = page.locator(".react-flow__node").filter({ hasText: "web-01" });
+  const node = page.locator('.react-flow__node[data-id="web"]');
   await expect(node).toBeVisible();
+  const position = await node.getAttribute("style");
   const bounds = (await node.boundingBox())!;
   await page.mouse.move(bounds.x + 35, bounds.y + 35);
   await page.mouse.down();
   await page.mouse.move(bounds.x + 80, bounds.y + 55, { steps: 8 });
   await page.mouse.up();
-  await expect
-    .poll(() => calls.some((call) => call.path.endsWith("/view")))
-    .toBe(true);
+  expect(await node.getAttribute("style")).toBe(position);
   expect(
     calls
       .filter((call) => ["PUT", "POST", "DELETE"].includes(call.method))
       .map((call) => call.path),
-  ).toEqual(["/environments/env/view"]);
+  ).toEqual([]);
 });
 
 test("工作台直达视图可刷新，停止使用次级危险按钮", async ({ page }) => {
@@ -1524,7 +1525,7 @@ test("工作台直达视图可刷新，停止使用次级危险按钮", async ({
     width: element.clientWidth,
     height: element.clientHeight,
   }));
-  expect(size).toEqual({ width: 188, height: 76 });
+  expect(size).toEqual({ width: 184, height: 64 });
   expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
 });
 
@@ -1796,10 +1797,10 @@ for (const retryable of [true, false]) {
       },
     });
     await page.goto("/environments/env");
-    await expect(page.getByRole("button", { name: /^任务/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    await expect(
+      page.getByRole("button", { name: "运行任务", exact: true }),
+    ).toHaveAttribute("aria-expanded", "false");
+    await page.getByRole("button", { name: "运行任务", exact: true }).click();
     const retry = page.getByRole("button", { name: "重试", exact: true });
     if (!retryable) {
       await expect(retry).toHaveCount(0);

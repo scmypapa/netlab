@@ -1,6 +1,6 @@
 import { randomUUID } from "../../foundation/id";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type EnvironmentSpec, type Schema } from "../../api/client";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useCursorList } from "../../foundation/useCursorList";
@@ -61,9 +61,8 @@ export function useWorkbench(id: string) {
     usedTemplates.isFetchNextPageError,
     usedTemplates.fetchNextPage,
   ]);
-  const templates = {
-    ...catalog,
-    data: [
+  const templateData = useMemo(
+    () => [
       ...new Map(
         [...(catalog.data ?? []), ...(usedTemplates.data ?? [])].map((item) => [
           item.id,
@@ -71,6 +70,11 @@ export function useWorkbench(id: string) {
         ]),
       ).values(),
     ],
+    [catalog.data, usedTemplates.data],
+  );
+  const templates = {
+    ...catalog,
+    data: templateData,
     error: usedTemplates.error ?? catalog.error,
   };
   const operations = useCursorList(["operations", id], (page) =>

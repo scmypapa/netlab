@@ -1,7 +1,8 @@
 import { randomUUID } from "../../foundation/id";
-import dagre from "@dagrejs/dagre";
-import type { Edge, Node } from "@xyflow/react";
-import type { EnvironmentSpec, Schema, Template } from "../../api/client";
+import type { Edge, Node, XYPosition } from "@xyflow/react";
+import type { EnvironmentSpec, Template } from "../../api/client";
+import type { ELK } from "elkjs/lib/elk-api";
+import { layoutTopology } from "./topologyLayout";
 
 export const networkColors = [
   "var(--chart-1)",
@@ -10,6 +11,8 @@ export const networkColors = [
   "var(--chart-4)",
   "var(--chart-5)",
   "var(--chart-6)",
+  "var(--chart-7)",
+  "var(--chart-8)",
 ];
 export type TopologyData = {
   label: string;
@@ -20,26 +23,12 @@ export type TopologyData = {
   count?: number;
 };
 export type TopologyNode = Node<TopologyData, "asset" | "network" | "router">;
-export const topologyNodeSize = {
-  asset: { width: 188, height: 76 },
-  network: { width: 188, height: 60 },
-  router: { width: 188, height: 76 },
-};
 
-export function topology(
+export async function topology(
   spec: EnvironmentSpec,
   templates: Template[],
-  view: Schema<"CanvasView">,
-): { nodes: TopologyNode[]; edges: Edge[] } {
-  const graph = new dagre.graphlib.Graph()
-    .setGraph({
-      rankdir: "TB",
-      nodesep: 40,
-      ranksep: 80,
-      marginx: 56,
-      marginy: 48,
-    })
-    .setDefaultEdgeLabel(() => ({}));
+  engine: Pick<ELK, "layout">,
+): Promise<{ nodes: TopologyNode[]; edges: Edge[] }> {
   const networks = new Map(
     spec.networks.map((network, index) => [
       network.id,
@@ -176,23 +165,57 @@ export function topology(
       }),
     ),
   );
-  nodes.forEach((node) =>
-    graph.setNode(node.id, { ...topologyNodeSize[node.type!] }),
+  const { positions, dimensions, parents, paths } = await layoutTopology(
+    nodes,
+    edges,
+    engine,
   );
-  edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
-  dagre.layout(graph);
+  const absolute = positions;
+  const arranged = nodes.map((node) => {
+    const parentId = parents.get(node.id),
+      point = absolute.get(node.id)!;
+    const parent = parentId ? absolute.get(parentId)! : undefined;
+    const size = dimensions.get(node.id);
+    return {
+      ...node,
+      parentId,
+      position: parent
+        ? { x: point.x - parent.x, y: point.y - parent.y }
+        : point,
+      ...(size && { style: { width: size.width, height: size.height } }),
+    };
+  });
+  const side = (id: string, point: XYPosition) => {
+    const { x, y } = positions.get(id)!,
+      { width, height } = dimensions.get(id)!;
+    const borders = [
+      ["left", Math.abs(point.x - x)],
+      ["right", Math.abs(point.x - x - width)],
+      ["top", Math.abs(point.y - y)],
+      ["bottom", Math.abs(point.y - y - height)],
+    ] as const;
+    return borders.reduce((closest, border) =>
+      border[1] < closest[1] ? border : closest,
+    )[0];
+  };
   return {
-    nodes: nodes.map((node) => {
-      const point = graph.node(node.id) as { x: number; y: number };
+    // React Flow requires a parent to precede its children.
+    nodes: [
+      ...arranged.filter((node) => !node.parentId),
+      ...arranged.filter((node) => node.parentId),
+    ],
+    edges: edges.map((edge) => {
+      if (parents.get(edge.target) === edge.source)
+        return { ...edge, hidden: true };
+      const points = paths.get(edge.id)!;
       return {
-        ...node,
-        position: view.positions?.[node.id] ?? {
-          x: point.x - topologyNodeSize[node.type!].width / 2,
-          y: point.y - topologyNodeSize[node.type!].height / 2,
-        },
+        ...edge,
+        type: "topology",
+        data: { ...edge.data, points },
+        sourceHandle: side(edge.source, points[0]),
+        targetHandle: side(edge.target, points[points.length - 1]),
       };
     }),
-    edges,
   };
 }
 

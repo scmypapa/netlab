@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import ELK from "elkjs";
 import type { Environment, EnvironmentSpec } from "../src/api/client";
 import {
   networkContains,
@@ -172,9 +173,9 @@ async function fixture(page: Page, spec = scenario()) {
   return { calls, environment };
 }
 
-test("routing topology uses native router nodes and stable interface links", () => {
+test("routing topology uses native router nodes and stable interface links", async () => {
   const spec = scenario(),
-    graph = topology(spec, [], {});
+    graph = await topology(spec, [], new ELK());
   expect(
     graph.nodes.filter((node) => node.type === "router").map((node) => node.id),
   ).toEqual(["router-a", "router-b"]);
@@ -187,7 +188,15 @@ test("routing topology uses native router nodes and stable interface links", () 
     graph.nodes.filter((node) => node.data.secondary === "10.0.0.0/24"),
   ).toHaveLength(2);
   expect(
-    new Set(graph.nodes.map((node) => JSON.stringify(node.position))).size,
+    new Set(
+      graph.nodes.map((node) =>
+        JSON.stringify(
+          node.parentId
+            ? { parent: node.parentId, ...node.position }
+            : node.position,
+        ),
+      ),
+    ).size,
   ).toBe(graph.nodes.length);
   const connected = connectRouter(spec, "router-a", "b");
   expect(connected.routers?.[0].interfaces).toHaveLength(3);

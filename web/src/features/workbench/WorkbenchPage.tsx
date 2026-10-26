@@ -15,6 +15,7 @@ import {
   GitBranch,
   LayoutGrid,
   List,
+  ListChecks,
   MoreHorizontal,
   Monitor,
   Network,
@@ -57,12 +58,8 @@ import { LogDrawer } from "./LogDrawer";
 import { ServiceDrawer } from "./ServiceDrawer";
 import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
-import {
-  connectAsset,
-  connectRouter,
-  networkColors,
-  topology,
-} from "./topology";
+import { connectAsset, connectRouter, networkColors } from "./topology";
+import { useTopology } from "./useTopology";
 import { useWorkbench } from "./useWorkbench";
 import { useVPNAccess } from "./useVPNAccess";
 import { VPNDrawer } from "./VPNDrawer";
@@ -89,6 +86,7 @@ function Workbench({ id }: { id: string }) {
   const [capturing, setCapturing] = useState<Asset>();
   const [selection, setSelection] = useState<string>();
   const [tree, setTree] = useState(false);
+  const [tasksOpened, setTasksOpened] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedView = searchParams.get("view");
   const view: WorkbenchView =
@@ -171,19 +169,16 @@ function Workbench({ id }: { id: string }) {
       ),
     [workbench.state.data?.assets],
   );
-  const layout = useMemo(
-    () => topology(spec, templates, environment?.view ?? {}),
-    [spec, templates, environment?.view],
-  );
+  const layout = useTopology(spec, templates);
   const graph = useMemo(
     () => ({
-      ...layout,
-      nodes: layout.nodes.map((node) => ({
+      edges: layout.data?.edges ?? [],
+      nodes: (layout.data?.nodes ?? []).map((node) => ({
         ...node,
         data: { ...node.data, state: assetStates.get(node.id) ?? "draft" },
       })),
     }),
-    [layout, assetStates],
+    [layout.data, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
   const router = spec.routers?.find((item) => item.id === selection);
@@ -280,6 +275,7 @@ function Workbench({ id }: { id: string }) {
       : "stop"
     : "start";
   const operation = workbench.state.data?.operation;
+  const latestOperation = operation ?? workbench.operations.data?.[0];
   const switchView = (value: typeof view) => {
     setView(value);
     setFilesOpened(false);
@@ -476,6 +472,7 @@ function Workbench({ id }: { id: string }) {
     workbench.saveDraft.error,
     workbench.discard.error,
     workbench.saveView.error,
+    layout.error,
   ];
   if (workbench.environment.isPending) return <Loading />;
   if (!environment)
@@ -679,7 +676,8 @@ function Workbench({ id }: { id: string }) {
       ))}
       {environment.error && (
         <div className={styles.error} role="alert">
-          {environment.error}
+          <span>{environment.error}</span>
+          <button onClick={() => setTasksOpened(true)}>查看任务</button>
         </div>
       )}
       <div className={styles.body}>
@@ -905,6 +903,16 @@ function Workbench({ id }: { id: string }) {
                   {externalDevices.length > 0 &&
                     ` · ${externalDevices.length} 外部设备`}
                 </span>
+                <button
+                  className={styles.taskButton}
+                  aria-label="运行任务"
+                  aria-expanded={tasksOpened}
+                  onClick={() => setTasksOpened(true)}
+                >
+                  <ListChecks size={16} />
+                  <span>任务</span>
+                  {latestOperation && <Status value={latestOperation.state} />}
+                </button>
               </div>
             </div>
           )}
@@ -1096,6 +1104,8 @@ function Workbench({ id }: { id: string }) {
                 </Button>
               )}
             </div>
+          ) : layout.isPending ? (
+            <Loading />
           ) : (
             <TopologyCanvas
               nodes={graph.nodes}
@@ -1103,10 +1113,6 @@ function Workbench({ id }: { id: string }) {
               selection={selection}
               onSelect={setSelection}
               editing={workbench.editing}
-              onPosition={(positions) => {
-                if (canCompose)
-                  workbench.saveView.mutate({ ...environment.view, positions });
-              }}
               onConnect={({ source, target }) => {
                 const routerId = spec.routers?.find(
                   (item) => item.id === source || item.id === target,
@@ -1269,6 +1275,9 @@ function Workbench({ id }: { id: string }) {
         />
       )}
       <TaskTray
+        opened={tasksOpened}
+        onClose={() => setTasksOpened(false)}
+        canRetry={canOperate && !busy}
         operations={workbench.operations.data ?? []}
         operation={operation}
         pagination={workbench.operations}

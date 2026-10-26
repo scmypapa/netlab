@@ -293,15 +293,16 @@ test("referenced VM templates, asset selection and operation history read later 
   expect(requests.some((url) => url.searchParams.get("ids") === "old-vm")).toBe(
     true,
   );
-  await page.getByRole("button", { name: /^任务/ }).click();
-  const tasks = page.getByRole("group", { name: "任务列表" });
-  await expect(tasks.locator(":scope > button")).toHaveCount(100);
-  await page
-    .getByRole("group", { name: "任务列表" })
-    .getByRole("button", { name: "加载更多", exact: true })
-    .click();
-  await expect(tasks.locator(":scope > button")).toHaveCount(101);
-  await page.getByRole("button", { name: /^任务/ }).click();
+  await page.getByRole("button", { name: "运行任务", exact: true }).click();
+  const tasks = page.getByRole("dialog", { name: "运行任务" });
+  await tasks.getByRole("textbox", { name: "选择任务" }).click();
+  await expect(page.getByRole("option")).toHaveCount(100);
+  await page.keyboard.press("Escape");
+  await tasks.getByRole("button", { name: "加载更多", exact: true }).click();
+  await tasks.getByRole("textbox", { name: "选择任务" }).click();
+  await expect(page.getByRole("option")).toHaveCount(101);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
   await page.getByRole("button", { name: "添加", exact: true }).click();
   await page.getByRole("menuitem", { name: "资产", exact: true }).click();

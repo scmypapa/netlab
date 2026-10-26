@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 export const pageSize = 100;
 export type PageRequest = {
@@ -28,5 +29,6 @@ export function useCursorList<T extends { id: string }>(
         ? options.refetchInterval(query.state.data?.pages.flat() ?? [])
         : options.refetchInterval,
   });
-  return { ...query, data: query.data?.pages.flat() };
+  const data = useMemo(() => query.data?.pages.flat(), [query.data?.pages]);
+  return { ...query, data };
 }

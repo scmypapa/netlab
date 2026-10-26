@@ -1,12 +1,6 @@
-import { Button } from "@mantine/core";
-import {
-  ChevronDown,
-  ChevronUp,
-  CircleCheck,
-  ListChecks,
-  RotateCcw,
-} from "lucide-react";
-import { useEffect, useState } from "react";
+import { Button, Drawer, Select } from "@mantine/core";
+import { CircleCheck, RotateCcw } from "lucide-react";
+import { useState } from "react";
 import type { EnvironmentSpec, Operation } from "../../api/client";
 import { actionLabels, dateTime } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
@@ -28,6 +22,7 @@ const phaseLabels: Record<string, string> = {
   failed: "执行失败",
   cleanup: "清理资源",
   rollback: "恢复变更",
+  "rolled-back": "已回滚",
   destroy: "销毁资产",
   queued: "等待执行",
   running: "执行中",
@@ -57,6 +52,9 @@ export function TaskTray({
   pagination,
   retrying,
   onRetry,
+  opened,
+  onClose,
+  canRetry,
 }: {
   operations: Operation[];
   spec: EnvironmentSpec;
@@ -64,102 +62,48 @@ export function TaskTray({
   pagination: CursorPagination;
   retrying: boolean;
   onRetry: (id: string) => void;
+  opened: boolean;
+  onClose: () => void;
+  canRetry: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
   const recent = operation
     ? [operation, ...operations.filter((item) => item.id !== operation.id)]
     : operations;
   const latest = recent[0];
   const shown = recent.find((item) => item.id === selected) ?? latest;
-  const active = recent.filter((item) =>
-    ["queued", "running"].includes(item.state),
-  ).length;
-  useEffect(() => {
-    if (latest?.state === "failed") setOpen(true);
-  }, [latest?.id, latest?.state]);
+  const assetNames = new Map(
+    spec.assets.map((asset) => [asset.id, asset.name]),
+  );
   return (
-    <section className={styles.tray} aria-label="运行任务">
-      <button
-        className={styles.toggle}
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-      >
-        <span>
-          <ListChecks size={16} />
-          任务
-          <span
-            className={styles.count}
-            aria-label={`${recent.length} 项近期任务`}
-          >
-            {recent.length}
-          </span>
-          {latest && (
-            <>
-              <span className={styles.divider} />
-              {actionLabels[latest.kind] ?? latest.kind}
-              <Status value={latest.state} />
-              {["queued", "running"].includes(latest.state) && (
-                <span className={styles.phase}>
-                  {phaseLabels[latest.phase] ?? latest.phase}
-                </span>
-              )}
-            </>
-          )}
-        </span>
-        <span>
-          {active > 0 && (
-            <span className={styles.active}>{active} 项执行中</span>
-          )}
-          {latest && !active && (
-            <time className={styles.timestamp}>
-              {dateTime(latest.updatedAt)}
-            </time>
-          )}
-          {latest &&
-            latest.total > 0 &&
-            ["running", "queued"].includes(latest.state) && (
-              <span className={styles.progress}>
-                {latest.completed} / {latest.total}
-              </span>
-            )}
-          {open ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-        </span>
-      </button>
-      {open && (
-        <div className={styles.content}>
-          <div className={styles.list} role="group" aria-label="任务列表">
-            {recent.length ? (
-              recent.map((item) => (
-                <button
-                  key={item.id}
-                  aria-current={shown?.id === item.id}
-                  onClick={() => setSelected(item.id)}
-                >
-                  <span>
-                    {actionLabels[item.kind] ?? item.kind}
-                    <Status value={item.state} />
-                  </span>
-                  <time>{dateTime(item.createdAt)}</time>
-                </button>
-              ))
-            ) : (
-              <div className={styles.empty}>
-                <CircleCheck size={20} />
-                暂无任务
-              </div>
-            )}
-            <LoadMore list={pagination} />
-          </div>
+    <Drawer
+      opened={opened}
+      onClose={onClose}
+      title="运行任务"
+      position="right"
+      size={420}
+      classNames={{ body: styles.body }}
+    >
+      {recent.length > 0 ? (
+        <>
+          <Select
+            aria-label="选择任务"
+            value={shown?.id}
+            onChange={(value) => setSelected(value ?? undefined)}
+            data={recent.map((item) => ({
+              value: item.id,
+              label: `${actionLabels[item.kind] ?? item.kind} · ${dateTime(item.createdAt)}`,
+            }))}
+            searchable
+            allowDeselect={false}
+          />
+          <LoadMore list={pagination} />
           {shown && (
             <div className={styles.detail}>
               <div className={styles.detailHeading}>
                 <strong>{actionLabels[shown.kind] ?? shown.kind}</strong>
-                <span>{phaseLabels[shown.phase] ?? shown.phase}</span>
-                <span>
-                  {shown.completed} / {shown.total}
-                </span>
-                {shown.retryable && (
+                <Status value={shown.state} />
+                {shown.retryable && canRetry && (
                   <Button
                     variant="default"
                     size="compact-xs"
@@ -171,6 +115,14 @@ export function TaskTray({
                   </Button>
                 )}
               </div>
+              <div className={styles.phase}>
+                <span>{phaseLabels[shown.phase] ?? shown.phase}</span>
+                {shown.total > 0 && (
+                  <span>
+                    {shown.completed} / {shown.total}
+                  </span>
+                )}
+              </div>
               {shown.error && (
                 <div className={styles.error} role="alert">
                   {shown.error}
@@ -179,6 +131,7 @@ export function TaskTray({
               {shown.total > 0 && (
                 <div
                   className={styles.completion}
+                  data-state={shown.state}
                   role="progressbar"
                   aria-label="任务进度"
                   aria-valuenow={shown.completed}
@@ -196,8 +149,7 @@ export function TaskTray({
                 {shown.results?.map((result) => (
                   <div key={result.assetId}>
                     <span>
-                      {spec.assets.find((asset) => asset.id === result.assetId)
-                        ?.name ?? "已移除资产"}
+                      {assetNames.get(result.assetId) ?? "已移除资产"}
                     </span>
                     <Status value={result.state} />
                     {result.error && <p>{result.error}</p>}
@@ -206,8 +158,13 @@ export function TaskTray({
               </div>
             </div>
           )}
+        </>
+      ) : (
+        <div className={styles.empty}>
+          <CircleCheck size={24} />
+          暂无任务
         </div>
       )}
-    </section>
+    </Drawer>
   );
 }

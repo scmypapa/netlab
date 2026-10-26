@@ -44,6 +44,9 @@ importers:
       echarts:
         specifier: ^6.1.0
         version: 6.1.0
+      elkjs:
+        specifier: 0.11.0
+        version: 0.11.0
       lucide-react:
         specifier: ^0.544.0
         version: 0.544.0(react@19.3.0)
@@ -829,6 +832,9 @@ packages:
 
   electron-to-chromium@1.5.443:
     resolution: {integrity: sha512-TDJG36L9A3CWWwZ97HKaE+Iz1sW80pNp6sAU0owzCIV3Zc9eVyRqZK8Vz6NKuMIU8WjP0pIkoqCa0VRf/yFD0Q==}
+
+  elkjs@0.11.0:
+    resolution: {integrity: sha512-u4J8h9mwEDaYMqo0RYJpqNMFDoMK7f+pu4GjcV+N8jIC7TRdORgzkfSjTJemhqONFfH6fBI3wpysgWbhgVWIXw==}
 
   esbuild@0.28.2:
     resolution: {integrity: sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==}
@@ -2042,6 +2048,8 @@ snapshots:
       zrender: 6.1.0
 
   electron-to-chromium@1.5.443: {}
+
+  elkjs@0.11.0: {}
 
   esbuild@0.28.2:
     optionalDependencies:

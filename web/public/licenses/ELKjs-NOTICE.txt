@@ -1,0 +1,6 @@
+ELK.js 0.11.0 — Eclipse Layout Kernel
+Copyright Eclipse ELK contributors and the ELK.js authors.
+License: Eclipse Public License 2.0 (ELKjs-LICENSE.md).
+Unmodified source and copyright notices:
+https://github.com/kieler/elkjs/tree/0.11.0
+https://www.npmjs.com/package/elkjs/v/0.11.0

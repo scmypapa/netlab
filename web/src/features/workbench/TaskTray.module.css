@@ -1,134 +1,37 @@
-.tray {
-  flex-shrink: 0;
-  background: var(--surface-subtle);
-  border-top: 1px solid var(--line);
-}
-.toggle {
-  width: 100%;
-  border: 0;
-  background: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 22px;
-  color: var(--text);
-  font-size: 12px;
-  cursor: pointer;
-}
-.toggle:hover {
-  background: var(--surface-hover);
-}
-.count {
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  padding: 1px 5px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  font-family: var(--font-mono);
-  background: var(--surface);
-}
-.phase,
-.timestamp {
-  color: var(--muted);
-}
-.timestamp {
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-.active {
-  color: var(--accent);
-  font-weight: 600;
-}
-.toggle > span {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-}
-.toggle > span > svg {
-  color: var(--muted);
-}
-.divider {
-  width: 1px;
-  height: 14px;
-  background: var(--line);
-}
-.progress {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.content {
-  height: min(300px, 42vh);
-  display: grid;
-  grid-template-columns: 290px minmax(0, 1fr);
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-}
-.list {
-  overflow-y: auto;
-  border-right: 1px solid var(--line);
-  padding: 8px;
-  background: var(--surface-subtle);
-}
-.list > button {
-  width: 100%;
-  text-align: left;
-  background: none;
-  color: var(--text);
-  display: grid;
-  gap: 7px;
-  padding: 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  margin-bottom: 4px;
-  cursor: pointer;
-}
-.list > button > span {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-}
-.list time {
-  color: var(--muted);
-  font-size: 12px;
-  font-family: var(--font-mono);
-}
-.list > button:hover {
-  background: var(--surface-hover);
-}
-.list > button[aria-current="true"] {
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+.body {
+  padding: 4px 20px 24px;
 }
 .detail {
   min-width: 0;
-  overflow: auto;
-  padding: 16px 20px;
+  padding-top: 24px;
 }
 .detailHeading {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  font-size: 13px;
+  font-size: 15px;
 }
 .detailHeading strong {
-  font-weight: 600;
   margin-right: auto;
+  font-weight: 600;
 }
-.detailHeading > span {
+.phase {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 10px;
   color: var(--muted);
   font-size: 12px;
 }
+.phase > span:last-child {
+  font-variant-numeric: tabular-nums;
+}
 .completion {
-  height: 5px;
+  height: 4px;
   background: var(--line);
   overflow: hidden;
-  margin: 16px 0;
+  margin-bottom: 20px;
   border-radius: 3px;
 }
 .completion span {
@@ -136,17 +39,22 @@
   display: block;
   background: var(--accent);
 }
+.completion[data-state="failed"] span {
+  background: var(--negative);
+}
 .results > div {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 9px 0;
+  padding: 12px 0;
   font-size: 13px;
   border-bottom: 1px solid var(--line);
 }
 .results > div > span:first-child {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .results p,
 .error {
@@ -154,38 +62,21 @@
   color: var(--negative);
   font-size: 13px;
   line-height: 1.6;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .error {
-  margin: 12px 0;
+  padding: 12px;
+  margin: 16px 0;
+  border: 1px solid var(--negative-line);
+  border-radius: 8px;
+  background: var(--negative-soft);
 }
 .empty {
-  padding: 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
+  padding: 64px 20px;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
   color: var(--muted);
   font-size: 13px;
-}
-@media (max-width: 760px) {
-  .toggle {
-    padding: 10px 12px;
-  }
-  .phase,
-  .timestamp {
-    display: none;
-  }
-  .content {
-    grid-template-columns: 160px minmax(0, 1fr);
-  }
-  .list > button {
-    padding: 10px;
-  }
-  .list > button > span {
-    flex-wrap: wrap;
-  }
-  .detail {
-    padding: 12px;
-  }
 }
