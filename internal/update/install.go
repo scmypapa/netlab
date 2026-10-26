@@ -70,14 +70,10 @@ func Execute(ctx context.Context, cfg Config, listen string, client *http.Client
 	}
 	if cfg.Role == "node" {
 		script := filepath.Join(destination, "scripts", "install-security.sh")
-		if _, err := os.Stat(script); err == nil {
-			command := exec.CommandContext(ctx, "bash", script)
-			command.Stdout, command.Stderr = os.Stdout, os.Stderr
-			if err = command.Run(); err != nil {
-				return fmt.Errorf("准备节点检测组件：%w", err)
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
+		command := exec.CommandContext(ctx, "bash", script)
+		command.Stdout, command.Stderr = os.Stdout, os.Stderr
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("准备节点运行依赖：%w", err)
 		}
 	}
 	if beforeSwitch != nil {
