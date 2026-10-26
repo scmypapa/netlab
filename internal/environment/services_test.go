@@ -69,3 +69,24 @@ func TestServicesUseOwnedInterfacesAndBlueprintIdentities(t *testing.T) {
 		t.Fatal("blueprint retained external ports or stale service references")
 	}
 }
+
+func TestServicePermissionIgnoresDerivedManagementAddress(t *testing.T) {
+	mtu := 1400
+	before := api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Cidr: "192.0.2.0/24", Mtu: &mtu}}, Assets: []api.Asset{{Id: "web", Interfaces: []api.Interface{{Id: "nic", NetworkId: "lan", Address: "192.0.2.2", Mac: "02:00:00:00:00:02"}}}}}
+	after := before.WithRouting()
+	after.Networks = append([]api.Network{}, before.Networks...)
+	address := "192.0.2.254"
+	after.Networks[0].AccessAddress = &address
+	after.Services = &[]api.ServiceExposure{{Id: "http", AssetId: "web", InterfaceId: "nic", Protocol: "tcp", TargetPort: 80}}
+	identity := access.Identity{Principal: queries.Principal{ID: "token", Kind: "token"}, Grants: []queries.Grant{{ScopeKind: "asset", ScopeID: "env/web", Permissions: []string{"access"}}}}
+	if err := AuthorizeChange(identity, queries.Environment{ID: "env", ProjectID: "default"}, before, after); err != nil {
+		t.Fatal("derived management address demanded unrelated compose permission", err)
+	}
+	preview := Diff(1, before, after, nil)
+	if len(preview.Changes) != 1 || preview.Changes[0].Kind != api.ChangeItemKindService {
+		t.Fatal("derived management address appeared as a design change", preview)
+	}
+	if before.Networks[0].AccessAddress != nil || after.Networks[0].AccessAddress == nil {
+		t.Fatal("comparison mutated its input")
+	}
+}

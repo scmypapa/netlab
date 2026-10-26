@@ -24,6 +24,12 @@ func Services(spec api.EnvironmentSpec) []api.ServiceExposure {
 func ServiceOnly(before, after api.EnvironmentSpec) bool {
 	before, after = before.WithRouting(), after.WithRouting()
 	before.Services, after.Services = nil, nil
+	before.Networks, after.Networks = slices.Clone(before.Networks), slices.Clone(after.Networks)
+	for _, spec := range []*api.EnvironmentSpec{&before, &after} {
+		for i := range spec.Networks {
+			spec.Networks[i] = networkDesign(spec.Networks[i])
+		}
+	}
 	return reflect.DeepEqual(before, after)
 }
 

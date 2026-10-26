@@ -36,7 +36,27 @@ func (s EnvironmentSpec) WithRouting() EnvironmentSpec {
 	if s.Routers != nil {
 		return s
 	}
-	router := LogicalRouter{Id: "gateway", Name: "默认路由器", Interfaces: []RouterInterface{}}
+	ids := make(map[string]bool, len(s.Networks)+len(s.Assets))
+	for _, network := range s.Networks {
+		ids[network.Id] = true
+		for _, device := range network.Devices {
+			ids[device.Id] = true
+		}
+	}
+	for _, asset := range s.Assets {
+		ids[asset.Id] = true
+	}
+	interfaceIDs := map[string]bool{}
+	for _, asset := range s.Assets {
+		for _, iface := range asset.Interfaces {
+			interfaceIDs[iface.Id] = true
+		}
+	}
+	id := "gateway"
+	for ids[id] {
+		id += "_"
+	}
+	router := LogicalRouter{Id: id, Name: "默认路由器", Interfaces: []RouterInterface{}}
 	for _, network := range s.Networks {
 		address := network.RouterAddress()
 		if address == "" && network.External == nil {
@@ -45,7 +65,12 @@ func (s EnvironmentSpec) WithRouting() EnvironmentSpec {
 			}
 		}
 		if address != "" {
-			router.Interfaces = append(router.Interfaces, RouterInterface{Id: network.Id, NetworkId: network.Id, Address: address})
+			id := network.Id
+			for interfaceIDs[id] {
+				id += "_"
+			}
+			interfaceIDs[id] = true
+			router.Interfaces = append(router.Interfaces, RouterInterface{Id: id, NetworkId: network.Id, Address: address})
 		}
 	}
 	routers := []LogicalRouter{router}

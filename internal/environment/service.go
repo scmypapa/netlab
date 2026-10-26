@@ -536,6 +536,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		before = *current.AppliedSpec
 	}
 	request.Spec = RemoveDependentServices(before, request.Spec)
+	request.Spec = preserveNetworkAccess(before, request.Spec)
 	templates, err := Templates(ctx, s.Queries, request.Spec.Assets)
 	if err != nil {
 		return api.ChangePreview{}, nil, err

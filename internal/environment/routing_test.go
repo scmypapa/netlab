@@ -103,3 +103,29 @@ func TestRouterIdentityAndBlueprintRemapping(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDefaultRouterDoesNotReuseBusinessIdentity(t *testing.T) {
+	spec := routingSpec(t, `{"networks":[{"id":"gateway","name":"LAN","cidr":"192.0.2.0/24"}],"assets":[{"id":"gateway_","templateId":"c","interfaces":[]}]}`)
+	result, err := Normalize(spec, map[string]api.Template{"c": {Resources: api.Resources{Cpu: 1, MemoryMiB: 64, DiskGiB: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if (*result.Routers)[0].Id != "gateway__" {
+		t.Fatal("default router reused a business object's identity")
+	}
+}
+
+func TestNetworkEditsPreserveServerOwnedAddress(t *testing.T) {
+	address := "192.0.2.253"
+	before := api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "192.0.2.0/24", AccessAddress: &address}}}
+	after := api.EnvironmentSpec{Networks: []api.Network{{Id: "lan", Name: "Renamed", Cidr: "192.0.2.0/24"}}}
+	after = preserveNetworkAccess(before, after)
+	if after.Networks[0].AccessAddress == nil || *after.Networks[0].AccessAddress != address {
+		t.Fatal("omitting a read-only field reallocated the management endpoint")
+	}
+	after.Networks[0].Cidr = "192.0.3.0/24"
+	after = preserveNetworkAccess(before, after)
+	if after.Networks[0].AccessAddress != nil {
+		t.Fatal("new address pool kept an address outside its subnet")
+	}
+}

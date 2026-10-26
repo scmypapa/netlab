@@ -2,11 +2,34 @@ package environment
 
 import (
 	"net/netip"
+	"reflect"
 	"strings"
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 )
+
+// The address is server-owned. Editing a network must not reallocate its
+// management endpoint just because a client omitted read-only response fields.
+func preserveNetworkAccess(before, after api.EnvironmentSpec) api.EnvironmentSpec {
+	networks := make(map[string]api.Network, len(before.Networks))
+	for _, network := range before.Networks {
+		networks[network.Id] = network
+	}
+	for i := range after.Networks {
+		network := &after.Networks[i]
+		network.AccessAddress = nil
+		if old, exists := networks[network.Id]; exists && old.Cidr == network.Cidr && reflect.DeepEqual(old.AllocationPool, network.AllocationPool) {
+			network.AccessAddress = old.AccessAddress
+		}
+	}
+	return after
+}
+
+func networkDesign(network api.Network) api.Network {
+	network.AccessAddress = nil
+	return network
+}
 
 func normalizeRouting(spec *api.EnvironmentSpec, networks map[string]api.Network, pools map[string]netip.Prefix, used map[string]map[netip.Addr]bool, objects map[string]bool) error {
 	interfaces := map[string]bool{}

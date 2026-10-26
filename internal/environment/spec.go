@@ -411,7 +411,7 @@ func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]
 		effect := api.Add
 		if ok {
 			delete(oldNetworks, n.Id)
-			if reflect.DeepEqual(old, n) {
+			if reflect.DeepEqual(networkDesign(old), networkDesign(n)) {
 				continue
 			}
 			effect = api.Update
