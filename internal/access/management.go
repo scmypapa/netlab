@@ -34,6 +34,8 @@ func OperationPermission(kind string) string {
 		return "access"
 	case "change":
 		return "compose"
+	case "refresh-network":
+		return "network"
 	case "destroy", "rebuild", "migrate", "capture-template", "capture-recovery", "delete-recovery", "restore-recovery", "clone-recovery", "create-backup", "delete-backup":
 		return "manage"
 	default:

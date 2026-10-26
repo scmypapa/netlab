@@ -76,6 +76,9 @@ UPDATE environments SET status=$2,error=$3,updated_at=now() WHERE id=$1;
 UPDATE environments SET status=$3,error=$4,updated_at=now() WHERE id=$1 AND operation_id=$2;
 -- name: SetNetworkOwner :exec
 UPDATE environments SET network_node_id=$2 WHERE id=$1;
+-- name: RefreshEnvironmentNetwork :exec
+UPDATE environments SET spec=CASE WHEN spec=applied_spec THEN $2 ELSE spec END,
+ applied_spec=$2,revision=revision+1,updated_at=now() WHERE id=$1;
 -- name: ListTemplates :many
 SELECT * FROM templates ORDER BY created_at DESC,id;
 -- name: GetTemplates :many
@@ -169,7 +172,7 @@ WITH maintenance AS MATERIALIZED (
  UPDATE operations o SET state='running',lease_owner=sqlc.narg(lease_owner)::text,lease_until=now()+interval '30 seconds',updated_at=now()
  FROM candidate c WHERE o.id=c.id RETURNING o.*
 ), active AS (
- UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
+ UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind IN ('delete-recovery','refresh-network') THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind IN ('delete-recovery','refresh-network') THEN e.error ELSE NULL END,updated_at=now()
  FROM claimed c WHERE e.id=c.environment_id AND c.scope_kind='environment' RETURNING e.id
 )
 SELECT claimed.* FROM claimed;

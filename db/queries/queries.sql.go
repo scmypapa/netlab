@@ -53,7 +53,7 @@ WITH maintenance AS MATERIALIZED (
  UPDATE operations o SET state='running',lease_owner=$2::text,lease_until=now()+interval '30 seconds',updated_at=now()
  FROM candidate c WHERE o.id=c.id RETURNING o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id
 ), active AS (
- UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
+ UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind IN ('delete-recovery','refresh-network') THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind IN ('delete-recovery','refresh-network') THEN e.error ELSE NULL END,updated_at=now()
  FROM claimed c WHERE e.id=c.environment_id AND c.scope_kind='environment' RETURNING e.id
 )
 SELECT claimed.id, claimed.environment_id, claimed.scope_kind, claimed.scope_id, claimed.kind, claimed.asset_id, claimed.state, claimed.phase, claimed.payload, claimed.results, claimed.error, claimed.expected_revision, claimed.lease_owner, claimed.lease_until, claimed.created_at, claimed.updated_at, claimed.client_request_id FROM claimed
@@ -1593,6 +1593,21 @@ func (q *Queries) ReadEvents(ctx context.Context, arg ReadEventsParams) ([]Event
 		return nil, err
 	}
 	return items, nil
+}
+
+const refreshEnvironmentNetwork = `-- name: RefreshEnvironmentNetwork :exec
+UPDATE environments SET spec=CASE WHEN spec=applied_spec THEN $2 ELSE spec END,
+ applied_spec=$2,revision=revision+1,updated_at=now() WHERE id=$1
+`
+
+type RefreshEnvironmentNetworkParams struct {
+	ID          string
+	AppliedSpec []byte
+}
+
+func (q *Queries) RefreshEnvironmentNetwork(ctx context.Context, arg RefreshEnvironmentNetworkParams) error {
+	_, err := q.db.Exec(ctx, refreshEnvironmentNetwork, arg.ID, arg.AppliedSpec)
+	return err
 }
 
 const registerCaptureSegments = `-- name: RegisterCaptureSegments :exec
