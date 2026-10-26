@@ -172,6 +172,8 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 			err = w.retireNode(ctx, &op, &payload)
 		} else if op.Kind == "move-network" {
 			err = w.moveNetwork(ctx, &op, &payload)
+		} else if op.Kind == "refresh-network" {
+			err = w.refreshNetwork(ctx, &op, &payload)
 		} else {
 			err = w.environment(ctx, &op, &payload)
 			results = payload.Results

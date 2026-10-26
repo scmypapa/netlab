@@ -72,6 +72,7 @@ export const actionLabels: Record<string, string> = {
   rebuild: "重建",
   migrate: "迁移设备",
   "move-network": "迁移网络入口",
+  "refresh-network": "更新网络配置",
   "retire-node": "退出节点",
   "trim-template-cache": "释放镜像缓存",
   destroy: "销毁",

@@ -63,6 +63,9 @@ func (w Worker) moveNetwork(ctx context.Context, op *queries.Operation, p *Paylo
 	if op.Phase == "complete" {
 		return nil
 	}
+	if err := w.upgradeRouting(ctx, op, p); err != nil {
+		return err
+	}
 	if op.Phase == "queued" {
 		nodes, err := w.Queries.ListNodes(ctx)
 		if err != nil {
@@ -182,10 +185,7 @@ func (w Worker) moveNetwork(ctx context.Context, op *queries.Operation, p *Paylo
 				p.VPNResult, err = w.callVPN(ctx, op, p.Spec, *p.VPNPlan)
 			}
 			if err == nil {
-				err = commitVPN(ctx, w.Queries, *op.EnvironmentID, p)
-			}
-			if err == nil {
-				err = w.status(ctx, op, p, nil)
+				err = w.finishVPN(ctx, op, p)
 			}
 			next = "complete"
 		default:

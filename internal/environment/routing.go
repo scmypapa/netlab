@@ -3,11 +3,52 @@ package environment
 import (
 	"net/netip"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 )
+
+// CompleteRouting materializes network defaults in durable task/recovery
+// snapshots without revalidating or changing the guest's compute specification.
+func CompleteRouting(spec api.EnvironmentSpec) (api.EnvironmentSpec, error) {
+	spec = spec.WithRouting()
+	spec.Networks = slices.Clone(spec.Networks)
+	pools := make(map[string]netip.Prefix, len(spec.Networks))
+	used := make(map[string]map[netip.Addr]bool, len(spec.Networks))
+	for _, network := range spec.Networks {
+		cidr := network.Cidr
+		if network.AllocationPool != nil {
+			cidr = *network.AllocationPool
+		}
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return spec, Invalid("网段 %s 的地址池无效", network.Name)
+		}
+		pools[network.Id] = prefix.Masked()
+		used[network.Id] = map[netip.Addr]bool{}
+		for _, device := range network.Devices {
+			address, _ := netip.ParseAddr(device.Address)
+			used[network.Id][address] = true
+		}
+	}
+	for _, router := range *spec.Routers {
+		for _, iface := range router.Interfaces {
+			address, _ := netip.ParseAddr(iface.Address)
+			used[iface.NetworkId][address] = true
+		}
+	}
+	for _, asset := range spec.Assets {
+		for _, iface := range asset.Interfaces {
+			if address, err := netip.ParseAddr(iface.Address); err == nil {
+				used[iface.NetworkId][address] = true
+			}
+		}
+	}
+	err := reserveNetworkAccess(&spec, pools, used)
+	return spec, err
+}
 
 // The address is server-owned. Editing a network must not reallocate its
 // management endpoint just because a client omitted read-only response fields.

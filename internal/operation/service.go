@@ -196,6 +196,11 @@ func (s Service) Retry(ctx context.Context, identity access.Identity, id string)
 		if row.Kind != "refresh-network" && (e.OperationID == nil || *e.OperationID != id) {
 			return api.Operation{}, environment.ErrConflict
 		}
+		if row.Kind == "refresh-network" {
+			if err = environment.RequireIdle(ctx, q, e.ID); err != nil {
+				return api.Operation{}, err
+			}
+		}
 		revision = e.Revision
 	} else if row.ScopeKind == "node" {
 		node, lockErr := q.LockNode(ctx, row.ScopeID)

@@ -17,6 +17,12 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 	if op.Phase == "rolled-back" {
 		return errors.New(*p.Failure)
 	}
+	if op.Phase == "complete" {
+		return nil
+	}
+	if err := w.upgradeRouting(ctx, op, p); err != nil {
+		return w.failEnvironment(ctx, op, p, err)
+	}
 	if op.Phase == "queued" || op.Phase == "prepare-backup-templates" {
 		if p.BackupID != nil && restoresData(op.Kind) {
 			if op.Phase == "queued" {
@@ -184,26 +190,33 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		default:
 			return fmt.Errorf("未知执行阶段 %s", op.Phase)
 		}
-		if ctx.Err() != nil || errors.Is(err, errPersistence) {
-			return errors.Join(err, ctx.Err())
-		}
 		if err != nil {
-			detail := fmt.Errorf("%s: %w", op.Phase, err)
-			if p.Committed || op.Phase == "remove-services" || op.Phase == "destroy" || op.Phase == "remove-network" || op.Phase == "control" || op.Phase == "restart" || op.Phase == "settle" {
-				return errors.Join(detail, w.status(ctx, op, p, detail))
-			}
-			message := detail.Error()
-			p.Failure = &message
-			if saveErr := w.phase(ctx, op, p, "rollback"); saveErr != nil {
-				return errors.Join(detail, saveErr)
-			}
-			return w.rollback(ctx, op, p)
+			return w.failEnvironment(ctx, op, p, err)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		if err = w.phase(ctx, op, p, next); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (w Worker) failEnvironment(ctx context.Context, op *queries.Operation, p *Payload, err error) error {
+	if ctx.Err() != nil || errors.Is(err, errPersistence) {
+		return errors.Join(err, ctx.Err())
+	}
+	detail := fmt.Errorf("%s: %w", op.Phase, err)
+	if p.Committed || slices.Contains([]string{"queued", "prepare-backup-templates", "remove-services", "destroy", "remove-network", "control", "restart", "settle"}, op.Phase) {
+		return errors.Join(detail, w.status(ctx, op, p, detail))
+	}
+	message := detail.Error()
+	p.Failure = &message
+	if saveErr := w.phase(ctx, op, p, "rollback"); saveErr != nil {
+		return errors.Join(detail, saveErr)
+	}
+	return w.rollback(ctx, op, p)
 }
 
 func desiredTargets(p *Payload) []Target {
@@ -301,6 +314,9 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 	}
 	if op.Kind == "start" && p.BeforeSpec != nil && len(p.Targets) == 0 && len(p.Updates) == 0 {
 		err = q.SetEnvironmentState(ctx, queries.SetEnvironmentStateParams{ID: row.ID, Status: state})
+		if err == nil {
+			err = q.RefreshEnvironmentNetwork(ctx, queries.RefreshEnvironmentNetworkParams{ID: row.ID, AppliedSpec: raw})
+		}
 	} else {
 		err = q.CommitEnvironment(ctx, queries.CommitEnvironmentParams{ID: row.ID, AppliedSpec: raw, Status: state})
 	}
@@ -427,6 +443,13 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 			return fmt.Errorf("%w: %v", errPersistence, err)
 		}
 		if err = commitServices(ctx, q, *op.EnvironmentID, p.BeforeBindings); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
+		raw, err := json.Marshal(p.BeforeSpec)
+		if err == nil {
+			err = q.RefreshEnvironmentNetwork(ctx, queries.RefreshEnvironmentNetworkParams{ID: *op.EnvironmentID, AppliedSpec: raw})
+		}
+		if err != nil {
 			return fmt.Errorf("%w: %v", errPersistence, err)
 		}
 		transactionWorker := w
@@ -616,8 +639,19 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	} else if p.BeforeStatus == "destroyed" {
 		message := initial.Error()
 		err = q.SetEnvironmentState(ctx, queries.SetEnvironmentStateParams{ID: *op.EnvironmentID, Status: "destroyed", Error: &message})
-	} else if err = transactionWorker.status(ctx, op, p, initial); err != nil {
-		return fmt.Errorf("%w: %v", errPersistence, err)
+	} else {
+		if restored != nil {
+			raw, err = json.Marshal(restored)
+			if err == nil {
+				err = q.RefreshEnvironmentNetwork(ctx, queries.RefreshEnvironmentNetworkParams{ID: *op.EnvironmentID, AppliedSpec: raw})
+			}
+			if err != nil {
+				return fmt.Errorf("%w: %v", errPersistence, err)
+			}
+		}
+		if err = transactionWorker.status(ctx, op, p, initial); err != nil {
+			return fmt.Errorf("%w: %v", errPersistence, err)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)

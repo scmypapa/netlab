@@ -91,6 +91,13 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if err = json.Unmarshal(row.AppliedSpec, &p.BeforeSpec); err != nil {
 			return err
 		}
+		if op.Kind == "start" || op.Kind == "change" || op.Kind == "rebuild" || restoring {
+			before, err := environment.CompleteRouting(*p.BeforeSpec)
+			if err != nil {
+				return err
+			}
+			p.BeforeSpec = &before
+		}
 	}
 	serviceOnly := op.Kind == "change" && p.BeforeSpec != nil && environment.ServiceOnly(*p.BeforeSpec, p.Spec)
 	actual := []queries.RuntimeAsset{}

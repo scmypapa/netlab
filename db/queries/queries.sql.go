@@ -47,6 +47,10 @@ WITH maintenance AS MATERIALIZED (
  AND o.scope_kind<>'system'
  AND (NOT $1::boolean OR o.kind IN ('stop','force-stop','destroy','suspend','resume','reboot','vpn-revoke'))
  AND EXISTS(SELECT 1 FROM maintenance)
+ AND (o.kind<>'refresh-network' OR NOT EXISTS (
+  SELECT 1 FROM environments e JOIN operations pending ON pending.id=e.operation_id
+  WHERE e.id=o.environment_id AND pending.state IN ('failed','partially_applied')
+   AND pending.phase NOT IN ('rolled-back','complete','cancelled')))
  AND NOT EXISTS(SELECT 1 FROM operations live WHERE live.scope_kind=o.scope_kind AND live.scope_id=o.scope_id AND live.id<>o.id AND live.state='running')
  ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1
 ), claimed AS (
@@ -1597,7 +1601,7 @@ func (q *Queries) ReadEvents(ctx context.Context, arg ReadEventsParams) ([]Event
 
 const refreshEnvironmentNetwork = `-- name: RefreshEnvironmentNetwork :exec
 UPDATE environments SET spec=CASE WHEN spec=applied_spec THEN $2 ELSE spec END,
- applied_spec=$2,revision=revision+1,updated_at=now() WHERE id=$1
+ applied_spec=$2,revision=revision+1,updated_at=now() WHERE id=$1 AND applied_spec IS DISTINCT FROM $2
 `
 
 type RefreshEnvironmentNetworkParams struct {

@@ -10,6 +10,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
+	"netlab.local/core/internal/environment"
 )
 
 func TestNetworkRefreshRetryPreservesBusinessIdentity(t *testing.T) {
@@ -33,7 +34,7 @@ func TestNetworkRefreshRetryPreservesBusinessIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err = pool.Exec(ctx, "UPDATE operations SET state=$2,phase='cleanup' WHERE id=$1", business.ID, businessState); err != nil {
+			if _, err = pool.Exec(ctx, "UPDATE operations SET state=$2,phase='rolled-back' WHERE id=$1", business.ID, businessState); err != nil {
 				t.Fatal(err)
 			}
 			var businessError *string
@@ -103,6 +104,15 @@ func TestNetworkRefreshRetryPreservesBusinessIdentity(t *testing.T) {
 			if _, err := s.Retry(ctx, forbidden, refresh.ID); !errors.Is(err, access.ErrForbidden) {
 				t.Fatalf("asset operation permission allowed network management: %v", err)
 			}
+			if _, err := q.CreateOperation(ctx, queries.CreateOperationParams{ID: "new-business", EnvironmentID: &env.ID, ScopeKind: "environment", ScopeID: env.ID, Kind: "start", Payload: []byte(`{}`), ExpectedRevision: before.Revision}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Retry(ctx, operator, refresh.ID); !errors.Is(err, environment.ErrBusy) {
+				t.Fatalf("maintenance retry overtook queued business: %v", err)
+			}
+			if _, err := pool.Exec(ctx, "UPDATE operations SET state='succeeded' WHERE id='new-business'"); err != nil {
+				t.Fatal(err)
+			}
 			for range 2 {
 				result, err := s.Retry(ctx, operator, refresh.ID)
 				if err != nil || result.Id != refresh.ID || result.State != api.OperationStateQueued {
@@ -135,5 +145,34 @@ func TestNetworkRefreshRetryPreservesBusinessIdentity(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestQueuedRoutingRefreshWaitsForUnfinishedBusiness(t *testing.T) {
+	pool := concurrencyPool(t, 4)
+	ctx := context.Background()
+	q := queries.New(pool)
+	env, err := q.CreateEnvironment(ctx, queries.CreateEnvironmentParams{ID: "env", ProjectID: "default", Name: "Env", Spec: []byte(`{"networks":[],"assets":[]}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, config := range []struct{ id, kind string }{{"business", "change"}, {"refresh", "refresh-network"}} {
+		if _, err := q.CreateOperation(ctx, queries.CreateOperationParams{ID: config.id, EnvironmentID: &env.ID, ScopeKind: "environment", ScopeID: env.ID, Kind: config.kind, Payload: []byte(`{}`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE environments SET operation_id='business' WHERE id='env'; UPDATE operations SET state='failed',phase='cleanup' WHERE id='business'`); err != nil {
+		t.Fatal(err)
+	}
+	owner := "worker"
+	if _, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("maintenance overtook unfinished business cleanup: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE operations SET phase='rolled-back' WHERE id='business'`); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
+	if err != nil || claimed.ID != "refresh" {
+		t.Fatalf("safe maintenance remained blocked after rollback: %+v, %v", claimed, err)
 	}
 }
