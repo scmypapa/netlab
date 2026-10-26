@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { Environment, EnvironmentSpec } from "../src/api/client";
 import {
   networkContains,
+  networkOptions,
   networksOverlap,
   routerGateways,
 } from "../src/features/workbench/networking";
@@ -94,6 +95,19 @@ async function fixture(page: Page, spec = scenario()) {
       status = 200;
     if (path === "/identity")
       response = { id: "user", name: "operator", administrator: true };
+    else if (path === "/templates")
+      response = [
+        {
+          id: "linux",
+          name: "Alpine",
+          kind: "container",
+          os: "Linux",
+          version: 1,
+          source: "alpine:latest",
+          state: "ready",
+          resources: { cpu: 1, memoryMiB: 64, diskGiB: 1 },
+        },
+      ];
     else if (path === "/environments/env") response = environment;
     else if (path === "/environments/env/state")
       response = {
@@ -238,6 +252,28 @@ test("network overlap covers IPv4 and IPv6 without merging address families", ()
     false,
   );
   expect(networkContains("::ffff:192.0.2.0/120", "::ffff:c000:201")).toBe(true);
+});
+
+test("duplicate network labels use routing context and a sequence only when needed", () => {
+  const spec = scenario();
+  expect(networkOptions(spec).map((item) => item.label)).toEqual([
+    "生产网 · 10.0.0.0/24",
+    "隔离网 · 10.0.0.0/24",
+    "中转网 · 10.255.0.0/30",
+  ]);
+  spec.networks[0].name = spec.networks[1].name = "LAN";
+  let options = networkOptions(spec);
+  expect(options[0]).toEqual({
+    value: "a",
+    title: "LAN · 边界路由器",
+    label: "LAN · 边界路由器 · 10.0.0.0/24",
+  });
+  expect(options[1].label).toBe("LAN · 现场路由器 · 10.0.0.0/24");
+  spec.routers = [];
+  options = networkOptions(spec);
+  expect(options[0].label).toBe("1. LAN · 纯二层 · 10.0.0.0/24");
+  expect(options[1].label).toBe("2. LAN · 纯二层 · 10.0.0.0/24");
+  expect(options[0].value).toBe("a");
 });
 
 test("router editor preserves interface identity and submits routes through the environment preview", async ({
@@ -418,4 +454,57 @@ test("native router creation edits interface and route in the same environment d
     },
   ]);
   expect(saved.networks[0].gateway).toBe("10.0.0.1");
+});
+
+test("identically named networks stay distinguishable in router, route and VPN selectors", async ({
+  page,
+}) => {
+  const spec = scenario();
+  spec.networks[0].name = spec.networks[1].name = "LAN";
+  await fixture(page, spec);
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.locator('[data-id="router-a"]').click();
+  await page
+    .getByRole("complementary", { name: "对象详情" })
+    .getByRole("button", { name: "编辑", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "编辑路由器" });
+  await drawer.getByLabel("连接网段").click();
+  await expect(
+    page.getByRole("option", {
+      name: "LAN · 现场路由器 · 10.0.0.0/24",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await drawer.getByLabel("路由器名称").click();
+  await drawer.getByLabel("出口网段").click();
+  await expect(
+    page.getByRole("option", {
+      name: "LAN · 边界路由器 · 10.0.0.0/24",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await drawer.getByLabel("路由器名称").click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await page.getByRole("menuitem", { name: "资产", exact: true }).click();
+  const asset = page.getByRole("dialog", { name: "添加资产", exact: true });
+  await asset.getByLabel("资产模板").click();
+  await page
+    .getByRole("option", { name: "Alpine · 容器", exact: true })
+    .click();
+  await asset.getByLabel("连接网段").click();
+  await expect(
+    page.getByRole("option", {
+      name: "LAN · 现场路由器 · 10.0.0.0/24",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await asset.getByLabel("资产名称").click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "VPN", exact: true }).click();
+  await page.getByRole("button", { name: "新建连接" }).click();
+  const vpn = page.getByRole("dialog", { name: "VPN", exact: true });
+  await expect(vpn).toContainText("LAN · 边界路由器 · 10.0.0.0/24");
+  await expect(vpn).toContainText("LAN · 现场路由器 · 10.0.0.0/24");
 });

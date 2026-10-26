@@ -1286,6 +1286,7 @@ function Workbench({ id }: { id: string }) {
         <VPNDrawer
           vpn={vpn}
           networks={environment.appliedSpec?.networks ?? []}
+          routers={environment.appliedSpec?.routers}
           busy={
             busy ||
             status === "destroyed" ||

@@ -10,6 +10,7 @@ import { ArrowRight, ChevronDown, Network, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { EnvironmentSpec, Schema } from "../../api/client";
 import { randomUUID } from "../../foundation/id";
+import { networkOptions } from "./networking";
 import styles from "./RouterEditor.module.css";
 
 type Router = Schema<"LogicalRouter">;
@@ -34,10 +35,7 @@ export function RouterEditor({
   const [routes, setRoutes] = useState(() =>
     (spec.routes ?? []).filter((route) => route.routerId === id),
   );
-  const availableNetworks = spec.networks.map((network) => ({
-    value: network.id,
-    label: `${network.name} · ${network.cidr}`,
-  }));
+  const availableNetworks = networkOptions(spec);
   const connectedNetworks = availableNetworks.filter((network) =>
     interfaces.some((iface) => iface.networkId === network.value),
   );
@@ -99,9 +97,9 @@ export function RouterEditor({
                   <Network size={16} />
                   <strong>
                     {
-                      spec.networks.find(
-                        (network) => network.id === iface.networkId,
-                      )?.name
+                      availableNetworks.find(
+                        (network) => network.value === iface.networkId,
+                      )?.title
                     }
                   </strong>
                 </span>

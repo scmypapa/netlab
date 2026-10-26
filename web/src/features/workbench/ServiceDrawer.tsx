@@ -12,6 +12,7 @@ import { Check, Copy, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Asset, EnvironmentSpec, Schema } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
+import { networkOptions } from "./networking";
 import styles from "./ServiceDrawer.module.css";
 
 type ServiceInput = Omit<
@@ -51,6 +52,9 @@ export function ServiceDrawer({
       asset.interfaces[0]?.id,
   );
   const endpoints = services.filter((item) => item.assetId === asset.id);
+  const networks = new Map(
+    networkOptions(spec).map((network) => [network.value, network.title]),
+  );
 
   return (
     <Drawer
@@ -177,7 +181,7 @@ export function ServiceDrawer({
                     onChange={(value) => setInterfaceId(value ?? undefined)}
                     data={asset.interfaces.map((item) => ({
                       value: item.id,
-                      label: `${spec.networks.find((network) => network.id === item.networkId)?.name ?? ""} · ${item.address}`,
+                      label: `${networks.get(item.networkId)} · ${item.address}`,
                     }))}
                     allowDeselect={false}
                     required

@@ -18,10 +18,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
-import type { Network } from "../../api/client";
+import type { Network, Schema } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
 import type { useVPNAccess, VPNInput } from "./useVPNAccess";
-import { networksOverlap } from "./networking";
+import { networkOptions, networksOverlap } from "./networking";
 import styles from "./VPNDrawer.module.css";
 
 const states = {
@@ -34,11 +34,13 @@ const states = {
 export function VPNDrawer({
   vpn,
   networks,
+  routers,
   busy,
   onClose,
 }: {
   vpn: ReturnType<typeof useVPNAccess>;
   networks: Network[];
+  routers?: Schema<"LogicalRouter">[];
   busy: boolean;
   onClose: () => void;
 }) {
@@ -64,8 +66,9 @@ export function VPNDrawer({
     vpn.revoke.error ??
     vpn.download.error ??
     vpn.copy.error;
+  const options = networkOptions({ networks, routers });
   const networkName = (id: string) =>
-    networks.find((item) => item.id === id)?.name;
+    options.find((item) => item.value === id)?.title;
 
   return (
     <Drawer opened onClose={onClose} title="VPN" position="right" size="md">
@@ -202,10 +205,7 @@ export function VPNDrawer({
               label="授权网段"
               value={networkIds}
               onChange={setNetworkIds}
-              data={networks.map((item) => ({
-                value: item.id,
-                label: `${item.name} · ${item.cidr}`,
-              }))}
+              data={options}
               required
             />
             <SegmentedControl

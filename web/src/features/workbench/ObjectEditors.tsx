@@ -25,6 +25,7 @@ import {
 import { LoadMore, type CursorPagination } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { ErrorMessage } from "../../foundation/Feedback";
+import { networkOptions } from "./networking";
 import styles from "./ObjectEditors.module.css";
 
 export function AssetEditor({
@@ -200,10 +201,7 @@ export function AssetEditor({
             />
             <MultiSelect
               label="连接网段"
-              data={spec.networks.map((network) => ({
-                value: network.id,
-                label: `${network.name} · ${network.cidr}`,
-              }))}
+              data={networkOptions(spec)}
               value={networkIds}
               onChange={setNetworkIds}
               searchable

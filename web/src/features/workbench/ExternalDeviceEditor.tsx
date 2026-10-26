@@ -5,6 +5,7 @@ import { Cable, Plus, Radar, RefreshCw, Router } from "lucide-react";
 import { api, type Asset, type Network, type Schema } from "../../api/client";
 import { randomUUID } from "../../foundation/id";
 import { Empty, ErrorMessage } from "../../foundation/Feedback";
+import { networkOptions } from "./networking";
 import styles from "./ExternalDeviceEditor.module.css";
 
 export function ExternalDeviceEditor({
@@ -80,10 +81,9 @@ export function ExternalDeviceEditor({
                   value={networkId}
                   onChange={(value) => setNetworkId(value ?? "")}
                   allowDeselect={false}
-                  data={external.map((item) => ({
-                    value: item.id,
-                    label: item.name,
-                  }))}
+                  data={networkOptions({ networks: external }).map(
+                    ({ value, title }) => ({ value, label: title }),
+                  )}
                 />
                 <Button
                   variant="default"

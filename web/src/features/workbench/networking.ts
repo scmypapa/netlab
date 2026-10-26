@@ -1,4 +1,36 @@
-import type { Network, Schema } from "../../api/client";
+import type { EnvironmentSpec, Network, Schema } from "../../api/client";
+
+export function networkOptions(
+  spec: Pick<EnvironmentSpec, "networks" | "routers">,
+) {
+  const base = spec.networks.map(
+    (network) => `${network.name} · ${network.cidr}`,
+  );
+  const counts = (labels: string[]) => {
+    const result = new Map<string, number>();
+    for (const label of labels) result.set(label, (result.get(label) ?? 0) + 1);
+    return result;
+  };
+  const duplicates = counts(base);
+  const titles = spec.networks.map((network, index) => {
+    if (duplicates.get(base[index]) === 1) return network.name;
+    const routers = (spec.routers ?? []).filter((router) =>
+      router.interfaces.some((iface) => iface.networkId === network.id),
+    );
+    return `${network.name} · ${routers.map((router) => router.name).join(" / ") || "纯二层"}`;
+  });
+  const labels = spec.networks.map(
+    (network, index) => `${titles[index]} · ${network.cidr}`,
+  );
+  const ambiguous = counts(labels);
+  return spec.networks.map((network, index) => {
+    const title =
+      ambiguous.get(labels[index])! > 1
+        ? `${index + 1}. ${titles[index]}`
+        : titles[index];
+    return { value: network.id, title, label: `${title} · ${network.cidr}` };
+  });
+}
 
 function addressBits(address: string): string | undefined {
   if (!address.includes(":"))
