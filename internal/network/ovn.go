@@ -269,6 +269,20 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 			}
 		}
 	}
+	for i, network := range plan.Spec.Networks {
+		if network.AccessAddress == nil {
+			continue
+		}
+		port := accessNetworkPort(plan.EnvironmentId, network.Id)
+		// The isolated access namespace owns authorization and conntrack. Do not
+		// track the same management connection again in the business dataplane.
+		for di, direction := range []string{"from-lport", "to-lport"} {
+			acl := &ACL{UUID: fmt.Sprintf("management_acl%d_%d", i, di), Direction: direction, Priority: 32700,
+				Match: fmt.Sprintf("ip && (inport == %q || outport == %q)", port, port), Action: "allow-stateless", ExternalIDs: ownership(plan.EnvironmentId)}
+			switches[network.Id].ACLs = append(switches[network.Id].ACLs, acl.UUID)
+			models = append(models, acl)
+		}
+	}
 	return models, nil
 }
 func ownership(env string) map[string]string { return map[string]string{"netlab.environment": env} }

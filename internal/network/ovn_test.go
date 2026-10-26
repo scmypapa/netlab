@@ -3,6 +3,7 @@ package network
 import (
 	"encoding/json"
 	"netlab.local/core/api"
+	"strings"
 	"testing"
 )
 
@@ -122,5 +123,26 @@ func TestCompileLayerTwoWithoutImplicitRouter(t *testing.T) {
 		if _, ok := item.(*Router); ok {
 			t.Fatal("pure layer two topology gained an implicit router")
 		}
+	}
+}
+
+func TestManagementACLIsBoundToItsSwitchPort(t *testing.T) {
+	address := "192.0.2.254"
+	plan := api.NodePlan{EnvironmentId: "management", Spec: api.EnvironmentSpec{Routers: &[]api.LogicalRouter{}, Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "192.0.2.0/24", AccessAddress: &address}}, Policies: &[]api.Policy{{Id: "deny", NetworkId: "lan", Direction: api.Both, Action: api.Deny}}}}
+	models, err := Compile(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, item := range models {
+		if acl, ok := item.(*ACL); ok && acl.Priority == 32700 {
+			count++
+			if acl.Action != "allow-stateless" || !strings.Contains(acl.Match, accessNetworkPort("management", "lan")) || strings.Contains(acl.Match, address) {
+				t.Fatal("management ACL trusts an address instead of the isolated platform port", acl)
+			}
+		}
+	}
+	if count != 2 {
+		t.Fatal("management access did not cover both ACL stages")
 	}
 }
