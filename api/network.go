@@ -73,7 +73,10 @@ func (s EnvironmentSpec) WithRouting() EnvironmentSpec {
 			router.Interfaces = append(router.Interfaces, RouterInterface{Id: id, NetworkId: network.Id, Address: address})
 		}
 	}
-	routers := []LogicalRouter{router}
+	routers := []LogicalRouter{}
+	if len(router.Interfaces) > 0 {
+		routers = append(routers, router)
+	}
 	s.Routers = &routers
 	if s.Routes != nil {
 		routes := append([]Route{}, (*s.Routes)...)

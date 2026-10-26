@@ -105,13 +105,20 @@ func TestRouterIdentityAndBlueprintRemapping(t *testing.T) {
 }
 
 func TestDefaultRouterDoesNotReuseBusinessIdentity(t *testing.T) {
-	spec := routingSpec(t, `{"networks":[{"id":"gateway","name":"LAN","cidr":"192.0.2.0/24"}],"assets":[{"id":"gateway_","templateId":"c","interfaces":[]}]}`)
+	spec := routingSpec(t, `{"networks":[{"id":"gateway","name":"LAN","cidr":"192.0.2.0/24"}],"assets":[{"id":"gateway_","templateId":"c","interfaces":[{"id":"gateway","networkId":"gateway"}]}]}`)
 	result, err := Normalize(spec, map[string]api.Template{"c": {Resources: api.Resources{Cpu: 1, MemoryMiB: 64, DiskGiB: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if (*result.Routers)[0].Id != "gateway__" {
 		t.Fatal("default router reused a business object's identity")
+	}
+	if (*result.Routers)[0].Interfaces[0].Id == result.Assets[0].Interfaces[0].Id {
+		t.Fatal("default router reused an existing guest interface identity")
+	}
+	empty := (api.EnvironmentSpec{}).WithRouting()
+	if len(*empty.Routers) != 0 {
+		t.Fatal("empty environment gained a phantom router")
 	}
 }
 
