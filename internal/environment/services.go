@@ -22,6 +22,7 @@ func Services(spec api.EnvironmentSpec) []api.ServiceExposure {
 }
 
 func ServiceOnly(before, after api.EnvironmentSpec) bool {
+	before, after = before.WithRouting(), after.WithRouting()
 	before.Services, after.Services = nil, nil
 	return reflect.DeepEqual(before, after)
 }

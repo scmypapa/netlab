@@ -1,6 +1,7 @@
 package network
 
 import (
+	"encoding/json"
 	"netlab.local/core/api"
 	"testing"
 )
@@ -67,5 +68,59 @@ func TestExternalGatewayUsesResolvedChassis(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("external gateway not compiled")
+	}
+}
+
+func TestCompileIndependentRoutingTables(t *testing.T) {
+	var spec api.EnvironmentSpec
+	if err := json.Unmarshal([]byte(`{"networks":[{"id":"left","name":"Left","cidr":"10.0.0.0/24"},{"id":"right","name":"Right","cidr":"10.0.0.0/24"},{"id":"transit","name":"Transit","cidr":"172.20.0.0/30"}],"routers":[{"id":"r1","name":"R1","interfaces":[{"id":"p1","networkId":"left","address":"10.0.0.1"},{"id":"p2","networkId":"transit","address":"172.20.0.1"}]},{"id":"r2","name":"R2","interfaces":[{"id":"p3","networkId":"right","address":"10.0.0.1"},{"id":"p4","networkId":"transit","address":"172.20.0.2"}]}],"routes":[{"routerId":"r1","networkId":"transit","destination":"192.0.2.0/24","nextHop":"172.20.0.2"},{"routerId":"r2","networkId":"transit","destination":"198.51.100.0/24","nextHop":"172.20.0.1"}]}`), &spec); err != nil {
+		t.Fatal(err)
+	}
+	models, err := Compile(api.NodePlan{EnvironmentId: "domains", Spec: spec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	routers, ports, routes := map[string]*Router{}, map[string]*RouterPort{}, map[string]*Route{}
+	for _, item := range models {
+		switch v := item.(type) {
+		case *Router:
+			routers[v.Name] = v
+		case *RouterPort:
+			ports[v.Name] = v
+		case *Route:
+			routes[v.UUID] = v
+		}
+	}
+	if len(routers) != 2 || len(ports) != 4 || len(routes) != 2 {
+		t.Fatalf("wrong topology size: %d routers, %d ports, %d routes", len(routers), len(ports), len(routes))
+	}
+	for i, id := range []string{"r1", "r2"} {
+		router := routers[objectName("lr", "domains", id)]
+		if router == nil || len(router.Ports) != 2 || len(router.Routes) != 1 {
+			t.Fatalf("router %s lost its own ports or table: %+v", id, router)
+		}
+		out := "p2"
+		if i == 1 {
+			out = "p4"
+		}
+		if *routes[router.Routes[0]].OutputPort != objectName("lrp", "domains", out) {
+			t.Fatal("route points to a different router's interface")
+		}
+	}
+	if ports[objectName("lrp", "domains", "p1")].Networks[0] != ports[objectName("lrp", "domains", "p3")].Networks[0] {
+		t.Fatal("overlapping CIDRs were rewritten instead of isolated")
+	}
+}
+
+func TestCompileLayerTwoWithoutImplicitRouter(t *testing.T) {
+	routers := []api.LogicalRouter{}
+	models, err := Compile(api.NodePlan{EnvironmentId: "l2", Spec: api.EnvironmentSpec{Routers: &routers, Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "192.0.2.0/24"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range models {
+		if _, ok := item.(*Router); ok {
+			t.Fatal("pure layer two topology gained an implicit router")
+		}
 	}
 }

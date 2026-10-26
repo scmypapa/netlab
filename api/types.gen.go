@@ -955,9 +955,12 @@ type EnvironmentSharing struct {
 
 // EnvironmentSpec defines model for EnvironmentSpec.
 type EnvironmentSpec struct {
-	Assets   []Asset            `json:"assets"`
-	Networks []Network          `json:"networks"`
-	Policies *[]Policy          `json:"policies,omitempty"`
+	Assets   []Asset   `json:"assets"`
+	Networks []Network `json:"networks"`
+	Policies *[]Policy `json:"policies,omitempty"`
+
+	// Routers Omitted creates the default routed topology; an empty array keeps networks at layer 2. Responses contain the resolved routers.
+	Routers  *[]LogicalRouter   `json:"routers,omitempty"`
 	Routes   *[]Route           `json:"routes,omitempty"`
 	Services *[]ServiceExposure `json:"services,omitempty"`
 }
@@ -1136,6 +1139,13 @@ type LogChunk struct {
 // LogChunkStream defines model for LogChunk.Stream.
 type LogChunkStream string
 
+// LogicalRouter defines model for LogicalRouter.
+type LogicalRouter struct {
+	Id         string            `json:"id"`
+	Interfaces []RouterInterface `json:"interfaces"`
+	Name       string            `json:"name"`
+}
+
 // Login defines model for Login.
 type Login struct {
 	Name     string `json:"name"`
@@ -1191,6 +1201,9 @@ type MigrationRequest struct {
 
 // Network defines model for Network.
 type Network struct {
+	// AccessAddress Address reserved for platform management on this network; assigned automatically.
+	AccessAddress *string `json:"accessAddress,omitempty"`
+
 	// AllocationPool Address prefix reserved for Netlab on an existing LAN
 	AllocationPool *string `json:"allocationPool,omitempty"`
 	Cidr           string  `json:"cidr"`
@@ -1748,9 +1761,17 @@ type RolePresetKey string
 
 // Route defines model for Route.
 type Route struct {
-	Destination string `json:"destination"`
-	NetworkId   string `json:"networkId"`
-	NextHop     string `json:"nextHop"`
+	Destination string  `json:"destination"`
+	NetworkId   string  `json:"networkId"`
+	NextHop     string  `json:"nextHop"`
+	RouterId    *string `json:"routerId,omitempty"`
+}
+
+// RouterInterface defines model for RouterInterface.
+type RouterInterface struct {
+	Address   string `json:"address"`
+	Id        string `json:"id"`
+	NetworkId string `json:"networkId"`
 }
 
 // SSHProbe defines model for SSHProbe.

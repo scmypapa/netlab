@@ -30,3 +30,35 @@ func (n Network) RouterAddress() string {
 	}
 	return ""
 }
+
+// WithRouting expands the default topology accepted by the public API.
+func (s EnvironmentSpec) WithRouting() EnvironmentSpec {
+	if s.Routers != nil {
+		return s
+	}
+	router := LogicalRouter{Id: "gateway", Name: "默认路由器", Interfaces: []RouterInterface{}}
+	for _, network := range s.Networks {
+		address := network.RouterAddress()
+		if address == "" && network.External == nil {
+			if prefix, err := netip.ParsePrefix(network.Cidr); err == nil {
+				address = prefix.Masked().Addr().Next().String()
+			}
+		}
+		if address != "" {
+			router.Interfaces = append(router.Interfaces, RouterInterface{Id: network.Id, NetworkId: network.Id, Address: address})
+		}
+	}
+	routers := []LogicalRouter{router}
+	s.Routers = &routers
+	if s.Routes != nil {
+		routes := append([]Route{}, (*s.Routes)...)
+		for i := range routes {
+			if routes[i].RouterId == nil {
+				id := router.Id
+				routes[i].RouterId = &id
+			}
+		}
+		s.Routes = &routes
+	}
+	return s
+}

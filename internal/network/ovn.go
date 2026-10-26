@@ -88,6 +88,7 @@ func (n *OVN) deleteOperations(ctx context.Context, environmentID string) ([]ovs
 }
 
 func Compile(plan api.NodePlan) ([]model.Model, error) {
+	plan.Spec = plan.Spec.WithRouting()
 	var models []model.Model
 	portNames := make(map[string]string)
 	for _, a := range plan.Assets {
@@ -97,15 +98,25 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 	}
 	networks := make(map[string]api.Network, len(plan.Spec.Networks))
 	switches := make(map[string]*Switch, len(plan.Spec.Networks))
-	router := &Router{UUID: "router", Name: objectName("lr", plan.EnvironmentId, "gateway"), ExternalIDs: ownership(plan.EnvironmentId)}
+	dnsServers := make(map[string][]string, len(plan.Spec.Networks))
+	dhcpServers := make(map[string]netip.Addr, len(plan.Spec.Networks))
 	for i, nw := range plan.Spec.Networks {
 		networks[nw.Id] = nw
-		p, err := netip.ParsePrefix(nw.Cidr)
+		prefix, err := netip.ParsePrefix(nw.Cidr)
 		if err != nil {
 			return nil, fmt.Errorf("network %s: %w", nw.Name, err)
 		}
 		sw := &Switch{UUID: fmt.Sprintf("sw%d", i), Name: objectName("ls", plan.EnvironmentId, nw.Id), ExternalIDs: ownership(plan.EnvironmentId)}
 		switches[nw.Id] = sw
+		dnsServers[nw.Id] = networkDNS(nw, plan.Spec.Assets)
+		server := prefix.Masked().Addr().Next()
+		if nw.AccessAddress != nil {
+			server, err = netip.ParseAddr(*nw.AccessAddress)
+			if err != nil {
+				return nil, err
+			}
+		}
+		dhcpServers[nw.Id] = server
 		models = append(models, sw)
 		if nw.External != nil {
 			if nw.AllocationPool == nil {
@@ -125,21 +136,41 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 			sw.Ports = append(sw.Ports, port.UUID)
 			models = append(models, port)
 		}
-		if address := nw.RouterAddress(); address != "" {
-			gw, err := netip.ParseAddr(address)
+	}
+	routers := make(map[string]*Router, len(*plan.Spec.Routers))
+	outputs := make(map[string]map[string]string, len(*plan.Spec.Routers))
+	for ri, desired := range *plan.Spec.Routers {
+		router := &Router{UUID: fmt.Sprintf("router%d", ri), Name: objectName("lr", plan.EnvironmentId, desired.Id), ExternalIDs: ownership(plan.EnvironmentId)}
+		router.ExternalIDs["netlab.router"] = desired.Id
+		routers[desired.Id] = router
+		outputs[desired.Id] = map[string]string{}
+		for ii, iface := range desired.Interfaces {
+			nw, exists := networks[iface.NetworkId]
+			if !exists {
+				return nil, fmt.Errorf("router %s references absent network", desired.Name)
+			}
+			prefix, _ := netip.ParsePrefix(nw.Cidr)
+			gw, err := netip.ParseAddr(iface.Address)
 			if err != nil {
 				return nil, err
 			}
 			mac := routerMAC(gw)
-			rp := &RouterPort{UUID: fmt.Sprintf("rp%d", i), Name: objectName("lrp", plan.EnvironmentId, nw.Id), MAC: mac, Networks: []string{netip.PrefixFrom(gw, p.Bits()).String()}, ExternalIDs: ownership(plan.EnvironmentId)}
-			if p.Addr().Is6() && nw.External == nil {
+			rp := &RouterPort{UUID: fmt.Sprintf("rp%d_%d", ri, ii), Name: objectName("lrp", plan.EnvironmentId, iface.Id), MAC: mac, Networks: []string{netip.PrefixFrom(gw, prefix.Bits()).String()}, ExternalIDs: ownership(plan.EnvironmentId)}
+			rp.ExternalIDs["netlab.network"] = nw.Id
+			rp.ExternalIDs["netlab.router"] = desired.Id
+			if prefix.Addr().Is6() && nw.External == nil && nw.Gateway != nil && *nw.Gateway == iface.Address {
 				rp.IPv6RA = map[string]string{"address_mode": "dhcpv6_stateful", "send_periodic": "true"}
 			}
-			lp := &SwitchPort{UUID: fmt.Sprintf("gw%d", i), Name: objectName("gw", plan.EnvironmentId, nw.Id), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": rp.Name}, ExternalIDs: ownership(plan.EnvironmentId)}
-			sw.Ports = append(sw.Ports, lp.UUID)
+			lp := &SwitchPort{UUID: fmt.Sprintf("gw%d_%d", ri, ii), Name: objectName("gw", plan.EnvironmentId, iface.Id), Type: "router", Addresses: []string{"router"}, Options: map[string]string{"router-port": rp.Name}, ExternalIDs: ownership(plan.EnvironmentId)}
+			switches[nw.Id].Ports = append(switches[nw.Id].Ports, lp.UUID)
 			router.Ports = append(router.Ports, rp.UUID)
+			outputs[desired.Id][nw.Id] = rp.Name
+			if nw.AccessAddress == nil {
+				dhcpServers[nw.Id] = gw
+			}
 			models = append(models, rp, lp)
 		}
+		models = append(models, router)
 	}
 	// The whole specification is supplied even when only some assets execute here.
 	// Port identity is consequently independent of node placement.
@@ -170,10 +201,7 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 			port.ExternalIDs["netlab.interface"] = iface.Id
 			options := map[string]string{}
 			if ip.Is4() {
-				server := prefix.Addr().Next()
-				if address := nw.RouterAddress(); address != "" {
-					server, _ = netip.ParseAddr(address)
-				}
+				server := dhcpServers[nw.Id]
 				options["server_id"] = server.String()
 				options["server_mac"] = routerMAC(server)
 				options["lease_time"] = "3600"
@@ -187,7 +215,7 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 			} else {
 				options["server_id"] = routerMAC(prefix.Addr().Next())
 			}
-			dns := networkDNS(nw, plan.Spec.Assets)
+			dns := dnsServers[nw.Id]
 			if len(dns) > 0 {
 				options["dns_server"] = "{" + strings.Join(dns, ", ") + "}"
 			}
@@ -212,14 +240,15 @@ func Compile(plan api.NodePlan) ([]model.Model, error) {
 			if _, err := netip.ParseAddr(r.NextHop); err != nil {
 				return nil, err
 			}
-			out := objectName("lrp", plan.EnvironmentId, r.NetworkId)
+			if r.RouterId == nil || routers[*r.RouterId] == nil || outputs[*r.RouterId][r.NetworkId] == "" {
+				return nil, fmt.Errorf("route has no router interface on network %s", r.NetworkId)
+			}
+			out := outputs[*r.RouterId][r.NetworkId]
 			item := &Route{UUID: fmt.Sprintf("route%d", i), Prefix: r.Destination, NextHop: r.NextHop, OutputPort: &out, ExternalIDs: ownership(plan.EnvironmentId)}
+			router := routers[*r.RouterId]
 			router.Routes = append(router.Routes, item.UUID)
 			models = append(models, item)
 		}
-	}
-	if len(router.Ports) > 0 {
-		models = append(models, router)
 	}
 	if plan.Spec.Policies != nil {
 		for pi, p := range *plan.Spec.Policies {

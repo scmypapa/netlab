@@ -21,6 +21,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 	if spec.Networks == nil {
 		spec.Networks = []api.Network{}
 	}
+	automaticRouting := spec.Routers == nil
 	networks := map[string]api.Network{}
 	prefixes := map[string]netip.Prefix{}
 	addresses := map[string]map[netip.Addr]bool{}
@@ -47,7 +48,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			if err != nil {
 				return spec, Invalid("网段 %s 的网关地址无效", n.Name)
 			}
-		} else if n.External == nil {
+		} else if n.External == nil && automaticRouting {
 			gateway = p.Addr().Next()
 		}
 		if gateway.IsValid() && !usable(p, gateway) && !(n.External != nil && p.Addr().Is6() && gateway.Is6() && gateway.IsLinkLocalUnicast()) {
@@ -93,10 +94,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		}
 		networks[n.Id] = *n
 		prefixes[n.Id] = pool
-		addresses[n.Id] = map[netip.Addr]bool{gateway: true}
-		if n.External != nil {
-			addresses[n.Id][pool.Addr().Next()] = true
-		}
+		addresses[n.Id] = map[netip.Addr]bool{}
 		if len(n.Devices) > 0 && n.External == nil {
 			return spec, Invalid("外部设备只能加入现场网络")
 		}
@@ -114,9 +112,6 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			if err != nil || !usable(p, address) || deviceAddresses[address] {
 				return spec, Invalid("外部设备 %s 的地址无效或重复", device.Name)
 			}
-			if address == pool.Addr().Next() {
-				return spec, Invalid("外部设备地址 %s 与 Netlab 保留路由地址冲突", device.Address)
-			}
 			mac, err := net.ParseMAC(device.Mac)
 			if err != nil || len(mac) != 6 || mac[0]&1 != 0 || macs[n.Id+"/"+mac.String()] {
 				return spec, Invalid("外部设备 %s 的 MAC 地址无效或重复", device.Name)
@@ -129,7 +124,19 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			deviceAddresses[address], addresses[n.Id][address], macs[n.Id+"/"+device.Mac] = true, true, true
 		}
 	}
+	spec = spec.WithRouting()
+	if err := normalizeRouting(&spec, networks, prefixes, addresses, objects); err != nil {
+		return spec, err
+	}
+	for _, network := range spec.Networks {
+		networks[network.Id] = network
+	}
 	interfaceIDs := map[string]bool{}
+	for _, router := range *spec.Routers {
+		for _, iface := range router.Interfaces {
+			interfaceIDs[iface.Id] = true
+		}
+	}
 	for i := range spec.Assets {
 		a := &spec.Assets[i]
 		if a.Id == "" {
@@ -260,6 +267,9 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 			a.Interfaces[0].Primary = true
 		}
 	}
+	if err := reserveNetworkAccess(&spec, prefixes, addresses); err != nil {
+		return spec, err
+	}
 	for i := range spec.Assets {
 		for j := range spec.Assets[i].Interfaces {
 			nic := &spec.Assets[i].Interfaces[j]
@@ -358,6 +368,7 @@ func RequiresReplacement(template api.Template, before, after api.Asset, network
 }
 
 func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]api.Template) api.ChangePreview {
+	before, after = before.WithRouting(), after.WithRouting()
 	result := api.ChangePreview{Revision: revision, Changes: []api.ChangeItem{}}
 	oldAssets := map[string]api.Asset{}
 	for _, a := range before.Assets {
@@ -410,7 +421,7 @@ func Diff(revision int, before, after api.EnvironmentSpec, templates map[string]
 	for _, n := range oldNetworks {
 		result.Changes = append(result.Changes, api.ChangeItem{Id: n.Id, Name: n.Name, Kind: api.ChangeItemKindNetwork, Effect: api.Remove})
 	}
-	if !reflect.DeepEqual(before.Routes, after.Routes) || !reflect.DeepEqual(before.Policies, after.Policies) {
+	if !reflect.DeepEqual(before.Routers, after.Routers) || !reflect.DeepEqual(before.Routes, after.Routes) || !reflect.DeepEqual(before.Policies, after.Policies) {
 		result.Changes = append(result.Changes, api.ChangeItem{Id: "network-rules", Name: "网络规则", Kind: api.ChangeItemKindNetwork, Effect: api.Update})
 	}
 	oldServices := map[string]api.ServiceExposure{}

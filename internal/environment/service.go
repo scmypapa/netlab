@@ -144,6 +144,7 @@ func Record(row queries.Environment) (api.Environment, error) {
 	if err := json.Unmarshal(row.Spec, &result.Spec); err != nil {
 		return result, err
 	}
+	result.Spec = result.Spec.WithRouting()
 	if err := json.Unmarshal(row.View, &result.View); err != nil {
 		return result, err
 	}
@@ -155,11 +156,14 @@ func Record(row queries.Environment) (api.Environment, error) {
 		if err := json.Unmarshal(row.AppliedSpec, &result.AppliedSpec); err != nil {
 			return result, err
 		}
+		spec := result.AppliedSpec.WithRouting()
+		result.AppliedSpec = &spec
 	}
 	if len(row.Draft) > 0 {
 		if err := json.Unmarshal(row.Draft, &result.Draft); err != nil {
 			return result, err
 		}
+		result.Draft.Spec = result.Draft.Spec.WithRouting()
 	}
 	return result, nil
 }

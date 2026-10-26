@@ -126,7 +126,9 @@ func clearRecoveryPlacement(spec *api.EnvironmentSpec) {
 
 // Each creation has its own logical identities; addresses remain in isolated networks.
 func instantiate(spec *api.EnvironmentSpec, view *api.CanvasView) {
+	*spec = spec.WithRouting()
 	networks, assets, interfaces, objects := map[string]string{}, map[string]string{}, map[string]string{}, map[string]string{}
+	routers := map[string]string{}
 	for i := range spec.Networks {
 		network := &spec.Networks[i]
 		id := uuid.NewString()
@@ -136,6 +138,16 @@ func instantiate(spec *api.EnvironmentSpec, view *api.CanvasView) {
 			device := &network.Devices[j]
 			id := uuid.NewString()
 			objects[device.Id], device.Id = id, id
+		}
+	}
+	for i := range *spec.Routers {
+		router := &(*spec.Routers)[i]
+		id := uuid.NewString()
+		routers[router.Id], objects[router.Id] = id, id
+		router.Id = id
+		for j := range router.Interfaces {
+			iface := &router.Interfaces[j]
+			iface.Id, iface.NetworkId = uuid.NewString(), networks[iface.NetworkId]
 		}
 	}
 	for i := range spec.Assets {
@@ -173,6 +185,10 @@ func instantiate(spec *api.EnvironmentSpec, view *api.CanvasView) {
 	if spec.Routes != nil {
 		for i := range *spec.Routes {
 			(*spec.Routes)[i].NetworkId = networks[(*spec.Routes)[i].NetworkId]
+			if previous := (*spec.Routes)[i].RouterId; previous != nil {
+				id := routers[*previous]
+				(*spec.Routes)[i].RouterId = &id
+			}
 		}
 	}
 	if spec.Policies != nil {

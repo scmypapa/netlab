@@ -1198,6 +1198,7 @@ components:
         name: {type: string}
         cidr: {type: string}
         gateway: {type: string}
+        accessAddress: {type: string, readOnly: true, description: Address reserved for platform management on this network; assigned automatically.}
         allocationPool: {type: string, description: Address prefix reserved for Netlab on an existing LAN}
         external: {$ref: '#/components/schemas/ExternalAttachment'}
         devices: {type: array, items: {$ref: '#/components/schemas/ExternalDevice'}, x-go-type-skip-optional-pointer: true, description: Physical devices registered on this external network; never provisioned or reconfigured by Netlab.}
@@ -1260,10 +1261,25 @@ components:
         hostname: {type: string}
         username: {type: string}
         sshAuthorizedKeys: {type: array, items: {type: string}}
+    RouterInterface:
+      type: object
+      required: [id, networkId, address]
+      properties:
+        id: {type: string}
+        networkId: {type: string}
+        address: {type: string}
+    LogicalRouter:
+      type: object
+      required: [id, name, interfaces]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        interfaces: {type: array, items: {$ref: '#/components/schemas/RouterInterface'}}
     Route:
       type: object
       required: [networkId, destination, nextHop]
       properties:
+        routerId: {type: string}
         networkId: {type: string}
         destination: {type: string}
         nextHop: {type: string}
@@ -1287,6 +1303,7 @@ components:
       properties:
         assets: {type: array, items: {$ref: '#/components/schemas/Asset'}}
         networks: {type: array, items: {$ref: '#/components/schemas/Network'}}
+        routers: {type: array, items: {$ref: '#/components/schemas/LogicalRouter'}, description: Omitted creates the default routed topology; an empty array keeps networks at layer 2. Responses contain the resolved routers.}
         routes: {type: array, items: {$ref: '#/components/schemas/Route'}}
         policies: {type: array, items: {$ref: '#/components/schemas/Policy'}}
         services: {type: array, items: {$ref: '#/components/schemas/ServiceExposure'}}
