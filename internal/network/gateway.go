@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/ovn-org/libovsdb/client"
-	"github.com/ovn-org/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/client"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
 
 const ProviderBridge = "br-nl-service"
@@ -33,7 +33,7 @@ func (n *OVS) EnsureProvider(ctx context.Context, nodeID string) (string, error)
 		iface := &Interface{UUID: "provider_interface", Name: ProviderBridge, Type: "internal"}
 		port := &Port{UUID: "provider_port", Name: ProviderBridge, Interfaces: []string{iface.UUID}}
 		bridge = &Bridge{UUID: "provider_bridge", Name: ProviderBridge, Ports: []string{port.UUID}, ExternalIDs: map[string]string{"netlab.component": "service_provider"}}
-		created, err := n.client.Create(iface, port, bridge)
+		created, err := createOperations(n.client, iface, port, bridge)
 		if err != nil {
 			return "", err
 		}

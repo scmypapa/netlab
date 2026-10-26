@@ -14,8 +14,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ovn-org/libovsdb/client"
-	"github.com/ovn-org/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/client"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/vishvananda/netlink"
 	"netlab.local/core/api"
 )
@@ -288,7 +288,7 @@ func (e *External) reconcile(ctx context.Context) error {
 				uplink := &Interface{UUID: uid + "uplink", Name: device}
 				port := &Port{UUID: uid + "port", Name: device, Interfaces: []string{uplink.UUID}}
 				bridge = &Bridge{UUID: uid + "bridge", Name: target, Ports: []string{port.UUID, internalPort.UUID}, ExternalIDs: ids}
-				created, err := e.ovs.client.Create(internal, internalPort, uplink, port, bridge)
+				created, err := createOperations(e.ovs.client, internal, internalPort, uplink, port, bridge)
 				if err != nil {
 					return err
 				}

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/ovn-org/libovsdb/model"
+	"github.com/ovn-kubernetes/libovsdb/model"
 	"netlab.local/core/api"
 )
 

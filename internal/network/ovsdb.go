@@ -13,9 +13,9 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-logr/logr"
-	"github.com/ovn-org/libovsdb/client"
-	"github.com/ovn-org/libovsdb/model"
-	"github.com/ovn-org/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/client"
+	"github.com/ovn-kubernetes/libovsdb/model"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"netlab.local/core/api"
 )
 
@@ -227,6 +227,29 @@ func transact(ctx context.Context, c client.Client, ops []ovsdb.Operation) error
 	}
 	return nil
 }
+
+// Create accepts one table per call; its rows still commit in the caller's transaction.
+func createOperations(c client.Client, rows ...model.Model) ([]ovsdb.Operation, error) {
+	groups := map[reflect.Type][]model.Model{}
+	var order []reflect.Type
+	for _, row := range rows {
+		kind := reflect.TypeOf(row)
+		if len(groups[kind]) == 0 {
+			order = append(order, kind)
+		}
+		groups[kind] = append(groups[kind], row)
+	}
+	var operations []ovsdb.Operation
+	for _, kind := range order {
+		created, err := c.Create(groups[kind]...)
+		if err != nil {
+			return nil, err
+		}
+		operations = append(operations, created...)
+	}
+	return operations, nil
+}
+
 func (n *OVN) Close() { n.client.Close() }
 func (n *OVS) Close() { n.client.Close() }
 
@@ -242,7 +265,7 @@ func (n *OVS) Attach(ctx context.Context, device, logicalPort, environmentID, as
 	}
 	i := &Interface{UUID: "new_iface", Name: device, ExternalIDs: map[string]string{"iface-id": logicalPort, "netlab.instance": instanceID}}
 	p = Port{UUID: "new_port", Name: device, Interfaces: []string{i.UUID}, ExternalIDs: map[string]string{"netlab.environment": environmentID, "netlab.asset": assetID, "netlab.instance": instanceID}}
-	ops, err := n.client.Create(i, &p)
+	ops, err := createOperations(n.client, i, &p)
 	if err != nil {
 		return err
 	}

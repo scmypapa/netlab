@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ovn-org/libovsdb/client"
+	"github.com/ovn-kubernetes/libovsdb/client"
 	"netlab.local/core/api"
 )
 

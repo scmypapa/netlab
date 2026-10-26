@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ovn-org/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
 
 type SFlow struct {
