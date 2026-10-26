@@ -530,7 +530,7 @@ export function NetworkEditor({
   network?: Network;
   initialExternal?: boolean;
   spec: EnvironmentSpec;
-  onSave: (network: Network) => void;
+  onSave: (network: Network, routerIds?: string[]) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(
@@ -542,6 +542,17 @@ export function NetworkEditor({
       (initialExternal ? "" : `10.${spec.networks.length + 1}.0.0/24`),
   );
   const [gateway, setGateway] = useState(network?.gateway ?? "");
+  const [routerIds, setRouterIds] = useState(() =>
+    network
+      ? (spec.routers ?? [])
+          .filter((router) =>
+            router.interfaces.some((iface) => iface.networkId === network.id),
+          )
+          .map((router) => router.id)
+      : spec.routers?.length === 1
+        ? [spec.routers[0].id]
+        : [],
+  );
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
   const [external, setExternal] = useState(
     Boolean(network?.external) || initialExternal,
@@ -582,27 +593,30 @@ export function NetworkEditor({
     ),
   );
   const save = () =>
-    onSave({
-      id: network?.id ?? randomUUID(),
-      name,
-      cidr,
-      gateway: gateway || undefined,
-      external: external
-        ? {
-            nodeId,
-            interface: interfaceName,
-            vlan: vlan === "" ? undefined : Number(vlan),
-          }
-        : undefined,
-      allocationPool: external ? pool : undefined,
-      devices: external ? network?.devices : undefined,
-      dnsAssetId: dnsAssetId || undefined,
-      dnsServers: dnsServers
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-      mtu,
-    });
+    onSave(
+      {
+        id: network?.id ?? randomUUID(),
+        name,
+        cidr,
+        gateway: gateway || undefined,
+        external: external
+          ? {
+              nodeId,
+              interface: interfaceName,
+              vlan: vlan === "" ? undefined : Number(vlan),
+            }
+          : undefined,
+        allocationPool: external ? pool : undefined,
+        devices: external ? network?.devices : undefined,
+        dnsAssetId: dnsAssetId || undefined,
+        dnsServers: dnsServers
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        mtu,
+      },
+      external ? undefined : routerIds,
+    );
   return (
     <Drawer
       opened
@@ -723,6 +737,18 @@ export function NetworkEditor({
           value={cidr}
           onChange={(event) => setCidr(event.currentTarget.value)}
         />
+        {!external && Boolean(spec.routers?.length) && (
+          <MultiSelect
+            label="连接路由器"
+            placeholder="不连接路由器"
+            value={routerIds}
+            onChange={setRouterIds}
+            data={(spec.routers ?? []).map((router) => ({
+              value: router.id,
+              label: router.name,
+            }))}
+          />
+        )}
         {external && (
           <>
             <TextInput

@@ -21,6 +21,7 @@ import { useState } from "react";
 import type { Network } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
 import type { useVPNAccess, VPNInput } from "./useVPNAccess";
+import { networksOverlap } from "./networking";
 import styles from "./VPNDrawer.module.css";
 
 const states = {
@@ -47,6 +48,15 @@ export function VPNDrawer({
     networks.map((item) => item.id),
   );
   const [mode, setMode] = useState<VPNInput["mode"]>("original");
+  const selectedNetworks = networks.filter((network) =>
+    networkIds.includes(network.id),
+  );
+  const overlapping = selectedNetworks.some((network, index) =>
+    selectedNetworks
+      .slice(index + 1)
+      .some((other) => networksOverlap(network, other)),
+  );
+  const accessMode = overlapping ? "translated" : mode;
   const pending = busy || vpn.create.isPending || vpn.revoke.isPending;
   const error =
     vpn.access.error ??
@@ -171,7 +181,7 @@ export function VPNDrawer({
             onSubmit={(event) => {
               event.preventDefault();
               vpn.create.mutate(
-                { name: name.trim(), networkIds, mode },
+                { name: name.trim(), networkIds, mode: accessMode },
                 {
                   onSuccess: () => {
                     setCreating(false);
@@ -200,10 +210,10 @@ export function VPNDrawer({
             />
             <SegmentedControl
               aria-label="地址模式"
-              value={mode}
+              value={accessMode}
               onChange={(value) => setMode(value as VPNInput["mode"])}
               data={[
-                { label: "原地址", value: "original" },
+                { label: "原地址", value: "original", disabled: overlapping },
                 { label: "独立访问地址", value: "translated" },
               ]}
             />

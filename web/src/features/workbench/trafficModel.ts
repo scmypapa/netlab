@@ -4,6 +4,7 @@ import type {
   TrafficSelection,
   TrafficLink,
 } from "./TrafficGraph";
+import { networkContains as contains } from "./networking";
 
 type Spec = Environment["spec"];
 type Conversation = Pick<
@@ -12,13 +13,6 @@ type Conversation = Pick<
 > & { networkId?: string };
 const ipv4 = (address: string) =>
   address.split(".").reduce((value, part) => value * 256 + Number(part), 0);
-const contains = (cidr: string, address: string) => {
-  if (!/^\d+\.\d+\.\d+\.\d+$/.test(address) || !cidr.includes("."))
-    return false;
-  const [base, prefix] = cidr.split("/");
-  const block = 2 ** (32 - Number(prefix));
-  return Math.floor(ipv4(base) / block) === Math.floor(ipv4(address) / block);
-};
 export function describeEndpoint(
   spec: Spec,
   item: Conversation,
@@ -47,17 +41,37 @@ export function describeEndpoint(
     };
   const peerId =
     side === "source" ? item.destinationAssetId : item.sourceAssetId;
-  const peer = spec.assets.find((asset) => asset.id === peerId);
+  const peer =
+    !item.networkId && peerId
+      ? spec.assets.find((asset) => asset.id === peerId)
+      : undefined;
   const peerAddress = side === "source" ? item.destination : item.source;
-  const peerInterface = peer?.interfaces.find(
+  const peerInterfaces = peer?.interfaces.filter(
     (iface) =>
-      iface.address.split("/")[0] === peerAddress || iface.mac === peerAddress,
+      (!item.networkId || iface.networkId === item.networkId) &&
+      (iface.address.split("/")[0] === peerAddress ||
+        iface.mac === peerAddress),
   );
+  const peerInterface =
+    peerInterfaces?.length === 1 ? peerInterfaces[0] : undefined;
+  const inferredNetwork = () => {
+    const containing = spec.networks.filter((network) =>
+      contains(network.cidr, address),
+    );
+    return containing.length === 1 ? containing[0] : undefined;
+  };
   const network =
     spec.networks.find((network) => network.id === item.networkId) ??
     spec.networks.find((network) => network.id === peerInterface?.networkId) ??
-    spec.networks.find((network) => contains(network.cidr, address));
-  const gateway = network?.gateway === address ? network : undefined;
+    inferredNetwork();
+  const router = spec.routers?.find((router) =>
+    router.interfaces.some(
+      (iface) =>
+        iface.networkId === network?.id &&
+        iface.address.split("/")[0] === address,
+    ),
+  );
+  const gateway = router || network?.gateway === address;
   let kind: EndpointKind = gateway ? "gateway" : "external";
   const mac = /^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(address);
   if (address === "ff:ff:ff:ff:ff:ff" || address === "255.255.255.255")
@@ -78,15 +92,25 @@ export function describeEndpoint(
   else if (mac && kind !== "broadcast") kind = "ethernet";
   const grouped = kind === "broadcast" || kind === "multicast";
   return {
-    id: grouped ? `group:${network?.id ?? "unbound"}:${kind}` : address,
+    id: grouped
+      ? `group:${network?.id ?? "unbound"}:${kind}`
+      : `endpoint:${JSON.stringify([network?.id ?? "", address])}`,
     name: grouped
       ? `${network?.name ?? "链路"} · ${kind === "broadcast" ? "广播" : "组播"}`
-      : gateway
-        ? `${gateway.name} · 网关`
-        : address,
+      : router
+        ? router.name
+        : gateway
+          ? `${network!.name} · 网关`
+          : address,
     kind,
     members: [address],
   };
+}
+
+function scopedEndpoint(id: string): [string, string] | undefined {
+  return id.startsWith("endpoint:")
+    ? (JSON.parse(id.slice(9)) as [string, string])
+    : undefined;
 }
 
 export function selectionMatches(
@@ -131,7 +155,7 @@ export function endpointFilter(spec: Spec, members: string[]) {
           addressFilter(iface.address),
           `eth.addr == ${iface.mac}`,
         ])
-      : [addressFilter(member)];
+      : [addressFilter(scopedEndpoint(member)?.[1] ?? member)];
   });
   return `(${[...new Set(expressions)].join(" || ")})`;
 }
@@ -173,6 +197,10 @@ export function selectionNetwork(
     : [];
   const network = ids.find((id) => id.startsWith("group:"))?.split(":")[1];
   if (network && network !== "unbound") return network;
+  const endpointNetworks = [
+    ...new Set(ids.flatMap((id) => scopedEndpoint(id)?.[0] || [])),
+  ];
+  if (endpointNetworks.length === 1) return endpointNetworks[0];
   const assets = ids.flatMap(
     (id) => spec.assets.find((asset) => asset.id === id) ?? [],
   );
@@ -205,6 +233,9 @@ export function packetAlerts(
       packet.sourcePort === alert.destinationPort &&
       packet.destinationPort === alert.sourcePort;
     return (
+      (!packet.networkId ||
+        !alert.networkId ||
+        packet.networkId === alert.networkId) &&
       (forward || reverse) &&
       (packet.transportProtocol ?? packet.protocol)
         .toLowerCase()

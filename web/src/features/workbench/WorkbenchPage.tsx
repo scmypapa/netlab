@@ -47,6 +47,8 @@ import { SaveBlueprintDialog } from "../templates/SaveBlueprintDialog";
 import { SharingDrawer } from "../access/SharingDrawer";
 import { AssetEditor, NetworkEditor } from "./ObjectEditors";
 import { ExternalDeviceEditor } from "./ExternalDeviceEditor";
+import { RouterEditor } from "./RouterEditor";
+import { routerGateways } from "./networking";
 import { ObjectInspector } from "./ObjectInspector";
 import { MigrationDialog } from "./MigrationDialog";
 import { FileWorkspace } from "./FileWorkspace";
@@ -55,7 +57,12 @@ import { LogDrawer } from "./LogDrawer";
 import { ServiceDrawer } from "./ServiceDrawer";
 import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
-import { connectAsset, networkColors, topology } from "./topology";
+import {
+  connectAsset,
+  connectRouter,
+  networkColors,
+  topology,
+} from "./topology";
 import { useWorkbench } from "./useWorkbench";
 import { useVPNAccess } from "./useVPNAccess";
 import { VPNDrawer } from "./VPNDrawer";
@@ -105,7 +112,7 @@ function Workbench({ id }: { id: string }) {
   const [query, setQuery] = useState("");
   const [assetFilter, setAssetFilter] = useState("all");
   const [editor, setEditor] = useState<
-    "asset" | "network" | "external" | "external-network"
+    "asset" | "network" | "router" | "external" | "external-network"
   >();
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
@@ -179,6 +186,7 @@ function Workbench({ id }: { id: string }) {
     [layout, assetStates],
   );
   const asset = spec.assets.find((item) => item.id === selection);
+  const router = spec.routers?.find((item) => item.id === selection);
   const externalDevices = spec.networks.flatMap((network) =>
     (network.devices ?? []).map((device) => ({ device, network })),
   );
@@ -284,7 +292,7 @@ function Workbench({ id }: { id: string }) {
     workbench.beginEdit();
   };
   const adding = (
-    kind: "asset" | "network" | "external" | "external-network",
+    kind: "asset" | "network" | "router" | "external" | "external-network",
   ) => {
     if (!workbench.editing) beginEdit();
     setEditingObject(false);
@@ -292,7 +300,15 @@ function Workbench({ id }: { id: string }) {
   };
   const editObject = () => {
     setEditingObject(true);
-    setEditor(externalDevice ? "external" : asset ? "asset" : "network");
+    setEditor(
+      externalDevice
+        ? "external"
+        : router
+          ? "router"
+          : asset
+            ? "asset"
+            : "network",
+    );
   };
   const updateAsset = (value: Asset) => {
     workbench.setSpec((current) => ({
@@ -304,50 +320,133 @@ function Workbench({ id }: { id: string }) {
     setSelection(value.id);
     setEditor(undefined);
   };
-  const updateNetwork = (value: NetworkModel) => {
-    workbench.setSpec((current) => ({
-      ...current,
-      networks: current.networks.some((item) => item.id === value.id)
+  const updateNetwork = (value: NetworkModel, routerIds?: string[]) => {
+    workbench.setSpec((current) => {
+      const routers = current.routers?.map((item) => {
+        if (!routerIds) return item;
+        const existing = item.interfaces.find(
+          (iface) => iface.networkId === value.id,
+        );
+        if (existing && routerIds.includes(item.id)) return item;
+        return {
+          ...item,
+          interfaces: [
+            ...item.interfaces.filter((iface) => iface.networkId !== value.id),
+            ...(routerIds.includes(item.id)
+              ? [
+                  {
+                    id: randomUUID(),
+                    networkId: value.id,
+                    address: "",
+                  },
+                ]
+              : []),
+          ],
+        };
+      });
+      const networks = current.networks.some((item) => item.id === value.id)
         ? current.networks.map((item) => (item.id === value.id ? value : item))
-        : [...current.networks, value],
-    }));
+        : [...current.networks, value];
+      return {
+        ...current,
+        networks: routerGateways(
+          networks,
+          current.routers ?? [],
+          routers ?? [],
+        ),
+        routers,
+        routes: current.routes?.filter(
+          (route) =>
+            !routerIds ||
+            route.networkId !== value.id ||
+            (route.routerId !== undefined &&
+              routerIds.includes(route.routerId)),
+        ),
+      };
+    });
     setSelection(value.id);
     setEditor(editor === "external-network" ? "external" : undefined);
   };
+  const updateRouter = (
+    value: Schema<"LogicalRouter">,
+    routes: Schema<"Route">[],
+  ) => {
+    workbench.setSpec((current) => {
+      const routers = current.routers?.some((item) => item.id === value.id)
+        ? current.routers.map((item) => (item.id === value.id ? value : item))
+        : [...(current.routers ?? []), value];
+      return {
+        ...current,
+        routers,
+        networks: routerGateways(
+          current.networks,
+          current.routers ?? [],
+          routers,
+        ),
+        routes: [
+          ...(current.routes ?? []).filter(
+            (route) => route.routerId !== value.id,
+          ),
+          ...routes,
+        ],
+      };
+    });
+    setSelection(value.id);
+    setEditor(undefined);
+  };
   const remove = () => {
-    workbench.setSpec((current) => ({
-      ...current,
-      assets: current.assets
-        .filter((item) => item.id !== selection)
+    workbench.setSpec((current) => {
+      const routers = current.routers
+        ?.filter((item) => item.id !== selection)
         .map((item) => ({
           ...item,
           interfaces: item.interfaces.filter(
             (iface) => iface.networkId !== selection,
           ),
-        })),
-      networks: current.networks
-        .filter((item) => item.id !== selection)
-        .map((item) => ({
-          ...item,
-          devices: item.devices?.filter((device) => device.id !== selection),
-        })),
-      routes: current.routes?.filter((item) => item.networkId !== selection),
-      policies: current.policies?.filter(
-        (item) => item.networkId !== selection,
-      ),
-      services: current.services?.filter((service) =>
-        current.assets.some(
-          (item) =>
-            item.id === service.assetId &&
-            item.id !== selection &&
-            item.interfaces.some(
-              (iface) =>
-                iface.id === service.interfaceId &&
-                iface.networkId !== selection,
+        }));
+      return {
+        ...current,
+        assets: current.assets
+          .filter((item) => item.id !== selection)
+          .map((item) => ({
+            ...item,
+            interfaces: item.interfaces.filter(
+              (iface) => iface.networkId !== selection,
             ),
+          })),
+        networks: routerGateways(
+          current.networks
+            .filter((item) => item.id !== selection)
+            .map((item) => ({
+              ...item,
+              devices: item.devices?.filter(
+                (device) => device.id !== selection,
+              ),
+            })),
+          current.routers ?? [],
+          routers ?? [],
         ),
-      ),
-    }));
+        routers,
+        routes: current.routes?.filter(
+          (item) => item.networkId !== selection && item.routerId !== selection,
+        ),
+        policies: current.policies?.filter(
+          (item) => item.networkId !== selection,
+        ),
+        services: current.services?.filter((service) =>
+          current.assets.some(
+            (item) =>
+              item.id === service.assetId &&
+              item.id !== selection &&
+              item.interfaces.some(
+                (iface) =>
+                  iface.id === service.interfaceId &&
+                  iface.networkId !== selection,
+              ),
+          ),
+        ),
+      };
+    });
     setSelection(undefined);
   };
   const duplicate = () => {
@@ -645,6 +744,30 @@ function Workbench({ id }: { id: string }) {
                   ))}
               </>
             )}
+            {Boolean(spec.routers?.length) && (
+              <>
+                <div className={styles.treeHeading}>
+                  路由器<span>{spec.routers?.length}</span>
+                </div>
+                {spec.routers
+                  ?.filter((item) =>
+                    item.name
+                      .toLocaleLowerCase()
+                      .includes(query.toLocaleLowerCase()),
+                  )
+                  .map((item) => (
+                    <button
+                      className={styles.treeItem}
+                      aria-current={selection === item.id}
+                      key={item.id}
+                      onClick={() => setSelection(item.id)}
+                    >
+                      <Router size={16} />
+                      <span>{item.name}</span>
+                    </button>
+                  ))}
+              </>
+            )}
             <div className={styles.treeHeading}>
               网段<span>{spec.networks.length}</span>
             </div>
@@ -758,6 +881,12 @@ function Workbench({ id }: { id: string }) {
                       >
                         网段
                       </Menu.Item>
+                      <Menu.Item
+                        leftSection={<Router size={16} />}
+                        onClick={() => adding("router")}
+                      >
+                        路由器
+                      </Menu.Item>
                       {identity.data?.administrator && (
                         <Menu.Item
                           leftSection={<Router size={16} />}
@@ -771,6 +900,8 @@ function Workbench({ id }: { id: string }) {
                 )}
                 <span className={styles.count}>
                   {spec.assets.length} 资产 · {spec.networks.length} 网段
+                  {Boolean(spec.routers?.length) &&
+                    ` · ${spec.routers?.length} 路由器`}
                   {externalDevices.length > 0 &&
                     ` · ${externalDevices.length} 外部设备`}
                 </span>
@@ -789,7 +920,9 @@ function Workbench({ id }: { id: string }) {
                 }}
               />
             </Suspense>
-          ) : !spec.assets.length && !spec.networks.length ? (
+          ) : !spec.assets.length &&
+            !spec.networks.length &&
+            !spec.routers?.length ? (
             <Empty
               icon={<Network size={36} />}
               title="从一个网段开始"
@@ -975,6 +1108,18 @@ function Workbench({ id }: { id: string }) {
                   workbench.saveView.mutate({ ...environment.view, positions });
               }}
               onConnect={({ source, target }) => {
+                const routerId = spec.routers?.find(
+                  (item) => item.id === source || item.id === target,
+                )?.id;
+                const connectedNetwork = spec.networks.find(
+                  (item) => item.id === source || item.id === target,
+                )?.id;
+                if (routerId && connectedNetwork) {
+                  workbench.setSpec((value) =>
+                    connectRouter(value, routerId, connectedNetwork),
+                  );
+                  return;
+                }
                 const assetId = spec.assets.some((item) => item.id === source)
                   ? source
                   : target;
@@ -995,7 +1140,7 @@ function Workbench({ id }: { id: string }) {
             />
           )}
         </section>
-        {(asset || network || externalDevice) &&
+        {(asset || network || router || externalDevice) &&
           !fileAsset &&
           !observedAsset &&
           !traffic &&
@@ -1003,6 +1148,7 @@ function Workbench({ id }: { id: string }) {
             <ObjectInspector
               asset={asset}
               network={network}
+              router={router}
               device={externalDevice?.device}
               deviceNetwork={externalDevice?.network}
               spec={spec}
@@ -1193,6 +1339,14 @@ function Workbench({ id }: { id: string }) {
           onSearch={workbench.setTemplateSearch}
           spec={spec}
           onSave={updateAsset}
+          onClose={() => setEditor(undefined)}
+        />
+      )}
+      {editor === "router" && (
+        <RouterEditor
+          router={editingObject ? router : undefined}
+          spec={spec}
+          onSave={updateRouter}
           onClose={() => setEditor(undefined)}
         />
       )}

@@ -22,7 +22,7 @@ import { stateLabel } from "../../foundation/format";
 import { topologyNodeSize, type TopologyNode } from "./topology";
 import styles from "./TopologyCanvas.module.css";
 
-const nodeTypes = { asset: AssetNode, network: NetworkNode };
+const nodeTypes = { asset: AssetNode, network: NetworkNode, router: AssetNode };
 
 export function TopologyCanvas({
   nodes: initialNodes,
@@ -95,7 +95,7 @@ export function TopologyCanvas({
         return Boolean(
           source &&
           target &&
-          source.type !== target.type &&
+          (source.type === "network") !== (target.type === "network") &&
           source.data.kind !== "external" &&
           target.data.kind !== "external",
         );
@@ -173,7 +173,7 @@ function AssetNode({ data, selected }: NodeProps<TopologyNode>) {
         isConnectable={data.kind !== "external"}
       />
       <span className={styles.glyph}>
-        {data.kind === "external" ? (
+        {data.kind === "external" || data.kind === "router" ? (
           <Router size={20} />
         ) : data.kind === "vm" ? (
           <Monitor size={20} />
@@ -184,10 +184,15 @@ function AssetNode({ data, selected }: NodeProps<TopologyNode>) {
       <div className={styles.assetIdentity}>
         <strong>{data.label}</strong>
         <span className={styles.address}>
-          {data.secondary || (data.kind === "vm" ? "虚拟机" : "容器")}
+          {data.secondary ||
+            (data.kind === "router"
+              ? "原生路由器"
+              : data.kind === "vm"
+                ? "虚拟机"
+                : "容器")}
         </span>
       </div>
-      {data.kind !== "external" && (
+      {data.kind !== "external" && data.kind !== "router" && (
         <span
           className={styles.light}
           data-state={data.state}

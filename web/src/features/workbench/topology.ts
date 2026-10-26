@@ -14,15 +14,16 @@ export const networkColors = [
 export type TopologyData = {
   label: string;
   secondary: string;
-  kind: "network" | "container" | "vm" | "external";
+  kind: "network" | "container" | "vm" | "external" | "router";
   state: string;
   color: string;
   count?: number;
 };
-export type TopologyNode = Node<TopologyData, "asset" | "network">;
+export type TopologyNode = Node<TopologyData, "asset" | "network" | "router">;
 export const topologyNodeSize = {
   asset: { width: 188, height: 76 },
   network: { width: 188, height: 60 },
+  router: { width: 188, height: 76 },
 };
 
 export function topology(
@@ -57,10 +58,25 @@ export function topology(
       (counts.get(network.id) ?? 0) + (network.devices?.length ?? 0),
     ),
   );
+  for (const router of spec.routers ?? [])
+    for (const iface of router.interfaces)
+      counts.set(iface.networkId, (counts.get(iface.networkId) ?? 0) + 1);
   const templateMap = new Map(
     templates.map((template) => [template.id, template]),
   );
   const nodes: TopologyNode[] = [
+    ...(spec.routers ?? []).map((router) => ({
+      id: router.id,
+      type: "router" as const,
+      position: { x: 0, y: 0 },
+      data: {
+        label: router.name,
+        secondary: `${router.interfaces.length} 个接口`,
+        kind: "router" as const,
+        state: "",
+        color: "var(--accent)",
+      },
+    })),
     ...spec.networks.map((network) => ({
       id: network.id,
       type: "network" as const,
@@ -125,6 +141,26 @@ export function topology(
         },
       })),
   );
+  for (const router of spec.routers ?? [])
+    for (const iface of router.interfaces)
+      if (networks.has(iface.networkId))
+        edges.push({
+          id: iface.id,
+          source: router.id,
+          target: iface.networkId,
+          type: "smoothstep",
+          label: iface.address,
+          labelStyle: {
+            fill: "var(--muted)",
+            fontSize: 10,
+            fontFamily: "var(--font-mono)",
+          },
+          labelBgStyle: { fill: "var(--surface)" },
+          style: {
+            stroke: networks.get(iface.networkId)!.color,
+            strokeWidth: 1.5,
+          },
+        });
   spec.networks.forEach((network) =>
     (network.devices ?? []).forEach((device) =>
       edges.push({
@@ -140,7 +176,9 @@ export function topology(
       }),
     ),
   );
-  nodes.forEach((node) => graph.setNode(node.id, topologyNodeSize[node.type!]));
+  nodes.forEach((node) =>
+    graph.setNode(node.id, { ...topologyNodeSize[node.type!] }),
+  );
   edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
   dagre.layout(graph);
   return {
@@ -180,6 +218,28 @@ export function connectAsset(
                 mac: "",
                 primary: !asset.interfaces.length,
               },
+            ],
+          },
+    ),
+  };
+}
+
+export function connectRouter(
+  spec: EnvironmentSpec,
+  routerId: string,
+  networkId: string,
+): EnvironmentSpec {
+  return {
+    ...spec,
+    routers: spec.routers?.map((router) =>
+      router.id !== routerId ||
+      router.interfaces.some((item) => item.networkId === networkId)
+        ? router
+        : {
+            ...router,
+            interfaces: [
+              ...router.interfaces,
+              { id: randomUUID(), networkId, address: "" },
             ],
           },
     ),

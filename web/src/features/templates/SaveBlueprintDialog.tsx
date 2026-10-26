@@ -133,6 +133,9 @@ export function SaveBlueprintDialog({
           <div className="blueprint-scale">
             <span>{spec.assets.length} 个资产</span>
             <span>{spec.networks.length} 个网段</span>
+            {Boolean(spec.routers?.length) && (
+              <span>{spec.routers?.length} 个路由器</span>
+            )}
           </div>
           <ErrorMessage error={blueprints.error ?? save.error} />
           <div className="dialog-actions">

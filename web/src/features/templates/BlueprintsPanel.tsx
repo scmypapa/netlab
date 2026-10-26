@@ -177,6 +177,9 @@ function BlueprintDetails({
                   <Layers3 size={18} />
                   <span>{version.data.assetCount} 个资产</span>
                   <span>{version.data.networkCount} 个网段</span>
+                  {Boolean(version.data.spec.routers?.length) && (
+                    <span>{version.data.spec.routers?.length} 个路由器</span>
+                  )}
                 </div>
                 <div className={styles.blueprintGrid}>
                   <section>
@@ -190,6 +193,26 @@ function BlueprintDetails({
                       </div>
                     ))}
                   </section>
+                  {Boolean(version.data.spec.routers?.length) && (
+                    <section>
+                      <h3>路由器</h3>
+                      {version.data.spec.routers?.map((router) => (
+                        <div key={router.id} className={styles.blueprintRow}>
+                          <strong>{router.name}</strong>
+                          <span>
+                            {router.interfaces
+                              .map(
+                                (iface) =>
+                                  version.data!.spec.networks.find(
+                                    (network) => network.id === iface.networkId,
+                                  )?.name,
+                              )
+                              .join(" · ")}
+                          </span>
+                        </div>
+                      ))}
+                    </section>
+                  )}
                   <section>
                     <h3>资产</h3>
                     {version.data.spec.assets.map((asset) => (

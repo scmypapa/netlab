@@ -37,6 +37,7 @@ import styles from "./ObjectInspector.module.css";
 type Props = {
   asset?: Asset;
   network?: NetworkModel;
+  router?: Schema<"LogicalRouter">;
   device?: Schema<"ExternalDevice">;
   deviceNetwork?: NetworkModel;
   onDiscover?: () => void;
@@ -71,6 +72,7 @@ type Props = {
 export function ObjectInspector({
   asset,
   network,
+  router,
   device,
   deviceNetwork,
   onDiscover,
@@ -109,7 +111,7 @@ export function ObjectInspector({
     <aside className={styles.inspector} aria-label="对象详情">
       <header className={styles.header}>
         <span className={styles.symbol}>
-          {device ? (
+          {device || router ? (
             <Router size={22} />
           ) : network ? (
             <Network size={22} />
@@ -120,12 +122,14 @@ export function ObjectInspector({
           )}
         </span>
         <div className={styles.identity}>
-          <h2>{device?.name ?? asset?.name ?? network?.name}</h2>
+          <h2>
+            {device?.name ?? router?.name ?? asset?.name ?? network?.name}
+          </h2>
           {asset ? (
             <Status value={assetState?.state ?? "draft"} />
           ) : (
             <span className={styles.address}>
-              {device ? "外部设备" : network?.cidr}
+              {device ? "外部设备" : router ? "原生路由器" : network?.cidr}
             </span>
           )}
         </div>
@@ -276,7 +280,13 @@ export function ObjectInspector({
                       leftSection={<Trash2 size={15} />}
                       onClick={onRemove}
                     >
-                      {device ? "移除设备" : asset ? "移除资产" : "移除网段"}
+                      {device
+                        ? "移除设备"
+                        : router
+                          ? "移除路由器"
+                          : asset
+                            ? "移除资产"
+                            : "移除网段"}
                     </Menu.Item>
                   </>
                 ) : (
@@ -394,6 +404,72 @@ export function ObjectInspector({
         </div>
       )}
       <div className={styles.body}>
+        {router && (
+          <>
+            <section className={styles.section}>
+              <h3>
+                网络接口 <span>{router.interfaces.length}</span>
+              </h3>
+              <div className={styles.items}>
+                {router.interfaces.map((iface) => {
+                  const attached = spec.networks.find(
+                    (item) => item.id === iface.networkId,
+                  );
+                  return (
+                    <button
+                      className={styles.item}
+                      key={iface.id}
+                      onClick={() => onSelect(iface.networkId)}
+                    >
+                      <Network size={16} />
+                      <span className={styles.itemText}>
+                        <strong>{attached?.name}</strong>
+                        <span className={styles.address}>
+                          {iface.address || "自动分配"}
+                        </span>
+                      </span>
+                      <ArrowRight size={13} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+            <section className={styles.section}>
+              <h3>
+                静态路由{" "}
+                <span>
+                  {spec.routes?.filter((route) => route.routerId === router.id)
+                    .length ?? 0}
+                </span>
+              </h3>
+              <div className={styles.items}>
+                {spec.routes
+                  ?.filter((route) => route.routerId === router.id)
+                  .map((route) => (
+                    <div
+                      className={styles.item}
+                      key={`${route.networkId}:${route.destination}:${route.nextHop}`}
+                    >
+                      <ArrowRight size={15} />
+                      <span className={styles.itemText}>
+                        <strong className={styles.address}>
+                          {route.destination}
+                        </strong>
+                        <span className={styles.address}>{route.nextHop}</span>
+                      </span>
+                      <span className={styles.meta}>
+                        {
+                          spec.networks.find(
+                            (item) => item.id === route.networkId,
+                          )?.name
+                        }
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </section>
+          </>
+        )}
         {device && deviceNetwork && (
           <>
             <dl className={styles.properties}>
@@ -407,7 +483,7 @@ export function ObjectInspector({
               </div>
               {device.observedAt && (
                 <div>
-                <dt>发现时间</dt>
+                  <dt>发现时间</dt>
                   <dd>{new Date(device.observedAt).toLocaleString()}</dd>
                 </div>
               )}
@@ -592,6 +668,39 @@ export function ObjectInspector({
                 </>
               )}
             </dl>
+            {spec.routers?.some((router) =>
+              router.interfaces.some((iface) => iface.networkId === network.id),
+            ) && (
+              <section className={styles.section}>
+                <h3>连接路由器</h3>
+                <div className={styles.items}>
+                  {spec.routers
+                    .filter((router) =>
+                      router.interfaces.some(
+                        (iface) => iface.networkId === network.id,
+                      ),
+                    )
+                    .map((router) => (
+                      <button
+                        className={styles.item}
+                        key={router.id}
+                        onClick={() => onSelect(router.id)}
+                      >
+                        <Router size={16} />
+                        <span className={styles.itemText}>
+                          <strong>{router.name}</strong>
+                          <span className={styles.address}>
+                            {router.interfaces.find(
+                              (iface) => iface.networkId === network.id,
+                            )?.address || "自动分配"}
+                          </span>
+                        </span>
+                        <ArrowRight size={13} />
+                      </button>
+                    ))}
+                </div>
+              </section>
+            )}
             {network.external && (
               <section className={styles.section}>
                 <h3>
