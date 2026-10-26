@@ -61,15 +61,17 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ### 1. 虚拟化与容器
 
 * **虚拟机（QEMU/KVM）**：支持 BIOS、UEFI、Secure Boot；支持 vTPM、独立 NVRAM、CPU 拓扑、来宾 NUMA、cloud-init / Cloudbase-Init 初始化。
-* **容器（containerd + runc）**：支持标准 OCI/Docker 镜像、持久化卷、资源限额（cgroups）以及重启策略。
+* **容器（containerd + runc）**：支持标准 OCI/Docker 镜像、持久化卷、资源限额（cgroups）以及重启策略；CPU 支持 0.01 核粒度，节点可统一调整 CPU 分配比例。
 * **模板兼容**：支持 `qcow2`、`raw`、`vmdk`、`ova`、`ovf`、`iso`、`oci/docker` 镜像，支持把配好的 VM 直接固化为新模板。
 * **已验证 Guest**：Ubuntu 24.04、Windows 11、Windows Server 2022/2025，以及双机 Windows AD 域控环境（验证过 Generation ID 与安全通道恢复）。
 
 ### 2. 软件定义网络（SDN）与链路模拟
 
 * 多网段、多网卡、同节点/跨节点同网段打通。
+* 原生逻辑路由器与静态路由，支持多级路由、独立路由域及同一环境内的重复 CIDR；VPN、终端与服务开放按网段区分目标。
 * 独立网段之间允许 IP/MAC 完全重叠而不产生冲突。
 * 支持接入已有物理 LAN 与 VLAN，保留已有网关并管理 Netlab 资产的地址。
+* 支持发现并登记外部设备，在拓扑画布中统一查看与连接。
 * 链路级 QoS：实时注入**丢包、延迟、带宽限制**，随配随撤销。
 * 访问与发布：内置 WireGuard VPN 网关直通拓扑内部，支持按需暴露资产端口（TCP/UDP）。
 
@@ -119,7 +121,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.0.7/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.1.0/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
