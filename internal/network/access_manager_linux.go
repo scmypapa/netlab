@@ -139,7 +139,10 @@ func (v *Access) Apply(ctx context.Context, plan api.NodePlan) (api.NodeVPNResul
 	rollback := func(cause error) (api.NodeVPNResult, error) {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 		defer cancel()
-		return api.NodeVPNResult{}, errors.Join(cause, v.apply(cleanup, plan.EnvironmentId, &previous, next, v.serviceRecord(plan.EnvironmentId)))
+		if err := v.apply(cleanup, plan.EnvironmentId, &previous, next, v.serviceRecord(plan.EnvironmentId)); err != nil {
+			return api.NodeVPNResult{}, errors.Join(cause, fmt.Errorf("restore environment access: %w", err))
+		}
+		return api.NodeVPNResult{}, cause
 	}
 	if err := v.apply(ctx, plan.EnvironmentId, &next, previous, v.serviceRecord(plan.EnvironmentId)); err != nil {
 		return rollback(err)

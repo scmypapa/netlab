@@ -10,6 +10,7 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/mdlayher/netlink"
 	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
 )
@@ -80,7 +81,19 @@ func applyAccessFilter(environment string, record *accessRecord, services gatewa
 	if err != nil {
 		return err
 	}
-	c := &nftables.Conn{}
+	rules := 0
+	// Each ACK consumes an skb. Size both queues for the atomic batch rather
+	// than relying on the host's small default socket buffers.
+	c, err := nftables.New(nftables.WithSockOptions(func(conn *netlink.Conn) error {
+		size := (rules + 16) * 4096
+		if err := conn.SetReadBuffer(size); err != nil {
+			return err
+		}
+		return conn.SetWriteBuffer(size)
+	}))
+	if err != nil {
+		return err
+	}
 	tables, err := c.ListTables()
 	if err != nil {
 		return err
@@ -101,6 +114,7 @@ func applyAccessFilter(environment string, record *accessRecord, services gatewa
 	post := c.AddChain(&nftables.Chain{Name: "source", Table: table, Type: nftables.ChainTypeNAT, Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
 	add := func(chain *nftables.Chain, expressions []expr.Any) {
 		c.AddRule(&nftables.Rule{Table: table, Chain: chain, Exprs: expressions})
+		rules++
 	}
 	accept := func(expressions []expr.Any) []expr.Any {
 		return append(expressions, &expr.Verdict{Kind: expr.VerdictAccept})
