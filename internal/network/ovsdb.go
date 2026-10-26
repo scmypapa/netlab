@@ -151,10 +151,13 @@ func NewOVN(ctx context.Context, endpoint string, tlsConfig *tls.Config) (*OVN, 
 	if err != nil {
 		return nil, err
 	}
+	indexes := map[string][]model.ClientIndex{}
+	for table := range tables {
+		indexes[table] = []model.ClientIndex{{Columns: []model.ColumnKey{{Column: "external_ids", Key: "netlab.environment"}}}}
+	}
 	// OVN routers have no schema name index; Netlab assigns stable router names.
-	db.SetIndexes(map[string][]model.ClientIndex{
-		"Logical_Router": {{Columns: []model.ColumnKey{{Column: "name"}}}},
-	})
+	indexes["Logical_Router"] = append(indexes["Logical_Router"], model.ClientIndex{Columns: []model.ColumnKey{{Column: "name"}}})
+	db.SetIndexes(indexes)
 	c, err := connect(ctx, endpoint, db, tables, tlsConfig)
 	if err != nil {
 		return nil, err

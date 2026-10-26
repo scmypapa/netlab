@@ -108,13 +108,13 @@ func TestRealOVNMutualTLS(t *testing.T) {
 	if err := ovn.Apply(ctx, plan); err != nil {
 		t.Fatal(err)
 	}
-	waitSwitch := func(previousUUID string) string {
+	waitSwitch := func() string {
 		for {
 			var current []Switch
 			if err := ovn.client.List(ctx, &current); err != nil {
 				t.Fatal(err)
 			}
-			if len(current) == 1 && current[0].Name == objectName("ls", plan.EnvironmentId, "lan") && current[0].UUID != previousUUID {
+			if len(current) == 1 && current[0].Name == objectName("ls", plan.EnvironmentId, "lan") {
 				return current[0].UUID
 			}
 			select {
@@ -124,7 +124,7 @@ func TestRealOVNMutualTLS(t *testing.T) {
 			}
 		}
 	}
-	previousUUID := waitSwitch("")
+	previousUUID := waitSwitch()
 	for range 2 {
 		if err := server.Process.Kill(); err != nil {
 			t.Fatal(err)
@@ -147,6 +147,8 @@ func TestRealOVNMutualTLS(t *testing.T) {
 		if err := ovn.Apply(ctx, plan); err != nil {
 			t.Fatalf("apply after server restart: %v", err)
 		}
-		previousUUID = waitSwitch(previousUUID)
+		if actual := waitSwitch(); actual != previousUUID {
+			t.Fatalf("reconnecting replaced the existing logical switch: before=%s after=%s", previousUUID, actual)
+		}
 	}
 }

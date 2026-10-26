@@ -13,8 +13,7 @@ import (
 	"netlab.local/core/api"
 )
 
-// Replace an environment's logical configuration in a single transaction. Stable
-// port names keep chassis bindings attached while the surrounding rules change.
+// Apply the environment graph without replacing stable datapaths and ports.
 func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 	models, err := Compile(plan)
 	if err != nil {
@@ -54,15 +53,7 @@ func (n *OVN) Apply(ctx context.Context, plan api.NodePlan) error {
 			models = append(models, access...)
 		}
 	}
-	ops, err := n.deleteOperations(ctx, plan.EnvironmentId)
-	if err != nil {
-		return err
-	}
-	create, err := n.client.Create(models...)
-	if err != nil {
-		return err
-	}
-	return transact(ctx, n.client, append(ops, create...))
+	return n.applyModels(ctx, plan.EnvironmentId, "", models)
 }
 func (n *OVN) Remove(ctx context.Context, environmentID string) error {
 	ops, err := n.deleteOperations(ctx, environmentID)
@@ -326,7 +317,11 @@ func policyMatch(p api.Policy) (string, error) {
 			return "", fmt.Errorf("invalid ACL protocol %s", *p.Protocol)
 		}
 	}
-	for name, value := range map[string]*string{"src": p.Source, "dst": p.Destination} {
+	for _, field := range []struct {
+		name  string
+		value *string
+	}{{"src", p.Source}, {"dst", p.Destination}} {
+		name, value := field.name, field.value
 		if value != nil && *value != "" {
 			var addr netip.Addr
 			if prefix, err := netip.ParsePrefix(*value); err == nil {
