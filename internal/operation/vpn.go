@@ -21,15 +21,6 @@ func (w Worker) vpnOperation(ctx context.Context, op *queries.Operation, p *Payl
 	if op.Phase == "rolled-back" {
 		return errors.New(*p.Failure)
 	}
-	if err := w.upgradeRouting(ctx, op, p); err != nil {
-		if ctx.Err() != nil || errors.Is(err, errPersistence) {
-			return err
-		}
-		return errors.Join(err, w.status(ctx, op, p, err))
-	}
-	if op.Phase == "rollback" {
-		return w.rollbackVPN(ctx, op, p)
-	}
 	if op.Phase == "queued" {
 		row, err := w.Queries.GetEnvironment(ctx, *op.EnvironmentID)
 		if err != nil {
@@ -41,10 +32,6 @@ func (w Worker) vpnOperation(ctx context.Context, op *queries.Operation, p *Payl
 		if err = json.Unmarshal(row.AppliedSpec, &p.Spec); err != nil {
 			return err
 		}
-		p.Spec, err = environment.CompleteRouting(p.Spec)
-		if err != nil {
-			return err
-		}
 		p.VPNBefore, p.VPNPlan, err = w.prepareVPN(ctx, op, p.Spec, p.VPNChange)
 		if err != nil {
 			return errors.Join(err, w.status(ctx, op, p, err))
@@ -53,10 +40,18 @@ func (w Worker) vpnOperation(ctx context.Context, op *queries.Operation, p *Payl
 			return err
 		}
 	}
-	result, err := w.callVPN(ctx, op, p.Spec, *p.VPNPlan)
+	err := w.upgradeRouting(ctx, op, p)
+	if op.Phase == "rollback" {
+		if err != nil {
+			return errors.Join(err, w.status(ctx, op, p, err))
+		}
+		return w.rollbackVPN(ctx, op, p)
+	}
 	if err == nil {
-		p.VPNResult = result
-		err = w.finishVPN(ctx, op, p)
+		p.VPNResult, err = w.callVPN(ctx, op, p.Spec, *p.VPNPlan)
+		if err == nil {
+			err = w.finishVPN(ctx, op, p)
+		}
 	}
 	if ctx.Err() != nil || errors.Is(err, errPersistence) {
 		return err

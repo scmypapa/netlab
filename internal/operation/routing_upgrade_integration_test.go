@@ -20,7 +20,7 @@ func TestLegacyRoutingPayloadRespectsNetworkBoundary(t *testing.T) {
 	for _, test := range []struct {
 		kind, phase string
 		replay      bool
-	}{{"change", "queued", false}, {"change", "quiesce", false}, {"change", "rollback", false}, {"change", "verify", true}, {"change", "services", true}, {"vpn-create", "vpn", false}} {
+	}{{"change", "queued", false}, {"change", "quiesce", false}, {"change", "rollback", false}, {"change", "verify", true}, {"change", "services", true}, {"vpn-create", "vpn", true}, {"vpn-revoke", "rollback", true}, {"move-network", "network-move-copy", false}, {"move-network", "network-move-services", true}, {"move-network", "network-move-vpn", true}} {
 		t.Run(test.kind+"/"+test.phase, func(t *testing.T) {
 			pool := concurrencyPool(t, 4)
 			ctx := context.Background()
@@ -62,7 +62,13 @@ func TestLegacyRoutingPayloadRespectsNetworkBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			p := Payload{Spec: spec, BeforeSpec: &spec, Owner: &Target{NodeID: "node"}, Bindings: []api.NodeServiceBinding{{Id: "service", AssetId: "web", InterfaceId: "nic"}}}
-			if test.phase == "rollback" {
+			if strings.HasPrefix(test.kind, "vpn-") {
+				p.Owner, p.Bindings = nil, nil
+				if _, err := pool.Exec(ctx, `UPDATE environments SET applied_spec=spec,network_node_id='node' WHERE id=$1`, env.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.kind == "change" && test.phase == "rollback" {
 				p.Spec.Networks = append([]api.Network(nil), spec.Networks...)
 				gateway := "192.0.2.1"
 				p.Spec.Networks[0].Cidr, p.Spec.Networks[0].Gateway = "192.0.2.0/30", &gateway
@@ -90,10 +96,10 @@ func TestLegacyRoutingPayloadRespectsNetworkBoundary(t *testing.T) {
 				want = 1
 			}
 			canonical := p.Spec
-			if test.phase == "rollback" {
+			if test.kind == "change" && test.phase == "rollback" {
 				canonical = *p.BeforeSpec
 			}
-			if calls.Load() != want || op.Phase != test.phase || canonical.Routers == nil || canonical.Networks[0].AccessAddress == nil || p.Bindings[0].NetworkId != "lan" || !reflect.DeepEqual(p.Spec.Assets, spec.Assets) {
+			if calls.Load() != want || op.Phase != test.phase || canonical.Routers == nil || canonical.Networks[0].AccessAddress == nil || len(p.Bindings) > 0 && p.Bindings[0].NetworkId != "lan" || !reflect.DeepEqual(p.Spec.Assets, spec.Assets) {
 				t.Fatalf("phase or immutable guest design changed: %d calls, %+v", calls.Load(), p)
 			}
 			if err := worker.upgradeRouting(ctx, &op, &p); err != nil || calls.Load() != want {
@@ -187,6 +193,16 @@ func TestLegacyRoutingResumePersistsActualNetwork(t *testing.T) {
 			if err := worker.phase(ctx, &op, &p, test.phase); err != nil {
 				t.Fatal(err)
 			}
+			if test.phase == "rolled-back" {
+				if _, err := pool.Exec(ctx, `UPDATE environments SET status='running',error='original operation failed' WHERE id='env'; UPDATE operations SET lease_until=now()-interval '1 minute' WHERE id='business'`); err != nil {
+					t.Fatal(err)
+				}
+				reclaimed, err := q.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner})
+				if err != nil {
+					t.Fatal(err)
+				}
+				op = queries.Operation(reclaimed)
+			}
 			worker.execute(ctx, op)
 			result, err := q.GetOperation(ctx, op.ID)
 			if err != nil {
@@ -194,7 +210,7 @@ func TestLegacyRoutingResumePersistsActualNetwork(t *testing.T) {
 			}
 			if test.phase == "rolled-back" {
 				after, err := q.GetEnvironment(ctx, env.ID)
-				if err != nil || networks.Load() != 0 || string(after.AppliedSpec) != string(after.Spec) || after.Revision != env.Revision || strings.Contains(string(after.AppliedSpec), `"mtu"`) {
+				if err != nil || networks.Load() != 0 || after.Status != "running" || after.Error == nil || *after.Error != *p.Failure || string(after.AppliedSpec) != string(after.Spec) || after.Revision != env.Revision || strings.Contains(string(after.AppliedSpec), `"mtu"`) {
 					t.Fatal("terminal rollback replayed failed desired configuration")
 				}
 				return

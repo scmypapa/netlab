@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
@@ -64,11 +65,22 @@ func (w Worker) upgradeRouting(ctx context.Context, op *queries.Operation, p *Pa
 	if !changed {
 		return nil
 	}
-	if !lifecycle {
-		return w.phase(ctx, op, p, op.Phase)
+	vpn := op.Kind == "vpn-create" || op.Kind == "vpn-revoke"
+	replay := lifecycle && slices.Contains([]string{"update", "activate", "policies", "verify", "services", "vpn", "commit", "cleanup"}, op.Phase) ||
+		vpn && (op.Phase == "vpn" || op.Phase == "rollback") ||
+		op.Kind == "move-network" && (op.Phase == "network-move-services" || op.Phase == "network-move-vpn")
+	if vpn && replay && p.Owner == nil {
+		row, err := w.Queries.GetEnvironment(ctx, *op.EnvironmentID)
+		if err != nil {
+			return err
+		}
+		before := p.Spec
+		p.BeforeSpec = &before
+		if err = w.loadNetworkRuntime(ctx, row, p); err != nil {
+			return err
+		}
 	}
-	switch op.Phase {
-	case "update", "activate", "policies", "verify", "services", "vpn", "commit", "cleanup":
+	if replay {
 		if len(desiredTargets(p)) == 0 && len(p.Spec.Assets) > 0 {
 			var err error
 			p.Unchanged, err = w.currentTargets(ctx, *op.EnvironmentID)
@@ -79,7 +91,7 @@ func (w Worker) upgradeRouting(ctx context.Context, op *queries.Operation, p *Pa
 		if err := w.network(ctx, op, p, false); err != nil {
 			return err
 		}
-		if op.Phase == "vpn" || op.Phase == "commit" || op.Phase == "cleanup" {
+		if !lifecycle || op.Phase == "vpn" || op.Phase == "commit" || op.Phase == "cleanup" {
 			var err error
 			p.Bindings, err = w.serviceRules(ctx, op, p, p.Spec, p.Bindings)
 			if err != nil {

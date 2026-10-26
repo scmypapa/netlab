@@ -31,6 +31,36 @@ func (w Worker) currentTargets(ctx context.Context, id string) ([]Target, error)
 	return result, nil
 }
 
+func (w Worker) loadNetworkRuntime(ctx context.Context, row queries.Environment, p *Payload) error {
+	if row.NetworkNodeID == nil {
+		return errors.New("环境网络所属节点不存在")
+	}
+	p.Owner = &Target{NodeID: *row.NetworkNodeID}
+	nodes, err := w.Queries.ListNodes(ctx)
+	if err != nil {
+		return err
+	}
+	p.ExternalChassis = map[string]string{}
+	for _, node := range nodes {
+		var info api.NodeInfo
+		if err := json.Unmarshal(node.Info, &info); err != nil {
+			return err
+		}
+		if info.NetworkChassis != nil {
+			p.ExternalChassis[node.ID] = *info.NetworkChassis
+		}
+	}
+	p.Unchanged, err = w.currentTargets(ctx, row.ID)
+	if err != nil {
+		return err
+	}
+	if err := w.loadServices(ctx, row, p); err != nil {
+		return err
+	}
+	p.Bindings = slices.Clone(p.BeforeBindings)
+	return nil
+}
+
 // A routing-format upgrade only reapplies network resources. It never enters
 // guest placement, image preparation or the instance stop/start path.
 func (w Worker) refreshNetwork(ctx context.Context, op *queries.Operation, p *Payload) error {
@@ -52,32 +82,9 @@ func (w Worker) refreshNetwork(ctx context.Context, op *queries.Operation, p *Pa
 		if err != nil {
 			return err
 		}
-		if row.NetworkNodeID == nil {
-			return errors.New("环境网络所属节点不存在")
-		}
-		p.Owner = &Target{NodeID: *row.NetworkNodeID}
-		nodes, err := w.Queries.ListNodes(ctx)
-		if err != nil {
+		if err := w.loadNetworkRuntime(ctx, row, p); err != nil {
 			return err
 		}
-		p.ExternalChassis = map[string]string{}
-		for _, node := range nodes {
-			var info api.NodeInfo
-			if err := json.Unmarshal(node.Info, &info); err != nil {
-				return err
-			}
-			if info.NetworkChassis != nil {
-				p.ExternalChassis[node.ID] = *info.NetworkChassis
-			}
-		}
-		p.Unchanged, err = w.currentTargets(ctx, row.ID)
-		if err != nil {
-			return err
-		}
-		if err := w.loadServices(ctx, row, p); err != nil {
-			return err
-		}
-		p.Bindings = slices.Clone(p.BeforeBindings)
 		if err := w.phase(ctx, op, p, "network"); err != nil {
 			return err
 		}

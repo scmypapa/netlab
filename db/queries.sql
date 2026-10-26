@@ -176,7 +176,7 @@ WITH maintenance AS MATERIALIZED (
  UPDATE operations o SET state='running',lease_owner=sqlc.narg(lease_owner)::text,lease_until=now()+interval '30 seconds',updated_at=now()
  FROM candidate c WHERE o.id=c.id RETURNING o.*
 ), active AS (
- UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' THEN e.error ELSE NULL END,updated_at=now()
+ UPDATE environments e SET operation_id=c.id,status=CASE WHEN c.kind='delete-recovery' OR c.phase IN ('rolled-back','complete') THEN e.status WHEN c.kind='destroy' THEN 'destroying' WHEN e.applied_spec IS NULL THEN 'deploying' ELSE 'changing' END,error=CASE WHEN c.kind='delete-recovery' OR c.phase IN ('rolled-back','complete') THEN e.error ELSE NULL END,updated_at=now()
  FROM claimed c WHERE e.id=c.environment_id AND c.scope_kind='environment' AND c.kind<>'refresh-network' RETURNING e.id
 )
 SELECT claimed.* FROM claimed;
