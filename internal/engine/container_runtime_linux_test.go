@@ -171,6 +171,13 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 			}
 			checkContainerHTTP(t, ctx, container, "192.0.2.10:502")
 		}
+		if phase == api.NodePlanPhaseStop {
+			for _, name := range []string{"hosts", "resolv.conf"} {
+				if err := os.Chmod(filepath.Join(assetDirectory(data, id, a), name), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
 	}
 	if after, err := os.ReadFile("/proc/sys/net/ipv4/ip_unprivileged_port_start"); err != nil || !bytes.Equal(hostPorts, after) {
 		t.Fatalf("container network policy changed the host: before=%q after=%q error=%v", hostPorts, after, err)

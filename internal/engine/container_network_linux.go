@@ -19,6 +19,9 @@ import (
 
 func deviceName(port string) string { return "nl" + strings.ReplaceAll(port, "-", "")[:12] }
 func (c *Containers) connect(ctx context.Context, pid uint32, env string, a api.AssetExecution) error {
+	if err := writeNetworkFiles(assetDirectory(c.data, env, a), a.Interfaces); err != nil {
+		return err
+	}
 	nsHandle, err := ns.GetNS(fmt.Sprintf("/proc/%d/ns/net", pid))
 	if err != nil {
 		return err
