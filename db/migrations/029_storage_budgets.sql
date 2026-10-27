@@ -49,10 +49,14 @@ CREATE FUNCTION bind_storage_pools(e jsonb,node text) RETURNS jsonb LANGUAGE sql
  )) ELSE e END
 $$;
 UPDATE runtime_assets SET execution=bind_storage_pools(execution,node_id);
-UPDATE operations o SET payload=jsonb_set(jsonb_set(payload,'{before}',(
- SELECT jsonb_agg(jsonb_set(t,'{execution}',bind_storage_pools(t->'execution',t->>'nodeId'))) FROM jsonb_array_elements(payload->'before') t
-)),'{migration,target}',jsonb_set(payload->'migration'->'target','{execution}',bind_storage_pools(payload->'migration'->'target'->'execution',payload->'migration'->'target'->>'nodeId')))
-WHERE kind='migrate' AND payload->'migration'->'target' IS NOT NULL AND phase NOT IN ('complete','rolled-back','cancelled');
+UPDATE operations o SET payload=(
+ SELECT COALESCE(jsonb_object_agg(p.key,CASE WHEN p.key IN ('before','targets','updates','unchanged','old') THEN (
+  SELECT COALESCE(jsonb_agg(jsonb_set(t,'{execution}',bind_storage_pools(t->'execution',t->>'nodeId'))),'[]')
+  FROM jsonb_array_elements(p.value) t
+ ) WHEN p.key='migration' AND p.value->'target' IS NOT NULL THEN
+  jsonb_set(p.value,'{target,execution}',bind_storage_pools(p.value->'target'->'execution',p.value->'target'->>'nodeId'))
+ ELSE p.value END),'{}') FROM jsonb_each(o.payload) p
+) WHERE scope_kind='environment' AND phase NOT IN ('complete','rolled-back','cancelled');
 DROP FUNCTION bind_storage_pools(jsonb,text);
 
 CREATE VIEW migration_asset_reservations AS
