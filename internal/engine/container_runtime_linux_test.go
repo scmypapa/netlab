@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,10 +68,11 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer e.Close()
+	e.slots = make(chan struct{}, 1)
 	id := uuid.NewString()
 	resources := api.Resources{Cpu: 0.25, MemoryMiB: 64, DiskGiB: 1}
 	template := api.Template{Id: uuid.NewString(), Name: "non-root", Kind: api.Container, Source: archive, Version: 1, Resources: resources}
-	asset := api.Asset{Id: "server", Name: "Server", TemplateId: template.Id, Resources: resources, Parameters: &map[string]string{"OVERRIDE_ME": "asset"}, Interfaces: []api.Interface{{Id: "nic", NetworkId: "lan", Address: "192.0.2.10", Mac: "02:ee:00:00:02:10", Primary: true}}}
+	asset := api.Asset{Id: "server", Name: "Server", TemplateId: template.Id, Resources: resources, Parameters: &map[string]string{"OVERRIDE_ME": "asset", "NETLAB_TEST_STOP_DELAY": "2s"}, Interfaces: []api.Interface{{Id: "nic", NetworkId: "lan", Address: "192.0.2.10", Mac: "02:ee:00:00:02:10", Primary: true}}}
 	resolved := api.ResolvedInterface{Id: "nic", NetworkId: "lan", PortName: uuid.NewString(), Address: "192.0.2.10", Prefix: 24, Mac: "02:ee:00:00:02:10", Mtu: 1400, Primary: true, Dns: &[]string{"192.0.2.53"}}
 	a := api.AssetExecution{Asset: asset, Template: template, InstanceId: uuid.NewString(), Interfaces: []api.ResolvedInterface{resolved}}
 	plan := api.NodePlan{EnvironmentId: id, OperationId: uuid.NewString(), Assets: []api.AssetExecution{a}, Spec: api.EnvironmentSpec{Assets: []api.Asset{asset}, Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "192.0.2.0/24"}}}}
@@ -95,7 +97,61 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 	defer syscall.Umask(previous)
 	for _, phase := range []api.NodePlanPhase{api.NodePlanPhaseNetwork, api.NodePlanPhasePrepare, api.NodePlanPhaseStart, api.NodePlanPhaseStop, api.NodePlanPhaseStart} {
 		plan.Phase = phase
-		result := e.Execute(ctx, plan)
+		var result api.NodeResult
+		if phase == api.NodePlanPhaseStop {
+			stopped := make(chan api.NodeResult, 1)
+			go func() { stopped <- e.Execute(ctx, plan) }()
+			container, err := e.container.client.LoadContainer(ctx, a.InstanceId)
+			if err != nil {
+				t.Fatal(err)
+			}
+			waiting, finish := context.WithTimeout(ctx, time.Second)
+			ticker := time.NewTicker(10 * time.Millisecond)
+			for {
+				labels, err := container.Labels(waiting)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if labels[desiredLabel] == "stopped" && len(e.slots) == 0 {
+					break
+				}
+				select {
+				case <-waiting.Done():
+					t.Fatal("guest stop wait retained the host compute slot")
+				case <-ticker.C:
+				}
+			}
+			ticker.Stop()
+			finish()
+			other := plan
+			other.EnvironmentId, other.Phase = uuid.NewString(), api.NodePlanPhaseInspect
+			other.Assets = []api.AssetExecution{a}
+			other.Assets[0].InstanceId = uuid.NewString()
+			control, finish := context.WithTimeout(ctx, 500*time.Millisecond)
+			observed := e.Execute(control, other)
+			finish()
+			if len(observed.Results) != 1 || observed.Results[0].State != "absent" {
+				t.Fatalf("other environment could not enter compute while guest stopped: %+v", observed)
+			}
+			for _, key := range []string{id, id + "/" + asset.Id} {
+				locked, finish := context.WithTimeout(ctx, 50*time.Millisecond)
+				unlock, err := e.lock(locked, key)
+				finish()
+				if unlock != nil {
+					unlock()
+				}
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("guest stop wait released its object lock %s: %v", key, err)
+				}
+			}
+			select {
+			case result = <-stopped:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+		} else {
+			result = e.Execute(ctx, plan)
+		}
 		if result.Error != nil {
 			t.Fatalf("%s: %s", phase, *result.Error)
 		}
