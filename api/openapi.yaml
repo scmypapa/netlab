@@ -1577,7 +1577,6 @@ components:
         capabilities: {type: array, items: {type: string}}
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
         storageDevice: {type: string, description: Dedicated Ceph disk selected during node installation}
-        containerStorage: {$ref: '#/components/schemas/StorageInfo'}
         slots: {type: integer}
         observedAt: {type: string, format: date-time}
         state: {type: string}
@@ -1686,10 +1685,11 @@ components:
         sourceEndpoint: {type: string, format: uri}
     NodeMigrationCleanup:
       type: object
-      required: [source, target]
+      required: [source, target, targetNodeId]
       properties:
         source: {$ref: '#/components/schemas/AssetExecution'}
         target: {$ref: '#/components/schemas/AssetExecution'}
+        targetNodeId: {type: string, description: Node that retains the target execution and its volumes after cleanup.}
     NodeTemplatePreparation:
       type: object
       required: [template]
@@ -2044,6 +2044,8 @@ components:
         operationId: {type: string}
         storage: {$ref: '#/components/schemas/StorageInfo'}
         allocatedGiB: {type: integer, format: int64}
+        containerStorage: {allOf: [{$ref: '#/components/schemas/StorageInfo'}], description: Container writable-layer storage returned live for the node default pool; not a selectable asset storage pool.}
+        containerAllocatedGiB: {type: integer, format: int64, minimum: 0, x-go-type-skip-optional-pointer: true, description: Container writable-layer scheduling budget on this node, present on the node default pool.}
         capabilities: {type: array, items: {type: string}}
         error: {type: string}
     ExternalAttachment:

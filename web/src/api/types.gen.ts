@@ -2256,7 +2256,6 @@ export interface components {
       vmHardware?: components["schemas"]["VmHardware"];
       /** @description Dedicated Ceph disk selected during node installation */
       storageDevice?: string;
-      containerStorage?: components["schemas"]["StorageInfo"];
       slots: number;
       /** Format: date-time */
       observedAt: string;
@@ -2399,6 +2398,8 @@ export interface components {
     NodeMigrationCleanup: {
       source: components["schemas"]["AssetExecution"];
       target: components["schemas"]["AssetExecution"];
+      /** @description Node that retains the target execution and its volumes after cleanup. */
+      targetNodeId: string;
     };
     NodeTemplatePreparation: {
       template: components["schemas"]["Template"];
@@ -2719,6 +2720,13 @@ export interface components {
       storage?: components["schemas"]["StorageInfo"];
       /** Format: int64 */
       allocatedGiB: number;
+      /** @description Container writable-layer storage returned live for the node default pool; not a selectable asset storage pool. */
+      containerStorage?: components["schemas"]["StorageInfo"];
+      /**
+       * Format: int64
+       * @description Container writable-layer scheduling budget on this node
+       */
+      containerAllocatedGiB?: number;
       capabilities: string[];
       error?: string;
     };

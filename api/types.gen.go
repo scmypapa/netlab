@@ -1221,9 +1221,8 @@ type Network struct {
 
 // Node defines model for Node.
 type Node struct {
-	Capabilities     []string     `json:"capabilities"`
-	Capacity         Resources    `json:"capacity"`
-	ContainerStorage *StorageInfo `json:"containerStorage,omitempty"`
+	Capabilities []string  `json:"capabilities"`
+	Capacity     Resources `json:"capacity"`
 
 	// CpuAllocationRatio Maximum total assigned vCPUs per physical CPU; does not change physical capacity.
 	CpuAllocationRatio float64   `json:"cpuAllocationRatio"`
@@ -1353,6 +1352,9 @@ type NodeInfo struct {
 type NodeMigrationCleanup struct {
 	Source AssetExecution `json:"source"`
 	Target AssetExecution `json:"target"`
+
+	// TargetNodeId Node that retains the target execution and its volumes after cleanup.
+	TargetNodeId string `json:"targetNodeId"`
 }
 
 // NodeMigrationPreparation defines model for NodeMigrationPreparation.
@@ -1963,7 +1965,13 @@ type StorageInfo struct {
 type StoragePool struct {
 	AllocatedGiB int64    `json:"allocatedGiB"`
 	Capabilities []string `json:"capabilities"`
-	Default      bool     `json:"default"`
+
+	// ContainerAllocatedGiB Container writable-layer scheduling budget on this node
+	ContainerAllocatedGiB int64 `json:"containerAllocatedGiB,omitempty"`
+
+	// ContainerStorage Container writable-layer storage returned live for the node default pool; not a selectable asset storage pool.
+	ContainerStorage *StorageInfo `json:"containerStorage,omitempty"`
+	Default          bool         `json:"default"`
 
 	// Directory Original node storage location; visible to administrators
 	Directory      *string           `json:"directory,omitempty"`
