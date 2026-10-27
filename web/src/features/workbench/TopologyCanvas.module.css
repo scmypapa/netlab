@@ -21,17 +21,16 @@
   box-shadow: var(--shadow-panel);
 }
 .asset {
-  width: 184px;
-  height: 64px;
+  height: 100%;
   padding: 10px;
   display: flex;
   align-items: center;
   gap: 10px;
   border-left: 3px solid var(--network-color);
   position: relative;
+  text-align: left;
 }
 .asset[data-kind="router"] {
-  width: 172px;
   border-left-color: var(--accent);
   border-radius: 10px;
 }
@@ -83,8 +82,6 @@
   font-size: 13px;
   font-weight: 600;
   line-height: 18px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .address,
@@ -108,6 +105,7 @@
   align-items: center;
   gap: 10px;
   font-size: 13px;
+  text-align: left;
 }
 .networkGlyph {
   display: grid;
@@ -127,8 +125,6 @@
 }
 .networkHeading strong {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
 }

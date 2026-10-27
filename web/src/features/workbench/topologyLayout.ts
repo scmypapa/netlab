@@ -1,6 +1,7 @@
 import type { Edge, XYPosition } from "@xyflow/react";
 import type { ELK, ElkNode } from "elkjs/lib/elk-api";
 import type { TopologyNode } from "./topology";
+import { canvasLabelWidth } from "../../foundation/canvasLabel";
 
 export const topologyNodeSize = {
   asset: { width: 184, height: 64 },
@@ -14,6 +15,29 @@ export async function layoutTopology(
   engine: Pick<ELK, "layout">,
 ) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
+  const dimensions = new Map(
+    nodes.map((node) => {
+      const base = topologyNodeSize[node.type!];
+      const content = Math.max(
+        canvasLabelWidth(node.data.label),
+        canvasLabelWidth(
+          node.data.secondary,
+          '11px "JetBrains Mono Variable", monospace',
+        ),
+      );
+      return [
+        node.id,
+        {
+          id: node.id,
+          width: Math.max(
+            base.width,
+            content + (node.type === "network" ? 112 : 82),
+          ),
+          height: base.height,
+        },
+      ];
+    }),
+  );
   const memberships = new Map<string, Set<string>>();
   for (const edge of edges) {
     if (
@@ -40,28 +64,44 @@ export async function layoutTopology(
   for (const node of nodes) {
     if (parents.has(node.id)) continue;
     const children = (groups.get(node.id) ?? []).sort();
-    let size = topologyNodeSize[node.type!];
+    let size = dimensions.get(node.id)!;
     if (children.length) {
       const columns = Math.ceil(Math.sqrt(children.length));
       const rows = Math.ceil(children.length / columns);
+      const widths = Array.from({ length: columns }, (_, column) =>
+        Math.max(
+          ...children
+            .filter((_, index) => index % columns === column)
+            .map((id) => dimensions.get(id)!.width),
+        ),
+      );
       size = {
-        width: columns * 184 + (columns - 1) * 16 + 36,
-        height: rows * 64 + (rows - 1) * 16 + 94,
+        id: node.id,
+        width: Math.max(
+          size.width,
+          widths.reduce((sum, width) => sum + width, 0) +
+            (columns - 1) * 24 +
+            36,
+        ),
+        height: rows * 64 + (rows - 1) * 24 + 94,
       };
       children.forEach((id, index) =>
         local.set(id, {
-          x: 18 + (index % columns) * 200,
-          y: 76 + Math.floor(index / columns) * 80,
+          x:
+            18 +
+            widths
+              .slice(0, index % columns)
+              .reduce((sum, width) => sum + width + 24, 0),
+          y: 76 + Math.floor(index / columns) * 88,
         }),
       );
     }
-    blocks.push({ id: node.id, ...size });
+    dimensions.set(node.id, size);
+    blocks.push({ ...size });
   }
-  const dimensions = new Map(blocks.map((block) => [block.id, block]));
+  const roots = new Set(blocks.map((block) => block.id));
   const links = edges
-    .filter(
-      (edge) => dimensions.has(edge.source) && dimensions.has(edge.target),
-    )
+    .filter((edge) => roots.has(edge.source) && roots.has(edge.target))
     .sort((a, b) => a.id.localeCompare(b.id));
   const adjacency = new Map(
     blocks.map((block) => [block.id, new Set<string>()]),

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 for (const shared of [false, true]) {
-  test(`容器写入层是只读运行存储，${shared ? "同盘" : "异盘"}预算独立展示`, async ({
+  test(`存储按池展示实际容量，不暴露${shared ? "同盘" : "异盘"}运行层预算`, async ({
     page,
   }) => {
     const runtime = {
@@ -76,24 +76,14 @@ for (const shared of [false, true]) {
       await route.fulfill({ json: response });
     });
     await page.goto("/resources/storage");
-    const runtimeSection = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "容器写入层", exact: true }),
-      })
-      .last();
+    await expect(page.getByText("总容量", { exact: true })).toBeVisible();
     await expect(
-      runtimeSection.getByText("/runtime/overlayfs", { exact: true }),
+      page.getByText(`${storage.capacityBytes / 2 ** 30} GiB`, { exact: true }),
     ).toBeVisible();
     await expect(
-      runtimeSection.getByText("10 GiB", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      runtimeSection.getByText("与本地存储同盘", { exact: true }),
-    ).toHaveCount(shared ? 1 : 0);
-    await expect(
-      runtimeSection.getByText("60 / 80 GiB 可用", { exact: true }),
-    ).toHaveCount(shared ? 0 : 1);
+      page.getByText("/runtime/overlayfs", { exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByText(/写入层|预算/)).toHaveCount(0);
     for (const width of [390, 1366, 1920, 2560]) {
       await page.setViewportSize({ width, height: 900 });
       expect(
@@ -109,12 +99,12 @@ for (const shared of [false, true]) {
     await expect(
       page.getByRole("heading", { name: "容器写入层", exact: true }),
     ).toHaveCount(0);
-    await expect(page.getByText("6 GiB", { exact: true })).toBeVisible();
+    await expect(page.getByText("总容量", { exact: true })).toBeVisible();
     await page.goto("/resources");
     await page.getByRole("button", { name: /执行节点/ }).click();
     await page.getByRole("tab", { name: "存储池", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "容器写入层", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
   });
 }

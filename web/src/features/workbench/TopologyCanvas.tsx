@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -281,7 +281,7 @@ function Ports({ connectable = true }: { connectable?: boolean }) {
     bottom: Position.Bottom,
     left: Position.Left,
   }).map(([id, position]) => (
-    <span key={id}>
+    <Fragment key={id}>
       <Handle
         id={id}
         type="source"
@@ -289,7 +289,7 @@ function Ports({ connectable = true }: { connectable?: boolean }) {
         isConnectable={connectable}
         data-editable={connectable}
       />
-    </span>
+    </Fragment>
   ));
 }
 
@@ -349,7 +349,7 @@ function AssetNode({ data, selected, isConnectable }: NodeProps<TopologyNode>) {
         )}
       </span>
       <div className={styles.assetIdentity}>
-        <strong title={data.label}>{data.label}</strong>
+        <strong>{data.label}</strong>
         <span className={styles.address}>
           {data.secondary ||
             (data.kind === "router"
@@ -387,7 +387,7 @@ function NetworkNode({
           <Network size={18} />
         </span>
         <div>
-          <strong title={data.label}>{data.label}</strong>
+          <strong>{data.label}</strong>
           <span className={styles.cidr}>{data.secondary}</span>
         </div>
         <span className={styles.networkCount}>{data.count}</span>

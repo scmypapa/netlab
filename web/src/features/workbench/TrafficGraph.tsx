@@ -1,14 +1,17 @@
 import { useComputedColorScheme } from "@mantine/core";
+import {
+  createSmartEdge,
+  SmartEdgeProvider,
+} from "@tisoap/react-flow-smart-edge";
 import { createPortal } from "react-dom";
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type RefObject,
 } from "react";
-import dagre from "@dagrejs/dagre";
 import {
   Background,
   Handle,
@@ -23,31 +26,16 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import {
-  Globe2,
-  Maximize,
-  Minimize,
-  Radio,
-  Router,
-  Server,
-  Shuffle,
-  Waypoints,
-  ZoomIn,
-  ZoomOut,
-  Scan,
-} from "lucide-react";
-import type { Environment } from "../../api/client";
+import { Network, Router, Server, Shrink, ZoomIn, ZoomOut } from "lucide-react";
+import type { EnvironmentSpec } from "../../api/client";
 import { byteUnit, reading } from "../../foundation/format";
+import { useTopology } from "./useTopology";
+import { trafficTopology } from "./trafficModel";
 import styles from "./TrafficGraph.module.css";
 
 export type TrafficSelection =
-  | { asset: string }
-  | {
-      source: string;
-      destination: string;
-    };
-export type EndpointKind =
-  "asset" | "gateway" | "external" | "broadcast" | "multicast" | "ethernet";
+  { asset: string } | { source: string; destination: string };
+export type EndpointKind = "asset" | "router" | "network" | "device";
 export type TrafficLink = {
   source: string;
   target: string;
@@ -55,6 +43,8 @@ export type TrafficLink = {
   targetName: string;
   sourceKind?: EndpointKind;
   targetKind?: EndpointKind;
+  sourceNetworkId?: string;
+  targetNetworkId?: string;
   value: number;
   rate?: number;
   severity?: number;
@@ -67,26 +57,18 @@ export const riskLevels = [
 ] as const;
 export const riskLevel = (severity: number) =>
   riskLevels[severity === 1 ? 0 : severity === 2 ? 1 : 2];
-const size = { width: 150, height: 94 };
-type AssetNode = Node<
-  {
-    name: string;
-    address: string;
-    color: string;
-    kind: EndpointKind;
-  },
-  "trafficAsset"
+
+type TrafficNode = Node<
+  { name: string; color: string; kind: EndpointKind },
+  "trafficAsset" | "trafficNetwork"
 >;
 const icons = {
   asset: Server,
-  gateway: Router,
-  external: Globe2,
-  broadcast: Radio,
-  multicast: Radio,
-  ethernet: Waypoints,
+  router: Router,
+  network: Network,
+  device: Server,
 };
-
-function TrafficAsset({ data, selected }: NodeProps<AssetNode>) {
+function TrafficAsset({ data, selected }: NodeProps<TrafficNode>) {
   const Icon = icons[data.kind];
   return (
     <div
@@ -95,167 +77,122 @@ function TrafficAsset({ data, selected }: NodeProps<AssetNode>) {
       data-kind={data.kind}
       style={{ "--node-color": data.color } as CSSProperties}
     >
-      <Handle type="target" position={Position.Left} />
+      <TrafficPorts />
       <span className={styles.symbol}>
-        <Icon size={23} strokeWidth={1.6} />
+        <Icon size={20} strokeWidth={1.6} />
       </span>
-      <strong title={data.name}>{data.name}</strong>
-      {data.address && <span className={styles.address}>{data.address}</span>}
-      <Handle type="source" position={Position.Right} />
+      <strong>{data.name}</strong>
     </div>
   );
 }
-const nodeTypes = { trafficAsset: TrafficAsset };
-type Point = { x: number; y: number };
-function arrange(
-  nodes: AssetNode[],
-  links: TrafficLink[],
-  frame: { width: number; height: number },
-) {
-  const layouts = ["LR", "TB"].map((rankdir) => {
-    const graph = new dagre.graphlib.Graph()
-      .setGraph({ rankdir, ranksep: 65, nodesep: 24 })
-      .setDefaultEdgeLabel(() => ({}));
-    for (const node of nodes) graph.setNode(node.id, { ...size });
-    for (const link of links) graph.setEdge(link.source, link.target);
-    dagre.layout(graph);
-    return nodes.map((node) => ({
-      ...node,
-      position: {
-        x: graph.node(node.id).x - size.width / 2,
-        y: graph.node(node.id).y - size.height / 2,
-      },
-    }));
-  });
-  const score = (layout: AssetNode[]) => {
-    const assets = layout.filter((node) => node.data.kind === "asset");
-    const focus = assets.length ? assets : layout;
-    if (!focus.length) return 1;
-    const width =
-      Math.max(...focus.map((node) => node.position.x)) +
-      size.width -
-      Math.min(...focus.map((node) => node.position.x));
-    const height =
-      Math.max(...focus.map((node) => node.position.y)) +
-      size.height -
-      Math.min(...focus.map((node) => node.position.y));
-    return Math.min(frame.width / width, frame.height / height);
-  };
-  return score(layouts[0]) >= score(layouts[1]) ? layouts[0] : layouts[1];
+function TrafficPorts() {
+  return Object.entries({
+    left: Position.Left,
+    right: Position.Right,
+    top: Position.Top,
+    bottom: Position.Bottom,
+  }).map(([id, position]) => (
+    <Fragment key={id}>
+      <Handle id={id} type="source" position={position} />
+      <Handle id={id} type="target" position={position} />
+    </Fragment>
+  ));
 }
-function GraphActions({
-  onArrange,
-  fullscreenTarget,
-  toolsTarget,
-}: {
-  onArrange: () => void;
-  fullscreenTarget: RefObject<HTMLElement | null>;
-  toolsTarget: HTMLElement | null;
-}) {
+function TrafficNetwork({ data, selected }: NodeProps<TrafficNode>) {
+  return (
+    <div
+      className={styles.network}
+      data-selected={selected}
+      style={{ "--node-color": data.color } as CSSProperties}
+    >
+      <Handle id="header" type="target" position={Position.Left} />
+      <header>
+        <Network size={17} />
+        <strong>{data.name}</strong>
+      </header>
+      <Handle id="header" type="source" position={Position.Left} />
+    </div>
+  );
+}
+const nodeTypes = {
+  trafficAsset: TrafficAsset,
+  trafficNetwork: TrafficNetwork,
+};
+const routingGeometry = { nodePadding: 5, gridRatio: 4 };
+const edgeTypes = {
+  communication: createSmartEdge("smoothstep", {
+    ...routingGeometry,
+    hops: { radius: 4, borderRadius: 6 },
+  }),
+};
+const routingOptions = { ...routingGeometry, routeOnlyWhenBlocked: false };
+
+function GraphActions({ toolsTarget }: { toolsTarget: HTMLElement | null }) {
   const initialized = useNodesInitialized(),
     fitted = useRef(false);
-  const { fitView, getNodes, zoomIn, zoomOut } = useReactFlow();
-  const [fullscreen, setFullscreen] = useState(false),
-    [error, setError] = useState<string>();
+  const visible = useStore((state) => state.width > 0 && state.height > 0);
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
   useEffect(() => {
-    if (initialized && !fitted.current) {
-      fitted.current = true;
-      void fitView({
-        nodes: getNodes().filter((node) => node.data.kind === "asset"),
-        padding: 0.18,
-        maxZoom: 1.05,
-      });
-    }
-  }, [initialized, fitView, getNodes]);
-  useEffect(() => {
-    const changed = () =>
-      setFullscreen(document.fullscreenElement === fullscreenTarget.current);
-    document.addEventListener("fullscreenchange", changed);
-    return () => document.removeEventListener("fullscreenchange", changed);
-  }, [fullscreenTarget]);
+    if (!initialized || !visible || fitted.current) return;
+    fitted.current = true;
+    void fitView({ padding: 0.18, maxZoom: 1 });
+  }, [initialized, visible, fitView]);
   return (
     toolsTarget &&
     createPortal(
-      <>
-        <div className={styles.tools}>
-          <button
-            title="放大通信图"
-            aria-label="放大通信图"
-            onClick={() => void zoomIn()}
-          >
-            <ZoomIn size={14} />
-          </button>
-          <button
-            title="缩小通信图"
-            aria-label="缩小通信图"
-            onClick={() => void zoomOut()}
-          >
-            <ZoomOut size={14} />
-          </button>
-          <button
-            title="适应画布"
-            aria-label="适应画布"
-            onClick={() => void fitView({ padding: 0.18, maxZoom: 1.05 })}
-          >
-            <Scan size={14} />
-          </button>
-          <button title="重新布局" aria-label="重新布局" onClick={onArrange}>
-            <Shuffle size={14} />
-          </button>
-          <button
-            title={fullscreen ? "退出全屏" : "全屏分析"}
-            aria-label={fullscreen ? "退出全屏" : "全屏分析"}
-            onClick={() => {
-              setError(undefined);
-              const action = fullscreen
-                ? document.exitFullscreen()
-                : fullscreenTarget.current!.requestFullscreen();
-              void action.catch((reason: Error) => setError(reason.message));
-            }}
-          >
-            {fullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
-          </button>
-        </div>
-        {error && (
-          <div className={styles.error} role="alert">
-            {error}
-          </div>
-        )}
-      </>,
+      <div className={styles.tools}>
+        <button
+          title="放大通信图"
+          aria-label="放大通信图"
+          onClick={() => void zoomIn()}
+        >
+          <ZoomIn size={15} />
+        </button>
+        <button
+          title="缩小通信图"
+          aria-label="缩小通信图"
+          onClick={() => void zoomOut()}
+        >
+          <ZoomOut size={15} />
+        </button>
+        <button
+          title="适应画布"
+          aria-label="适应画布"
+          onClick={() => void fitView({ padding: 0.18, maxZoom: 1 })}
+        >
+          <Shrink size={15} />
+        </button>
+      </div>,
       toolsTarget,
     )
   );
 }
+
 function Graph({
-  environment,
+  spec,
   links,
   groups,
   colors,
   selection,
   onSelect,
-  fullscreenTarget,
   toolsTarget,
 }: {
-  environment: Environment;
+  spec: EnvironmentSpec;
   links: TrafficLink[];
   groups: Map<string, string>;
   colors: Map<string, string>;
   selection?: TrafficSelection;
   onSelect: (selection?: TrafficSelection) => void;
-  fullscreenTarget: RefObject<HTMLElement | null>;
   toolsTarget: HTMLElement | null;
 }) {
   const theme = useComputedColorScheme();
-  const width = useStore((state) => state.width),
-    height = useStore((state) => state.height);
-  const zoom = useStore((state) => state.transform[2]);
-  const spec = environment.appliedSpec ?? environment.spec;
   const merged = useMemo(() => {
     const pairs = new Map<
       string,
       TrafficLink & { forward: boolean; reverse: boolean }
     >();
     for (const link of links) {
+      if (link.value <= 0 && !link.alerts) continue;
       const [source, target] = [link.source, link.target].sort();
       const forward = source === link.source,
         key = JSON.stringify([source, target]),
@@ -281,242 +218,257 @@ function Graph({
           targetKind: forward ? link.targetKind : link.sourceKind,
         });
     }
-    return [...pairs.values()].sort((a, b) => b.value - a.value);
+    return [...pairs.values()].sort(
+      (a, b) =>
+        a.source.localeCompare(b.source) || a.target.localeCompare(b.target),
+    );
   }, [links]);
-  const displayed = merged.slice(0, 300);
   const [hovered, setHovered] = useState<string>();
-  const models = useMemo(() => {
-    const nodes = new Map<string, AssetNode>(),
-      neighbors = new Set<string>();
+  const activeSpec = useMemo(() => trafficTopology(spec, links), [spec, links]);
+  const layout = useTopology(activeSpec, []);
+  const models = useMemo<TrafficNode[]>(() => {
+    const related = new Set<string>();
     if (selection && "asset" in selection)
       for (const link of merged)
         if (
           link.source === selection.asset ||
           link.target === selection.asset
         ) {
-          neighbors.add(link.source);
-          neighbors.add(link.target);
+          related.add(link.source);
+          related.add(link.target);
         }
-    const involved = (id: string) =>
-      !selection ||
-      ("asset" in selection
-        ? selection.asset === id || neighbors.has(id)
-        : selection.source === id || selection.destination === id);
-    for (const asset of spec.assets)
-      nodes.set(asset.id, {
-        id: asset.id,
-        type: "trafficAsset",
-        position: { x: 0, y: 0 },
-        selected: Boolean(
-          selection && "asset" in selection && selection.asset === asset.id,
-        ),
-        style: { opacity: involved(asset.id) ? 1 : 0.35 },
-        ariaLabel: `资产 ${asset.name}`,
-        data: {
-          name: asset.name,
-          address:
-            asset.interfaces.find((item) => item.primary)?.address ??
-            asset.interfaces[0]?.address ??
-            "",
-          kind: "asset",
-          color: colors.get(groups.get(asset.id) ?? "") ?? "var(--chart-1)",
+    return (layout.data?.nodes ?? []).map((node) => {
+      const involved =
+        !selection ||
+        ("asset" in selection
+          ? selection.asset === node.id ||
+            related.has(node.id) ||
+            node.type === "network"
+          : selection.source === node.id ||
+            selection.destination === node.id ||
+            node.type === "network");
+      const kind: EndpointKind =
+        node.type === "network"
+          ? "network"
+          : node.type === "router"
+            ? "router"
+            : node.data.kind === "external"
+              ? "device"
+              : "asset";
+      return {
+        id: node.id,
+        parentId: node.parentId,
+        type: node.type === "network" ? "trafficNetwork" : "trafficAsset",
+        position: node.position,
+        measured: {
+          width: Number(node.style!.width),
+          height: Number(node.style!.height),
         },
-      });
-    for (const link of merged.slice(0, 300))
-      for (const side of ["source", "target"] as const) {
-        const id = link[side];
-        if (nodes.has(id)) continue;
-        const kind = link[`${side}Kind`] ?? "external";
-        nodes.set(id, {
-          id,
-          type: "trafficAsset",
-          position: { x: 0, y: 0 },
-          selected: Boolean(
-            selection && "asset" in selection && selection.asset === id,
-          ),
-          ariaLabel: link[`${side}Name`],
-          style: { opacity: involved(id) ? 1 : 0.35 },
-          data: {
-            name: link[`${side}Name`],
-            address: "",
-            kind,
-            color: "var(--muted)",
-          },
-        });
-      }
-    return [...nodes.values()];
-  }, [spec.assets, merged, selection, groups, colors]);
-  const [nodes, setNodes, onNodesChange] = useNodesState<AssetNode>([]);
-  useEffect(() => {
-    if (!width || !height) return;
-    setNodes((current) => {
-      const present = new Set(models.map((node) => node.id));
-      const placed = new Map(
-        current
-          .filter((node) => present.has(node.id))
-          .map((node) => [node.id, node]),
-      );
-      if (!placed.size) return arrange(models, displayed, { width, height });
-      const occupied = [...placed.values()].map((node) => node.position);
-      const free = (point: Point) =>
-        !occupied.some(
-          (other) =>
-            Math.abs(other.x - point.x) < size.width + 40 &&
-            Math.abs(other.y - point.y) < size.height + 35,
-        );
-      return models.map((model) => {
-        const previous = placed.get(model.id);
-        let position = previous?.position;
-        if (!position) {
-          const neighbor = displayed.find(
-            (link) =>
-              (link.source === model.id && placed.has(link.target)) ||
-              (link.target === model.id && placed.has(link.source)),
-          );
-          const anchor = neighbor
-            ? placed.get(
-                neighbor.source === model.id
-                  ? neighbor.target
-                  : neighbor.source,
-              )!.position
-            : { x: 0, y: 0 };
-          const x = neighbor
-            ? anchor.x + (neighbor.source === model.id ? -250 : 250)
-            : anchor.x;
-          let row = 0;
-          do {
-            position = {
-              x,
-              y: anchor.y + (row % 2 ? -1 : 1) * Math.ceil(row / 2) * 140,
-            };
-            row++;
-          } while (!free(position));
-          placed.set(model.id, { ...model, position });
-          occupied.push(position);
-        }
-        return { ...model, position, measured: previous?.measured };
-      });
+        selected: Boolean(
+          selection && "asset" in selection && selection.asset === node.id,
+        ),
+        ariaLabel: node.data.label,
+        zIndex: node.type === "network" ? 0 : 3,
+        style: { ...node.style, opacity: involved ? 1 : 0.3 },
+        data: {
+          name: node.data.label,
+          kind,
+          color: colors.get(groups.get(node.id) ?? "") ?? "var(--chart-1)",
+        },
+      };
     });
-  }, [models, setNodes, width, height]);
-  const edges = displayed.map((link) => {
-    const id = JSON.stringify([link.source, link.target]);
-    const active = Boolean(
-      selection &&
-      ("asset" in selection
-        ? selection.asset === link.source || selection.asset === link.target
-        : (selection.source === link.source &&
-            selection.destination === link.target) ||
-          (selection.source === link.target &&
-            selection.destination === link.source)),
+  }, [layout.data, merged, selection, groups, colors]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<TrafficNode>([]);
+  const current = useRef(nodes);
+  current.current = nodes;
+  useEffect(() => {
+    const roots = models.filter((node) => !node.parentId);
+    const placed = new Map(
+      current.current
+        .filter(
+          (node) => !node.parentId && roots.some((root) => root.id === node.id),
+        )
+        .map((node) => [node.id, node]),
     );
-    const color =
-      link.severity !== undefined
-        ? riskLevel(link.severity).color
-        : (colors.get(
-            groups.get(link.source) ?? groups.get(link.target) ?? "",
-          ) ?? "var(--muted)");
-    const amount = link.rate && link.rate > 0 ? link.rate : link.value,
-      unit = byteUnit(amount);
-    const label =
-      amount > 0
-        ? `${reading(amount, unit.scale)} ${unit.unit}${link.rate && link.rate > 0 ? "/s" : ""}`
-        : link.alerts
-          ? `${link.alerts} 次告警`
-          : "";
-    return {
-      id,
-      source: link.source,
-      target: link.target,
-      type: "default",
-      selected: active,
-      label: active || hovered === id ? label : undefined,
-      markerEnd: link.forward
-        ? { type: MarkerType.ArrowClosed, color, width: 14, height: 14 }
-        : undefined,
-      markerStart: link.reverse
-        ? { type: MarkerType.ArrowClosed, color, width: 14, height: 14 }
-        : undefined,
-      style: {
-        stroke: color,
-        strokeWidth: active
-          ? 2.5
-          : Math.min(2.5, 1 + Math.log10(1 + link.value) / 5),
-        opacity: selection && !active ? 0.15 : link.rate ? 0.8 : 0.4,
-      },
-      labelStyle: { fill: "var(--text)", fontSize: 11 },
-      labelBgStyle: { fill: "var(--surface)" },
-      labelBgPadding: [6, 4] as [number, number],
-      labelBgBorderRadius: 3,
-      ariaLabel: `${link.sourceName} ↔ ${link.targetName}${label ? `，${label}` : ""}`,
-      data: link,
+    const step = {
+      width:
+        Math.max(0, ...roots.map((node) => Number(node.style!.width))) + 48,
+      height:
+        Math.max(0, ...roots.map((node) => Number(node.style!.height))) + 48,
     };
+    const columns = Math.ceil(Math.sqrt(roots.length));
+    const offset = (n: number) => (n % 2 ? (n + 1) / 2 : -n / 2);
+    const arranged = roots.map((model) => {
+      const previous = placed.get(model.id);
+      const anchor = previous?.position ?? model.position;
+      placed.delete(model.id);
+      let point = anchor,
+        slot = 0;
+      while (
+        [...placed.values()].some(
+          (other) =>
+            point.x < other.position.x + Number(other.style!.width) + 32 &&
+            point.x + Number(model.style!.width) + 32 > other.position.x &&
+            point.y < other.position.y + Number(other.style!.height) + 32 &&
+            point.y + Number(model.style!.height) + 32 > other.position.y,
+        )
+      ) {
+        slot++;
+        point = {
+          x: anchor.x + offset(slot % columns) * step.width,
+          y: anchor.y + offset(Math.floor(slot / columns)) * step.height,
+        };
+      }
+      const node = { ...model, position: point };
+      placed.set(node.id, node);
+      return node;
+    });
+    setNodes([...arranged, ...models.filter((node) => node.parentId)]);
+  }, [models, setNodes]);
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const center = (node: TrafficNode) => ({
+    x:
+      node.position.x +
+      (node.parentId ? byId.get(node.parentId)!.position.x : 0) +
+      Number(node.style!.width) / 2,
+    y:
+      node.position.y +
+      (node.parentId ? byId.get(node.parentId)!.position.y : 0) +
+      Number(node.style!.height) / 2,
   });
-  const selectNode = (node: AssetNode) => onSelect({ asset: node.id });
-  const selectEdge = (edge: (typeof edges)[number]) => {
-    onSelect({ source: edge.source, destination: edge.target });
-  };
+  const edges = merged
+    .filter((link) => byId.has(link.source) && byId.has(link.target))
+    .map((link) => {
+      const sourceNode = byId.get(link.source)!,
+        targetNode = byId.get(link.target)!;
+      const a = center(sourceNode),
+        b = center(targetNode);
+      const horizontal = Math.abs(b.x - a.x) > Math.abs(b.y - a.y);
+      const handles = horizontal
+        ? a.x < b.x
+          ? ["right", "left"]
+          : ["left", "right"]
+        : a.y < b.y
+          ? ["bottom", "top"]
+          : ["top", "bottom"];
+      const id = JSON.stringify([link.source, link.target]);
+      const active = Boolean(
+        selection &&
+        ("asset" in selection
+          ? selection.asset === link.source || selection.asset === link.target
+          : (selection.source === link.source &&
+              selection.destination === link.target) ||
+            (selection.source === link.target &&
+              selection.destination === link.source)),
+      );
+      const color =
+        link.severity !== undefined
+          ? riskLevel(link.severity).color
+          : (colors.get(
+              groups.get(link.source) ?? groups.get(link.target) ?? "",
+            ) ?? "var(--accent)");
+      const amount = link.rate && link.rate > 0 ? link.rate : link.value,
+        unit = byteUnit(amount);
+      const label =
+        amount > 0
+          ? `${reading(amount, unit.scale)} ${unit.unit}${link.rate && link.rate > 0 ? "/s" : ""}`
+          : `${link.alerts} 次告警`;
+      return {
+        id,
+        source: link.source,
+        target: link.target,
+        sourceHandle:
+          sourceNode.type === "trafficNetwork"
+            ? "header"
+            : sourceNode.parentId === targetNode.id
+              ? "top"
+              : handles[0],
+        targetHandle:
+          targetNode.type === "trafficNetwork"
+            ? "header"
+            : targetNode.parentId === sourceNode.id
+              ? "top"
+              : handles[1],
+        type: "communication",
+        selected: active,
+        zIndex:
+          link.sourceKind === "network" || link.targetKind === "network"
+            ? 1
+            : 2,
+        label: active || hovered === id ? label : undefined,
+        markerEnd: link.forward
+          ? { type: MarkerType.ArrowClosed, color, width: 14, height: 14 }
+          : undefined,
+        markerStart: link.reverse
+          ? { type: MarkerType.ArrowClosed, color, width: 14, height: 14 }
+          : undefined,
+        style: {
+          stroke: color,
+          strokeWidth: active ? 2.5 : 1.5,
+          opacity: selection && !active ? 0.15 : 0.7,
+        },
+        labelStyle: { fill: "var(--text)", fontSize: 11 },
+        labelBgStyle: { fill: "var(--surface)" },
+        labelBgPadding: [6, 4] as [number, number],
+        labelBgBorderRadius: 3,
+        ariaLabel: `${link.sourceName} ↔ ${link.targetName}，${label}`,
+      };
+    });
   return (
     <div
       className={styles.graph}
       role="region"
       aria-label="资产通信图"
-      data-compact={zoom < 0.85}
-      style={{ "--graph-zoom": zoom } as CSSProperties}
-      onKeyDown={(event) => {
+      onKeyDownCapture={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation();
           onSelect(undefined);
         }
       }}
     >
-      <ReactFlow<AssetNode>
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={(changes) => {
-          onNodesChange(changes);
-          for (const change of changes)
-            if (change.type === "select" && change.selected)
-              selectNode(nodes.find((node) => node.id === change.id)!);
-        }}
-        onNodeClick={(_, node) => selectNode(node)}
-        onEdgeClick={(_, edge) => {
-          selectEdge(edge as (typeof edges)[number]);
-        }}
-        onEdgesChange={(changes) => {
-          for (const change of changes)
-            if (change.type === "select" && change.selected)
-              selectEdge(edges.find((edge) => edge.id === change.id)!);
-        }}
-        onEdgeMouseEnter={(_, edge) => setHovered(edge.id)}
-        onEdgeMouseLeave={() => setHovered(undefined)}
-        onPaneClick={() => onSelect(undefined)}
-        nodesConnectable={false}
-        deleteKeyCode={null}
-        minZoom={0.15}
-        maxZoom={2}
-        colorMode={theme}
-        proOptions={{ hideAttribution: true }}
-        ariaLabelConfig={{
-          "controls.zoomIn.ariaLabel": "放大通信图",
-          "controls.zoomOut.ariaLabel": "缩小通信图",
-          "controls.fitView.ariaLabel": "适应画布",
-        }}
-      >
-        <Background color="var(--line)" gap={24} size={1} />
-        <GraphActions
-          fullscreenTarget={fullscreenTarget}
-          toolsTarget={toolsTarget}
-          onArrange={() => {
-            const arranged = arrange(nodes, displayed, { width, height });
-            setNodes(arranged);
+      <SmartEdgeProvider nodes={nodes} options={routingOptions}>
+        <ReactFlow<TrafficNode>
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={(changes) => {
+            onNodesChange(changes);
+            for (const change of changes)
+              if (change.type === "select" && change.selected)
+                onSelect({ asset: change.id });
           }}
-        />
-      </ReactFlow>
-      {merged.length > displayed.length && (
-        <span className={styles.limit}>
-          {displayed.length} / {merged.length} 组关系
-        </span>
+          onNodeClick={(_, node) => onSelect({ asset: node.id })}
+          onEdgeClick={(_, edge) =>
+            onSelect({ source: edge.source, destination: edge.target })
+          }
+          onEdgesChange={(changes) => {
+            for (const change of changes)
+              if (change.type === "select" && change.selected) {
+                const edge = edges.find((edge) => edge.id === change.id)!;
+                onSelect({ source: edge.source, destination: edge.target });
+              }
+          }}
+          onEdgeMouseEnter={(_, edge) => setHovered(edge.id)}
+          onEdgeMouseLeave={() => setHovered(undefined)}
+          onPaneClick={() => onSelect(undefined)}
+          nodesConnectable={false}
+          nodesDraggable={false}
+          deleteKeyCode={null}
+          minZoom={0.1}
+          maxZoom={2}
+          colorMode={theme}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="var(--line)" gap={24} size={1} />
+          <GraphActions toolsTarget={toolsTarget} />
+        </ReactFlow>
+      </SmartEdgeProvider>
+      {!models.length && <div className={styles.empty}>当前范围内无通信</div>}
+      {layout.error && (
+        <div className={styles.error} role="alert">
+          {layout.error.message}
+        </div>
       )}
     </div>
   );

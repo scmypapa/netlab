@@ -246,12 +246,14 @@ test("traffic endpoint identities and packet filters stay scoped to their networ
     };
   const a = describeEndpoint(spec, flow, "source"),
     b = describeEndpoint(spec, { ...flow, networkId: "b" }, "source");
-  expect(a.name).toBe("边界路由器");
-  expect(b.name).toBe("现场路由器");
-  expect(a.id).not.toBe(b.id);
-  const selection = { asset: a.id };
+  expect(a!.name).toBe("边界路由器");
+  expect(b!.name).toBe("现场路由器");
+  expect(a!.id).not.toBe(b!.id);
+  const selection = { source: a!.id, destination: "app-a" };
   expect(selectionNetwork(spec, selection)).toBe("a");
-  expect(endpointFilter(spec, [a.id])).toBe("(ip.addr == 10.0.0.1)");
+  expect(endpointFilter(spec, [a!.id])).toBe(
+    "(ip.addr == 10.0.0.1 || ip.addr == 10.255.0.1)",
+  );
   expect(selectionMatches(spec, selection, { ...flow, networkId: "b" })).toBe(
     false,
   );
@@ -260,7 +262,7 @@ test("traffic endpoint identities and packet filters stay scoped to their networ
     { ...flow, networkId: undefined },
     "destination",
   );
-  expect(selectionNetwork(spec, { asset: unknown.id })).toBeUndefined();
+  expect(unknown).toBeUndefined();
 });
 
 test("network overlap covers IPv4 and IPv6 without merging address families", () => {

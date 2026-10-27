@@ -23,6 +23,8 @@ import {
   Download,
   Ellipsis,
   Filter,
+  Maximize,
+  Minimize,
   Network,
   ShieldCheck,
   Pause,
@@ -30,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -107,6 +110,14 @@ export default function TrafficWorkspace({
   }, [scheme]);
   const host = useRef<HTMLElement>(null),
     panes = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState<string>();
+  useEffect(() => {
+    const changed = () =>
+      setFullscreen(document.fullscreenElement === host.current);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
   const [range, setRange] = useState("3600"),
     [paused, setPaused] = useState(false),
     [input, setInput] = useState(""),
@@ -116,7 +127,8 @@ export default function TrafficWorkspace({
     [protocol, setProtocol] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<{ start: string; end: string }>(),
     [timeline, setTimeline] = useState(
-      () => window.matchMedia("(min-height: 960px) and (min-width: 901px)").matches,
+      () =>
+        window.matchMedia("(min-height: 960px) and (min-width: 901px)").matches,
     );
   const [packetTimeWindow] = useDebouncedValue(timeRange, 250);
   const [selectedId, setSelectedId] = useState<string>(),
@@ -152,8 +164,8 @@ export default function TrafficWorkspace({
   );
   const groups = useMemo(
     () =>
-      new Map(
-        spec.assets.map((asset) => [
+      new Map<string, string>([
+        ...spec.assets.map((asset): [string, string] => [
           asset.id,
           environment.view.roles?.[asset.id] ??
             spec.networks.find(
@@ -161,7 +173,20 @@ export default function TrafficWorkspace({
             )?.name ??
             "未分组",
         ]),
-      ),
+        ...spec.networks.flatMap((network): [string, string][] => [
+          [network.id, network.name],
+          ...(network.devices ?? []).map((device): [string, string] => [
+            device.id,
+            network.name,
+          ]),
+        ]),
+        ...(spec.routers ?? []).map((router): [string, string] => [
+          router.id,
+          spec.networks.find(
+            (network) => network.id === router.interfaces[0]?.networkId,
+          )?.name ?? router.name,
+        ]),
+      ]),
     [spec, environment.view.roles],
   );
   const colors = useMemo(
@@ -279,6 +304,7 @@ export default function TrafficWorkspace({
     enabled: filesOpen,
   });
   const errors = [
+    ...(fullscreenError ? [fullscreenError] : []),
     ...data.errors,
     ...[
       security.error,
@@ -468,6 +494,21 @@ export default function TrafficWorkspace({
             <Download size={15} />
           </ActionIcon>
         </Tooltip>
+        <ActionIcon
+          variant="subtle"
+          aria-label={fullscreen ? "退出全屏" : "全屏分析"}
+          title={fullscreen ? "退出全屏" : "全屏分析"}
+          onClick={() => {
+            setFullscreenError(undefined);
+            void (
+              fullscreen
+                ? document.exitFullscreen()
+                : host.current!.requestFullscreen()
+            ).catch((error: Error) => setFullscreenError(error.message));
+          }}
+        >
+          {fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+        </ActionIcon>
         <Menu position="bottom-end" withinPortal={false}>
           <Menu.Target>
             <ActionIcon variant="subtle" aria-label="分析选项">
@@ -621,6 +662,7 @@ export default function TrafficWorkspace({
         className={styles.panes}
         data-mobile={mobilePane}
         data-detail={mobileDetail}
+        data-inspecting={Boolean(selected || chosenAlert)}
         style={
           { "--columns": `${columns}%`, "--rows": `${rows}%` } as CSSProperties
         }
@@ -638,13 +680,12 @@ export default function TrafficWorkspace({
           <div className={styles.paneBody}>
             {!data.traffic.isPending && (
               <TrafficGraph
-                environment={environment}
+                spec={spec}
                 links={graphLinks}
                 groups={groups}
                 colors={colors}
                 selection={selection}
                 onSelect={select}
-                fullscreenTarget={host}
                 toolsTarget={graphTools}
               />
             )}

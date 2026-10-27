@@ -79,14 +79,14 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 
 * **免客户端运维**：网页原生集成终端（xterm.js）、VM VNC、串口（Serial）、SSH，以及由 Guacamole 驱动的 RDP（支持剪贴板与窗口缩放自适应）。
 * **报文分析**：自动从运行资产的虚拟网卡保留近期报文，保留真实网段与接口身份。每个环境共用 1 GiB 压缩后额度（多节点合计），循环覆盖最旧数据；支持 Wireshark 显示过滤、历史分页、协议树与原始字节联动，以及 PCAPNG 导出。按需抓包仍支持 BPF 过滤。
-* **流向可视化**：基于 OVS IPFIX 全量计数汇总最近一分钟的通信，展示资产、双向连接与传输速率。通信、风险、报文及流量趋势在同一工作区联动；刷新保留节点位置与视角，支持全屏和分栏调整。
+* **流向可视化**：基于 OVS IPFIX 全量计数汇总最近一分钟的通信，仅呈现有流量的环境资产、交换机、路由器和已登记设备，IP/MAC 统一归入对应对象。通信图按交换机分组，连线自动避让节点；通信、风险、报文与流量趋势在同一工作区联动，刷新保留位置与视角，支持全屏和分栏调整。
 * **风险检测**：Suricata 使用 ET Open 规则被动检测 VM 与容器接口，按高、中、低风险筛选告警；通信图联动告警详情，历史告警保留 30 天。
 * **时序监控**：提供环境、节点和集群性能视图；CPU、内存、磁盘 I/O、网卡速率与丢包计数每 10 秒采集，历史保留 30 天。VM 内存按 QEMU 进程 RSS 统计，容器按 cgroup 统计。
 
 ### 4. 存储、快照与灾备
 
 * **存储支持**：本地目录、Btrfs CoW 原生快照、Ceph RBD 共享块存储。
-* **容器存储**：系统写入层由 containerd 管理，磁盘规格用于调度预算；数据卷使用所选存储池。
+* **容器存储**：containerd 管理容器系统盘，数据卷使用所选存储池。
 * **存储管理**：在工作台选择节点存储盘，查看 Ceph 成员、容量、健康状态与副本数；已有资产保留原存储，可按需迁移到其他节点或同节点的其他存储池。
 * **共享镜像**：单机使用本地基础盘与独立写入层；多节点自动优先使用共享池。每个池、模板版本保存一份基础盘，实例原生克隆，其他节点仅传输模板配置、固件和挂载介质。
 * **缓存释放**：查看各节点镜像基础盘的实际占用，释放已存入共享池且未被本地资产或恢复点引用的基础盘；再次使用本地存储时从共享池恢复。
@@ -122,7 +122,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.1.2/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.1.3/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -265,7 +265,7 @@ curl -H "Authorization: Bearer <Your-Token>" \
 ## 许可证与第三方组件
 
 - 本项目代码许可证待定，当前源码及发布包保留所有权利。
-- 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、Suricata、GoFlow2。
+- 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、React Flow Smart Edge、Suricata、GoFlow2。
 - 界面使用 Inter 与 JetBrains Mono 字体，均遵循 SIL Open Font License 1.1；随前端文件保留许可文本。
 - 拓扑自动布局使用 ELK.js，遵循 Eclipse Public License 2.0；随前端文件保留许可及来源说明。
 

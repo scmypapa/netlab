@@ -195,6 +195,9 @@ test("topology changes automatically place new assets in their subnet", async ()
 
 async function fixture(page: Page, readOnly = false) {
   const spec = scenario();
+  spec.assets[0].name = "海上风电场工业防火墙与通信控制系统";
+  spec.networks[0].name = "海上风电场生产控制网络交换机";
+  spec.routers![0].name = "海上风电场纵向加密边界路由器";
   const operation: Operation = {
     id: "start-task",
     environmentId: "env",
@@ -273,6 +276,20 @@ async function fixture(page: Page, readOnly = false) {
   });
   await page.goto("/environments/env");
   await expect(page.locator(".react-flow__node")).toHaveCount(66);
+  const clipped = await page
+    .locator(".react-flow__node strong")
+    .evaluateAll((labels) =>
+      labels
+        .filter((label) => {
+          const element = label as HTMLElement;
+          return (
+            element.scrollWidth > element.clientWidth + 1 ||
+            getComputedStyle(element).textAlign !== "left"
+          );
+        })
+        .map((label) => label.textContent),
+    );
+  expect(clipped).toEqual([]);
   return {
     views,
     update: async () => {

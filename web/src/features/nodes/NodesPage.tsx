@@ -15,6 +15,7 @@ import { NodeScheduling } from "./NodeScheduling";
 import { LoadMore } from "../../foundation/LoadMore";
 import { useCursorList } from "../../foundation/useCursorList";
 import { Status } from "../../foundation/Status";
+import { memory } from "../../foundation/format";
 import styles from "./NodeInventory.module.css";
 
 const PerformanceWorkspace = lazy(
@@ -135,7 +136,7 @@ export function NodesPage() {
               <div>
                 <strong>
                   {selected.capacity.cpu} 核 ·{" "}
-                  {selected.capacity.memoryMiB / 1024} GiB 内存 ·{" "}
+                  {memory(selected.capacity.memoryMiB)} 内存 ·{" "}
                   {selected.capacity.diskGiB} GiB 默认存储
                 </strong>
                 <span className={styles.technical}>{selected.endpoint}</span>

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { Schema } from "../src/api/client";
+import type { EnvironmentSpec, Schema } from "../src/api/client";
 
 type Packet = Schema<"CapturePacket">;
 type Flow = Schema<"CaptureFlow">;
@@ -311,7 +311,7 @@ const alert: Schema<"SecurityAlert"> = {
   lastSeen: timestamp(1000),
 };
 
-async function fixture(page: Page) {
+async function fixture(page: Page, scene: EnvironmentSpec = spec) {
   const requests: { method: string; url: URL }[] = [];
   const packets = Array.from({ length: 36 }, (_, index) => frame(index + 1));
   const state = {
@@ -361,8 +361,8 @@ async function fixture(page: Page) {
         revision: 1,
         status: "running",
         permissions: ["read", "observe", "compose", "operate", "manage"],
-        spec,
-        appliedSpec: spec,
+        spec: scene,
+        appliedSpec: scene,
         view: { positions: {} },
         createdAt: timestamp(),
         updatedAt: timestamp(),
@@ -372,7 +372,7 @@ async function fixture(page: Page) {
         id: "env",
         revision: 1,
         status: "running",
-        assets: assets.map((asset) => ({
+        assets: scene.assets.map((asset) => ({
           assetId: asset.id,
           state: "running",
         })),
@@ -399,7 +399,7 @@ async function fixture(page: Page) {
         start: timestamp(-3600000),
         end: timestamp(60000),
         stepSeconds: 60,
-        series: assets.flatMap((asset, index) =>
+        series: scene.assets.flatMap((asset, index) =>
           ["receive", "transmit"].map((metric) => ({
             metric,
             assetId: asset.id,
@@ -496,15 +496,41 @@ const connection = (page: Page, left = "DC01", right = "YINYU-WIN7") =>
     .getByRole("region", { name: "资产通信图" })
     .getByRole("group", { name: new RegExp(`${left} ↔ ${right}`) });
 async function clickConnection(page: Page) {
+  await expect(page.locator("[data-smart-edge-placeholder]")).toHaveCount(0);
   const point = await connection(page)
     .locator(".react-flow__edge-interaction")
     .evaluate((element) => {
       const path = element as SVGPathElement;
-      const middle = path.getPointAtLength(path.getTotalLength() / 2);
-      const point = new DOMPoint(middle.x, middle.y).matrixTransform(
-        path.getScreenCTM()!,
+      const length = path.getTotalLength(),
+        matrix = path.getScreenCTM()!;
+      const edge = element.closest(".react-flow__edge")!;
+      for (let distance = length / 2; distance < length * 1.5; distance += 3) {
+        const point = path.getPointAtLength(distance % length);
+        const screen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+        if (
+          document
+            .elementFromPoint(screen.x, screen.y)
+            ?.closest(".react-flow__edge") === edge
+        )
+          return { x: screen.x, y: screen.y };
+      }
+      const middle = path.getPointAtLength(length / 2),
+        screen = new DOMPoint(middle.x, middle.y).matrixTransform(matrix);
+      throw new Error(
+        "连接没有可点击的独立线段：" +
+          JSON.stringify({
+            path: path.getAttribute("d"),
+            screen: { x: screen.x, y: screen.y },
+            hit: document
+              .elementFromPoint(screen.x, screen.y)
+              ?.outerHTML.slice(0, 250),
+            viewport: edge
+              .closest(".react-flow")
+              ?.getBoundingClientRect()
+              .toJSON(),
+            svgZ: getComputedStyle(edge.parentElement!).zIndex,
+          }),
       );
-      return { x: point.x, y: point.y };
     });
   await page.mouse.click(point.x, point.y);
 }
@@ -710,7 +736,7 @@ test("读取更早报文暂停实时头页，继续实时清分页，修改过�
   ).toContain("udp.port == 53");
 });
 
-test("流量刷新保持视角与节点位置，动态端点加入，广播组播不伪装成机器", async ({
+test("流量刷新保留视角，只呈现环境对象，广播组播归入交换机", async ({
   page,
 }) => {
   const { state } = await fixture(page);
@@ -718,10 +744,10 @@ test("流量刷新保持视角与节点位置，动态端点加入，广播组�
   await open(page);
   const graph = page.getByRole("region", { name: "资产通信图" });
   await expect(
-    graph.getByRole("group", { name: "Entry LAN · 组播", exact: true }),
+    graph.getByRole("group", { name: "Entry LAN", exact: true }),
   ).toHaveCount(1);
   await expect(
-    graph.getByRole("group", { name: "Internal LAN · 广播", exact: true }),
+    graph.getByRole("group", { name: "Internal LAN", exact: true }),
   ).toHaveCount(1);
   await expect(
     graph.getByRole("group", { name: "ff02::fb", exact: true }),
@@ -768,6 +794,14 @@ test("流量刷新保持视角与节点位置，动态端点加入，广播组�
       const a = rectangles[i],
         b = rectangles[j];
       if (
+        assets.some(
+          (asset) =>
+            (asset.id === a.id && asset.interfaces[0].networkId === b.id) ||
+            (asset.id === b.id && asset.interfaces[0].networkId === a.id),
+        )
+      )
+        continue;
+      if (
         a.left < b.right &&
         a.right > b.left &&
         a.top < b.bottom &&
@@ -786,7 +820,7 @@ test("流量刷新保持视角与节点位置，动态端点加入，广播组�
   await page.clock.fastForward(5500);
   await expect(
     graph.getByRole("group", { name: "203.0.113.88", exact: true }),
-  ).toBeAttached();
+  ).toHaveCount(0);
   await expect(graph.locator(".react-flow__viewport")).toHaveAttribute(
     "style",
     viewport!,
@@ -812,12 +846,13 @@ test("流量刷新保持视角与节点位置，动态端点加入，广播组�
     new URL(request.url()).pathname.endsWith("/packets"),
   );
   await graph
-    .getByRole("group", { name: "Entry LAN · 组播", exact: true })
+    .getByRole("group", { name: "Entry LAN", exact: true })
+    .locator("header")
     .click();
   await page.clock.fastForward(500);
   const query = new URL((await request).url()).searchParams;
   expect(query.get("networkId")).toBe("entry");
-  expect(query.get("filter")).toContain("eth.dst.ig == 1");
+  expect(query.get("filter")).toBeNull();
 });
 
 test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用", async ({
@@ -1028,4 +1063,137 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
       }
     }
   }
+});
+test("无流量资产不显示，密集连线绕开设备与名称，保留真实环境对象", async ({
+  page,
+}, info) => {
+  test.setTimeout(60000);
+  const scene: EnvironmentSpec = {
+    networks: [
+      { id: "dense", name: "海上风电场生产控制网络", cidr: "10.20.0.0/24" },
+    ],
+    routers: [],
+    assets: Array.from({ length: 33 }, (_, i) => ({
+      id: "device-" + i,
+      name: i % 3 ? "风电控制设备 " + i : "工业协议转换与通信控制设备 " + i,
+      templateId: "linux",
+      resources,
+      interfaces: [
+        {
+          id: "nic-" + i,
+          networkId: "dense",
+          address: "10.20.0." + (i + 1),
+          mac: "02:00:00:00:00:" + (i + 1).toString(16).padStart(2, "0"),
+          primary: true,
+        },
+      ],
+    })),
+  };
+  const { state } = await fixture(page, scene);
+  state.alerts = [];
+  state.packets = [];
+  state.flows = scene.assets.slice(1, 32).flatMap((asset, i) => [
+    flow(scene.assets[0].interfaces[0].address, asset.interfaces[0].address, {
+      sourceAssetId: "device-0",
+      destinationAssetId: asset.id,
+      networkId: "dense",
+    }),
+    ...(i > 1
+      ? [
+          flow(
+            scene.assets[i - 1].interfaces[0].address,
+            asset.interfaces[0].address,
+            {
+              sourceAssetId: scene.assets[i - 1].id,
+              destinationAssetId: asset.id,
+              networkId: "dense",
+            },
+          ),
+        ]
+      : []),
+  ]);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/environments/env?view=traffic");
+  const graph = page.getByRole("region", { name: "资产通信图" });
+  await expect(graph.locator(".react-flow__node-trafficAsset")).toHaveCount(32);
+  await expect(
+    graph.locator('.react-flow__node[data-id="device-32"]'),
+  ).toHaveCount(0);
+  await expect(graph.locator(".react-flow__edge")).toHaveCount(
+    state.flows.length,
+  );
+  await expect(graph.locator("[data-smart-edge-placeholder]")).toHaveCount(0);
+  await expect
+    .poll(
+      () =>
+        graph.evaluate((element) => {
+          const nodes = Array.from(
+            element.querySelectorAll(".react-flow__node-trafficAsset"),
+          ).map((node) => ({
+            id: node.getAttribute("data-id"),
+            rect: node.getBoundingClientRect(),
+          }));
+          const labels = Array.from(
+            element.querySelectorAll(".react-flow__node strong"),
+          ).map((node) => node.getBoundingClientRect());
+          const problems: string[] = [];
+          for (const edge of element.querySelectorAll(".react-flow__edge")) {
+            const [source, target] = JSON.parse(edge.getAttribute("data-id")!);
+            const path = edge.querySelector<SVGPathElement>(
+              ".react-flow__edge-path",
+            )!;
+            const length = path.getTotalLength(),
+              matrix = path.getScreenCTM()!;
+            const obstacles = [
+              ...nodes
+                .filter((node) => node.id !== source && node.id !== target)
+                .map((node) => node.rect),
+              ...labels,
+            ];
+            for (let distance = 2; distance < length; distance += 3) {
+              const point = path.getPointAtLength(distance);
+              const screen = new DOMPoint(point.x, point.y).matrixTransform(
+                matrix,
+              );
+              if (
+                obstacles.some(
+                  (rect) =>
+                    screen.x > rect.left + 1 &&
+                    screen.x < rect.right - 1 &&
+                    screen.y > rect.top + 1 &&
+                    screen.y < rect.bottom - 1,
+                )
+              ) {
+                const hit = obstacles.find(
+                  (rect) =>
+                    screen.x > rect.left + 1 &&
+                    screen.x < rect.right - 1 &&
+                    screen.y > rect.top + 1 &&
+                    screen.y < rect.bottom - 1,
+                )!;
+                const obstacle =
+                  nodes.find((node) => node.rect === hit)?.id ?? "label";
+                problems.push(source + "/" + target + " crosses " + obstacle);
+                break;
+              }
+            }
+          }
+          return problems;
+        }),
+      { timeout: 15000 },
+    )
+    .toEqual([]);
+  const clipped = await graph
+    .locator(".react-flow__node strong")
+    .evaluateAll((labels) =>
+      labels
+        .filter(
+          (label) =>
+            (label as HTMLElement).scrollWidth >
+            (label as HTMLElement).clientWidth + 1,
+        )
+        .map((label) => label.textContent),
+    );
+  expect(clipped).toEqual([]);
+  await page.screenshot({ path: info.outputPath("traffic-dense.png") });
 });

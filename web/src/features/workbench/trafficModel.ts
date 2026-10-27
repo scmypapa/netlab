@@ -11,8 +11,9 @@ type Conversation = Pick<
   Schema<"CaptureFlow">,
   "source" | "destination" | "sourceAssetId" | "destinationAssetId"
 > & { networkId?: string };
-const ipv4 = (address: string) =>
-  address.split(".").reduce((value, part) => value * 256 + Number(part), 0);
+const matchesAddress = (value: string, address: string) =>
+  Boolean(value) && value.split("/")[0].toLowerCase() === address.toLowerCase();
+
 export function describeEndpoint(
   spec: Spec,
   item: Conversation,
@@ -20,25 +21,33 @@ export function describeEndpoint(
 ) {
   const address = item[side],
     assetId = item[`${side}AssetId`];
+  const candidates = spec.assets.filter((asset) =>
+    asset.interfaces.some(
+      (iface) =>
+        (!item.networkId || iface.networkId === item.networkId) &&
+        (matchesAddress(iface.mac, address) ||
+          matchesAddress(iface.address, address)),
+    ),
+  );
   const asset =
     spec.assets.find((asset) => asset.id === assetId) ??
-    (item.networkId
-      ? spec.assets.find((asset) =>
-          asset.interfaces.some(
-            (iface) =>
-              iface.networkId === item.networkId &&
-              (iface.mac === address ||
-                iface.address.split("/")[0] === address),
-          ),
-        )
-      : undefined);
-  if (asset)
+    (candidates.length === 1 ? candidates[0] : undefined);
+  if (asset) {
+    const interfaces = asset.interfaces.filter(
+      (iface) =>
+        matchesAddress(iface.address, address) ||
+        matchesAddress(iface.mac, address),
+    );
     return {
       id: asset.id,
       name: asset.name,
       kind: "asset" as EndpointKind,
-      members: [asset.id],
+      networkId:
+        asset.interfaces.find((iface) => iface.networkId === item.networkId)
+          ?.networkId ??
+        (interfaces.length === 1 ? interfaces[0].networkId : undefined),
     };
+  }
   const peerId =
     side === "source" ? item.destinationAssetId : item.sourceAssetId;
   const peer =
@@ -49,8 +58,8 @@ export function describeEndpoint(
   const peerInterfaces = peer?.interfaces.filter(
     (iface) =>
       (!item.networkId || iface.networkId === item.networkId) &&
-      (iface.address.split("/")[0] === peerAddress ||
-        iface.mac === peerAddress),
+      (matchesAddress(iface.address, peerAddress) ||
+        matchesAddress(iface.mac, peerAddress)),
   );
   const peerInterface =
     peerInterfaces?.length === 1 ? peerInterfaces[0] : undefined;
@@ -64,52 +73,49 @@ export function describeEndpoint(
     spec.networks.find((network) => network.id === item.networkId) ??
     spec.networks.find((network) => network.id === peerInterface?.networkId) ??
     inferredNetwork();
-  const router = spec.routers?.find((router) =>
-    router.interfaces.some(
-      (iface) =>
-        iface.networkId === network?.id &&
-        iface.address.split("/")[0] === address,
+  const routers =
+    spec.routers?.filter((router) =>
+      router.interfaces.some(
+        (iface) =>
+          (!network || iface.networkId === network.id) &&
+          matchesAddress(iface.address, address),
+      ),
+    ) ?? [];
+  if (routers.length === 1)
+    return {
+      id: routers[0].id,
+      name: routers[0].name,
+      kind: "router" as EndpointKind,
+      networkId: routers[0].interfaces.find(
+        (iface) =>
+          (!network || iface.networkId === network.id) &&
+          matchesAddress(iface.address, address),
+      )!.networkId,
+    };
+  const devices = spec.networks.flatMap((network) =>
+    (network.devices ?? []).filter(
+      (device) =>
+        (!item.networkId || network.id === item.networkId) &&
+        (matchesAddress(device.address, address) ||
+          matchesAddress(device.mac, address)),
     ),
   );
-  const gateway = router || network?.gateway === address;
-  let kind: EndpointKind = gateway ? "gateway" : "external";
-  const mac = /^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(address);
-  if (address === "ff:ff:ff:ff:ff:ff" || address === "255.255.255.255")
-    kind = "broadcast";
-  else if (network && contains(network.cidr, address)) {
-    const prefix = Number(network.cidr.split("/")[1]);
-    if (prefix < 31 && (ipv4(address) + 1) % 2 ** (32 - prefix) === 0)
-      kind = "broadcast";
-  }
-  if (
-    /^ff[\da-f]{2}:/i.test(address) ||
-    /^2(?:2[4-9]|3\d)\./.test(address) ||
-    (mac &&
-      (parseInt(address.slice(0, 2), 16) & 1) === 1 &&
-      kind !== "broadcast")
-  )
-    kind = "multicast";
-  else if (mac && kind !== "broadcast") kind = "ethernet";
-  const grouped = kind === "broadcast" || kind === "multicast";
-  return {
-    id: grouped
-      ? `group:${network?.id ?? "unbound"}:${kind}`
-      : `endpoint:${JSON.stringify([network?.id ?? "", address])}`,
-    name: grouped
-      ? `${network?.name ?? "链路"} · ${kind === "broadcast" ? "广播" : "组播"}`
-      : router
-        ? router.name
-        : gateway
-          ? `${network!.name} · 网关`
-          : address,
-    kind,
-    members: [address],
-  };
-}
-
-function scopedEndpoint(id: string): [string, string] | undefined {
-  return id.startsWith("endpoint:")
-    ? (JSON.parse(id.slice(9)) as [string, string])
+  if (devices.length === 1)
+    return {
+      id: devices[0].id,
+      name: devices[0].name,
+      kind: "device" as EndpointKind,
+      networkId: spec.networks.find((network) =>
+        network.devices?.some((device) => device.id === devices[0].id),
+      )!.id,
+    };
+  return network
+    ? {
+        id: network.id,
+        name: network.name,
+        kind: "network" as EndpointKind,
+        networkId: network.id,
+      }
     : undefined;
 }
 
@@ -119,8 +125,8 @@ export function selectionMatches(
   item: Conversation,
 ) {
   if (!selection) return true;
-  const source = describeEndpoint(spec, item, "source").id,
-    destination = describeEndpoint(spec, item, "destination").id;
+  const source = describeEndpoint(spec, item, "source")?.id,
+    destination = describeEndpoint(spec, item, "destination")?.id;
   return "asset" in selection
     ? [source, destination].includes(selection.asset)
     : (source === selection.source && destination === selection.destination) ||
@@ -134,28 +140,60 @@ export function addressFilter(address: string) {
 }
 export function endpointFilter(spec: Spec, members: string[]) {
   const expressions = members.flatMap((member) => {
-    if (member.startsWith("group:")) {
-      const [, networkId, kind] = member.split(":"),
-        network = spec.networks.find((item) => item.id === networkId);
-      if (kind === "multicast")
-        return ["(eth.dst.ig == 1 && eth.dst != ff:ff:ff:ff:ff:ff)"];
-      const [base, prefix] = network?.cidr.split("/") ?? [];
-      const broadcast = base?.includes(".")
-        ? (Math.floor(ipv4(base) / 2 ** (32 - Number(prefix))) + 1) *
-            2 ** (32 - Number(prefix)) -
-          1
-        : undefined;
-      return [
-        `(eth.addr == ff:ff:ff:ff:ff:ff || ip.addr == 255.255.255.255${broadcast !== undefined ? ` || ip.addr == ${[24, 16, 8, 0].map((shift) => Math.floor(broadcast / 2 ** shift) % 256).join(".")}` : ""})`,
-      ];
+    const network = spec.networks.find((network) => network.id === member);
+    if (network) {
+      const interfaces = [
+        ...spec.assets.flatMap((asset) => asset.interfaces),
+        ...(spec.routers ?? []).flatMap((router) => router.interfaces),
+        ...(network.devices ?? []).map((device) => ({
+          ...device,
+          networkId: network.id,
+        })),
+      ].filter((iface) => iface.networkId === network.id);
+      const known = (side: "src" | "dst") => {
+        const addresses = [
+          ...new Set(
+            interfaces
+              .map((iface) => iface.address.split("/")[0])
+              .filter(Boolean),
+          ),
+        ];
+        const macs = [
+          ...new Set(
+            interfaces.flatMap((iface) =>
+              "mac" in iface && iface.mac ? [iface.mac] : [],
+            ),
+          ),
+        ];
+        const ip = addresses.map(
+          (address) =>
+            `${address.includes(":") ? "ipv6" : "ip"}.${side} == ${address}`,
+        );
+        const ethernet = macs.map((mac) => `eth.${side} == ${mac}`);
+        return (
+          [
+            ...ip,
+            ...(ethernet.length
+              ? [`(!ip && !ipv6 && (${ethernet.join(" || ")}))`]
+              : []),
+          ].join(" || ") || "frame.number < 0"
+        );
+      };
+      return [`(!((${known("src")}) && (${known("dst")})))`];
     }
     const asset = spec.assets.find((asset) => asset.id === member);
-    return asset
-      ? asset.interfaces.flatMap((iface) => [
-          addressFilter(iface.address),
-          `eth.addr == ${iface.mac}`,
-        ])
-      : [addressFilter(scopedEndpoint(member)?.[1] ?? member)];
+    const router = spec.routers?.find((router) => router.id === member);
+    const device = spec.networks
+      .flatMap((network) => network.devices ?? [])
+      .find((device) => device.id === member);
+    return (
+      asset?.interfaces ??
+      router?.interfaces ??
+      (device ? [device] : [])
+    ).flatMap((iface) => [
+      ...(iface.address ? [addressFilter(iface.address)] : []),
+      ...("mac" in iface && iface.mac ? [`eth.addr == ${iface.mac}`] : []),
+    ]);
   });
   return `(${[...new Set(expressions)].join(" || ")})`;
 }
@@ -165,8 +203,10 @@ export function selectionFilter(
 ) {
   if (!selection) return "";
   const managed = (id: string) => spec.assets.some((asset) => asset.id === id);
+  const network = (id: string) =>
+    spec.networks.some((network) => network.id === id);
   return "asset" in selection
-    ? managed(selection.asset)
+    ? managed(selection.asset) || network(selection.asset)
       ? ""
       : endpointFilter(spec, [selection.asset])
     : managed(selection.source)
@@ -195,24 +235,28 @@ export function selectionNetwork(
       ? [selection.asset]
       : [selection.source, selection.destination]
     : [];
-  const network = ids.find((id) => id.startsWith("group:"))?.split(":")[1];
-  if (network && network !== "unbound") return network;
-  const endpointNetworks = [
-    ...new Set(ids.flatMap((id) => scopedEndpoint(id)?.[0] || [])),
-  ];
-  if (endpointNetworks.length === 1) return endpointNetworks[0];
-  const assets = ids.flatMap(
-    (id) => spec.assets.find((asset) => asset.id === id) ?? [],
+  const network = ids.find((id) =>
+    spec.networks.some((network) => network.id === id),
   );
-  const shared =
-    assets[0]?.interfaces
-      .map((iface) => iface.networkId)
-      .filter((id) =>
-        assets.every((asset) =>
-          asset.interfaces.some((iface) => iface.networkId === id),
-        ),
-      ) ?? [];
-  const unique = [...new Set(shared)];
+  if (network) return network;
+  const memberships = ids.map(
+    (id) =>
+      new Set(
+        [
+          ...(spec.assets.find((asset) => asset.id === id)?.interfaces ?? []),
+          ...(spec.routers?.find((router) => router.id === id)?.interfaces ??
+            []),
+          ...spec.networks
+            .filter((network) =>
+              network.devices?.some((device) => device.id === id),
+            )
+            .map((network) => ({ networkId: network.id })),
+        ].map((iface) => iface.networkId),
+      ),
+  );
+  const unique = [...(memberships[0] ?? [])].filter((id) =>
+    memberships.every((networks) => networks.has(id)),
+  );
   return unique.length === 1 ? unique[0] : undefined;
 }
 
@@ -259,16 +303,17 @@ export function buildTrafficLinks(
   const detected = new Map<
     string,
     {
-      source: ReturnType<typeof describeEndpoint>;
-      target: ReturnType<typeof describeEndpoint>;
+      source: NonNullable<ReturnType<typeof describeEndpoint>>;
+      target: NonNullable<ReturnType<typeof describeEndpoint>>;
       severity: number;
       count: number;
     }
   >();
   for (const alert of alerts) {
     const source = describeEndpoint(spec, alert, "source"),
-      target = describeEndpoint(spec, alert, "destination"),
-      key = pairKey(source.id, target.id),
+      target = describeEndpoint(spec, alert, "destination");
+    if (!source || !target || source.id === target.id) continue;
+    const key = pairKey(source.id, target.id),
       previous = detected.get(key);
     if (previous) {
       previous.severity = Math.min(previous.severity, alert.severity);
@@ -284,20 +329,25 @@ export function buildTrafficLinks(
   const make = (item: Conversation, value: number, rate?: number) => {
     const source = describeEndpoint(spec, item, "source"),
       target = describeEndpoint(spec, item, "destination");
-    return {
-      source: source.id,
-      target: target.id,
-      sourceName: source.name,
-      targetName: target.name,
-      sourceKind: source.kind,
-      targetKind: target.kind,
-      value,
-      rate,
-      severity: detected.get(pairKey(source.id, target.id))?.severity,
-    };
+    if (!source || !target || source.id === target.id || value <= 0) return [];
+    return [
+      {
+        source: source.id,
+        target: target.id,
+        sourceName: source.name,
+        targetName: target.name,
+        sourceKind: source.kind,
+        targetKind: target.kind,
+        sourceNetworkId: source.networkId,
+        targetNetworkId: target.networkId,
+        value,
+        rate,
+        severity: detected.get(pairKey(source.id, target.id))?.severity,
+      },
+    ];
   };
   const links: TrafficLink[] = packets
-    ? packets.map((packet) =>
+    ? packets.flatMap((packet) =>
         make(
           {
             ...packet,
@@ -305,7 +355,7 @@ export function buildTrafficLinks(
           packet.length,
         ),
       )
-    : flows.map((flow) => make(flow, flow.bytes, flow.bytesPerSecond));
+    : flows.flatMap((flow) => make(flow, flow.bytes, flow.bytesPerSecond));
   for (const { source, target, severity, count } of detected.values())
     links.push({
       source: source.id,
@@ -314,12 +364,52 @@ export function buildTrafficLinks(
       targetName: target.name,
       sourceKind: source.kind,
       targetKind: target.kind,
+      sourceNetworkId: source.networkId,
+      targetNetworkId: target.networkId,
       value: 0,
       alerts: count,
       severity,
     });
   return riskOnly ? links.filter((link) => link.severity !== undefined) : links;
 }
+export function trafficTopology(spec: Spec, links: TrafficLink[]): Spec {
+  const ids = new Set(links.flatMap((link) => [link.source, link.target]));
+  const interfaces = new Map<string, Set<string>>();
+  for (const link of links)
+    for (const side of ["source", "target"] as const) {
+      const network = link[`${side}NetworkId`];
+      if (!network) continue;
+      const networks = interfaces.get(link[side]) ?? new Set<string>();
+      networks.add(network);
+      interfaces.set(link[side], networks);
+    }
+  const networks = new Set([...interfaces.values()].flatMap((set) => [...set]));
+  return {
+    networks: spec.networks
+      .filter((network) => ids.has(network.id) || networks.has(network.id))
+      .map((network) => ({
+        ...network,
+        devices: network.devices?.filter((device) => ids.has(device.id)),
+      })),
+    routers: spec.routers
+      ?.filter((router) => ids.has(router.id))
+      .map((router) => ({
+        ...router,
+        interfaces: router.interfaces.filter((iface) =>
+          networks.has(iface.networkId),
+        ),
+      })),
+    assets: spec.assets
+      .filter((asset) => ids.has(asset.id))
+      .map((asset) => ({
+        ...asset,
+        interfaces: asset.interfaces.filter((iface) =>
+          interfaces.get(asset.id)?.has(iface.networkId),
+        ),
+      })),
+  };
+}
+
 export function selectionLabel(
   spec: Spec,
   selection: TrafficSelection | undefined,
@@ -327,6 +417,11 @@ export function selectionLabel(
 ) {
   const name = (id: string) =>
     spec.assets.find((asset) => asset.id === id)?.name ??
+    spec.networks.find((network) => network.id === id)?.name ??
+    spec.routers?.find((router) => router.id === id)?.name ??
+    spec.networks
+      .flatMap((network) => network.devices ?? [])
+      .find((device) => device.id === id)?.name ??
     links.find((link) => link.source === id)?.sourceName ??
     links.find((link) => link.target === id)?.targetName ??
     id;

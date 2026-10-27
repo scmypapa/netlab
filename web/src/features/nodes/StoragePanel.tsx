@@ -304,8 +304,10 @@ export function StoragePanel() {
                       <span>可用空间</span>
                     </div>
                     <div>
-                      <strong>{active.allocatedGiB} GiB</strong>
-                      <span>池内预算</span>
+                      <strong>
+                        {Math.floor(active.storage.capacityBytes / 2 ** 30)} GiB
+                      </strong>
+                      <span>总容量</span>
                     </div>
                   </div>
                   <Progress
@@ -319,10 +321,6 @@ export function StoragePanel() {
                     size={5}
                     mb="lg"
                   />
-                  <div className={styles.meta}>
-                    总计 {Math.floor(active.storage.capacityBytes / 2 ** 30)}{" "}
-                    GiB{active.directory && ` · ${active.directory}`}
-                  </div>
                 </>
               )}
               <Tabs
@@ -368,17 +366,6 @@ export function StoragePanel() {
                         </>
                       )}
                     </dl>
-                  )}
-                  {active.containerStorage && (
-                    <ContainerStorageDetails
-                      storage={active.containerStorage}
-                      allocatedGiB={active.containerAllocatedGiB ?? 0}
-                      shared={
-                        Boolean(active.storage?.filesystem) &&
-                        active.storage?.filesystem ===
-                          active.containerStorage.filesystem
-                      }
-                    />
                   )}
                 </Tabs.Panel>
                 <Tabs.Panel value="assets" pt="lg">
@@ -649,9 +636,6 @@ export function NodeStorageSummary({ node }: { node: Node }) {
     queryFn: api.storagePools,
     refetchInterval: 5000,
   });
-  const local = pools.data?.find(
-    (pool) => pool.default && pool.nodeIds.includes(node.id),
-  );
   return (
     <>
       <ErrorMessage error={pools.error} />
@@ -678,58 +662,6 @@ export function NodeStorageSummary({ node }: { node: Node }) {
             ))}
         </div>
       )}
-      {local?.containerStorage && (
-        <ContainerStorageDetails
-          storage={local.containerStorage}
-          allocatedGiB={local.containerAllocatedGiB ?? 0}
-          shared={
-            Boolean(local.storage?.filesystem) &&
-            local.storage?.filesystem === local.containerStorage.filesystem
-          }
-        />
-      )}
     </>
-  );
-}
-
-function ContainerStorageDetails({
-  storage,
-  shared,
-  allocatedGiB,
-}: {
-  storage: Schema<"StorageInfo">;
-  shared: boolean;
-  allocatedGiB: number;
-}) {
-  return (
-    <section className={styles.runtimeStorage}>
-      <div className={styles.label}>
-        <h3>容器写入层</h3>
-        {shared && (
-          <Badge variant="light" color="gray">
-            与本地存储同盘
-          </Badge>
-        )}
-      </div>
-      <dl className={styles.properties}>
-        <dt>写入层预算</dt>
-        <dd className={styles.technical}>{allocatedGiB} GiB</dd>
-        {storage.path && (
-          <>
-            <dt>路径</dt>
-            <dd className={styles.technical}>{storage.path}</dd>
-          </>
-        )}
-        {!shared && (
-          <>
-            <dt>所在磁盘</dt>
-            <dd className={styles.technical}>
-              {Math.floor(storage.availableBytes / 2 ** 30)} /{" "}
-              {Math.floor(storage.capacityBytes / 2 ** 30)} GiB 可用
-            </dd>
-          </>
-        )}
-      </dl>
-    </section>
   );
 }
