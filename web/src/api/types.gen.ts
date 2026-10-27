@@ -1735,7 +1735,10 @@ export interface components {
       cpu: number;
       /** Format: int64 */
       memoryMiB: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description VM system disk capacity or OCI writable-layer scheduling budget. OCI writable layers do not have a hard filesystem quota. Data volume capacity is specified separately.
+       */
       diskGiB: number;
     };
     Hardware: {
@@ -2283,7 +2286,7 @@ export interface components {
         [key: string]: components["schemas"]["NodeVolume"];
       };
       pciDevices?: string[];
-      /** @description Node-local managed storage selected by the scheduler */
+      /** @description Selected node-local storage for VM disks or container data volumes and runtime files. OCI writable layers remain in the container runtime storage. */
       storagePath?: string;
       /** @description Actual selected pool; omitted for node default storage */
       storagePoolId?: string;
@@ -2600,6 +2603,7 @@ export interface components {
       networkChassis?: string;
       externalInterfaces?: components["schemas"]["ExternalInterface"][];
       storage?: components["schemas"]["StorageInfo"];
+      containerStorage?: components["schemas"]["StorageInfo"];
       /** @description Dedicated disk accepted during node installation */
       storageDevice?: string;
     };

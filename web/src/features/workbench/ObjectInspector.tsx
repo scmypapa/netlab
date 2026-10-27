@@ -521,7 +521,9 @@ export function ObjectInspector({
                 <dd>{memory(asset.resources.memoryMiB)}</dd>
               </div>
               <div>
-                <dt>系统盘</dt>
+                <dt>
+                  {template?.kind === "container" ? "磁盘预算" : "系统盘"}
+                </dt>
                 <dd>
                   {asset.resources.diskGiB}
                   <span>GiB</span>

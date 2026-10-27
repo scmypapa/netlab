@@ -457,7 +457,7 @@ type AssetExecution struct {
 	// StorageFilesystem Physical filesystem reservation identity
 	StorageFilesystem *string `json:"storageFilesystem,omitempty"`
 
-	// StoragePath Node-local managed storage selected by the scheduler
+	// StoragePath Selected node-local storage for VM disks or container data volumes and runtime files. OCI writable layers remain in the container runtime storage.
 	StoragePath *string `json:"storagePath,omitempty"`
 
 	// StoragePoolId Actual selected pool; omitted for node default storage
@@ -1333,6 +1333,7 @@ type NodeInfo struct {
 	AccessAddress      *string              `json:"accessAddress,omitempty"`
 	Capabilities       []string             `json:"capabilities"`
 	Capacity           Resources            `json:"capacity"`
+	ContainerStorage   *StorageInfo         `json:"containerStorage,omitempty"`
 	ExternalInterfaces *[]ExternalInterface `json:"externalInterfaces,omitempty"`
 	Id                 string               `json:"id"`
 	Name               string               `json:"name"`
@@ -1739,9 +1740,11 @@ type ResolvedInterface struct {
 // Resources defines model for Resources.
 type Resources struct {
 	// Cpu Container CPU limit in cores; virtual machines require whole vCPUs.
-	Cpu       float64 `json:"cpu"`
-	DiskGiB   int64   `json:"diskGiB"`
-	MemoryMiB int64   `json:"memoryMiB"`
+	Cpu float64 `json:"cpu"`
+
+	// DiskGiB VM system disk capacity or OCI writable-layer scheduling budget. OCI writable layers do not have a hard filesystem quota. Data volume capacity is specified separately.
+	DiskGiB   int64 `json:"diskGiB"`
+	MemoryMiB int64 `json:"memoryMiB"`
 }
 
 // RestartPolicy Restart unexpected exits only. Explicit stop remains stopped, including across node restarts.

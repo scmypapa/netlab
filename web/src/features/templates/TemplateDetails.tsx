@@ -211,7 +211,9 @@ export function TemplateDetails({
                 {template.resources.diskGiB}
                 <span> GiB</span>
               </strong>
-              <span>系统盘</span>
+              <span>
+                {template.kind === "container" ? "磁盘预算" : "系统盘"}
+              </span>
             </div>
           </div>
           <div className={styles.detailColumns}>

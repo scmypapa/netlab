@@ -224,7 +224,11 @@ export function AssetEditor({
                 onChange={(value) => setMemoryGiB(Number(value))}
               />
               <NumberInput
-                label="系统盘 · GiB"
+                label={
+                  template?.kind === "container"
+                    ? "磁盘预算 · GiB"
+                    : "系统盘 · GiB"
+                }
                 min={1}
                 value={disk}
                 onChange={(value) => setDisk(Number(value))}
