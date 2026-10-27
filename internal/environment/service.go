@@ -21,7 +21,7 @@ type Service struct {
 
 var ErrConflict = errors.New("环境配置已变化，请重新确认本轮变更")
 var ErrInUse = errors.New("资源仍在使用")
-var ErrBusy = errors.New("环境已有任务正在执行，请等待当前任务完成")
+var ErrBusy = errors.New("环境有未完成任务，请先处理当前任务")
 
 // The caller holds the environment row lock through submission.
 func RequireIdle(ctx context.Context, q *queries.Queries, id string) error {

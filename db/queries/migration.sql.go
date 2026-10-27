@@ -73,7 +73,15 @@ func (q *Queries) MoveMigratedVolume(ctx context.Context, arg MoveMigratedVolume
 }
 
 const pendingEnvironmentOperations = `-- name: PendingEnvironmentOperations :one
-SELECT EXISTS(SELECT 1 FROM operations WHERE scope_kind='environment' AND scope_id=$1 AND state IN ('queued','running'))
+SELECT EXISTS(SELECT 1 FROM operations o WHERE o.scope_kind='environment' AND o.scope_id=$1
+ AND (o.state IN ('queued','running') OR (
+  o.state IN ('failed','partially_applied')
+  AND o.id=(SELECT operation_id FROM environments WHERE id=$1)
+  AND o.phase NOT IN ('complete','rolled-back','cancelled')
+  AND (o.phase IN ('rollback','migration-rollback') OR o.payload->'committed'='true'::jsonb
+   OR o.kind='migrate' AND o.payload->'migration'->'target' IS NOT NULL
+   OR o.kind='move-network' AND o.phase<>'queued')
+ )))
 `
 
 func (q *Queries) PendingEnvironmentOperations(ctx context.Context, scopeID string) (bool, error) {
