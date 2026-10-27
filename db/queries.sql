@@ -63,7 +63,7 @@ UPDATE environments SET view=$2,updated_at=now() WHERE id=$1;
 -- name: SaveDraft :exec
 UPDATE environments SET draft=$2,updated_at=now() WHERE id=$1;
 -- name: SaveDesiredSpec :exec
-UPDATE environments SET spec=$2,updated_at=now() WHERE id=$1;
+UPDATE environments SET spec=$2,revision=revision+1,updated_at=now() WHERE id=$1;
 -- name: SetEnvironmentOperation :exec
 UPDATE environments SET operation_id=$2,status=$3,error=NULL,updated_at=now() WHERE id=$1;
 -- name: LockEnvironment :one

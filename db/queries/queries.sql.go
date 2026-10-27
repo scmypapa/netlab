@@ -1759,7 +1759,7 @@ func (q *Queries) RetryOperation(ctx context.Context, arg RetryOperationParams) 
 }
 
 const saveDesiredSpec = `-- name: SaveDesiredSpec :exec
-UPDATE environments SET spec=$2,updated_at=now() WHERE id=$1
+UPDATE environments SET spec=$2,revision=revision+1,updated_at=now() WHERE id=$1
 `
 
 type SaveDesiredSpecParams struct {
