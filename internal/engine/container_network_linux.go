@@ -24,6 +24,12 @@ func (c *Containers) connect(ctx context.Context, pid uint32, env string, a api.
 		return err
 	}
 	defer nsHandle.Close()
+	// Ports are isolated by the container network namespace, not by its user ID.
+	if err = nsHandle.Do(func(_ ns.NetNS) error {
+		return os.WriteFile("/proc/sys/net/ipv4/ip_unprivileged_port_start", []byte("0"), 0)
+	}); err != nil {
+		return err
+	}
 	for index, i := range a.Interfaces {
 		hostName := deviceName(i.PortName)
 		guestName := fmt.Sprintf("eth%d", index)
@@ -148,8 +154,14 @@ func writeNetworkFiles(directory string, interfaces []api.ResolvedInterface) err
 		}
 	}
 	hosts := "127.0.0.1 localhost\n::1 localhost ip6-localhost\n"
-	if err := os.WriteFile(filepath.Join(directory, "resolv.conf"), []byte(strings.Join(dns, "\n")+"\n"), 0644); err != nil {
-		return err
+	for _, file := range []struct{ name, content string }{{"resolv.conf", strings.Join(dns, "\n") + "\n"}, {"hosts", hosts}} {
+		path := filepath.Join(directory, file.name)
+		if err := os.WriteFile(path, []byte(file.content), 0644); err != nil {
+			return err
+		}
+		if err := os.Chmod(path, 0644); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(filepath.Join(directory, "hosts"), []byte(hosts), 0644)
+	return nil
 }
