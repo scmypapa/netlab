@@ -131,9 +131,9 @@ type MigrationAssetReservation struct {
 	EnvironmentID *string
 	NodeID        interface{}
 	Execution     interface{}
-	Cpu           int32
-	MemoryMib     int32
-	DiskGib       int32
+	Cpu           float64
+	MemoryMib     int64
+	DiskGib       int64
 	VolumeGib     int64
 	SystemGib     int64
 	PoolID        string

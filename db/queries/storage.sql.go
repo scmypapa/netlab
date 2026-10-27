@@ -331,7 +331,7 @@ SELECT name::text FROM (
  WHERE o.kind='migrate' AND o.phase NOT IN ('complete','rolled-back') AND (
   t->'execution'->>'storagePoolId'=$1 OR EXISTS(
    SELECT 1 FROM jsonb_each(t->'execution'->'volumeSources') volume
-   WHERE volume.value->'storage'->'rbd'->>'secretId'=$1))
+   WHERE volume.value->>'storagePoolId'=$1))
  UNION SELECT '待执行任务：'||COALESCE(e.name,o.kind) FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
  WHERE o.state IN ('queued','running') AND (
   o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('storagePoolId',$1::text))) OR
