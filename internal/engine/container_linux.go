@@ -65,7 +65,9 @@ func NewContainers(ctx context.Context, socket, data, node string, ovs *network.
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	return &Containers{client: c, data: data, node: node, ovs: ovs, ctx: namespaces.WithNamespace(ctx, "netlab"), cancel: cancel}, nil
+	containers := &Containers{client: c, data: data, node: node, ovs: ovs, ctx: namespaces.WithNamespace(ctx, "netlab"), cancel: cancel}
+	containers.startLogRotation()
+	return containers, nil
 }
 func (c *Containers) Close() { c.cancel(); c.watches.Wait(); c.client.Close() }
 func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution) (string, error) {

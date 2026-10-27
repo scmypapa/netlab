@@ -4,6 +4,7 @@ package=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 export DEBIAN_FRONTEND=noninteractive
 
 packages=()
+command -v logrotate >/dev/null || packages+=(logrotate)
 command -v modprobe >/dev/null || packages+=(kmod)
 if ! modinfo vrf >/dev/null 2>&1; then
   packages+=("linux-modules-extra-$(uname -r)")

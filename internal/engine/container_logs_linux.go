@@ -136,6 +136,21 @@ func (r *LogReader) Read(ctx context.Context, emit func(api.LogChunk) error) err
 			if file == nil {
 				continue
 			}
+			position, err := file.Seek(0, io.SeekCurrent)
+			if err != nil {
+				return err
+			}
+			info, err := file.Stat()
+			if err != nil {
+				return err
+			}
+			if info.Size() < position {
+				if _, err := file.Seek(0, io.SeekStart); err != nil {
+					return err
+				}
+				delete(r.ends, stream)
+				delete(pending, stream)
+			}
 			var source io.Reader = file
 			if end, initial := r.ends[stream]; initial {
 				position, err := file.Seek(0, io.SeekCurrent)
