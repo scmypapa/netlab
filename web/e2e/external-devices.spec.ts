@@ -77,7 +77,7 @@ test("外部设备发现后加入画布、编辑和移除，不创建运行实�
     .click();
   const setup = page.getByRole("dialog", { name: "接入现场网络" });
   await setup
-    .getByRole("textbox", { name: "网段名称", exact: true })
+    .getByRole("textbox", { name: "网络名称", exact: true })
     .fill("工控网络");
   await expect(
     setup.getByRole("textbox", { name: "接入节点", exact: true }),
@@ -120,7 +120,18 @@ test("外部设备发现后加入画布、编辑和移除，不创建运行实�
   await expect(
     page.locator(".react-flow__node").filter({ hasText: "PLC-01" }),
   ).toBeVisible();
-  await expect(page.locator(".react-flow__edge")).toHaveCount(1);
+  const segment = await page.locator(".react-flow__node-network").boundingBox();
+  const physical = await page.locator(".react-flow__node-asset").boundingBox();
+  expect(segment).not.toBeNull();
+  expect(physical).not.toBeNull();
+  expect(physical!.x).toBeGreaterThanOrEqual(segment!.x);
+  expect(physical!.y).toBeGreaterThanOrEqual(segment!.y);
+  expect(physical!.x + physical!.width).toBeLessThanOrEqual(
+    segment!.x + segment!.width,
+  );
+  expect(physical!.y + physical!.height).toBeLessThanOrEqual(
+    segment!.y + segment!.height,
+  );
   await page.screenshot({
     path: test.info().outputPath("physical-device-topology.png"),
   });

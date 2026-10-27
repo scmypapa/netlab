@@ -136,8 +136,10 @@ async function fixture(page: Page, spec = scenario()) {
         assets: [],
         updatedAt: environment.updatedAt,
       };
-    else if (path.endsWith("/draft")) status = 204;
-    else if (path.endsWith("/changes"))
+    else if (path.endsWith("/draft")) {
+      environment.draft = request.method() === "PUT" ? body : undefined;
+      status = 204;
+    } else if (path.endsWith("/changes"))
       response = {
         revision: 1,
         changes: [
@@ -443,9 +445,9 @@ test("new ordinary networks attach to the only router with an allocated interfac
   const { calls } = await fixture(page, spec);
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
   await page.getByRole("button", { name: "添加", exact: true }).click();
-  await page.getByRole("menuitem", { name: "网段", exact: true }).click();
-  const drawer = page.getByRole("dialog", { name: "添加网段" });
-  await drawer.getByLabel("网段名称").fill("业务网");
+  await page.getByRole("menuitem", { name: "交换机", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "添加交换机" });
+  await drawer.getByLabel("交换机名称").fill("业务网");
   await drawer.getByRole("button", { name: "添加到环境", exact: true }).click();
   await page.getByRole("button", { name: "预览变更", exact: true }).click();
   await expect(
@@ -470,9 +472,9 @@ test("new networks do not connect ambiguous routing domains implicitly", async (
   const { calls } = await fixture(page);
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
   await page.getByRole("button", { name: "添加", exact: true }).click();
-  await page.getByRole("menuitem", { name: "网段", exact: true }).click();
-  const drawer = page.getByRole("dialog", { name: "添加网段" });
-  await drawer.getByLabel("网段名称").fill("纯二层网");
+  await page.getByRole("menuitem", { name: "交换机", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "添加交换机" });
+  await drawer.getByLabel("交换机名称").fill("纯二层网");
   await drawer.getByLabel("网络地址 / 前缀").fill("10.0.0.0/24");
   await drawer.getByRole("button", { name: "添加到环境", exact: true }).click();
   await page.getByRole("button", { name: "预览变更", exact: true }).click();
@@ -485,6 +487,46 @@ test("new networks do not connect ambiguous routing domains implicitly", async (
   expect(
     saved.networks.find((network) => network.name === "纯二层网")?.gateway,
   ).toBeUndefined();
+});
+
+test("交换机名称在保存与重新编辑后保留，网卡和路由身份不变", async ({
+  page,
+}) => {
+  const spec = scenario();
+  spec.networks[0].name = "交换机5";
+  const { calls } = await fixture(page, spec);
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.getByRole("button", { name: "交换机5", exact: true }).click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByRole("dialog", { name: "编辑交换机" });
+  await editor.getByLabel("交换机名称").fill("集控站核心交换机");
+  await editor.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page
+      .locator(".react-flow__node-network")
+      .filter({ hasText: "集控站核心交换机" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "继续调整", exact: true }),
+  ).toBeVisible();
+  const saved = calls.find((call) => call.path.endsWith("/draft"))!.body!.spec!;
+  expect(saved.networks[0]).toMatchObject({
+    ...spec.networks[0],
+    name: "集控站核心交换机",
+  });
+  expect(saved.networks.slice(1)).toEqual(spec.networks.slice(1));
+  expect(saved.assets).toEqual(spec.assets);
+  expect(saved.routers).toEqual(spec.routers);
+  expect(saved.routes).toEqual(spec.routes);
+  await page.reload();
+  await page.getByRole("button", { name: "继续调整", exact: true }).click();
+  await expect(
+    page
+      .locator(".react-flow__node-network")
+      .filter({ hasText: "集控站核心交换机" }),
+  ).toBeVisible();
 });
 
 test("native router creation edits interface and route in the same environment draft", async ({

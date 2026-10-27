@@ -1216,7 +1216,9 @@ type Network struct {
 	Gateway    *string             `json:"gateway,omitempty"`
 	Id         string              `json:"id"`
 	Mtu        *int                `json:"mtu,omitempty"`
-	Name       string              `json:"name"`
+
+	// Name Display name of the logical switch
+	Name string `json:"name"`
 }
 
 // Node defines model for Node.

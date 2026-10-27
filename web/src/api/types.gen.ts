@@ -1891,6 +1891,7 @@ export interface components {
     };
     Network: {
       id: string;
+      /** @description Display name of the logical switch */
       name: string;
       cidr: string;
       gateway?: string;

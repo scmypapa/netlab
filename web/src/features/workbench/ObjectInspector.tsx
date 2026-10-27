@@ -286,7 +286,9 @@ export function ObjectInspector({
                           ? "移除路由器"
                           : asset
                             ? "移除资产"
-                            : "移除网段"}
+                            : network?.external
+                              ? "移除网络"
+                              : "移除交换机"}
                     </Menu.Item>
                   </>
                 ) : (

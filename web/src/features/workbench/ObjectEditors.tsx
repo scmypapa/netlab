@@ -537,7 +537,7 @@ export function NetworkEditor({
 }) {
   const [name, setName] = useState(
     network?.name ??
-      (initialExternal ? "现场网络" : `网段 ${spec.networks.length + 1}`),
+      (initialExternal ? "现场网络" : `交换机 ${spec.networks.length + 1}`),
   );
   const [cidr, setCidr] = useState(
     network?.cidr ??
@@ -624,7 +624,13 @@ export function NetworkEditor({
       opened
       onClose={onClose}
       title={
-        network ? "编辑网段" : initialExternal ? "接入现场网络" : "添加网段"
+        network
+          ? network.external
+            ? "编辑现场网络"
+            : "编辑交换机"
+          : initialExternal
+            ? "接入现场网络"
+            : "添加交换机"
       }
       position="right"
       size={504}
@@ -637,7 +643,7 @@ export function NetworkEditor({
         }}
       >
         <TextInput
-          label="网段名称"
+          label={external ? "网络名称" : "交换机名称"}
           required
           value={name}
           onChange={(event) => setName(event.currentTarget.value)}
@@ -829,7 +835,7 @@ export function NetworkEditor({
         </Collapse>
         <div className={styles.footer}>
           <Button fullWidth type="submit">
-            {network ? "更新网段" : "添加到环境"}
+            {network ? "保存" : "添加到环境"}
           </Button>
         </div>
       </form>

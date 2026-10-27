@@ -2191,7 +2191,7 @@ test("external LAN editor reads live interfaces and preserves the LAN gateway", 
   await page.getByRole("button", { name: "对象列表", exact: true }).click();
   await page.getByRole("button", { name: "应用网段", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
-  const editor = page.getByRole("dialog", { name: "编辑网段" });
+  const editor = page.getByRole("dialog", { name: "编辑交换机" });
   await editor.getByText("现场网络", { exact: true }).click();
   await editor.getByRole("textbox", { name: "接入节点", exact: true }).click();
   await page.getByRole("option", { name: "计算节点", exact: true }).click();
@@ -2226,7 +2226,7 @@ test("external LAN editor reads live interfaces and preserves the LAN gateway", 
   expect(
     await editor.evaluate((element) => element.scrollWidth),
   ).toBeLessThanOrEqual(390);
-  await editor.getByRole("button", { name: "更新网段", exact: true }).click();
+  await editor.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   expect(
     calls.find((call) => call.path.endsWith("/draft"))?.body,

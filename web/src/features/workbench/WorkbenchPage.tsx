@@ -767,7 +767,7 @@ function Workbench({ id }: { id: string }) {
               </>
             )}
             <div className={styles.treeHeading}>
-              网段<span>{spec.networks.length}</span>
+              交换机与网段<span>{spec.networks.length}</span>
             </div>
             {spec.networks
               .filter((item) =>
@@ -877,7 +877,7 @@ function Workbench({ id }: { id: string }) {
                         leftSection={<Network size={16} />}
                         onClick={() => adding("network")}
                       >
-                        网段
+                        交换机
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<Router size={16} />}
@@ -933,8 +933,8 @@ function Workbench({ id }: { id: string }) {
             !spec.routers?.length ? (
             <Empty
               icon={<Network size={36} />}
-              title="从一个网段开始"
-              action="添加网段"
+              title="从一台交换机开始"
+              action="添加交换机"
               onAction={() => adding("network")}
             />
           ) : traffic ? (

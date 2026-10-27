@@ -1198,7 +1198,7 @@ components:
       required: [id, name, cidr]
       properties:
         id: {type: string}
-        name: {type: string}
+        name: {type: string, description: Display name of the logical switch, independent of its stable ID and network CIDR.}
         cidr: {type: string}
         gateway: {type: string}
         accessAddress: {type: string, readOnly: true, description: Address reserved for platform management on this network; assigned automatically.}
