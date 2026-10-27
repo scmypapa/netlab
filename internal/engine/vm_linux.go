@@ -46,7 +46,7 @@ func noDomain(err error) bool {
 	var e libvirt.Error
 	return errors.As(err, &e) && e.Code == libvirt.ERR_NO_DOMAIN
 }
-func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution) (string, error) {
+func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution, releaseSlot func()) (string, error) {
 	if phase == api.NodePlanPhasePrepare {
 		return v.prepare(ctx, env, a)
 	}
@@ -92,6 +92,9 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if state != "stopped" {
 			err = d.Shutdown()
 			if err == nil {
+				if releaseSlot != nil {
+					releaseSlot()
+				}
 				return waitVM(ctx, d, "stopped")
 			}
 		}

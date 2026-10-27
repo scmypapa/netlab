@@ -92,7 +92,7 @@ func (e *Engine) cleanupMigration(ctx context.Context, env string, source, targe
 	}
 	defer unlock()
 	if source.Template.Kind == api.Container {
-		state, err := e.container.Execute(ctx, env, api.NodePlanPhaseInspect, source)
+		state, err := e.container.Execute(ctx, env, api.NodePlanPhaseInspect, source, nil)
 		if state != "absent" {
 			if err != nil {
 				return err
@@ -101,7 +101,7 @@ func (e *Engine) cleanupMigration(ctx context.Context, env string, source, targe
 				return errors.New("migration instance is still running")
 			}
 		}
-		if _, err := e.container.Execute(ctx, env, api.NodePlanPhaseDestroy, source); err != nil {
+		if _, err := e.container.Execute(ctx, env, api.NodePlanPhaseDestroy, source, nil); err != nil {
 			return err
 		}
 	} else {

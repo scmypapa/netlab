@@ -160,12 +160,12 @@ func TestRealVMArtifactImports(t *testing.T) {
 				}
 			}
 			defer func() {
-				if _, err := vm.Execute(context.Background(), env, api.NodePlanPhaseDestroy, a); err != nil {
+				if _, err := vm.Execute(context.Background(), env, api.NodePlanPhaseDestroy, a, nil); err != nil {
 					t.Errorf("cleanup: %v", err)
 				}
 			}()
 			for _, phase := range []api.NodePlanPhase{api.NodePlanPhasePrepare, api.NodePlanPhaseStart, api.NodePlanPhaseSuspend, api.NodePlanPhaseResume, api.NodePlanPhaseForceStop} {
-				if _, err = vm.Execute(ctx, env, phase, a); err != nil {
+				if _, err = vm.Execute(ctx, env, phase, a, nil); err != nil {
 					t.Fatalf("%s: %v", phase, err)
 				}
 			}
@@ -187,7 +187,7 @@ func TestRealVMArtifactImports(t *testing.T) {
 			}
 			a.Asset.Resources.DiskGiB++
 			a.Asset.Resources.MemoryMiB += 64
-			if _, err = vm.Execute(ctx, env, api.NodePlanPhaseUpdate, a); err != nil {
+			if _, err = vm.Execute(ctx, env, api.NodePlanPhaseUpdate, a, nil); err != nil {
 				t.Fatal(err)
 			}
 			actual, err := vm.observedExecution(ctx, domain)
@@ -206,10 +206,10 @@ func TestRealVMArtifactImports(t *testing.T) {
 			if fixture.disks == 2 && (actual.Template.NicModels == nil || (*actual.Template.NicModels)[0] != "vmxnet3" || (*actual.Template.NicModels)[1] != "e1000") {
 				t.Fatal("different OVF NIC models were lost")
 			}
-			if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, a); err != nil {
+			if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, a, nil); err != nil {
 				t.Fatal("updated VM did not start:", err)
 			}
-			if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, a); err != nil {
+			if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, a, nil); err != nil {
 				t.Fatal(err)
 			}
 			if _, err = os.Stat(instanceDir(data, env, instance)); !os.IsNotExist(err) {

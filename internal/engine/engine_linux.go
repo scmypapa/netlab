@@ -409,7 +409,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				if e.container == nil {
 					err = errors.New("container runtime not configured")
 				} else {
-					state, err = e.container.Execute(ctx, plan.EnvironmentId, phase, a)
+					state, err = e.container.Execute(ctx, plan.EnvironmentId, phase, a, releaseSlot)
 				}
 			case api.Vm:
 				if e.vm == nil {
@@ -421,7 +421,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 							return
 						}
 					}
-					state, err = e.vm.Execute(ctx, plan.EnvironmentId, phase, a)
+					state, err = e.vm.Execute(ctx, plan.EnvironmentId, phase, a, releaseSlot)
 					if phase == api.NodePlanPhaseStart && err == nil {
 						// Guest readiness is not host compute work. Keep the asset lock,
 						// but let other guests boot while this agent comes online.

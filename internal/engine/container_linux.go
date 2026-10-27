@@ -70,7 +70,7 @@ func NewContainers(ctx context.Context, socket, data, node string, ovs *network.
 	return containers, nil
 }
 func (c *Containers) Close() { c.cancel(); c.watches.Wait(); c.client.Close() }
-func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution) (string, error) {
+func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution, releaseSlot func()) (string, error) {
 	ctx = namespaces.WithNamespace(ctx, "netlab")
 	if phase == api.NodePlanPhasePrepare {
 		return c.prepare(ctx, env, a)
@@ -113,7 +113,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		if _, err = container.SetLabels(ctx, map[string]string{desiredLabel: "stopped"}); err != nil {
 			return state, err
 		}
-		err = c.stop(ctx, container, a, phase == api.NodePlanPhaseForceStop)
+		err = c.stop(ctx, container, a, phase == api.NodePlanPhaseForceStop, releaseSlot)
 	case api.NodePlanPhaseSuspend, api.NodePlanPhaseResume:
 		var t containerd.Task
 		t, err = container.Task(ctx, nil)
@@ -128,7 +128,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 		if _, err = container.SetLabels(ctx, map[string]string{desiredLabel: "stopped"}); err != nil {
 			return state, err
 		}
-		if err = c.stop(ctx, container, a, true); err != nil {
+		if err = c.stop(ctx, container, a, true, nil); err != nil {
 			return state, err
 		}
 		var volumes []api.Volume
@@ -542,7 +542,7 @@ func deleteCreated(ctx context.Context, task containerd.Task) error {
 	_, err := task.Delete(ctx, containerd.WithProcessKill)
 	return err
 }
-func (c *Containers) stop(ctx context.Context, container containerd.Container, a api.AssetExecution, force bool) error {
+func (c *Containers) stop(ctx context.Context, container containerd.Container, a api.AssetExecution, force bool, releaseSlot func()) error {
 	labels, err := container.Labels(ctx)
 	if err != nil {
 		return err
@@ -584,6 +584,9 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 		}
 		if err = task.Kill(ctx, stopSignal); err != nil && !errdefs.IsNotFound(err) {
 			return err
+		}
+		if releaseSlot != nil {
+			releaseSlot()
 		}
 		timer := time.NewTimer(90 * time.Second)
 		defer timer.Stop()

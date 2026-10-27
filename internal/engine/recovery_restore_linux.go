@@ -597,7 +597,7 @@ func (e *Engine) rollbackRecovery(ctx context.Context, env string, original, nex
 				return "unknown", err
 			}
 			if actual.DataSetId == operation {
-				if err = e.container.stop(ctx, container, *actual, true); err != nil {
+				if err = e.container.stop(ctx, container, *actual, true, nil); err != nil {
 					return "unknown", err
 				}
 				if err = container.Delete(ctx); err != nil {
