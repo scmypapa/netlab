@@ -1029,7 +1029,7 @@ components:
       properties:
         cpu: {type: number, format: double, minimum: 0.01, multipleOf: 0.01, description: Container CPU limit in cores; virtual machines require whole vCPUs.}
         memoryMiB: {type: integer, format: int64, minimum: 64}
-        diskGiB: {type: integer, format: int64, minimum: 1, description: VM system disk capacity or OCI writable-layer scheduling budget. OCI writable layers do not have a hard filesystem quota. Data volume capacity is specified separately.}
+        diskGiB: {type: integer, format: int64, minimum: 1, description: Node disk capacity, VM system-disk capacity, or OCI writable-layer scheduling budget. OCI writable layers do not have a hard filesystem quota. Asset data volume capacity is specified separately.}
     Hardware:
       type: object
       required: [firmware, machine, diskBus, nicModel]
@@ -1090,6 +1090,7 @@ components:
         kind: {$ref: '#/components/schemas/TemplateKind'}
         sizeGiB: {type: integer, format: int64}
         storage: {$ref: '#/components/schemas/StorageInfo'}
+        storagePoolId: {type: string, x-go-type-skip-optional-pointer: true, description: Actual storage pool identity, including default:<nodeId> for node-local default storage.}
     NodeRetirement:
       type: object
       required: [assets, blockers, draining]
@@ -1576,6 +1577,7 @@ components:
         capabilities: {type: array, items: {type: string}}
         vmHardware: {$ref: '#/components/schemas/VmHardware'}
         storageDevice: {type: string, description: Dedicated Ceph disk selected during node installation}
+        containerStorage: {$ref: '#/components/schemas/StorageInfo'}
         slots: {type: integer}
         observedAt: {type: string, format: date-time}
         state: {type: string}

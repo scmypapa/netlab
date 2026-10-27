@@ -1221,8 +1221,9 @@ type Network struct {
 
 // Node defines model for Node.
 type Node struct {
-	Capabilities []string  `json:"capabilities"`
-	Capacity     Resources `json:"capacity"`
+	Capabilities     []string     `json:"capabilities"`
+	Capacity         Resources    `json:"capacity"`
+	ContainerStorage *StorageInfo `json:"containerStorage,omitempty"`
 
 	// CpuAllocationRatio Maximum total assigned vCPUs per physical CPU; does not change physical capacity.
 	CpuAllocationRatio float64   `json:"cpuAllocationRatio"`
@@ -1531,6 +1532,9 @@ type NodeVolume struct {
 	Kind    TemplateKind `json:"kind"`
 	SizeGiB int64        `json:"sizeGiB"`
 	Storage StorageInfo  `json:"storage"`
+
+	// StoragePoolId Actual storage pool identity
+	StoragePoolId string `json:"storagePoolId,omitempty"`
 }
 
 // Operation defines model for Operation.
@@ -1742,7 +1746,7 @@ type Resources struct {
 	// Cpu Container CPU limit in cores; virtual machines require whole vCPUs.
 	Cpu float64 `json:"cpu"`
 
-	// DiskGiB VM system disk capacity or OCI writable-layer scheduling budget. OCI writable layers do not have a hard filesystem quota. Data volume capacity is specified separately.
+	// DiskGiB Node disk capacity
 	DiskGiB   int64 `json:"diskGiB"`
 	MemoryMiB int64 `json:"memoryMiB"`
 }

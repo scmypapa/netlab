@@ -1737,7 +1737,7 @@ export interface components {
       memoryMiB: number;
       /**
        * Format: int64
-       * @description VM system disk capacity or OCI writable-layer scheduling budget. OCI writable layers do not have a hard filesystem quota. Data volume capacity is specified separately.
+       * @description Node disk capacity
        */
       diskGiB: number;
     };
@@ -1799,6 +1799,8 @@ export interface components {
       /** Format: int64 */
       sizeGiB: number;
       storage: components["schemas"]["StorageInfo"];
+      /** @description Actual storage pool identity */
+      storagePoolId?: string;
     };
     NodeRetirement: {
       assets: components["schemas"]["StoragePoolAsset"][];
@@ -2254,6 +2256,7 @@ export interface components {
       vmHardware?: components["schemas"]["VmHardware"];
       /** @description Dedicated Ceph disk selected during node installation */
       storageDevice?: string;
+      containerStorage?: components["schemas"]["StorageInfo"];
       slots: number;
       /** Format: date-time */
       observedAt: string;
