@@ -288,10 +288,7 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 			return err
 		}
 		allocated := desiredTargets(p)
-		if restoresData(op.Kind) {
-			allocated = append(slices.Clone(p.Targets), recoveryReservations(p.Updates, p.Before)...)
-		}
-		raw, err := resourceRecords(row.ID, allocated)
+		raw, err := resourceRecords(row.ID, allocated, p.Before, restoresData(op.Kind))
 		if err != nil {
 			return err
 		}
@@ -378,17 +375,20 @@ func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) 
 		if err != nil {
 			return err
 		}
-		raw, err := resourceRecords(*op.EnvironmentID, desiredTargets(p))
+	} else {
+		_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Before, p.Updates))
 		if err != nil {
 			return err
 		}
-		if err = w.Queries.UpdateExecutions(ctx, raw); err != nil {
-			return fmt.Errorf("%w: %v", errPersistence, err)
-		}
-		return nil
 	}
-	_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupVolumes, removedVolumes(p.Before, p.Updates))
-	return err
+	raw, err := resourceRecords(*op.EnvironmentID, desiredTargets(p), nil, false)
+	if err != nil {
+		return err
+	}
+	if err = w.Queries.UpdateExecutions(ctx, raw); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	return nil
 }
 
 func removedVolumes(beforeTargets, afterTargets []Target) []Target {
@@ -620,7 +620,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 			}
 		}
 	}
-	raw, err := resourceRecords(*op.EnvironmentID, before)
+	raw, err := resourceRecords(*op.EnvironmentID, before, nil, false)
 	if err != nil {
 		return err
 	}

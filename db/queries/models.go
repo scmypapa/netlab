@@ -128,13 +128,15 @@ type GuestConnection struct {
 }
 
 type MigrationAssetReservation struct {
-	EnvironmentID string
+	EnvironmentID *string
 	NodeID        interface{}
 	Execution     interface{}
-	Cpu           float64
-	MemoryMib     int64
-	DiskGib       int64
+	Cpu           int32
+	MemoryMib     int32
+	DiskGib       int32
 	VolumeGib     int64
+	SystemGib     int64
+	PoolID        string
 }
 
 type Node struct {
@@ -235,6 +237,7 @@ type RuntimeAsset struct {
 	Current       bool
 	Error         *string
 	ObservedAt    pgtype.Timestamptz
+	SystemGib     int64
 }
 
 type SecurityAlert struct {

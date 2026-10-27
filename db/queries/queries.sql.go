@@ -548,7 +548,7 @@ func (q *Queries) GetCredential(ctx context.Context, hash []byte) (GetCredential
 }
 
 const getCurrentAsset = `-- name: GetCurrentAsset :one
-SELECT a.environment_id, a.asset_id, a.instance_id, a.node_id, a.execution, a.state, a.cpu, a.memory_mib, a.disk_gib, a.current, a.error, a.observed_at,n.endpoint FROM runtime_assets a JOIN nodes n ON n.id=a.node_id
+SELECT a.environment_id, a.asset_id, a.instance_id, a.node_id, a.execution, a.state, a.cpu, a.memory_mib, a.disk_gib, a.current, a.error, a.observed_at, a.system_gib,n.endpoint FROM runtime_assets a JOIN nodes n ON n.id=a.node_id
 WHERE a.environment_id=$1 AND a.asset_id=$2 AND a.current
 `
 
@@ -570,6 +570,7 @@ type GetCurrentAssetRow struct {
 	Current       bool
 	Error         *string
 	ObservedAt    pgtype.Timestamptz
+	SystemGib     int64
 	Endpoint      string
 }
 
@@ -589,6 +590,7 @@ func (q *Queries) GetCurrentAsset(ctx context.Context, arg GetCurrentAssetParams
 		&i.Current,
 		&i.Error,
 		&i.ObservedAt,
+		&i.SystemGib,
 		&i.Endpoint,
 	)
 	return i, err
@@ -1179,7 +1181,7 @@ func (q *Queries) ListOperations(ctx context.Context, environmentID *string) ([]
 }
 
 const listRuntimeAssets = `-- name: ListRuntimeAssets :many
-SELECT environment_id, asset_id, instance_id, node_id, execution, state, cpu, memory_mib, disk_gib, current, error, observed_at FROM runtime_assets WHERE environment_id=$1 ORDER BY asset_id,instance_id
+SELECT environment_id, asset_id, instance_id, node_id, execution, state, cpu, memory_mib, disk_gib, current, error, observed_at, system_gib FROM runtime_assets WHERE environment_id=$1 ORDER BY asset_id,instance_id
 `
 
 func (q *Queries) ListRuntimeAssets(ctx context.Context, environmentID string) ([]RuntimeAsset, error) {
@@ -1204,6 +1206,7 @@ func (q *Queries) ListRuntimeAssets(ctx context.Context, environmentID string) (
 			&i.Current,
 			&i.Error,
 			&i.ObservedAt,
+			&i.SystemGib,
 		); err != nil {
 			return nil, err
 		}
@@ -1691,8 +1694,8 @@ func (q *Queries) RenewLease(ctx context.Context, arg RenewLeaseParams) (int64, 
 }
 
 const reserveAsset = `-- name: ReserveAsset :exec
-INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib,system_gib)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 `
 
 type ReserveAssetParams struct {
@@ -1704,6 +1707,7 @@ type ReserveAssetParams struct {
 	Cpu           float64
 	MemoryMib     int64
 	DiskGib       int64
+	SystemGib     int64
 }
 
 func (q *Queries) ReserveAsset(ctx context.Context, arg ReserveAssetParams) error {
@@ -1716,14 +1720,15 @@ func (q *Queries) ReserveAsset(ctx context.Context, arg ReserveAssetParams) erro
 		arg.Cpu,
 		arg.MemoryMib,
 		arg.DiskGib,
+		arg.SystemGib,
 	)
 	return err
 }
 
 const reserveAssets = `-- name: ReserveAssets :exec
-INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib)
-SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu,r."memoryMiB",r."diskGiB"
-FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib,system_gib)
+SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu,r."memoryMiB",r."diskGiB",r."systemGiB"
+FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint,"systemGiB" bigint)
 `
 
 func (q *Queries) ReserveAssets(ctx context.Context, dollar_1 []byte) error {
@@ -1733,12 +1738,14 @@ func (q *Queries) ReserveAssets(ctx context.Context, dollar_1 []byte) error {
 
 const reserveResourceUpdates = `-- name: ReserveResourceUpdates :exec
 WITH reported AS MATERIALIZED (
- SELECT r."instanceId"::text AS instance_id,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
- FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+ SELECT r."instanceId"::text AS instance_id,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib,r."systemGiB"::bigint AS system_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint,"systemGiB" bigint)
 ), locked AS MATERIALIZED (
  SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
 )
-UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r.memory_mib),disk_gib=GREATEST(a.disk_gib,r.disk_gib)
+UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r.memory_mib),
+ system_gib=GREATEST(a.system_gib,r.system_gib),
+ disk_gib=GREATEST(a.system_gib,r.system_gib)+GREATEST(a.disk_gib-a.system_gib,r.disk_gib-r.system_gib)
 FROM reported r JOIN locked l ON l.instance_id=r.instance_id
 WHERE a.instance_id=r.instance_id
 `
@@ -2009,12 +2016,12 @@ func (q *Queries) TemplateReferences(ctx context.Context, templateID string) ([]
 
 const updateExecutions = `-- name: UpdateExecutions :exec
 WITH reported AS MATERIALIZED (
- SELECT r."instanceId"::text AS instance_id,r.execution::jsonb AS execution,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
- FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+ SELECT r."instanceId"::text AS instance_id,r.execution::jsonb AS execution,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib,r."systemGiB"::bigint AS system_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint,"systemGiB" bigint)
 ), locked AS MATERIALIZED (
  SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
 )
-UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r.memory_mib,disk_gib=r.disk_gib
+UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r.memory_mib,disk_gib=r.disk_gib,system_gib=r.system_gib
 FROM reported r JOIN locked l ON l.instance_id=r.instance_id
 WHERE a.instance_id=r.instance_id
 `

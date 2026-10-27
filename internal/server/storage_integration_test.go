@@ -106,24 +106,24 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 	for range 2 {
 		instance := uuid.NewString()
 		exec, _ := json.Marshal(api.AssetExecution{Asset: a, InstanceId: instance, Template: image, StoragePoolId: &pool.Id})
-		if _, err = s.Pool.Exec(ctx, "INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib) VALUES($1,$2,$3,$4,$5,1,64,3)", e.Id, a.Id, instance, id, exec); err != nil {
+		if _, err = s.Pool.Exec(ctx, "INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib,system_gib) VALUES($1,$2,$3,$4,$5,1,64,3,1)", e.Id, a.Id, instance, id, exec); err != nil {
 			t.Fatal(err)
 		}
 	}
 	allocations, err := s.Queries.StorageReservations(ctx, []string{id})
-	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 4 {
+	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 2 || allocations[0].ContainerGib != 2 {
 		t.Fatalf("shared volumes counted twice: %+v %v", allocations, err)
 	}
 	instances, err := s.Queries.ListRuntimeAssets(ctx, e.Id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending, _ := json.Marshal([]map[string]any{{"instanceId": instances[0].InstanceID, "cpu": 1, "memoryMiB": 64, "diskGiB": 4}})
+	pending, _ := json.Marshal([]map[string]any{{"instanceId": instances[0].InstanceID, "cpu": 1, "memoryMiB": 64, "diskGiB": 4, "systemGiB": 2}})
 	if err = s.Queries.ReserveResourceUpdates(ctx, pending); err != nil {
 		t.Fatal(err)
 	}
 	allocations, err = s.Queries.StorageReservations(ctx, []string{id})
-	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 5 {
+	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 2 || allocations[0].ContainerGib != 3 {
 		t.Fatalf("pending disk growth was not reserved: %+v %v", allocations, err)
 	}
 	if _, err = s.Pool.Exec(ctx, "DELETE FROM runtime_assets WHERE environment_id=$1", e.Id); err != nil {

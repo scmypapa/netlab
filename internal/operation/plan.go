@@ -22,25 +22,19 @@ type reservation struct {
 	InstanceID    string             `json:"instanceId"`
 	NodeID        string             `json:"nodeId"`
 	Execution     api.AssetExecution `json:"execution"`
+	SystemGiB     int64              `json:"systemGiB"`
 	api.Resources
 }
 
-func resourceRecords(id string, targets []Target) ([]byte, error) {
+func resourceRecords(id string, targets, before []Target, restoring bool) ([]byte, error) {
 	rows := make([]reservation, 0, len(targets))
 	for _, t := range targets {
-		r := resources(t.Execution.Asset)
-		rows = append(rows, reservation{id, t.Execution.Asset.Id, t.Execution.InstanceId, t.NodeID, t.Execution, r})
+		r := t.Execution.Asset.Resources
+		budget := peakDiskBudget(findInstance(before, t.Execution.InstanceId).Execution.Asset, t.Execution.Asset, restoring)
+		r.DiskGiB = budget.system + budget.data
+		rows = append(rows, reservation{id, t.Execution.Asset.Id, t.Execution.InstanceId, t.NodeID, t.Execution, budget.system, r})
 	}
 	return json.Marshal(rows)
-}
-
-func recoveryReservations(targets, before []Target) []Target {
-	allocated := slices.Clone(targets)
-	for i := range allocated {
-		old := findInstance(before, allocated[i].Execution.InstanceId)
-		allocated[i].Execution.Asset.Resources.DiskGiB += resources(old.Execution.Asset).DiskGiB
-	}
-	return allocated
 }
 
 func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) error {
@@ -322,7 +316,8 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	if err = environment.CheckVolumeUses(ctx, q, p.Spec.Assets, row.ID); err != nil {
 		return err
 	}
-	diskUsed, diskCapacity := map[string]int64{}, map[string]int64{}
+	diskUsed, diskPending := map[string]int64{}, map[string]int64{}
+	diskLimits := storageLimits(storage)
 	if len(storage) > 0 {
 		poolIDs := []string{}
 		for _, pool := range storage {
@@ -348,21 +343,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if err != nil {
 			return err
 		}
-		for _, r := range allocated {
-			id := r.PoolID
-			if id == "" {
-				id = defaultStorage(r.NodeID)
-			}
-			if pool, ok := storage[storageKey(r.NodeID, id)]; ok && pool.err == nil {
-				diskUsed[pool.filesystem()] += r.DiskGib
-			}
-		}
-		for _, pool := range storage {
-			if pool.err == nil {
-				key := pool.filesystem()
-				diskCapacity[key] = pool.info.CapacityBytes >> 30
-			}
-		}
+		diskUsed = storageUsage(allocated, storage)
 	}
 	nodeStorage := map[string][]storageCandidate{}
 	for _, pool := range storage {
@@ -405,13 +386,13 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if !available {
 			return fmt.Errorf("资产 %s 的直通设备不可用", t.Execution.Asset.Name)
 		}
-		delta := resources(t.Execution.Asset)
 		before := resources(old.Execution.Asset)
-		delta.Cpu = max(0, delta.Cpu-before.Cpu)
-		delta.MemoryMiB = max(0, delta.MemoryMiB-before.MemoryMiB)
-		delta.DiskGiB = max(0, delta.DiskGiB-before.DiskGiB)
-		if restoring {
-			delta.DiskGiB = resources(t.Execution.Asset).DiskGiB
+		delta := api.Resources{Cpu: max(0, t.Execution.Asset.Resources.Cpu-before.Cpu), MemoryMiB: max(0, t.Execution.Asset.Resources.MemoryMiB-before.MemoryMiB)}
+		peak := peakDiskBudget(old.Execution.Asset, t.Execution.Asset, restoring)
+		previous := assetDiskBudget(old.Execution.Asset)
+		additional := diskBudget{system: peak.system - previous.system, data: peak.data - previous.data}
+		if restoring && t.Execution.Template.Kind == api.Container {
+			additional.data += (p.Recovery.Captures[t.Execution.Asset.Id].SizeBytes + (1 << 30) - 1) >> 30
 		}
 		u := add(used[t.NodeID], delta)
 		if delta.Cpu > 0 && u.Cpu > capacity[t.NodeID].Cpu || delta.MemoryMiB > 0 && u.MemoryMiB > capacity[t.NodeID].MemoryMiB {
@@ -431,10 +412,14 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if pool.err != nil {
 			return fmt.Errorf("资产 %s 的存储不可用：%w", t.Execution.Asset.Name, pool.err)
 		}
-		if !pool.ready || diskUsed[pool.filesystem()]+delta.DiskGiB > diskCapacity[pool.filesystem()] || pool.info.Rbd == nil && diskUsed[pool.filesystem()]+delta.DiskGiB > capacity[t.NodeID].DiskGiB {
+		amounts, err := storageAmounts(t.NodeID, t.Execution.Template.Kind, pool, additional, storage)
+		if err != nil {
+			return err
+		}
+		if !pool.ready || !storageFits(diskUsed, diskPending, diskLimits, amounts) {
 			return fmt.Errorf("资产 %s 的存储容量不足", t.Execution.Asset.Name)
 		}
-		diskUsed[pool.filesystem()] += delta.DiskGiB
+		reserveStorage(diskUsed, diskPending, amounts)
 		assignStorage(&t.Execution, pool)
 		used[t.NodeID] = u
 	}
@@ -447,6 +432,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		requirement := resources(t.Execution.Asset)
 		best := ""
 		var bestPool storageCandidate
+		var bestAmounts map[string]int64
 		score := 2.0
 		bestPriority := 2
 		preferred := ""
@@ -461,7 +447,10 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			}
 		}
 		previousNode := ""
-		diskRequirement := requirement.DiskGiB
+		diskRequirement := assetDiskBudget(t.Execution.Asset)
+		if restoring && t.Execution.Template.Kind == api.Container {
+			diskRequirement.data += (p.Recovery.Captures[t.Execution.Asset.Id].SizeBytes + (1 << 30) - 1) >> 30
+		}
 		if t.Execution.PreviousInstanceId != nil {
 			old := findInstance(p.Before, *t.Execution.PreviousInstanceId)
 			preferred, previousNode = actualPool(old.NodeID, old.Execution), old.NodeID
@@ -469,7 +458,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				for _, volume := range *t.Execution.Asset.Volumes {
 					for _, existing := range *old.Execution.Asset.Volumes {
 						if volume.Id == existing.Id && volume.PersistentVolumeId == nil && existing.PersistentVolumeId == nil {
-							diskRequirement -= min(volume.SizeGiB, existing.SizeGiB)
+							diskRequirement.data -= min(volume.SizeGiB, existing.SizeGiB)
 						}
 					}
 				}
@@ -496,23 +485,28 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				continue
 			}
 			for _, pool := range nodeStorage[n.ID] {
-				key := pool.filesystem()
-				if pool.node != n.ID || !pool.ready || pool.err != nil || preferred != "" && preferred != pool.id || diskUsed[key]+diskRequirement > diskCapacity[key] {
+				if pool.node != n.ID || !pool.ready || pool.err != nil || preferred != "" && preferred != pool.id {
 					continue
 				}
 				if pool.info.Rbd != nil && t.Execution.Template.Kind != api.Vm {
 					continue
 				}
-				if pool.info.Rbd == nil && diskUsed[key]+diskRequirement > c.DiskGiB {
+				amounts, err := storageAmounts(n.ID, t.Execution.Template.Kind, pool, diskRequirement, storage)
+				if err != nil || !storageFits(diskUsed, diskPending, diskLimits, amounts) {
 					continue
 				}
-				s := max(float64(u.Cpu)/float64(c.Cpu), float64(u.MemoryMiB)/float64(c.MemoryMiB), float64(diskUsed[key]+diskRequirement)/float64(diskCapacity[key]), 1-float64(pool.info.AvailableBytes)/float64(pool.info.CapacityBytes))
+				s := max(float64(u.Cpu)/float64(c.Cpu), float64(u.MemoryMiB)/float64(c.MemoryMiB))
+				for key, amount := range amounts {
+					info := diskLimits[key]
+					s = max(s, float64(diskUsed[key]+amount)/float64(info.CapacityBytes>>30), 1-float64(info.AvailableBytes)/float64(info.CapacityBytes))
+				}
 				priority := 0
 				if preferred == "" && t.Execution.Template.Kind == api.Vm && pool.info.Rbd == nil {
 					priority = 1
 				}
 				if priority < bestPriority || priority == bestPriority && (s < score || s == score && pool.id < bestPool.id) {
 					best, bestPool, score = n.ID, pool, s
+					bestAmounts = amounts
 					bestPriority = priority
 				}
 			}
@@ -537,7 +531,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if !restoring {
 			t.Execution.VolumeSources, _ = volumeBindings(t.Execution.Asset, volumes, storage, best)
 		}
-		diskUsed[bestPool.filesystem()] += diskRequirement
+		reserveStorage(diskUsed, diskPending, bestAmounts)
 		used[best] = add(used[best], requirement)
 	}
 	if restoring {
@@ -561,7 +555,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 							continue
 						}
 						v.PersistentVolumeId = &id
-						t.Execution.VolumeSources[v.Id] = api.NodeVolume{Id: id, Kind: t.Execution.Template.Kind, SizeGiB: v.SizeGiB, Storage: pool.info}
+						t.Execution.VolumeSources[v.Id] = api.NodeVolume{Id: id, Kind: t.Execution.Template.Kind, SizeGiB: v.SizeGiB, Storage: pool.info, StoragePoolId: pool.id}
 						if err = q.CreatePersistentVolume(ctx, queries.CreatePersistentVolumeParams{ID: id, NodeID: t.NodeID, StoragePoolID: pool.id, Name: t.Execution.Asset.Name + " · " + v.MountPath, Kind: string(t.Execution.Template.Kind), SizeGib: v.SizeGiB, OperationID: &op.ID}); err != nil {
 							return err
 						}
@@ -576,18 +570,14 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		}
 	}
 	if !serviceOnly {
-		raw, err := resourceRecords(row.ID, p.Targets)
+		raw, err := resourceRecords(row.ID, p.Targets, nil, false)
 		if err != nil {
 			return err
 		}
 		if err = q.ReserveAssets(ctx, raw); err != nil {
 			return err
 		}
-		updates := p.Updates
-		if restoring {
-			updates = recoveryReservations(updates, p.Before)
-		}
-		raw, err = resourceRecords(row.ID, updates)
+		raw, err = resourceRecords(row.ID, p.Updates, p.Before, restoring)
 		if err != nil {
 			return err
 		}
@@ -630,13 +620,8 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 
 func resources(a api.Asset) api.Resources {
 	r := a.Resources
-	if a.Volumes != nil {
-		for _, v := range *a.Volumes {
-			if v.PersistentVolumeId == nil {
-				r.DiskGiB += v.SizeGiB
-			}
-		}
-	}
+	budget := assetDiskBudget(a)
+	r.DiskGiB = budget.system + budget.data
 	return r
 }
 func add(a, b api.Resources) api.Resources {

@@ -142,8 +142,8 @@ SELECT * FROM runtime_assets WHERE environment_id=$1 ORDER BY asset_id,instance_
 -- name: LockEnvironmentAssets :many
 SELECT instance_id FROM runtime_assets WHERE environment_id=$1 ORDER BY instance_id FOR NO KEY UPDATE;
 -- name: ReserveAsset :exec
-INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8);
+INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib,system_gib)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9);
 -- name: GetOperation :one
 SELECT * FROM operations WHERE id=$1;
 -- name: GetOperationByRequest :one
@@ -189,9 +189,9 @@ UPDATE templates SET definition=$2 WHERE id=$1;
 -- name: LockNodes :many
 SELECT * FROM nodes WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE;
 -- name: ReserveAssets :exec
-INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib)
-SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu,r."memoryMiB",r."diskGiB"
-FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint);
+INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib,system_gib)
+SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu,r."memoryMiB",r."diskGiB",r."systemGiB"
+FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint,"systemGiB" bigint);
 -- name: ApplyAssetResults :exec
 WITH reported AS MATERIALIZED (
  SELECT r."assetId"::text AS asset_id,r."instanceId"::text AS instance_id,r."nodeId"::text AS node_id,r.state::text AS state,r.error::text AS error,r."observedAt"::timestamptz AS observed_at
@@ -214,12 +214,12 @@ UPDATE runtime_assets SET current=false WHERE environment_id=$1 AND asset_id=ANY
 UPDATE runtime_assets SET current=true WHERE instance_id=ANY($1::text[]);
 -- name: UpdateExecutions :exec
 WITH reported AS MATERIALIZED (
- SELECT r."instanceId"::text AS instance_id,r.execution::jsonb AS execution,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
- FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+ SELECT r."instanceId"::text AS instance_id,r.execution::jsonb AS execution,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib,r."systemGiB"::bigint AS system_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint,"systemGiB" bigint)
 ), locked AS MATERIALIZED (
  SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
 )
-UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r.memory_mib,disk_gib=r.disk_gib
+UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r.memory_mib,disk_gib=r.disk_gib,system_gib=r.system_gib
 FROM reported r JOIN locked l ON l.instance_id=r.instance_id
 WHERE a.instance_id=r.instance_id;
 -- name: ListTemplatePage :many
@@ -263,12 +263,14 @@ WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at
 INSERT INTO events(environment_id,kind,payload) SELECT environment_id,'operation.progress',jsonb_build_object('operationId',id,'phase',phase) FROM changed;
 -- name: ReserveResourceUpdates :exec
 WITH reported AS MATERIALIZED (
- SELECT r."instanceId"::text AS instance_id,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
- FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+ SELECT r."instanceId"::text AS instance_id,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib,r."systemGiB"::bigint AS system_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint,"systemGiB" bigint)
 ), locked AS MATERIALIZED (
  SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
 )
-UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r.memory_mib),disk_gib=GREATEST(a.disk_gib,r.disk_gib)
+UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r.memory_mib),
+ system_gib=GREATEST(a.system_gib,r.system_gib),
+ disk_gib=GREATEST(a.system_gib,r.system_gib)+GREATEST(a.disk_gib-a.system_gib,r.disk_gib-r.system_gib)
 FROM reported r JOIN locked l ON l.instance_id=r.instance_id
 WHERE a.instance_id=r.instance_id;
 -- name: GetNodeReservations :many

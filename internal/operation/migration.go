@@ -275,6 +275,11 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 	if err != nil {
 		return err
 	}
+	allocated, err := q.StorageReservations(ctx, ids)
+	if err != nil {
+		return err
+	}
+	used, limits := storageUsage(allocated, storage), storageLimits(storage)
 	for _, candidate := range candidates {
 		if p.Migration.RequestedNode != nil && candidate.Id != *p.Migration.RequestedNode {
 			continue
@@ -313,33 +318,39 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 				}
 			}
 			volume.Storage = volumePool.info
+			volume.StoragePoolId = volumePool.id
 			live = live && sameSharedStorage(source.Execution.VolumeSources[name].Storage.Rbd, volume.Storage.Rbd)
 			target.Execution.VolumeSources[name] = volume
 		}
-		allocated, err := q.StorageReservations(ctx, ids)
+		budget := assetDiskBudget(target.Execution.Asset)
+		if sameSharedStorage(source.Execution.Rbd, pool.info.Rbd) {
+			budget = diskBudget{}
+		}
+		additional, err := storageAmounts(target.NodeID, target.Execution.Template.Kind, pool, budget, storage)
 		if err != nil {
-			return err
-		}
-		used := map[string]int64{}
-		for _, item := range allocated {
-			id := item.PoolID
-			if id == "" {
-				id = defaultStorage(item.NodeID)
-			}
-			if entry, ok := storage[storageKey(item.NodeID, id)]; ok {
-				used[entry.filesystem()] += item.DiskGib
-			}
-		}
-		additional := int64(0)
-		if !sameSharedStorage(source.Execution.Rbd, pool.info.Rbd) {
-			additional = resources(target.Execution.Asset).DiskGiB
+			continue
 		}
 		for name, volume := range target.Execution.VolumeSources {
-			if !sameSharedStorage(source.Execution.VolumeSources[name].Storage.Rbd, volume.Storage.Rbd) {
-				additional += volume.SizeGiB
+			previous := source.Execution.VolumeSources[name]
+			same := previous.Id == volume.Id && (sameSharedStorage(previous.Storage.Rbd, volume.Storage.Rbd) ||
+				source.NodeID == target.NodeID && previous.StoragePoolId == volume.StoragePoolId)
+			if !same {
+				key := target.NodeID + "/" + volume.Storage.Filesystem
+				if volume.Storage.Rbd != nil {
+					key = volume.Storage.Filesystem
+				}
+				additional[key] += volume.SizeGiB
 			}
 		}
-		if used[pool.filesystem()]+additional > pool.info.CapacityBytes>>30 || additional > pool.info.AvailableBytes>>30 {
+		if !live && target.Execution.Template.Kind == api.Container {
+			temporary := resources(source.Execution.Asset).DiskGiB
+			for _, volume := range source.Execution.VolumeSources {
+				temporary += volume.SizeGiB
+			}
+			additional[pool.filesystem()] += temporary
+			additional[storage[storageKey(source.NodeID, actualPool(source.NodeID, source.Execution))].filesystem()] += temporary
+		}
+		if !storageFits(used, nil, limits, additional) {
 			continue
 		}
 		p.Migration.Target = &target
@@ -408,7 +419,18 @@ func (w Worker) migration(ctx context.Context, op *queries.Operation, p *Payload
 			}
 			next = "migration-capture"
 		case "migration-capture":
-			_, err = w.batch(ctx, op, p, api.NodePlanPhaseCaptureRecovery, []Target{source})
+			var results []api.ExecutionResult
+			results, err = w.batch(ctx, op, p, api.NodePlanPhaseCaptureRecovery, []Target{source})
+			if err == nil {
+				p.Recovery.Captures = map[string]api.RecoveryCapture{}
+				for _, result := range results {
+					if result.Recovery == nil {
+						err = fmt.Errorf("资产 %s 未返回捕获数据", result.AssetId)
+						break
+					}
+					p.Recovery.Captures[result.AssetId] = *result.Recovery
+				}
+			}
 			next = "migration-copy"
 		case "migration-copy":
 			_, err = w.batch(ctx, op, p, api.NodePlanPhasePrepareRecovery, []Target{target})
@@ -462,7 +484,7 @@ func (w Worker) migration(ctx context.Context, op *queries.Operation, p *Payload
 			_, err = w.batch(ctx, op, p, api.NodePlanPhaseDeleteRecovery, []Target{source})
 			next = "migration-cleanup"
 		case "migration-cleanup":
-			err = w.Client.Do(ctx, http.MethodDelete, endpoints[source.NodeID], migrationRoute(*op.EnvironmentID, source.Execution), api.NodeMigrationCleanup{Source: source.Execution, Target: target.Execution}, nil)
+			err = w.Client.Do(ctx, http.MethodDelete, endpoints[source.NodeID], migrationRoute(*op.EnvironmentID, source.Execution), api.NodeMigrationCleanup{Source: source.Execution, Target: target.Execution, TargetNodeId: target.NodeID}, nil)
 			if err == nil && !p.Migration.Live {
 				_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupRecovery, []Target{target})
 			}
@@ -517,7 +539,7 @@ func (w Worker) rollbackMigration(ctx context.Context, op *queries.Operation, p 
 		if len(results) != 1 || results[0].State != "running" && results[0].State != "suspended" && !matches(results[0].State, "stopped") {
 			return errors.Join(failure, errors.New("迁移源实例归属尚未确认"))
 		}
-		if err = w.Client.Do(ctx, http.MethodDelete, endpoints[target.NodeID], migrationRoute(*op.EnvironmentID, target.Execution), api.NodeMigrationCleanup{Source: target.Execution, Target: source.Execution}, nil); err != nil {
+		if err = w.Client.Do(ctx, http.MethodDelete, endpoints[target.NodeID], migrationRoute(*op.EnvironmentID, target.Execution), api.NodeMigrationCleanup{Source: target.Execution, Target: source.Execution, TargetNodeId: source.NodeID}, nil); err != nil {
 			return errors.Join(failure, err)
 		}
 		message := failure.Error()
@@ -581,11 +603,7 @@ func (w Worker) commitMigration(ctx context.Context, op *queries.Operation, p *P
 		return environment.ErrConflict
 	}
 	for _, volume := range target.Execution.VolumeSources {
-		pool := actualPool(target.NodeID, target.Execution)
-		if volume.Storage.Rbd != nil {
-			pool = volume.Storage.Rbd.SecretId
-		}
-		if err = q.MoveMigratedVolume(ctx, queries.MoveMigratedVolumeParams{ID: volume.Id, NodeID: target.NodeID, StoragePoolID: pool}); err != nil {
+		if err = q.MoveMigratedVolume(ctx, queries.MoveMigratedVolumeParams{ID: volume.Id, NodeID: target.NodeID, StoragePoolID: volume.StoragePoolId}); err != nil {
 			return err
 		}
 	}

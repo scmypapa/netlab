@@ -23,7 +23,7 @@ func TestFractionalCPUReservations(t *testing.T) {
 	for _, id := range []string{"one", "two", "three"} {
 		targets = append(targets, Target{NodeID: "cpu", Execution: api.AssetExecution{InstanceId: id, Asset: api.Asset{Id: id, Resources: api.Resources{Cpu: 0.1, MemoryMiB: 64, DiskGiB: 1}}}})
 	}
-	raw, _ := resourceRecords("cpu", targets)
+	raw, _ := resourceRecords("cpu", targets, nil, false)
 	if err := q.ReserveAssets(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestFractionalCPUReservations(t *testing.T) {
 	}
 	assertCPU(0.3)
 	targets[0].Execution.Asset.Resources.Cpu = 0.25
-	raw, _ = resourceRecords("cpu", targets[:1])
+	raw, _ = resourceRecords("cpu", targets[:1], nil, false)
 	if err := q.ReserveResourceUpdates(ctx, raw); err != nil {
 		t.Fatal(err)
 	}

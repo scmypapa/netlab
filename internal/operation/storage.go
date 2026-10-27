@@ -18,6 +18,7 @@ import (
 type storageCandidate struct {
 	id, node, directory string
 	info                api.StorageInfo
+	container           *api.StorageInfo
 	ready               bool
 	err                 error
 }
@@ -59,6 +60,7 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 				var info api.NodeInfo
 				info, p.err = w.Client.Info(ctx, endpoints[p.node])
 				if p.err == nil {
+					p.container = info.ContainerStorage
 					if info.Storage == nil {
 						p.err = fmt.Errorf("节点未提供存储信息")
 					} else {
@@ -72,10 +74,89 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 	}
 	wg.Wait()
 	result := map[string]storageCandidate{}
+	shared := map[string]api.StorageInfo{}
 	for _, p := range candidates {
+		if p.err == nil && p.info.Rbd != nil {
+			shared[p.id] = p.info
+		}
+	}
+	for _, p := range candidates {
+		if p.err != nil {
+			if info, exists := shared[p.id]; exists {
+				p.info = info
+			}
+		}
 		result[storageKey(p.node, p.id)] = p
 	}
 	return result, nil
+}
+
+func storageUsage(rows []queries.StorageReservationsRow, storage map[string]storageCandidate) map[string]int64 {
+	used := map[string]int64{}
+	for _, row := range rows {
+		pool := row.PoolID
+		if pool == "" {
+			pool = defaultStorage(row.NodeID)
+		}
+		if p, exists := storage[storageKey(row.NodeID, pool)]; exists {
+			used[p.filesystem()] += row.DiskGib
+		}
+		if root := storage[storageKey(row.NodeID, defaultStorage(row.NodeID))].container; root != nil {
+			used[row.NodeID+"/"+root.Filesystem] += row.ContainerGib
+		}
+	}
+	return used
+}
+
+func storageLimits(storage map[string]storageCandidate) map[string]api.StorageInfo {
+	limits := map[string]api.StorageInfo{}
+	put := func(key string, info api.StorageInfo) {
+		if previous, exists := limits[key]; exists {
+			info.AvailableBytes = min(info.AvailableBytes, previous.AvailableBytes)
+			info.CapacityBytes = min(info.CapacityBytes, previous.CapacityBytes)
+		}
+		limits[key] = info
+	}
+	for _, pool := range storage {
+		if pool.err == nil {
+			put(pool.filesystem(), pool.info)
+		}
+		if pool.container != nil {
+			put(pool.node+"/"+pool.container.Filesystem, *pool.container)
+		}
+	}
+	return limits
+}
+
+func storageAmounts(node string, kind api.TemplateKind, pool storageCandidate, budget diskBudget, storage map[string]storageCandidate) (map[string]int64, error) {
+	amounts := map[string]int64{pool.filesystem(): budget.data}
+	system := pool.filesystem()
+	if kind == api.Container {
+		root := storage[storageKey(node, defaultStorage(node))].container
+		if root == nil {
+			return nil, fmt.Errorf("节点未提供容器系统存储信息")
+		}
+		system = node + "/" + root.Filesystem
+	}
+	amounts[system] += budget.system
+	return amounts, nil
+}
+
+func storageFits(used, pending map[string]int64, limits map[string]api.StorageInfo, additional map[string]int64) bool {
+	for key, amount := range additional {
+		info := limits[key]
+		if used[key]+amount > info.CapacityBytes>>30 || pending[key]+amount > info.AvailableBytes>>30 {
+			return false
+		}
+	}
+	return true
+}
+
+func reserveStorage(used, pending, additional map[string]int64) {
+	for key, amount := range additional {
+		used[key] += amount
+		pending[key] += amount
+	}
 }
 
 func actualPool(node string, a api.AssetExecution) string {

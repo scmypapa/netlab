@@ -108,7 +108,7 @@ func (q *Queries) NodeArtifactTemplates(ctx context.Context, dollar_1 string) ([
 }
 
 const nodeAssets = `-- name: NodeAssets :many
-SELECT a.environment_id, a.asset_id, a.instance_id, a.node_id, a.execution, a.state, a.cpu, a.memory_mib, a.disk_gib, a.current, a.error, a.observed_at,e.name AS environment_name,e.revision FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
+SELECT a.environment_id, a.asset_id, a.instance_id, a.node_id, a.execution, a.state, a.cpu, a.memory_mib, a.disk_gib, a.current, a.error, a.observed_at, a.system_gib,e.name AS environment_name,e.revision FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
 WHERE a.node_id=$1 ORDER BY a.environment_id,a.asset_id
 `
 
@@ -125,6 +125,7 @@ type NodeAssetsRow struct {
 	Current         bool
 	Error           *string
 	ObservedAt      pgtype.Timestamptz
+	SystemGib       int64
 	EnvironmentName string
 	Revision        int32
 }
@@ -151,6 +152,7 @@ func (q *Queries) NodeAssets(ctx context.Context, nodeID string) ([]NodeAssetsRo
 			&i.Current,
 			&i.Error,
 			&i.ObservedAt,
+			&i.SystemGib,
 			&i.EnvironmentName,
 			&i.Revision,
 		); err != nil {

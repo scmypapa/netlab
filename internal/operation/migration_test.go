@@ -174,7 +174,7 @@ func testMigrationOwnershipHandoff(t *testing.T, rejected bool) {
 	}
 	poolID := "storage"
 	execution := api.AssetExecution{Asset: a, Template: image, InstanceId: uuid.NewString(), StoragePoolId: &poolID, StoragePath: &storage.Path, Rbd: &rbd, Interfaces: []api.ResolvedInterface{}}
-	raw, _ = resourceRecords(env.ID, []Target{{NodeID: "source", Execution: execution}})
+	raw, _ = resourceRecords(env.ID, []Target{{NodeID: "source", Execution: execution}}, nil, false)
 	if err = q.ReserveAssets(ctx, raw); err != nil {
 		t.Fatal(err)
 	}

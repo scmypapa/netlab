@@ -115,7 +115,7 @@ func TestObservationLocksNodeBeforeAssets(t *testing.T) {
 	}
 	defer monitor.Release()
 	waitForBlocker(t, ctx, monitor, observer.Conn().PgConn().PID(), writer.Conn().PgConn().PID())
-	if err = queries.New(tx).ReserveResourceUpdates(ctx, []byte(`[{"instanceId":"a","cpu":2,"memoryMiB":128,"diskGiB":2}]`)); err != nil {
+	if err = queries.New(tx).ReserveResourceUpdates(ctx, []byte(`[{"instanceId":"a","cpu":2,"memoryMiB":128,"diskGiB":2,"systemGiB":2}]`)); err != nil {
 		t.Fatalf("observer locked assets before the node: %v", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -227,9 +227,9 @@ func runtimeWrite(ctx context.Context, connection *pgxpool.Conn, kind string) er
 	case "results":
 		err = q.ApplyAssetResults(ctx, assetObservation().Results)
 	case "execution":
-		err = q.UpdateExecutions(ctx, []byte(`[{"instanceId":"a","execution":{},"cpu":2,"memoryMiB":128,"diskGiB":2},{"instanceId":"b","execution":{},"cpu":2,"memoryMiB":128,"diskGiB":2}]`))
+		err = q.UpdateExecutions(ctx, []byte(`[{"instanceId":"a","execution":{},"cpu":2,"memoryMiB":128,"diskGiB":2,"systemGiB":2},{"instanceId":"b","execution":{},"cpu":2,"memoryMiB":128,"diskGiB":2,"systemGiB":2}]`))
 	case "reservation":
-		err = q.ReserveResourceUpdates(ctx, []byte(`[{"instanceId":"a","cpu":2,"memoryMiB":128,"diskGiB":2},{"instanceId":"b","cpu":2,"memoryMiB":128,"diskGiB":2}]`))
+		err = q.ReserveResourceUpdates(ctx, []byte(`[{"instanceId":"a","cpu":2,"memoryMiB":128,"diskGiB":2,"systemGiB":2},{"instanceId":"b","cpu":2,"memoryMiB":128,"diskGiB":2,"systemGiB":2}]`))
 	case "artifact":
 		err = q.RelocateTemplateArtifacts(ctx, queries.RelocateTemplateArtifactsParams{Source: "source", Target: "destination"})
 	case "ownership":

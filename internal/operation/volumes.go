@@ -98,23 +98,12 @@ func (w Worker) SubmitVolume(ctx context.Context, id, kind string, input api.Cre
 		if err != nil {
 			return api.Operation{}, err
 		}
-		var used int64
-		for _, row := range allocated {
-			poolID := row.PoolID
-			if poolID == "" {
-				poolID = defaultStorage(row.NodeID)
-			}
-			pool := storage[storageKey(row.NodeID, poolID)]
-			if pool.err == nil && pool.filesystem() == selected.filesystem() {
-				used += row.DiskGib
-			}
-		}
-		if used+delta > selected.info.CapacityBytes>>30 || delta > selected.info.AvailableBytes>>30 {
+		if !storageFits(storageUsage(allocated, storage), nil, storageLimits(storage), map[string]int64{selected.filesystem(): delta}) {
 			return api.Operation{}, environment.Invalid("存储容量不足")
 		}
 	}
 	opID := uuid.NewString()
-	volume := api.NodeVolume{Id: id, Kind: input.Kind, SizeGiB: input.SizeGiB, Storage: selected.info}
+	volume := api.NodeVolume{Id: id, Kind: input.Kind, SizeGiB: input.SizeGiB, Storage: selected.info, StoragePoolId: selected.id}
 	raw, err := json.Marshal(Payload{Volume: &volume, VolumeNode: selected.node})
 	if err != nil {
 		return api.Operation{}, err
@@ -171,7 +160,7 @@ func volumeBindings(a api.Asset, volumes map[string]queries.PersistentVolume, st
 			if !pool.ready || pool.err != nil || row.State != "ready" || a.StoragePoolId != nil && *a.StoragePoolId != row.StoragePoolID {
 				return nil, false
 			}
-			bindings[volume.Id] = api.NodeVolume{Id: row.ID, Kind: api.TemplateKind(row.Kind), SizeGiB: row.SizeGib, Storage: pool.info}
+			bindings[volume.Id] = api.NodeVolume{Id: row.ID, Kind: api.TemplateKind(row.Kind), SizeGiB: row.SizeGib, Storage: pool.info, StoragePoolId: row.StoragePoolID}
 		}
 	}
 	return bindings, true

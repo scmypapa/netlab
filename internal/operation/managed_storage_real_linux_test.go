@@ -311,7 +311,7 @@ func testRealStorageMigration(t *testing.T, ctx context.Context, w Worker, s Ser
 	if err != nil || result.Error != nil || len(result.Results) != 1 || result.Results[0].Error != nil {
 		t.Fatalf("local instance preparation: %+v %v", result, err)
 	}
-	raw, _ = resourceRecords(env.ID, []Target{{NodeID: ids[0], Execution: execution}})
+	raw, _ = resourceRecords(env.ID, []Target{{NodeID: ids[0], Execution: execution}}, nil, false)
 	if err = s.Queries.ReserveAssets(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
