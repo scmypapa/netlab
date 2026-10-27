@@ -144,3 +144,134 @@ func TestLogFollowAfterCopyTruncate(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLogFollowAfterRotationRegrowth(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("logrotate uses the node's root identity")
+	}
+	directory := t.TempDir()
+	writer, err := os.OpenFile(filepath.Join(directory, "stdout.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	first := strings.Repeat("old", 32)
+	if _, err = writer.WriteString(first); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(writer.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watch := os.NewFile(uintptr(fd), "log-watch")
+	if _, err = unix.InotifyAddWatch(fd, directory, unix.IN_MODIFY|unix.IN_CLOSE_WRITE); err != nil {
+		watch.Close()
+		t.Fatal(err)
+	}
+	reader := &LogReader{options: logfile.Options{Follow: true}, directory: directory, files: map[api.LogChunkStream]*os.File{api.LogChunkStreamStdout: file}, ends: map[api.LogChunkStream]int64{api.LogChunkStreamStdout: int64(len(first))}, watch: watch, closed: make(chan struct{})}
+	defer reader.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	paused, resume := make(chan struct{}), make(chan struct{})
+	chunks, done := make(chan string, 4), make(chan error, 1)
+	go func() {
+		done <- reader.Read(ctx, func(chunk api.LogChunk) error {
+			if chunk.Data == first {
+				close(paused)
+				select {
+				case <-resume:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			} else {
+				chunks <- chunk.Data
+			}
+			return nil
+		})
+	}()
+	select {
+	case <-paused:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err = writer.Truncate(16<<20 + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = rotateLogFiles(ctx, directory, []string{directory}); err != nil {
+		t.Fatal(err)
+	}
+	replacement := strings.Repeat("new", 64)
+	if _, err = writer.WriteString(replacement); err != nil {
+		t.Fatal(err)
+	}
+	close(resume)
+	select {
+	case actual := <-chunks:
+		if actual != replacement {
+			t.Fatalf("rotation regrowth hid the new log prefix: got %d bytes, want %d", len(actual), len(replacement))
+		}
+	case <-ctx.Done():
+		t.Fatal("new log was hidden behind the pre-rotation offset")
+	}
+	cancel()
+	if err = <-done; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
+
+func TestLogFollowDeliversBothBusyStreams(t *testing.T) {
+	directory := t.TempDir()
+	stdout, err := os.OpenFile(filepath.Join(directory, "stdout.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	block := strings.Repeat("out\n", 8192)
+	if _, err = stdout.WriteString(block); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(directory, "stderr.log"), []byte("important error\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	files := map[api.LogChunkStream]*os.File{}
+	for _, stream := range []api.LogChunkStream{api.LogChunkStreamStdout, api.LogChunkStreamStderr} {
+		files[stream], err = os.Open(filepath.Join(directory, string(stream)+".log"))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watch := os.NewFile(uintptr(fd), "log-watch")
+	if _, err = unix.InotifyAddWatch(fd, directory, unix.IN_MODIFY|unix.IN_CLOSE_WRITE); err != nil {
+		watch.Close()
+		t.Fatal(err)
+	}
+	reader := &LogReader{options: logfile.Options{Follow: true, Stream: "all"}, directory: directory, files: files, watch: watch, closed: make(chan struct{})}
+	defer reader.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	outputs, errorsSeen := 0, 0
+	err = reader.Read(ctx, func(chunk api.LogChunk) error {
+		if chunk.Stream == api.LogChunkStreamStdout {
+			outputs++
+			if outputs > 4 {
+				return errors.New("stdout prevented stderr delivery")
+			}
+			_, err := stdout.WriteString(block)
+			return err
+		}
+		errorsSeen++
+		cancel()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) || errorsSeen != 1 || outputs != 1 {
+		t.Fatalf("stderr was starved: stdout=%d stderr=%d error=%v", outputs, errorsSeen, err)
+	}
+}

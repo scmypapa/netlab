@@ -4,11 +4,13 @@ package engine
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/containerd/containerd/cio"
@@ -80,7 +82,7 @@ func (e *Engine) OpenLogs(ctx context.Context, env, asset, instance string, opti
 			return nil, err
 		}
 		reader.watch = os.NewFile(uintptr(fd), "container-log-watch")
-		if _, err = unix.InotifyAddWatch(fd, directory, unix.IN_MODIFY|unix.IN_CREATE|unix.IN_DELETE_SELF); err != nil {
+		if _, err = unix.InotifyAddWatch(fd, directory, unix.IN_MODIFY|unix.IN_CREATE|unix.IN_CLOSE_WRITE|unix.IN_DELETE_SELF); err != nil {
 			reader.Close()
 			return nil, err
 		}
@@ -117,6 +119,56 @@ func (r *LogReader) Close() error {
 	return errors.Join(errs...)
 }
 
+func (r *LogReader) readEvents(ctx context.Context, buffer []byte, pending map[api.LogChunkStream][]byte, wait bool) error {
+	if r.watch == nil {
+		return nil
+	}
+	raw, err := r.watch.SyscallConn()
+	if err != nil {
+		return err
+	}
+	for {
+		var n int
+		if wait {
+			n, err = r.watch.Read(buffer)
+			wait = false
+		} else {
+			var readErr error
+			err = raw.Control(func(fd uintptr) { n, readErr = unix.Read(int(fd), buffer) })
+			if err == nil {
+				err = readErr
+			}
+		}
+		if errors.Is(err, unix.EAGAIN) {
+			return nil
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		for offset := 0; offset < n; {
+			mask := binary.NativeEndian.Uint32(buffer[offset+4 : offset+8])
+			length := int(binary.NativeEndian.Uint32(buffer[offset+12 : offset+16]))
+			name, archived := strings.CutSuffix(strings.TrimRight(string(buffer[offset+16:offset+16+length]), "\x00"), ".log.1")
+			offset += 16 + length
+			// The archive closes after copytruncate, even if the live file has already regrown.
+			if mask&unix.IN_CLOSE_WRITE == 0 || !archived {
+				continue
+			}
+			stream := api.LogChunkStream(name)
+			if file := r.files[stream]; file != nil {
+				if _, err = file.Seek(0, io.SeekStart); err != nil {
+					return err
+				}
+				delete(r.ends, stream)
+				delete(pending, stream)
+			}
+		}
+	}
+}
+
 func (r *LogReader) Read(ctx context.Context, emit func(api.LogChunk) error) error {
 	if r.watch != nil {
 		go func() {
@@ -131,10 +183,29 @@ func (r *LogReader) Read(ctx context.Context, emit func(api.LogChunk) error) err
 	buffer := make([]byte, 32<<10)
 	pending := map[api.LogChunkStream][]byte{}
 	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		progress := false
+		// A busy stdout must not delay stderr or prevent processing rotation events.
 		for _, stream := range []api.LogChunkStream{api.LogChunkStreamStdout, api.LogChunkStreamStderr} {
+			if err := r.readEvents(ctx, buffer, pending, false); err != nil {
+				return err
+			}
 			file := r.files[stream]
 			if file == nil {
-				continue
+				if r.options.Stream != "all" && r.options.Stream != string(stream) {
+					continue
+				}
+				var err error
+				file, err = os.Open(filepath.Join(r.directory, string(stream)+".log"))
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				if err != nil {
+					return err
+				}
+				r.files[stream] = file
 			}
 			position, err := file.Seek(0, io.SeekCurrent)
 			if err != nil {
@@ -145,83 +216,69 @@ func (r *LogReader) Read(ctx context.Context, emit func(api.LogChunk) error) err
 				return err
 			}
 			if info.Size() < position {
-				if _, err := file.Seek(0, io.SeekStart); err != nil {
+				if position, err = file.Seek(0, io.SeekStart); err != nil {
 					return err
 				}
 				delete(r.ends, stream)
 				delete(pending, stream)
 			}
-			var source io.Reader = file
-			if end, initial := r.ends[stream]; initial {
-				position, err := file.Seek(0, io.SeekCurrent)
-				if err != nil {
-					return err
-				}
-				source = io.LimitReader(file, end-position)
-				delete(r.ends, stream)
+			end := info.Size()
+			if initial, ok := r.ends[stream]; ok {
+				end = initial
 			}
-			for {
-				prefix := len(pending[stream])
-				copy(buffer, pending[stream])
-				n, err := source.Read(buffer[prefix:])
-				if n > 0 {
-					n += prefix
-					end := n
-					// A file write or read boundary can split a UTF-8 character.
-					for start := n - 1; start >= max(0, n-utf8.UTFMax); start-- {
-						if utf8.RuneStart(buffer[start]) {
-							if !utf8.FullRune(buffer[start:n]) {
-								end = start
-							}
-							break
+			prefix := len(pending[stream])
+			copy(buffer, pending[stream])
+			n, err := io.LimitReader(file, max(0, end-position)).Read(buffer[prefix:])
+			position += int64(n)
+			if n > 0 {
+				progress = true
+				n += prefix
+				complete := n
+				// A file write or read boundary can split a UTF-8 character.
+				for start := n - 1; start >= max(0, n-utf8.UTFMax); start-- {
+					if utf8.RuneStart(buffer[start]) {
+						if !utf8.FullRune(buffer[start:n]) {
+							complete = start
 						}
-					}
-					pending[stream] = append(pending[stream][:0], buffer[end:n]...)
-					if end > 0 {
-						if err := emit(api.LogChunk{Stream: stream, Data: string(buffer[:end])}); err != nil {
-							return err
-						}
+						break
 					}
 				}
-				if err == io.EOF {
-					if !r.options.Follow && len(pending[stream]) > 0 {
-						if err := emit(api.LogChunk{Stream: stream, Data: string(pending[stream])}); err != nil {
-							return err
-						}
+				pending[stream] = append(pending[stream][:0], buffer[complete:n]...)
+				if complete > 0 {
+					if err := emit(api.LogChunk{Stream: stream, Data: string(buffer[:complete])}); err != nil {
+						return err
 					}
-					break
-				}
-				if err != nil {
-					return err
 				}
 			}
+			if err != nil && err != io.EOF {
+				return err
+			}
+			if position >= end {
+				if _, initial := r.ends[stream]; initial && r.options.Follow {
+					delete(r.ends, stream)
+					progress = true
+				}
+				if !r.options.Follow && len(pending[stream]) > 0 {
+					if err := emit(api.LogChunk{Stream: stream, Data: string(pending[stream])}); err != nil {
+						return err
+					}
+					delete(pending, stream)
+				}
+			}
+		}
+		if progress {
+			continue
 		}
 		if !r.options.Follow {
 			return nil
-		}
-		if _, err := r.watch.Read(buffer); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return err
 		}
 		if _, err := os.Stat(r.directory); errors.Is(err, os.ErrNotExist) {
 			return nil
 		} else if err != nil {
 			return err
 		}
-		for _, stream := range []api.LogChunkStream{api.LogChunkStreamStdout, api.LogChunkStreamStderr} {
-			if r.files[stream] != nil || (r.options.Stream != "all" && r.options.Stream != string(stream)) {
-				continue
-			}
-			file, err := os.Open(filepath.Join(r.directory, string(stream)+".log"))
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			r.files[stream] = file
+		if err := r.readEvents(ctx, buffer, pending, true); err != nil {
+			return err
 		}
 	}
 }
