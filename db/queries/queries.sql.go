@@ -29,9 +29,16 @@ func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) (int64, erro
 }
 
 const applyAssetResults = `-- name: ApplyAssetResults :exec
-UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
-FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,"nodeId" text,state text,error text,"observedAt" timestamptz)
-WHERE a.instance_id=r."instanceId" AND a.asset_id=r."assetId" AND a.node_id=r."nodeId" AND a.observed_at<=r."observedAt"
+WITH reported AS MATERIALIZED (
+ SELECT r."assetId"::text AS asset_id,r."instanceId"::text AS instance_id,r."nodeId"::text AS node_id,r.state::text AS state,r.error::text AS error,r."observedAt"::timestamptz AS observed_at
+ FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,"nodeId" text,state text,error text,"observedAt" timestamptz)
+), locked AS MATERIALIZED (
+ SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id AND a.asset_id=r.asset_id AND a.node_id=r.node_id
+ WHERE a.observed_at<=r.observed_at ORDER BY a.instance_id FOR NO KEY UPDATE OF a
+)
+UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r.observed_at
+FROM reported r JOIN locked l ON l.instance_id=r.instance_id
+WHERE a.instance_id=r.instance_id AND a.asset_id=r.asset_id AND a.node_id=r.node_id AND a.observed_at<=r.observed_at
 `
 
 func (q *Queries) ApplyAssetResults(ctx context.Context, dollar_1 []byte) error {
@@ -1396,6 +1403,30 @@ func (q *Queries) LockEnvironment(ctx context.Context, id string) (Environment, 
 	return i, err
 }
 
+const lockEnvironmentAssets = `-- name: LockEnvironmentAssets :many
+SELECT instance_id FROM runtime_assets WHERE environment_id=$1 ORDER BY instance_id FOR NO KEY UPDATE
+`
+
+func (q *Queries) LockEnvironmentAssets(ctx context.Context, environmentID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, lockEnvironmentAssets, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var instance_id string
+		if err := rows.Scan(&instance_id); err != nil {
+			return nil, err
+		}
+		items = append(items, instance_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockNode = `-- name: LockNode :one
 SELECT id, name, endpoint, info, state, observed_at, retiring, cpu_allocation_ratio FROM nodes WHERE id=$1 FOR UPDATE
 `
@@ -1630,17 +1661,11 @@ func (q *Queries) RegisterCaptureSegments(ctx context.Context, arg RegisterCaptu
 	return err
 }
 
-const releaseAsset = `-- name: ReleaseAsset :exec
-DELETE FROM runtime_assets WHERE instance_id=$1
-`
-
-func (q *Queries) ReleaseAsset(ctx context.Context, instanceID string) error {
-	_, err := q.db.Exec(ctx, releaseAsset, instanceID)
-	return err
-}
-
 const releaseAssets = `-- name: ReleaseAssets :exec
-DELETE FROM runtime_assets WHERE instance_id=ANY($1::text[])
+WITH locked AS MATERIALIZED (
+ SELECT instance_id FROM runtime_assets WHERE instance_id=ANY($1::text[]) ORDER BY instance_id FOR NO KEY UPDATE
+)
+DELETE FROM runtime_assets a USING locked l WHERE a.instance_id=l.instance_id
 `
 
 func (q *Queries) ReleaseAssets(ctx context.Context, dollar_1 []string) error {
@@ -1707,9 +1732,15 @@ func (q *Queries) ReserveAssets(ctx context.Context, dollar_1 []byte) error {
 }
 
 const reserveResourceUpdates = `-- name: ReserveResourceUpdates :exec
-UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r."memoryMiB"),disk_gib=GREATEST(a.disk_gib,r."diskGiB")
-FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
-WHERE a.instance_id=r."instanceId"
+WITH reported AS MATERIALIZED (
+ SELECT r."instanceId"::text AS instance_id,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+), locked AS MATERIALIZED (
+ SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
+)
+UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r.memory_mib),disk_gib=GREATEST(a.disk_gib,r.disk_gib)
+FROM reported r JOIN locked l ON l.instance_id=r.instance_id
+WHERE a.instance_id=r.instance_id
 `
 
 func (q *Queries) ReserveResourceUpdates(ctx context.Context, dollar_1 []byte) error {
@@ -1824,21 +1855,6 @@ type SaveViewParams struct {
 
 func (q *Queries) SaveView(ctx context.Context, arg SaveViewParams) error {
 	_, err := q.db.Exec(ctx, saveView, arg.ID, arg.View)
-	return err
-}
-
-const setCurrentAsset = `-- name: SetCurrentAsset :exec
-UPDATE runtime_assets SET current=(instance_id=$3) WHERE environment_id=$1 AND asset_id=$2
-`
-
-type SetCurrentAssetParams struct {
-	EnvironmentID string
-	AssetID       string
-	InstanceID    string
-}
-
-func (q *Queries) SetCurrentAsset(ctx context.Context, arg SetCurrentAssetParams) error {
-	_, err := q.db.Exec(ctx, setCurrentAsset, arg.EnvironmentID, arg.AssetID, arg.InstanceID)
 	return err
 }
 
@@ -1991,54 +2007,16 @@ func (q *Queries) TemplateReferences(ctx context.Context, templateID string) ([]
 	return items, nil
 }
 
-const updateAssetExecution = `-- name: UpdateAssetExecution :exec
-UPDATE runtime_assets SET execution=$2,cpu=$3,memory_mib=$4,disk_gib=$5 WHERE instance_id=$1
-`
-
-type UpdateAssetExecutionParams struct {
-	InstanceID string
-	Execution  []byte
-	Cpu        float64
-	MemoryMib  int64
-	DiskGib    int64
-}
-
-func (q *Queries) UpdateAssetExecution(ctx context.Context, arg UpdateAssetExecutionParams) error {
-	_, err := q.db.Exec(ctx, updateAssetExecution,
-		arg.InstanceID,
-		arg.Execution,
-		arg.Cpu,
-		arg.MemoryMib,
-		arg.DiskGib,
-	)
-	return err
-}
-
-const updateAssetResult = `-- name: UpdateAssetResult :exec
-UPDATE runtime_assets SET state=$2,error=$3,observed_at=$4 WHERE instance_id=$1
-`
-
-type UpdateAssetResultParams struct {
-	InstanceID string
-	State      string
-	Error      *string
-	ObservedAt pgtype.Timestamptz
-}
-
-func (q *Queries) UpdateAssetResult(ctx context.Context, arg UpdateAssetResultParams) error {
-	_, err := q.db.Exec(ctx, updateAssetResult,
-		arg.InstanceID,
-		arg.State,
-		arg.Error,
-		arg.ObservedAt,
-	)
-	return err
-}
-
 const updateExecutions = `-- name: UpdateExecutions :exec
-UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r."memoryMiB",disk_gib=r."diskGiB"
-FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
-WHERE a.instance_id=r."instanceId"
+WITH reported AS MATERIALIZED (
+ SELECT r."instanceId"::text AS instance_id,r.execution::jsonb AS execution,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+), locked AS MATERIALIZED (
+ SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
+)
+UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r.memory_mib,disk_gib=r.disk_gib
+FROM reported r JOIN locked l ON l.instance_id=r.instance_id
+WHERE a.instance_id=r.instance_id
 `
 
 func (q *Queries) UpdateExecutions(ctx context.Context, dollar_1 []byte) error {

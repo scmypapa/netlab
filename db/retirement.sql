@@ -38,10 +38,12 @@ SELECT DISTINCT definition::jsonb FROM (
  UNION SELECT t FROM operations o CROSS JOIN LATERAL jsonb_path_query(o.payload,'$.**.template') t WHERE o.phase NOT IN ('complete','rolled-back','cancelled')
 ) versions WHERE definition->>'artifactNodeId'=$1::text;
 -- name: RelocateTemplateArtifacts :exec
-WITH templates_updated AS (
+WITH locked_assets AS MATERIALIZED (
+ SELECT instance_id FROM runtime_assets WHERE execution->'template'->>'artifactNodeId'=sqlc.arg(source)::text ORDER BY instance_id FOR NO KEY UPDATE
+), templates_updated AS (
  UPDATE templates SET definition=relocate_template_artifacts(definition,sqlc.arg(source)::text,sqlc.arg(target)::text) WHERE definition->>'artifactNodeId'=sqlc.arg(source)
 ), assets_updated AS (
- UPDATE runtime_assets SET execution=relocate_template_artifacts(execution,sqlc.arg(source),sqlc.arg(target)) WHERE execution->'template'->>'artifactNodeId'=sqlc.arg(source)
+ UPDATE runtime_assets a SET execution=relocate_template_artifacts(a.execution,sqlc.arg(source),sqlc.arg(target)) FROM locked_assets l WHERE a.instance_id=l.instance_id
 ), recoveries_updated AS (
  UPDATE recovery_points SET definition=relocate_template_artifacts(definition,sqlc.arg(source),sqlc.arg(target)) WHERE jsonb_path_exists(definition,'$.**.artifactNodeId ? (@ == $node)',jsonb_build_object('node',sqlc.arg(source)::text))
 ), backups_updated AS (

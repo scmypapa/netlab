@@ -282,10 +282,12 @@ func (q *Queries) NodeOperation(ctx context.Context, scopeID string) (Operation,
 }
 
 const relocateTemplateArtifacts = `-- name: RelocateTemplateArtifacts :exec
-WITH templates_updated AS (
+WITH locked_assets AS MATERIALIZED (
+ SELECT instance_id FROM runtime_assets WHERE execution->'template'->>'artifactNodeId'=$1::text ORDER BY instance_id FOR NO KEY UPDATE
+), templates_updated AS (
  UPDATE templates SET definition=relocate_template_artifacts(definition,$1::text,$2::text) WHERE definition->>'artifactNodeId'=$1
 ), assets_updated AS (
- UPDATE runtime_assets SET execution=relocate_template_artifacts(execution,$1,$2) WHERE execution->'template'->>'artifactNodeId'=$1
+ UPDATE runtime_assets a SET execution=relocate_template_artifacts(a.execution,$1,$2) FROM locked_assets l WHERE a.instance_id=l.instance_id
 ), recoveries_updated AS (
  UPDATE recovery_points SET definition=relocate_template_artifacts(definition,$1,$2) WHERE jsonb_path_exists(definition,'$.**.artifactNodeId ? (@ == $node)',jsonb_build_object('node',$1::text))
 ), backups_updated AS (

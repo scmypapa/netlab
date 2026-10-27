@@ -269,6 +269,10 @@ func (w Worker) commit(ctx context.Context, op *queries.Operation, p *Payload) e
 		return fmt.Errorf("运行修订已变化")
 	}
 	if p.BeforeSpec == nil || !environment.ServiceOnly(*p.BeforeSpec, p.Spec) || op.Kind != "change" {
+		// Lock old and replacement instances together before changing ownership.
+		if _, err = q.LockEnvironmentAssets(ctx, row.ID); err != nil {
+			return err
+		}
 		ids := []string{}
 		for _, t := range p.Old {
 			ids = append(ids, t.Execution.Asset.Id)
@@ -582,6 +586,9 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	defer tx.Rollback(ctx)
 	q := w.Queries.WithTx(tx)
 	if _, err = q.LockEnvironment(ctx, *op.EnvironmentID); err != nil {
+		return fmt.Errorf("%w: %v", errPersistence, err)
+	}
+	if _, err = q.LockEnvironmentAssets(ctx, *op.EnvironmentID); err != nil {
 		return fmt.Errorf("%w: %v", errPersistence, err)
 	}
 	if restoresData(op.Kind) {

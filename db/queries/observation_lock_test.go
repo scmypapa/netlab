@@ -17,7 +17,8 @@ import (
 	"netlab.local/core/db/queries"
 )
 
-func TestObservationWhileEnvironmentLocked(t *testing.T) {
+func observationDatabase(t *testing.T) *pgxpool.Pool {
+	t.Helper()
 	dsn := os.Getenv("NETLAB_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("NETLAB_DATABASE_URL is not set")
@@ -27,12 +28,10 @@ func TestObservationWhileEnvironmentLocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer base.Close(ctx)
 	schema := pgx.Identifier{"observation_lock_" + strings.ReplaceAll(uuid.NewString(), "-", "")}.Sanitize()
 	if _, err = base.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
 		t.Fatal(err)
 	}
-	defer base.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -42,10 +41,21 @@ func TestObservationWhileEnvironmentLocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() {
+		pool.Close()
+		base.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
+		base.Close(ctx)
+	})
 	if err = db.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	return pool
+}
+
+func TestObservationWhileEnvironmentLocked(t *testing.T) {
+	ctx := context.Background()
+	pool := observationDatabase(t)
+	var err error
 	if _, err = pool.Exec(ctx, `
 	 INSERT INTO environments(id,project_id,name,spec,status) VALUES('env','default','Env','{}','running');
 	 INSERT INTO nodes(id,name,endpoint,info) VALUES('node','Node','https://test.invalid','{}');

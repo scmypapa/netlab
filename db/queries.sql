@@ -139,17 +139,11 @@ SELECT COALESCE(sum(cpu),0)::numeric AS cpu,COALESCE(sum(memory_mib),0)::bigint 
 (COALESCE(sum(disk_gib),0)+(SELECT COALESCE(sum(v.size_gib),0) FROM persistent_volumes v WHERE v.node_id=$1))::bigint AS disk_gib FROM node_asset_reservations WHERE node_id=$1;
 -- name: ListRuntimeAssets :many
 SELECT * FROM runtime_assets WHERE environment_id=$1 ORDER BY asset_id,instance_id;
--- name: SetCurrentAsset :exec
-UPDATE runtime_assets SET current=(instance_id=$3) WHERE environment_id=$1 AND asset_id=$2;
--- name: UpdateAssetExecution :exec
-UPDATE runtime_assets SET execution=$2,cpu=$3,memory_mib=$4,disk_gib=$5 WHERE instance_id=$1;
+-- name: LockEnvironmentAssets :many
+SELECT instance_id FROM runtime_assets WHERE environment_id=$1 ORDER BY instance_id FOR NO KEY UPDATE;
 -- name: ReserveAsset :exec
 INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8);
--- name: UpdateAssetResult :exec
-UPDATE runtime_assets SET state=$2,error=$3,observed_at=$4 WHERE instance_id=$1;
--- name: ReleaseAsset :exec
-DELETE FROM runtime_assets WHERE instance_id=$1;
 -- name: GetOperation :one
 SELECT * FROM operations WHERE id=$1;
 -- name: GetOperationByRequest :one
@@ -199,19 +193,35 @@ INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution
 SELECT r."environmentId",r."assetId",r."instanceId",r."nodeId",r.execution,r.cpu,r."memoryMiB",r."diskGiB"
 FROM jsonb_to_recordset($1::jsonb) AS r("environmentId" text,"assetId" text,"instanceId" text,"nodeId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint);
 -- name: ApplyAssetResults :exec
-UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r."observedAt"
-FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,"nodeId" text,state text,error text,"observedAt" timestamptz)
-WHERE a.instance_id=r."instanceId" AND a.asset_id=r."assetId" AND a.node_id=r."nodeId" AND a.observed_at<=r."observedAt";
+WITH reported AS MATERIALIZED (
+ SELECT r."assetId"::text AS asset_id,r."instanceId"::text AS instance_id,r."nodeId"::text AS node_id,r.state::text AS state,r.error::text AS error,r."observedAt"::timestamptz AS observed_at
+ FROM jsonb_to_recordset($1::jsonb) AS r("assetId" text,"instanceId" text,"nodeId" text,state text,error text,"observedAt" timestamptz)
+), locked AS MATERIALIZED (
+ SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id AND a.asset_id=r.asset_id AND a.node_id=r.node_id
+ WHERE a.observed_at<=r.observed_at ORDER BY a.instance_id FOR NO KEY UPDATE OF a
+)
+UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r.observed_at
+FROM reported r JOIN locked l ON l.instance_id=r.instance_id
+WHERE a.instance_id=r.instance_id AND a.asset_id=r.asset_id AND a.node_id=r.node_id AND a.observed_at<=r.observed_at;
 -- name: ReleaseAssets :exec
-DELETE FROM runtime_assets WHERE instance_id=ANY($1::text[]);
+WITH locked AS MATERIALIZED (
+ SELECT instance_id FROM runtime_assets WHERE instance_id=ANY($1::text[]) ORDER BY instance_id FOR NO KEY UPDATE
+)
+DELETE FROM runtime_assets a USING locked l WHERE a.instance_id=l.instance_id;
 -- name: ClearCurrentAssets :exec
 UPDATE runtime_assets SET current=false WHERE environment_id=$1 AND asset_id=ANY($2::text[]);
 -- name: MakeCurrentAssets :exec
 UPDATE runtime_assets SET current=true WHERE instance_id=ANY($1::text[]);
 -- name: UpdateExecutions :exec
-UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r."memoryMiB",disk_gib=r."diskGiB"
-FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
-WHERE a.instance_id=r."instanceId";
+WITH reported AS MATERIALIZED (
+ SELECT r."instanceId"::text AS instance_id,r.execution::jsonb AS execution,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,execution jsonb,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+), locked AS MATERIALIZED (
+ SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
+)
+UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r.memory_mib,disk_gib=r.disk_gib
+FROM reported r JOIN locked l ON l.instance_id=r.instance_id
+WHERE a.instance_id=r.instance_id;
 -- name: ListTemplatePage :many
 SELECT t.* FROM templates t
 WHERE (sqlc.arg(cursor)::text='' OR (t.created_at,t.id)<(SELECT p.created_at,p.id FROM templates p WHERE p.id=sqlc.arg(cursor)))
@@ -252,9 +262,15 @@ ORDER BY o.created_at DESC,o.id DESC LIMIT sqlc.arg(page_limit);
 WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running' RETURNING environment_id,id,phase)
 INSERT INTO events(environment_id,kind,payload) SELECT environment_id,'operation.progress',jsonb_build_object('operationId',id,'phase',phase) FROM changed;
 -- name: ReserveResourceUpdates :exec
-UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r."memoryMiB"),disk_gib=GREATEST(a.disk_gib,r."diskGiB")
-FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
-WHERE a.instance_id=r."instanceId";
+WITH reported AS MATERIALIZED (
+ SELECT r."instanceId"::text AS instance_id,r.cpu::numeric(12,2) AS cpu,r."memoryMiB"::bigint AS memory_mib,r."diskGiB"::bigint AS disk_gib
+ FROM jsonb_to_recordset($1::jsonb) AS r("instanceId" text,cpu numeric(12,2),"memoryMiB" bigint,"diskGiB" bigint)
+), locked AS MATERIALIZED (
+ SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
+)
+UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r.memory_mib),disk_gib=GREATEST(a.disk_gib,r.disk_gib)
+FROM reported r JOIN locked l ON l.instance_id=r.instance_id
+WHERE a.instance_id=r.instance_id;
 -- name: GetNodeReservations :many
 SELECT node_id,COALESCE(sum(cpu),0)::numeric AS cpu,COALESCE(sum(memory_mib),0)::bigint AS memory_mib,COALESCE(sum(disk_gib),0)::bigint AS disk_gib FROM node_asset_reservations WHERE node_id=ANY($1::text[]) GROUP BY node_id;
 -- name: DeviceReservations :many

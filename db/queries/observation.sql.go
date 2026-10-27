@@ -27,14 +27,21 @@ WITH previous_node AS MATERIALIZED (
  SELECT a.environment_id,a.asset_id,a.instance_id,'absent','节点上已不存在该实例',$2::timestamptz
  FROM runtime_assets a WHERE $4::boolean AND a.node_id=$1 AND a.current
  AND NOT EXISTS(SELECT 1 FROM reported r WHERE r.instance_id=a.instance_id AND r.asset_id=a.asset_id AND r.environment_id=a.environment_id)
-), changed AS (
- UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r.observed_at
- FROM observations r WHERE a.node_id=$1
+), locked AS MATERIALIZED (
+ SELECT a.instance_id FROM runtime_assets a JOIN observations r
+ ON a.environment_id=r.environment_id AND a.asset_id=r.asset_id AND a.instance_id=r.instance_id
+ WHERE a.node_id IN (SELECT id FROM node_ready)
  AND (a.current OR EXISTS (
   SELECT 1 FROM environments e JOIN operations o ON o.id=e.operation_id
   WHERE e.id=a.environment_id AND o.state='running'
    AND o.payload->'targets' @> jsonb_build_array(jsonb_build_object('execution',jsonb_build_object('instanceId',a.instance_id)))
  ))
+ AND a.observed_at<r.observed_at
+ ORDER BY a.instance_id FOR NO KEY UPDATE OF a
+), changed AS (
+ UPDATE runtime_assets a SET state=r.state,error=r.error,observed_at=r.observed_at
+ FROM observations r JOIN locked l ON l.instance_id=r.instance_id
+ WHERE a.node_id=$1
  AND a.environment_id=r.environment_id AND a.asset_id=r.asset_id AND a.instance_id=r.instance_id
  AND a.observed_at<r.observed_at
  RETURNING a.environment_id
