@@ -33,6 +33,28 @@ FROM budgets b WHERE a.environment_id=b.environment_id AND a.instance_id=b.targe
 
 ALTER TABLE runtime_assets ADD CONSTRAINT runtime_assets_system_budget CHECK (system_gib>=0 AND system_gib<=disk_gib);
 
+-- Resolve old local bindings from registered storage facts once, never from path naming conventions.
+CREATE FUNCTION bind_storage_pools(e jsonb,node text) RETURNS jsonb LANGUAGE sql STABLE AS $$
+ SELECT CASE WHEN e ? 'volumeSources' THEN jsonb_set(e,'{volumeSources}',(
+  SELECT COALESCE(jsonb_object_agg(v.key,CASE WHEN p.id IS NULL THEN v.value ELSE v.value||jsonb_build_object('storagePoolId',p.id) END),'{}')
+  FROM jsonb_each(e->'volumeSources') v LEFT JOIN LATERAL (
+   SELECT id FROM (
+    SELECT v.value->>'storagePoolId' AS id,0 AS priority
+    UNION ALL SELECT v.value->'storage'->'rbd'->>'secretId',1
+    UNION ALL SELECT COALESCE(e->>'storagePoolId','default:'||node),2 WHERE v.value->'storage'->>'path'=e->>'storagePath'
+    UNION ALL SELECT s.id,3 FROM storage_pools s WHERE node=ANY(s.node_ids) AND s.path=v.value->'storage'->>'path'
+    UNION ALL SELECT 'default:'||n.id,4 FROM nodes n WHERE n.id=node AND n.info->'storage'->>'path'=v.value->'storage'->>'path'
+   ) candidates WHERE id IS NOT NULL ORDER BY priority,id LIMIT 1
+  ) p ON true
+ )) ELSE e END
+$$;
+UPDATE runtime_assets SET execution=bind_storage_pools(execution,node_id);
+UPDATE operations o SET payload=jsonb_set(jsonb_set(payload,'{before}',(
+ SELECT jsonb_agg(jsonb_set(t,'{execution}',bind_storage_pools(t->'execution',t->>'nodeId'))) FROM jsonb_array_elements(payload->'before') t
+)),'{migration,target}',jsonb_set(payload->'migration'->'target','{execution}',bind_storage_pools(payload->'migration'->'target'->'execution',payload->'migration'->'target'->>'nodeId')))
+WHERE kind='migrate' AND payload->'migration'->'target' IS NOT NULL AND phase NOT IN ('complete','rolled-back','cancelled');
+DROP FUNCTION bind_storage_pools(jsonb,text);
+
 CREATE VIEW migration_asset_reservations AS
 WITH moves AS (
  SELECT o.environment_id,o.asset_id,o.phase,COALESCE((o.payload->>'committed')::boolean,false) AS committed,
@@ -69,14 +91,14 @@ WITH moves AS (
  FROM moves WHERE NOT live AND source->'execution'->'template'->>'kind'='container'
 )
 SELECT environment_id,extra->>'nodeId' AS node_id,execution,
- CASE WHEN NOT committed AND extra->>'nodeId'<>other->>'nodeId' THEN (execution->'asset'->'resources'->>'cpu')::numeric(12,2) ELSE 0 END AS cpu,
- CASE WHEN NOT committed AND extra->>'nodeId'<>other->>'nodeId' THEN (execution->'asset'->'resources'->>'memoryMiB')::bigint ELSE 0 END AS memory_mib,
- system_gib+anonymous_gib AS disk_gib,0::bigint AS volume_gib,system_gib,
+ (CASE WHEN NOT committed AND extra->>'nodeId'<>other->>'nodeId' THEN (execution->'asset'->'resources'->>'cpu')::numeric(12,2) ELSE 0 END)::numeric(12,2) AS cpu,
+ (CASE WHEN NOT committed AND extra->>'nodeId'<>other->>'nodeId' THEN (execution->'asset'->'resources'->>'memoryMiB')::bigint ELSE 0 END)::bigint AS memory_mib,
+ (system_gib+anonymous_gib)::bigint AS disk_gib,0::bigint AS volume_gib,system_gib,
  COALESCE(execution->>'storagePoolId','')::text AS pool_id
 FROM roots
 UNION ALL
 SELECT environment_id,extra->>'nodeId',execution,0,0,0,(v.value->>'sizeGiB')::bigint,0,
- COALESCE(v.value->>'storagePoolId',v.value->'storage'->'rbd'->>'secretId','')::text
+ (v.value->>'storagePoolId')::text
 FROM allocations a CROSS JOIN LATERAL jsonb_each(a.execution->'volumeSources') v
 WHERE NOT COALESCE((
  (v.value->'storage'->'rbd'->>'fsid' IS NOT NULL
@@ -84,7 +106,7 @@ WHERE NOT COALESCE((
   AND v.value->'storage'->'rbd'->>'pool'=other->'execution'->'volumeSources'->v.key->'storage'->'rbd'->>'pool'
   AND v.value->'storage'->'rbd'->>'imagePrefix'=other->'execution'->'volumeSources'->v.key->'storage'->'rbd'->>'imagePrefix')
  OR (extra->>'nodeId'=other->>'nodeId' AND v.value->>'id'=other->'execution'->'volumeSources'->v.key->>'id'
-  AND v.value->'storage'->>'path'=other->'execution'->'volumeSources'->v.key->'storage'->>'path')
+  AND v.value->>'storagePoolId'<>'' AND v.value->>'storagePoolId'=other->'execution'->'volumeSources'->v.key->>'storagePoolId')
 ),false)
 UNION ALL
 SELECT environment_id,source->>'nodeId',source->'execution',0,0,size_gib,0,0,
