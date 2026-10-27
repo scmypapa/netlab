@@ -14,8 +14,10 @@ func TestNodeRuntimeDependencies(t *testing.T) {
 	for _, tc := range []struct {
 		name, virtual, extra, module, failure, wantInstall string
 		missingKmod                                        bool
+		missingLogrotate                                   bool
 	}{
 		{name: "complete generic kernel", module: "ready"},
+		{name: "log retention dependency", module: "ready", missingLogrotate: true, wantInstall: "logrotate"},
 		{name: "virtual current and next kernels", virtual: "installed linux-image-virtual 6.8.0-147.147", wantInstall: "linux-modules-extra-6.8.0-142-generic linux-image-extra-virtual=6.8.0-147.147"},
 		{name: "virtual future kernel dependency", virtual: "installed linux-image-virtual 6.8.0-147.147", module: "ready", wantInstall: "linux-image-extra-virtual=6.8.0-147.147"},
 		{name: "HWE virtual keeps its series", virtual: "installed linux-image-virtual-hwe-24.04 6.14.0-36.36~24.04.1", module: "ready", wantInstall: "linux-image-extra-virtual-hwe-24.04=6.14.0-36.36~24.04.1"},
@@ -31,6 +33,11 @@ func TestNodeRuntimeDependencies(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			log, module := fakeNodeRuntime(t, tc.missingKmod)
+			if tc.missingLogrotate {
+				if err := os.Remove(filepath.Join(filepath.Dir(log), "logrotate")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			t.Setenv("TEST_VIRTUAL", tc.virtual)
 			t.Setenv("TEST_EXTRA", tc.extra)
 			t.Setenv("TEST_MODULE", tc.module)
