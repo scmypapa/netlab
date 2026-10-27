@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,6 +19,8 @@ import (
 func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, user string, call func(string, string, string, any, int) []byte) {
 	id := uuid.NewString()
 	cleaned := 0
+	var containerAvailable atomic.Int64
+	containerAvailable.Store(6 << 30)
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -28,7 +31,8 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 			info := api.StorageInfo{Path: r.URL.Query().Get("directory"), Filesystem: "root", CapacityBytes: 8 << 30, AvailableBytes: 4 << 30}
 			if r.URL.Path == "/node/v1/info" {
 				info.Path = "/var/lib/netlab"
-				writeJSON(w, 200, api.NodeInfo{Id: id, Name: "Storage node", Storage: &info})
+				root := api.StorageInfo{Path: "/var/lib/containerd/overlayfs", Filesystem: "container", CapacityBytes: 16 << 30, AvailableBytes: containerAvailable.Load()}
+				writeJSON(w, 200, api.NodeInfo{Id: id, Name: "Storage node", Storage: &info, ContainerStorage: &root})
 			} else {
 				writeJSON(w, 200, info)
 			}
@@ -113,6 +117,32 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 	allocations, err := s.Queries.StorageReservations(ctx, []string{id})
 	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 2 || allocations[0].ContainerGib != 2 {
 		t.Fatalf("shared volumes counted twice: %+v %v", allocations, err)
+	}
+	listedPools := func(token string) map[string]api.StoragePool {
+		t.Helper()
+		var items []api.StoragePool
+		if err := json.Unmarshal(call("GET", "/storage-pools", token, nil, 200), &items); err != nil {
+			t.Fatal(err)
+		}
+		result := map[string]api.StoragePool{}
+		for _, item := range items {
+			result[item.Id] = item
+		}
+		return result
+	}
+	listed := listedPools(admin)
+	local := listed["default:"+id]
+	if local.ContainerAllocatedGiB != 2 || local.AllocatedGiB != 0 || listed[pool.Id].AllocatedGiB != 2 || local.ContainerStorage == nil || local.ContainerStorage.AvailableBytes != 6<<30 {
+		t.Fatalf("logical pool and runtime storage were conflated: %+v %+v", local, listed[pool.Id])
+	}
+	containerAvailable.Store(5 << 30)
+	live := listedPools(admin)["default:"+id].ContainerStorage
+	if live == nil || live.AvailableBytes != 5<<30 {
+		t.Fatal("runtime storage response reused an obsolete node snapshot", live)
+	}
+	public := listedPools(user)["default:"+id].ContainerStorage
+	if public == nil || public.Path != "" || public.Filesystem != "" || public.Rbd != nil || public.AvailableBytes != 5<<30 {
+		t.Fatal("runtime storage did not follow existing redaction rules", public)
 	}
 	instances, err := s.Queries.ListRuntimeAssets(ctx, e.Id)
 	if err != nil {

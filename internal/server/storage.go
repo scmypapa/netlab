@@ -56,6 +56,9 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 	}
 	for i := range items {
 		for _, allocated := range reservations {
+			if items[i].Default && slices.Contains(items[i].NodeIds, allocated.NodeID) {
+				items[i].ContainerAllocatedGiB += allocated.ContainerGib
+			}
 			if slices.Contains(items[i].NodeIds, allocated.NodeID) && (allocated.PoolID == items[i].Id || items[i].Default && allocated.PoolID == "") {
 				items[i].AllocatedGiB += allocated.DiskGib
 			}
@@ -81,6 +84,7 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 						err = fmt.Errorf("节点未提供存储信息")
 					} else {
 						info = *node.Storage
+						item.ContainerStorage = node.ContainerStorage
 						if identity.Administrator() {
 							item.Directory = &info.Path
 						}
@@ -105,7 +109,11 @@ func (s *Server) listStoragePools(w http.ResponseWriter, r *http.Request, identi
 				return
 			}
 			if !identity.Administrator() {
-				info.Path, info.Filesystem, info.Rbd = "", "", nil
+				for _, storage := range []*api.StorageInfo{&info, item.ContainerStorage} {
+					if storage != nil {
+						storage.Path, storage.Filesystem, storage.Rbd = "", "", nil
+					}
+				}
 			}
 			item.Storage = &info
 			if info.NativeSnapshots {

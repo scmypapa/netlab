@@ -136,7 +136,7 @@ export function NodesPage() {
                 <strong>
                   {selected.capacity.cpu} 核 ·{" "}
                   {selected.capacity.memoryMiB / 1024} GiB 内存 ·{" "}
-                  {selected.capacity.diskGiB} GiB 存储
+                  {selected.capacity.diskGiB} GiB 默认存储
                 </strong>
                 <span className={styles.technical}>{selected.endpoint}</span>
               </div>
@@ -151,7 +151,11 @@ export function NodesPage() {
                 <Tabs.Tab value="retirement">退出节点</Tabs.Tab>
               </Tabs.List>
               <Tabs.Panel value="performance">
-                <NodeScheduling key={selected.id} node={selected} onSaved={setSelected} />
+                <NodeScheduling
+                  key={selected.id}
+                  node={selected}
+                  onSaved={setSelected}
+                />
                 <Suspense fallback={<Loading />}>
                   <PerformanceWorkspace node={selected} />
                 </Suspense>

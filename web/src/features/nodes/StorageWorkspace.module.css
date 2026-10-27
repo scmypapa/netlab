@@ -181,6 +181,16 @@
 .technical {
   font-family: var(--font-mono);
 }
+.runtimeStorage {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+.runtimeStorage h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
 .diskMap {
   display: grid;
   gap: 0;
