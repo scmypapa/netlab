@@ -21,25 +21,33 @@ UPDATE storage_pools SET operation_id=$2 WHERE id=$1;
 UPDATE storage_pools SET node_ids=$2,path=$3,state='ready' WHERE id=$1;
 -- name: StorageReservations :many
 WITH assets AS (
- SELECT node_id,environment_id,asset_id,execution,disk_gib,COALESCE(execution->>'storagePoolId','')::text AS pool_id
+ SELECT node_id,environment_id,asset_id,execution,disk_gib,system_gib,COALESCE(execution->>'storagePoolId','')::text AS pool_id
  FROM runtime_assets WHERE node_id=ANY($1::text[])
 ), allocations AS (
- SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib FROM assets GROUP BY node_id,pool_id
+ SELECT node_id,pool_id,sum(disk_gib-CASE WHEN execution->'template'->>'kind'='container' THEN system_gib ELSE 0 END)::bigint AS disk_gib,
+ sum(CASE WHEN execution->'template'->>'kind'='container' THEN system_gib ELSE 0 END)::bigint AS container_gib FROM assets GROUP BY node_id,pool_id
  UNION ALL
- SELECT node_id,COALESCE(execution->>'storagePoolId','')::text,(disk_gib+volume_gib)::bigint
+ SELECT node_id,pool_id,(disk_gib+volume_gib-CASE WHEN execution->'template'->>'kind'='container' THEN system_gib ELSE 0 END)::bigint,
+ CASE WHEN execution->'template'->>'kind'='container' THEN system_gib ELSE 0 END::bigint
  FROM migration_asset_reservations WHERE node_id=ANY($1::text[])
  UNION ALL
- SELECT node_id,pool_id,-sum(reused)::bigint FROM (
+ SELECT node_id,pool_id,-sum(reused)::bigint,0::bigint FROM (
   SELECT a.node_id,a.pool_id,a.environment_id,a.asset_id,v->>'id' AS volume_id,sum((v->>'sizeGiB')::bigint)-max((v->>'sizeGiB')::bigint) AS reused
   FROM assets a CROSS JOIN LATERAL jsonb_array_elements(a.execution->'asset'->'volumes') v WHERE v->>'persistentVolumeId' IS NULL
   GROUP BY a.node_id,a.pool_id,a.environment_id,a.asset_id,COALESCE(a.execution->>'dataSetId',''),v->>'id'
  ) volumes GROUP BY node_id,pool_id
  UNION ALL SELECT v.node_id,CASE WHEN v.storage_pool_id LIKE 'default:%' THEN '' ELSE v.storage_pool_id END,
- sum(CASE WHEN o.kind='resize-volume' AND v.state<>'ready' THEN GREATEST(v.size_gib,(o.payload->'volume'->>'sizeGiB')::bigint) ELSE v.size_gib END)::bigint
+ sum(CASE WHEN o.kind='resize-volume' AND v.state<>'ready' THEN GREATEST(v.size_gib,(o.payload->'volume'->>'sizeGiB')::bigint) ELSE v.size_gib END)::bigint,0::bigint
  FROM persistent_volumes v LEFT JOIN operations o ON o.id=v.operation_id
  WHERE v.node_id=ANY($1::text[]) GROUP BY v.node_id,v.storage_pool_id
+ UNION ALL
+ SELECT t->>'nodeId',COALESCE(t->'execution'->>'storagePoolId','')::text,
+ ((o.payload->'recovery'->'captures'->(t->'execution'->'asset'->>'id')->>'sizeBytes')::bigint+1073741823)/1073741824,0::bigint
+ FROM operations o CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o.payload->'targets','[]')||COALESCE(o.payload->'updates','[]')) t
+ WHERE o.kind IN ('restore-recovery','clone-recovery') AND o.phase IN ('prepare-recovery','rollback')
+ AND t->>'nodeId'=ANY($1::text[]) AND t->'execution'->'template'->>'kind'='container'
 )
-SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib FROM allocations GROUP BY node_id,pool_id;
+SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib,sum(container_gib)::bigint AS container_gib FROM allocations GROUP BY node_id,pool_id;
 -- name: NodeStorageOperation :one
 SELECT * FROM operations WHERE scope_kind='node' AND scope_id=$1 AND kind='configure-node-storage' ORDER BY created_at DESC,id DESC LIMIT 1;
 -- name: TemplateLocalReferences :many
