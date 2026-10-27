@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -195,6 +198,63 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 	if after, err := os.ReadFile("/proc/sys/net/ipv4/ip_unprivileged_port_start"); err != nil || !bytes.Equal(hostPorts, after) {
 		t.Fatalf("container network policy changed the host: before=%q after=%q error=%v", hostPorts, after, err)
 	}
+	t.Run("same-node migration keeps the surviving instance and volume", func(t *testing.T) {
+		if state, err := e.container.Execute(ctx, id, api.NodePlanPhaseStop, a, nil); err != nil || state != "stopped" {
+			t.Fatalf("stop source: %s %v", state, err)
+		}
+		target := a
+		target.InstanceId = uuid.NewString()
+		targetPath := filepath.Join(data, "destination")
+		target.StoragePath = &targetPath
+		if state, err := e.container.Execute(ctx, id, api.NodePlanPhasePrepare, target, nil); err != nil || state != "prepared" {
+			t.Fatalf("prepare destination: %s %v", state, err)
+		}
+		t.Cleanup(func() {
+			if _, err := e.container.Execute(context.WithoutCancel(ctx), id, api.NodePlanPhaseDestroy, target, nil); err != nil {
+				t.Error(err)
+			}
+		})
+		volume := api.NodeVolume{Id: uuid.NewString(), Kind: api.Container, StoragePoolId: "data", Storage: api.StorageInfo{Path: data}}
+		path := persistentDirectory(volume)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(path, "survivor")
+		if err := os.WriteFile(marker, []byte("keep"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		source := a
+		source.VolumeSources = map[string]api.NodeVolume{"data": volume}
+		target.VolumeSources = source.VolumeSources
+		raw, err := json.Marshal(api.NodeMigrationCleanup{Source: source, Target: target, TargetNodeId: e.cfg.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodDelete, "/migration", bytes.NewReader(raw)).WithContext(ctx)
+		request.SetPathValue("environmentId", id)
+		request.SetPathValue("assetId", a.Asset.Id)
+		request.SetPathValue("instanceId", a.InstanceId)
+		response := httptest.NewRecorder()
+		e.Migration(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("cleanup rejected a different target instance: %d %s", response.Code, response.Body.String())
+		}
+		if _, err := e.container.client.LoadContainer(ctx, source.InstanceId); !errdefs.IsNotFound(err) {
+			t.Fatalf("source remains after cleanup: %v", err)
+		}
+		if state, err := e.container.Execute(ctx, id, api.NodePlanPhaseInspect, target, nil); err != nil || state != "stopped" {
+			t.Fatalf("surviving destination was removed: %s %v", state, err)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatal("retained local volume was removed", err)
+		}
+		if err := e.cleanupMigration(ctx, id, source, target, "other-node"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("same path on another node incorrectly retained the local copy", err)
+		}
+	})
 }
 
 func nonRootContainerArchive(t *testing.T, ctx context.Context, directory string) string {

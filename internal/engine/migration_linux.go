@@ -31,10 +31,12 @@ func (e *Engine) Migration(w http.ResponseWriter, r *http.Request) {
 		var input api.NodeMigrationCleanup
 		if err = json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&input); err == nil {
 			a := input.Source
-			if a.InstanceId != r.PathValue("instanceId") || a.Asset.Id != r.PathValue("assetId") || a.InstanceId != input.Target.InstanceId {
+			if a.InstanceId != r.PathValue("instanceId") || a.Asset.Id != r.PathValue("assetId") ||
+				a.Asset.Id != input.Target.Asset.Id || input.TargetNodeId == "" ||
+				input.TargetNodeId == e.cfg.ID && a.InstanceId == input.Target.InstanceId {
 				err = errors.New("migration cleanup identity does not match")
 			} else {
-				err = e.cleanupMigration(r.Context(), r.PathValue("environmentId"), a, input.Target)
+				err = e.cleanupMigration(r.Context(), r.PathValue("environmentId"), a, input.Target, input.TargetNodeId)
 			}
 		}
 	} else if r.Method == http.MethodPost {
@@ -85,7 +87,7 @@ func sharedDisk(a, b vmDisk) bool {
 	return a.rbd != nil && b.rbd != nil && a.rbd.Fsid == b.rbd.Fsid && a.rbd.Pool == b.rbd.Pool && a.image == b.image
 }
 
-func (e *Engine) cleanupMigration(ctx context.Context, env string, source, target api.AssetExecution) error {
+func (e *Engine) cleanupMigration(ctx context.Context, env string, source, target api.AssetExecution, targetNode string) error {
 	unlock, err := e.lock(ctx, env+"/"+source.Asset.Id)
 	if err != nil {
 		return err
@@ -147,7 +149,9 @@ func (e *Engine) cleanupMigration(ctx context.Context, env string, source, targe
 		}
 	}
 	for name, volume := range source.VolumeSources {
-		if sharedDisk(persistentDisk(volume), persistentDisk(target.VolumeSources[name])) {
+		retained := target.VolumeSources[name]
+		sameLocal := targetNode == e.cfg.ID && volume.StoragePoolId != "" && volume.StoragePoolId == retained.StoragePoolId && volume.Id == retained.Id
+		if sameLocal || sharedDisk(persistentDisk(volume), persistentDisk(retained)) {
 			continue
 		}
 		if err := e.Volume(ctx, "delete", volume); err != nil {
