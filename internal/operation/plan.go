@@ -28,9 +28,13 @@ type reservation struct {
 
 func resourceRecords(id string, targets, before []Target, restoring bool) ([]byte, error) {
 	rows := make([]reservation, 0, len(targets))
+	previous := make(map[string]api.Asset, len(before))
+	for _, t := range before {
+		previous[t.Execution.InstanceId] = t.Execution.Asset
+	}
 	for _, t := range targets {
 		r := t.Execution.Asset.Resources
-		budget := peakDiskBudget(findInstance(before, t.Execution.InstanceId).Execution.Asset, t.Execution.Asset, restoring)
+		budget := peakDiskBudget(previous[t.Execution.InstanceId], t.Execution.Asset, restoring)
 		r.DiskGiB = budget.system + budget.data
 		rows = append(rows, reservation{id, t.Execution.Asset.Id, t.Execution.InstanceId, t.NodeID, t.Execution, budget.system, r})
 	}
