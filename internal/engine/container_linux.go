@@ -70,6 +70,24 @@ func NewContainers(ctx context.Context, socket, data, node string, ovs *network.
 	return containers, nil
 }
 func (c *Containers) Close() { c.cancel(); c.watches.Wait(); c.client.Close() }
+func (c *Containers) Storage(ctx context.Context) (api.StorageInfo, error) {
+	response, err := c.client.IntrospectionService().Plugins(ctx, []string{"type==io.containerd.snapshotter.v1,id==overlayfs"})
+	if err != nil {
+		return api.StorageInfo{}, err
+	}
+	if len(response.Plugins) == 0 {
+		return api.StorageInfo{}, errors.New("containerd overlayfs snapshotter is unavailable")
+	}
+	plugin := response.Plugins[0]
+	if plugin.InitErr != nil {
+		return api.StorageInfo{}, fmt.Errorf("containerd overlayfs: %s", plugin.InitErr.Message)
+	}
+	root := plugin.Exports["root"]
+	if root == "" {
+		return api.StorageInfo{}, errors.New("containerd overlayfs did not publish its storage root")
+	}
+	return StorageInfo(root)
+}
 func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution, releaseSlot func()) (string, error) {
 	ctx = namespaces.WithNamespace(ctx, "netlab")
 	if phase == api.NodePlanPhasePrepare {

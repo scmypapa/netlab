@@ -68,6 +68,19 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer e.Close()
+	plugins, err := e.container.client.IntrospectionService().Plugins(ctx, []string{"type==io.containerd.snapshotter.v1,id==overlayfs"})
+	if err != nil || len(plugins.Plugins) != 1 {
+		t.Fatalf("read actual snapshotter: %v %v", plugins, err)
+	}
+	root := plugins.Plugins[0].Exports["root"]
+	actual, err := StorageInfo(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := e.Info(ctx)
+	if err != nil || info.ContainerStorage == nil || info.ContainerStorage.Path != root || info.ContainerStorage.Filesystem != actual.Filesystem || info.ContainerStorage.CapacityBytes != actual.CapacityBytes || info.ContainerStorage.AvailableBytes <= 0 || info.ContainerStorage.Path == data {
+		t.Fatalf("node reported a guessed container storage root: %+v %v", info.ContainerStorage, err)
+	}
 	e.slots = make(chan struct{}, 1)
 	id := uuid.NewString()
 	resources := api.Resources{Cpu: 0.25, MemoryMiB: 64, DiskGiB: 1}

@@ -183,7 +183,7 @@ func (e *Engine) acquire(ctx context.Context, id string, shared bool) (func(), e
 	}
 	return func() { l.mu.Release(weight); release() }, nil
 }
-func (e *Engine) Info() (api.NodeInfo, error) {
+func (e *Engine) Info(ctx context.Context) (api.NodeInfo, error) {
 	var mem unix.Sysinfo_t
 	if err := unix.Sysinfo(&mem); err != nil {
 		return api.NodeInfo{}, err
@@ -205,6 +205,13 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 		return api.NodeInfo{}, err
 	}
 	info.Storage = &storage
+	if e.container != nil {
+		storage, err := e.container.Storage(ctx)
+		if err != nil {
+			return api.NodeInfo{}, err
+		}
+		info.ContainerStorage = &storage
+	}
 	device, err := e.storageSelection()
 	if err != nil {
 		return api.NodeInfo{}, err
@@ -219,7 +226,7 @@ func (e *Engine) Info() (api.NodeInfo, error) {
 	}
 	info.AccessAddress = &address
 	info.NetworkChassis = ptr(e.ovn.Chassis())
-	interfaces, err := e.external.Interfaces(context.Background())
+	interfaces, err := e.external.Interfaces(ctx)
 	if err != nil {
 		return api.NodeInfo{}, err
 	}

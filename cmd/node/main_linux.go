@@ -500,7 +500,10 @@ func run() error {
 		socket.SetReadLimit(1 << 20)
 		stream.Console(r.Context(), socket, console, console.Resize)
 	})
-	mux.HandleFunc("GET /node/v1/info", func(w http.ResponseWriter, r *http.Request) { value, err := executor.Info(); respond(w, value, err) })
+	mux.HandleFunc("GET /node/v1/info", func(w http.ResponseWriter, r *http.Request) {
+		value, err := executor.Info(r.Context())
+		respond(w, value, err)
+	})
 	mux.HandleFunc("POST /node/v1/external-devices", func(w http.ResponseWriter, r *http.Request) {
 		var input api.ExternalDiscovery
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input); err != nil {

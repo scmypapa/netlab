@@ -152,7 +152,7 @@ func (e *Engine) ConfigureStorageDevice(ctx context.Context, input api.Configure
 		return api.NodeInfo{}, err
 	}
 	if current == input.Device {
-		return e.Info()
+		return e.Info(ctx)
 	}
 	if current != "" {
 		out, err := commandOutput(ctx, "cephadm", "ls")
@@ -195,7 +195,7 @@ func (e *Engine) ConfigureStorageDevice(ctx context.Context, input api.Configure
 	if err = e.saveStorageSelection(input); err != nil {
 		return api.NodeInfo{}, err
 	}
-	return e.Info()
+	return e.Info(ctx)
 }
 
 func (e *Engine) saveStorageSelection(input api.ConfigureNodeStorage) error {

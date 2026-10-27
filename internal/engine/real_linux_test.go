@@ -76,7 +76,7 @@ func TestRealMixedLifecycle(t *testing.T) {
 		t.Fatalf("BIOS machine alias was not pinned: %+v %v", prepared.Hardware, err)
 	}
 	assets[1].Template = prepared
-	info, err := e.Info()
+	info, err := e.Info(ctx)
 	if err != nil || info.VmHardware == nil || len(info.VmHardware.Machines) == 0 || !slices.Contains(info.VmHardware.CpuModes, "host-model") || !slices.Contains(info.VmHardware.NicModels, "e1000") {
 		t.Fatalf("node did not report native virtual hardware: %+v %v", info.VmHardware, err)
 	}
