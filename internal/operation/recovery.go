@@ -46,16 +46,15 @@ func (w Worker) recovery(ctx context.Context, op *queries.Operation, p *Payload)
 		if err != nil {
 			return err
 		}
-		for i := range p.Recovery.Assets {
-			t := &p.Recovery.Assets[i]
-			for _, r := range observed {
-				if r.InstanceId == t.Execution.InstanceId {
-					t.State = r.State
-					if r.Execution != nil {
-						t.Execution = *r.Execution
-					}
-				}
+		targets := indexInstances(p.Recovery.Assets)
+		for _, result := range observed {
+			target := targets[result.InstanceId]
+			target.State = result.State
+			if result.Execution != nil {
+				target.Execution = *result.Execution
 			}
+		}
+		for _, t := range p.Recovery.Assets {
 			if t.State != "running" && t.State != "suspended" && !matches(t.State, "stopped") {
 				return fmt.Errorf("资产 %s 当前状态 %s 无法捕获", t.Execution.Asset.Name, t.State)
 			}
