@@ -17,16 +17,16 @@ export function useWorkbench(id: string) {
   const [search] = useDebouncedValue(templateSearch, 250);
   const environment = useQuery({
     queryKey: ["environment", id],
-    queryFn: () => api.environment(id),
+    queryFn: ({ signal }) => api.environment(id, signal),
   });
   const state = useQuery({
     queryKey: ["state", id],
-    queryFn: () => api.state(id),
+    queryFn: ({ signal }) => api.state(id, signal),
     enabled: observing === id,
   });
   const services = useQuery({
     queryKey: ["services", id],
-    queryFn: () => api.services(id),
+    queryFn: ({ signal }) => api.services(id, signal),
     enabled: Boolean(environment.data?.appliedSpec),
   });
   const catalog = useCursorList(
@@ -84,14 +84,28 @@ export function useWorkbench(id: string) {
     const events = api.events(id);
     let scheduled: ReturnType<typeof setTimeout> | undefined;
     let operationChanged = false;
+    let resourcesChanged = false;
     const refreshState = (event?: Event) => {
-      operationChanged ||= event?.type.startsWith("operation.") ?? false;
+      if (event?.type.startsWith("operation.")) {
+        operationChanged = true;
+        const phase =
+          event instanceof MessageEvent && event.data
+            ? (JSON.parse(event.data) as { phase?: string }).phase
+            : undefined;
+        resourcesChanged ||=
+          event.type !== "operation.progress" ||
+          phase === "complete" ||
+          phase === "rolled-back";
+      }
       scheduled ??= setTimeout(() => {
         scheduled = undefined;
         void client.invalidateQueries({ queryKey: ["state", id] });
         if (operationChanged) {
           operationChanged = false;
           void client.invalidateQueries({ queryKey: ["operations", id] });
+        }
+        if (resourcesChanged) {
+          resourcesChanged = false;
           void client.invalidateQueries({ queryKey: ["services", id] });
           void client.invalidateQueries({ queryKey: ["vpn-access", id] });
           void client.invalidateQueries({ queryKey: ["recovery-points", id] });

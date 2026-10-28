@@ -325,15 +325,19 @@ async function fixture(page: Page, scene: EnvironmentSpec = spec) {
   };
   const byId = new Map(packets.map((packet) => [packet.id!, packet]));
   await page.addInitScript(() => {
+    const streams: EventTarget[] = [];
     class Events extends EventTarget {
       onopen: (() => void) | null = null;
       constructor() {
         super();
+        streams.push(this);
         setTimeout(() => this.onopen?.(), 0);
       }
-      close() {}
+      close() {
+        streams.splice(streams.indexOf(this), 1);
+      }
     }
-    Object.assign(window, { EventSource: Events });
+    Object.assign(window, { EventSource: Events, trafficTestStreams: streams });
   });
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request(),
@@ -491,6 +495,48 @@ async function open(page: Page) {
     page.getByRole("grid", { name: "报文列表" }).getByRole("row").nth(1),
   ).toBeVisible();
 }
+
+test("进度事件只刷新任务状态，终态同步关联资源", async ({ page }) => {
+  const { requests } = await fixture(page);
+  await open(page);
+  await page.waitForLoadState("networkidle");
+  const count = (suffix: string) =>
+    requests.filter(({ url }) => url.pathname.endsWith(suffix)).length;
+  const states = count("/state"),
+    operations = count("/operations"),
+    services = count("/services");
+  const emit = (kind: string, repeat = 1, phase = "prepare") =>
+    page.evaluate(
+      ({ kind, repeat, phase }) => {
+        const streams = (
+          window as typeof window & { trafficTestStreams: EventTarget[] }
+        ).trafficTestStreams;
+        for (let i = 0; i < repeat; i++)
+          for (const stream of streams)
+            stream.dispatchEvent(
+              new MessageEvent(kind, { data: JSON.stringify({ phase }) }),
+            );
+      },
+      { kind, repeat, phase },
+    );
+  await emit("operation.progress", 100);
+  await expect.poll(() => count("/state")).toBe(states + 1);
+  await expect.poll(() => count("/operations")).toBe(operations + 1);
+  await page.waitForLoadState("networkidle");
+  expect(count("/services")).toBe(services);
+  for (const [index, phase] of ["complete", "rolled-back"].entries()) {
+    await emit("operation.progress", 1, phase);
+    await expect.poll(() => count("/services")).toBe(services + index + 1);
+  }
+  for (const [index, kind] of [
+    "succeeded",
+    "failed",
+    "partially_applied",
+  ].entries()) {
+    await emit(`operation.${kind}`);
+    await expect.poll(() => count("/services")).toBe(services + index + 3);
+  }
+});
 
 test("隐藏分析面板停止查询，展开后恢复实时刷新", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 900 });

@@ -182,7 +182,8 @@ async function fixture(
     Object.assign(operation, {
       state,
       phase:
-        state === "succeeded"
+        state === "succeeded" ||
+        (state === "running" && accessState === "active")
           ? "complete"
           : state === "failed"
             ? "failed"
@@ -196,13 +197,18 @@ async function fixture(
     if (removed) peers = [];
     if (state === "succeeded") environment.revision++;
     await page.evaluate(
-      (type) => {
+      ({ type, phase }) => {
         for (const stream of (
           window as unknown as { testStreams: EventTarget[] }
         ).testStreams)
-          stream.dispatchEvent(new MessageEvent(type));
+          stream.dispatchEvent(
+            new MessageEvent(type, { data: JSON.stringify({ phase }) }),
+          );
       },
-      state === "running" ? "operation.progress" : `operation.${state}`,
+      {
+        type: state === "running" ? "operation.progress" : `operation.${state}`,
+        phase: operation.phase,
+      },
     );
   };
   return { calls, access, operation, update };

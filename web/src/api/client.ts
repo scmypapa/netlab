@@ -558,7 +558,8 @@ export const api = {
       undefined,
       signal,
     ),
-  environment: (id: string) => request<Environment>(`/environments/${id}`),
+  environment: (id: string, signal?: AbortSignal) =>
+    request<Environment>(`/environments/${id}`, "GET", undefined, signal),
   createEnvironment: (body: Schema<"CreateEnvironment">) =>
     request<Environment>("/environments", "POST", body),
   blueprints: (options?: ListOptions) =>
@@ -575,7 +576,13 @@ export const api = {
     request<Blueprint>(`/environments/${id}/blueprints`, "POST", body),
   saveBlueprintVersion: (id: string, body: Schema<"SaveBlueprintVersion">) =>
     request<BlueprintVersion>(`/blueprints/${id}/versions`, "POST", body),
-  state: (id: string) => request<EnvironmentState>(`/environments/${id}/state`),
+  state: (id: string, signal?: AbortSignal) =>
+    request<EnvironmentState>(
+      `/environments/${id}/state`,
+      "GET",
+      undefined,
+      signal,
+    ),
   recoveryPoints: (id: string, options?: ListOptions) =>
     list<Schema<"RecoveryPointSummary">>(
       `/environments/${id}/recovery-points`,
@@ -620,8 +627,13 @@ export const api = {
     request<Schema<"VPNConnection">>(
       `/environments/${id}/vpn-access/${accessId}/connection`,
     ),
-  services: (id: string) =>
-    request<Schema<"ServiceEndpoint">[]>(`/environments/${id}/services`),
+  services: (id: string, signal?: AbortSignal) =>
+    request<Schema<"ServiceEndpoint">[]>(
+      `/environments/${id}/services`,
+      "GET",
+      undefined,
+      signal,
+    ),
   exposeService: (id: string, assetId: string, body: Schema<"CreateService">) =>
     request<Operation>(
       `/environments/${id}/assets/${assetId}/services`,
