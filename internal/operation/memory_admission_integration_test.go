@@ -91,13 +91,17 @@ func TestHostMemoryAdmission(t *testing.T) {
 		memory, previous, reserve int64
 		accepted                  bool
 		reserved                  int64
+		stopped                   bool
 	}{
-		{"create-exact", 3072, 0, 0, true, 3072},
-		{"create-above", 3073, 0, 0, false, 0},
-		{"grow-exact", 3072, 2048, 0, true, 3072},
-		{"grow-above", 3073, 2048, 0, false, 2048},
-		{"shrink-after-budget-reduction", 2560, 3072, 2048, true, 3072},
-		{"no-growth-after-budget-reduction", 3072, 3072, 2048, true, 3072},
+		{"create-exact", 3072, 0, 0, true, 3072, false},
+		{"create-above", 3073, 0, 0, false, 0, false},
+		{"grow-exact", 3072, 2048, 0, true, 3072, false},
+		{"grow-above", 3073, 2048, 0, false, 2048, false},
+		{"shrink-after-budget-reduction", 2560, 3072, 2048, true, 3072, false},
+		{"no-growth-after-budget-reduction", 3072, 3072, 2048, true, 3072, false},
+		{"stopped-shrink", 2048, 3072, 0, true, 2048, true},
+		{"stopped-grow-exact", 3072, 2048, 0, true, 3072, true},
+		{"stopped-grow-above", 3073, 2048, 0, false, 0, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := q.SetNodeScheduling(ctx, queries.SetNodeSchedulingParams{ID: "node", CpuAllocationRatio: 4, MemoryReserveMib: &test.reserve}); err != nil {
@@ -107,6 +111,12 @@ func TestHostMemoryAdmission(t *testing.T) {
 			kind := "start"
 			if test.previous > 0 {
 				kind = "change"
+			}
+			if test.stopped {
+				kind = "start"
+				if _, err := pool.Exec(ctx, "UPDATE runtime_assets SET state='stopped' WHERE environment_id=$1", env.ID); err != nil {
+					t.Fatal(err)
+				}
 			}
 			op := operation(t, env, kind, nil)
 			payload := Payload{Spec: spec, BeforeStatus: "running"}
@@ -133,6 +143,80 @@ func TestHostMemoryAdmission(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("stopped instances release compute and concurrent starts reacquire it", func(t *testing.T) {
+		reserve := int64(0)
+		if _, err := q.SetNodeScheduling(ctx, queries.SetNodeSchedulingParams{ID: "node", CpuAllocationRatio: 4, MemoryReserveMib: &reserve}); err != nil {
+			t.Fatal(err)
+		}
+		type candidate struct {
+			env  queries.Environment
+			spec api.EnvironmentSpec
+			op   queries.Operation
+		}
+		candidates := make([]candidate, 2)
+		nodeID := "node"
+		for i := range candidates {
+			env, spec := create(t, "node", 2048, 2048)
+			rows, err := q.ListRuntimeAssets(ctx, env.ID)
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("runtime assets: %v %v", rows, err)
+			}
+			raw, _ := json.Marshal([]api.ExecutionResult{{AssetId: "server", InstanceId: rows[0].InstanceID, NodeId: &nodeID, State: "stopped", ObservedAt: time.Now().UTC()}})
+			if err = q.ApplyAssetResults(ctx, raw); err != nil {
+				t.Fatal(err)
+			}
+			candidates[i] = candidate{env, spec, operation(t, env, "start", nil)}
+		}
+		assertReservation := func(cpu float64, memory, disk int64) {
+			t.Helper()
+			r, err := q.GetReservedResources(ctx, "node")
+			if err != nil || r.Cpu != cpu || r.MemoryMib != memory || r.DiskGib != disk {
+				t.Fatalf("reservation=%+v, error=%v", r, err)
+			}
+		}
+		assertReservation(0, 0, 2)
+		type outcome struct {
+			op  queries.Operation
+			err error
+		}
+		finished := make(chan outcome, len(candidates))
+		for _, c := range candidates {
+			go func() {
+				p := Payload{Spec: c.spec, BeforeStatus: "stopped"}
+				finished <- outcome{c.op, w.plan(ctx, &c.op, &p)}
+			}()
+		}
+		var winner queries.Operation
+		for range candidates {
+			r := <-finished
+			if r.err == nil {
+				if winner.ID != "" {
+					t.Fatal("concurrent starts overbooked node memory")
+				}
+				winner = r.op
+			} else if !strings.Contains(r.err.Error(), "节点容量不足") {
+				t.Fatal(r.err)
+			}
+		}
+		if winner.ID == "" {
+			t.Fatal("neither stopped instance could reacquire available compute")
+		}
+		// Preparation still reports a stopped process; its admitted start must retain capacity.
+		assertReservation(1, 2048, 2)
+		if _, err := pool.Exec(ctx, "UPDATE operations SET state='failed',phase='prepare' WHERE id=$1", winner.ID); err != nil {
+			t.Fatal(err)
+		}
+		assertReservation(0, 0, 2)
+		if _, err := pool.Exec(ctx, "UPDATE operations SET phase='rollback' WHERE id=$1", winner.ID); err != nil {
+			t.Fatal(err)
+		}
+		assertReservation(1, 2048, 2)
+		if _, err := pool.Exec(ctx, "UPDATE operations SET phase='rolled-back' WHERE id=$1", winner.ID); err != nil {
+			t.Fatal(err)
+		}
+		assertReservation(0, 0, 2)
+	})
 
 	t.Run("migration", func(t *testing.T) {
 		source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(info) }))

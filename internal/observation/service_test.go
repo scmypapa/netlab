@@ -144,8 +144,8 @@ func TestNodeObservationsWithPostgreSQL(t *testing.T) {
 			t.Fatal("snapshot did not limit missing instances to its node")
 		}
 		reserved, err := q.GetReservedResources(ctx, "n1")
-		if err != nil || reserved.Cpu != 3 || reserved.MemoryMib != 1536 || reserved.DiskGib != 3 {
-			t.Fatalf("observations released capacity: %+v %v", reserved, err)
+		if err != nil || reserved.Cpu != 1 || reserved.MemoryMib != 512 || reserved.DiskGib != 3 {
+			t.Fatalf("stopped compute was retained or absent compute was released: %+v %v", reserved, err)
 		}
 	})
 	t.Run("disconnect preserves facts and time while state becomes unknown", func(t *testing.T) {

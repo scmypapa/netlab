@@ -123,7 +123,7 @@ func (c *Containers) Execute(ctx context.Context, env string, phase api.NodePlan
 	case api.NodePlanPhaseUpdate:
 		return c.update(ctx, container, env, a)
 	case api.NodePlanPhaseStart:
-		if state == "stopped" || state == "prepared" || state == "created" {
+		if state == "stopped" || state == "prepared" || state == "created" || state == "restarting" {
 			return c.start(ctx, container, env, a)
 		}
 	case api.NodePlanPhaseStop, api.NodePlanPhaseForceStop:
@@ -658,6 +658,19 @@ func containerState(ctx context.Context, c containerd.Container) (string, error)
 	case containerd.Paused:
 		return "suspended", nil
 	case containerd.Stopped:
+		labels, err := c.Labels(ctx)
+		if err != nil {
+			return "unknown", err
+		}
+		if labels[desiredLabel] == "running" {
+			var execution api.AssetExecution
+			if err = json.Unmarshal([]byte(labels[executionLabel]), &execution); err != nil {
+				return "unknown", err
+			}
+			if restartAfterExit(execution.Asset.RestartPolicy, s.ExitStatus) {
+				return "restarting", nil
+			}
+		}
 		return "stopped", nil
 	case containerd.Created:
 		return "created", nil

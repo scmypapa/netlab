@@ -9,6 +9,7 @@ export function Status({ value }: { value: string }) {
         ? "warning"
         : [
               "deploying",
+              "restarting",
               "changing",
               "destroying",
               "queued",

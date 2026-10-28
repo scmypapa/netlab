@@ -28,13 +28,16 @@ type reservation struct {
 
 func resourceRecords(id string, targets, before []Target, restoring bool) ([]byte, error) {
 	rows := make([]reservation, 0, len(targets))
-	previous := make(map[string]api.Asset, len(before))
+	previous := make(map[string]Target, len(before))
 	for _, t := range before {
-		previous[t.Execution.InstanceId] = t.Execution.Asset
+		previous[t.Execution.InstanceId] = t
 	}
 	for _, t := range targets {
 		r := t.Execution.Asset.Resources
-		budget := peakDiskBudget(previous[t.Execution.InstanceId], t.Execution.Asset, restoring)
+		old := previous[t.Execution.InstanceId]
+		compute := computeResources(old)
+		r.Cpu, r.MemoryMiB = max(r.Cpu, compute.Cpu), max(r.MemoryMiB, compute.MemoryMiB)
+		budget := peakDiskBudget(old.Execution.Asset, t.Execution.Asset, restoring)
 		r.DiskGiB = budget.system + budget.data
 		rows = append(rows, reservation{id, t.Execution.Asset.Id, t.Execution.InstanceId, t.NodeID, t.Execution, budget.system, r})
 	}
@@ -386,6 +389,11 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		capacity[n.ID] = SchedulingCapacity(info, n.CpuAllocationRatio, n.MemoryReserveMib)
 	}
 	previous := indexInstances(p.Before)
+	for _, t := range p.Unchanged {
+		if err = reserveCompute(used, capacity, *previous[t.Execution.InstanceId], t); err != nil {
+			return err
+		}
+	}
 	for i := range p.Updates {
 		t := &p.Updates[i]
 		old := *previous[t.Execution.InstanceId]
@@ -394,17 +402,14 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if !available {
 			return fmt.Errorf("资产 %s 的直通设备不可用", t.Execution.Asset.Name)
 		}
-		before := resources(old.Execution.Asset)
-		delta := api.Resources{Cpu: max(0, t.Execution.Asset.Resources.Cpu-before.Cpu), MemoryMiB: max(0, t.Execution.Asset.Resources.MemoryMiB-before.MemoryMiB)}
+		if err = reserveCompute(used, capacity, old, *t); err != nil {
+			return err
+		}
 		peak := peakDiskBudget(old.Execution.Asset, t.Execution.Asset, restoring)
 		previous := assetDiskBudget(old.Execution.Asset)
 		additional := diskBudget{system: peak.system - previous.system, data: peak.data - previous.data}
 		if restoring && t.Execution.Template.Kind == api.Container {
 			additional.data += (p.Recovery.Captures[t.Execution.Asset.Id].SizeBytes + (1 << 30) - 1) >> 30
-		}
-		u := add(used[t.NodeID], delta)
-		if delta.Cpu > 0 && u.Cpu > capacity[t.NodeID].Cpu || delta.MemoryMiB > 0 && u.MemoryMiB > capacity[t.NodeID].MemoryMiB {
-			return fmt.Errorf("资产 %s 的节点容量不足", t.Execution.Asset.Name)
 		}
 		if restoring && !supports(infos[t.NodeID], t.Execution.Template, t.Execution.Asset.Resources.Cpu) {
 			return fmt.Errorf("资产 %s 的节点不支持恢复点中的硬件", t.Execution.Asset.Name)
@@ -429,7 +434,6 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		}
 		reserveStorage(diskUsed, diskPending, amounts)
 		assignStorage(&t.Execution, pool)
-		used[t.NodeID] = u
 	}
 	// Large requirements go first, then choose the lowest dominant utilization.
 	sort.SliceStable(p.Targets, func(i, j int) bool {
@@ -437,7 +441,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	})
 	for i := range p.Targets {
 		t := &p.Targets[i]
-		requirement := resources(t.Execution.Asset)
+		requirement := computeResources(*t)
 		best := ""
 		var bestPool storageCandidate
 		var bestAmounts map[string]int64
@@ -631,6 +635,26 @@ func resources(a api.Asset) api.Resources {
 	budget := assetDiskBudget(a)
 	r.DiskGiB = budget.system + budget.data
 	return r
+}
+
+func computeResources(t Target) api.Resources {
+	r := resources(t.Execution.Asset)
+	if t.State == "stopped" || t.State == "prepared" {
+		r.Cpu, r.MemoryMiB = 0, 0
+	}
+	return r
+}
+
+func reserveCompute(used, capacity map[string]api.Resources, before, after Target) error {
+	old, next := computeResources(before), computeResources(after)
+	delta := api.Resources{Cpu: max(0, next.Cpu-old.Cpu), MemoryMiB: max(0, next.MemoryMiB-old.MemoryMiB)}
+	node := after.NodeID
+	u := add(used[node], delta)
+	if delta.Cpu > 0 && u.Cpu > capacity[node].Cpu || delta.MemoryMiB > 0 && u.MemoryMiB > capacity[node].MemoryMiB {
+		return fmt.Errorf("资产 %s 的节点容量不足", after.Execution.Asset.Name)
+	}
+	used[node] = u
+	return nil
 }
 func add(a, b api.Resources) api.Resources {
 	return api.Resources{Cpu: math.Round((a.Cpu+b.Cpu)*100) / 100, MemoryMiB: a.MemoryMiB + b.MemoryMiB, DiskGiB: a.DiskGiB + b.DiskGiB}

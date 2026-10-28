@@ -37,6 +37,7 @@ export const statusLabels: Record<string, string> = {
   draft: "待运行",
   deploying: "部署中",
   running: "运行中",
+  restarting: "重启中",
   stopped: "已停止",
   suspended: "已暂停",
   changing: "应用变更",

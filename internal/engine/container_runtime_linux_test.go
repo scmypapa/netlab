@@ -95,6 +95,7 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 	}
 	asset := api.Asset{Id: "server", Name: "Server", TemplateId: template.Id, Resources: resources, Parameters: &map[string]string{"OVERRIDE_ME": "asset", "NETLAB_TEST_STOP_DELAY": "2s"}, Interfaces: []api.Interface{{Id: "nic", NetworkId: "lan", Address: "192.0.2.10", Mac: "02:ee:00:00:02:10", Primary: true}}}
 	asset.Volumes = environment.ResolveVolumeDefaults(template, nil)
+	asset.RestartPolicy = ptr(api.Always)
 	resolved := api.ResolvedInterface{Id: "nic", NetworkId: "lan", PortName: uuid.NewString(), Address: "192.0.2.10", Prefix: 24, Mac: "02:ee:00:00:02:10", Mtu: 1400, Primary: true, Dns: &[]string{"192.0.2.53"}}
 	a := api.AssetExecution{Asset: asset, Template: template, InstanceId: uuid.NewString(), Interfaces: []api.ResolvedInterface{resolved}}
 	plan := api.NodePlan{EnvironmentId: id, OperationId: uuid.NewString(), Assets: []api.AssetExecution{a}, Spec: api.EnvironmentSpec{Assets: []api.Asset{asset}, Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "192.0.2.0/24"}}}}
@@ -228,6 +229,44 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 		a.Asset.Resources.Cpu = 0.5
 		if state, err := e.container.Execute(ctx, id, api.NodePlanPhaseUpdate, a, nil); err != nil || state != "running" {
 			t.Fatalf("live update changed the image mount: %s %v", state, err)
+		}
+		checkContainerHTTP(t, ctx, container, "192.0.2.10:502")
+	})
+	t.Run("automatic restart retains its running intent", func(t *testing.T) {
+		container, err := e.container.client.LoadContainer(ctx, a.InstanceId)
+		if err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			unlock, err := e.lock(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer unlock()
+			task, err := container.Task(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			exited, err := task.Wait(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = task.Kill(ctx, syscall.SIGKILL); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-exited:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if state, err := containerState(ctx, container); err != nil || state != "restarting" {
+				t.Fatalf("restart intent was reported as released compute: %s %v", state, err)
+			}
+		}()
+		plan.Phase = api.NodePlanPhaseStart
+		result := e.Execute(ctx, plan)
+		if result.Error != nil || len(result.Results) != 1 || result.Results[0].Error != nil || result.Results[0].State != "running" {
+			t.Fatalf("restart could not complete: %+v", result)
 		}
 		checkContainerHTTP(t, ctx, container, "192.0.2.10:502")
 	})

@@ -268,7 +268,7 @@ WITH reported AS MATERIALIZED (
 ), locked AS MATERIALIZED (
  SELECT a.instance_id FROM runtime_assets a JOIN reported r ON a.instance_id=r.instance_id ORDER BY a.instance_id FOR NO KEY UPDATE OF a
 )
-UPDATE runtime_assets a SET cpu=GREATEST(a.cpu,r.cpu),memory_mib=GREATEST(a.memory_mib,r.memory_mib),
+UPDATE runtime_assets a SET cpu=r.cpu,memory_mib=r.memory_mib,
  system_gib=GREATEST(a.system_gib,r.system_gib),
  disk_gib=GREATEST(a.system_gib,r.system_gib)+GREATEST(a.disk_gib-a.system_gib,r.disk_gib-r.system_gib)
 FROM reported r JOIN locked l ON l.instance_id=r.instance_id
