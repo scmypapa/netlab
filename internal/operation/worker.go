@@ -91,17 +91,11 @@ func (w Worker) Run(ctx context.Context) {
 			defer timer.Stop()
 			for ctx.Err() == nil {
 				op, err := w.Queries.ClaimOperation(ctx, queries.ClaimOperationParams{LeaseOwner: &owner, ControlOnly: i == 0})
-				var pgerr *pgconn.PgError
-				if errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &pgerr) && pgerr.ConstraintName == "operations_one_running") {
-					select {
-					case <-ctx.Done():
-						return
-					case <-timer.C:
-						continue
-					}
-				}
 				if err != nil {
-					slog.Error("operation claim", "error", err)
+					var pgerr *pgconn.PgError
+					if !errors.Is(err, pgx.ErrNoRows) && !(errors.As(err, &pgerr) && pgerr.ConstraintName == "operations_one_running") {
+						slog.Error("operation claim", "error", err)
+					}
 					select {
 					case <-ctx.Done():
 						return
@@ -144,46 +138,40 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 	err := json.Unmarshal(op.Payload, &payload)
 	results := []api.ExecutionResult{}
 	if err == nil {
-		if op.Kind == "prepare-template" || op.Kind == "capture-template" {
-			err = w.prepareTemplate(ctx, &op, &payload)
-		} else if op.Kind == "trim-template-cache" {
-			err = w.trimTemplateCache(ctx, &op, &payload)
-		} else if op.Kind == "delete-template" {
-			err = w.deleteTemplate(ctx, &op, &payload)
-		} else if op.Kind == "delete-storage-pool" {
-			err = w.deleteStoragePool(ctx, &op, &payload)
-		} else if op.Kind == "configure-storage-pool" {
-			err = w.configureStoragePool(ctx, &op, &payload)
-		} else if op.Kind == "configure-node-storage" {
-			err = w.configureNodeStorage(ctx, &op, &payload)
-		} else if op.ScopeKind == "volume" {
-			err = w.volume(ctx, &op, &payload)
-		} else if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
-			err = w.backup(ctx, &op, &payload)
-		} else if op.Kind == "capture-recovery" || op.Kind == "delete-recovery" {
-			err = w.recovery(ctx, &op, &payload)
-			results = payload.Results
-		} else if op.Kind == "vpn-create" || op.Kind == "vpn-revoke" {
-			err = w.vpnOperation(ctx, &op, &payload)
-		} else if op.Kind == "migrate" {
-			err = w.migration(ctx, &op, &payload)
-			results = payload.Results
-		} else if op.Kind == "retire-node" {
-			err = w.retireNode(ctx, &op, &payload)
-		} else if op.Kind == "move-network" {
-			err = w.moveNetwork(ctx, &op, &payload)
-		} else if op.Kind == "refresh-network" {
-			err = w.refreshNetwork(ctx, &op, &payload)
-		} else {
-			err = w.environment(ctx, &op, &payload)
-			results = payload.Results
-		}
+		results, err = w.executeAction(ctx, &op, &payload)
 	}
 	if ctx.Err() != nil || errors.Is(err, errPersistence) {
 		return
 	}
-	if err != nil && payload.Template != nil && op.Kind != "trim-template-cache" {
-		failed, message := api.TemplateStateFailed, err.Error()
+	if completionErr := w.completeOperation(ctx, op, &payload, results, err); completionErr != nil {
+		slog.Error("operation completion", "operation", op.ID, "error", completionErr)
+	}
+}
+
+func (w Worker) completeOperation(ctx context.Context, op queries.Operation, payload *Payload, results []api.ExecutionResult, failure error) error {
+	state, phase := "succeeded", "complete"
+	var detail *string
+	if failure != nil {
+		state, phase = "failed", op.Phase
+		if payload.Committed {
+			state = "partially_applied"
+		}
+		s := failure.Error()
+		detail = &s
+		slog.Error("operation failed", "operation", op.ID, "phase", op.Phase, "error", failure)
+	}
+	raw, marshalErr := json.Marshal(results)
+	if marshalErr != nil {
+		return fmt.Errorf("operation result: %w", marshalErr)
+	}
+	tx, dbErr := w.Pool.Begin(ctx)
+	if dbErr != nil {
+		return fmt.Errorf("operation completion: %w", dbErr)
+	}
+	defer tx.Rollback(ctx)
+	q := w.Queries.WithTx(tx)
+	if failure != nil && payload.Template != nil && op.Kind != "trim-template-cache" {
+		failed, message := api.TemplateStateFailed, failure.Error()
 		if op.Kind == "delete-template" {
 			failed = api.TemplateStateDeleting
 		}
@@ -191,134 +179,141 @@ func (w Worker) execute(parent context.Context, op queries.Operation) {
 		payload.Template.Error = &message
 		raw, saveErr := json.Marshal(payload.Template)
 		if saveErr == nil {
-			saveErr = w.Queries.UpdateTemplate(ctx, queries.UpdateTemplateParams{ID: payload.Template.Id, Definition: raw})
+			saveErr = q.UpdateTemplate(ctx, queries.UpdateTemplateParams{ID: payload.Template.Id, Definition: raw})
 		}
 		if saveErr != nil {
-			slog.Error("template completion", "error", saveErr)
-			return
+			return fmt.Errorf("template completion: %w", saveErr)
 		}
 	}
-	state, phase := "succeeded", "complete"
-	var detail *string
-	if err != nil {
-		state, phase = "failed", op.Phase
-		if payload.Committed {
-			state = "partially_applied"
-		}
-		s := err.Error()
-		detail = &s
-		slog.Error("operation failed", "operation", op.ID, "phase", op.Phase, "error", err)
-	}
-	raw, marshalErr := json.Marshal(results)
-	if marshalErr != nil {
-		slog.Error("operation result", "error", marshalErr)
-		return
-	}
-	tx, dbErr := w.Pool.Begin(ctx)
-	if dbErr != nil {
-		slog.Error("operation completion", "error", dbErr)
-		return
-	}
-	defer tx.Rollback(ctx)
-	q := w.Queries.WithTx(tx)
 	if op.ScopeKind == "volume" {
-		if op.Kind == "delete-volume" && err == nil {
+		if op.Kind == "delete-volume" && failure == nil {
 			dbErr = q.DeletePersistentVolume(ctx, op.ScopeID)
 		} else {
 			volumeState := "ready"
 			size := payload.Volume.SizeGiB
-			if err != nil {
+			if failure != nil {
 				volumeState = "failed"
 				row, readErr := q.GetPersistentVolume(ctx, op.ScopeID)
 				if readErr != nil {
-					slog.Error("volume completion", "error", readErr)
-					return
+					return fmt.Errorf("volume completion: %w", readErr)
 				}
 				size = row.SizeGib
 			}
 			dbErr = q.FinishVolume(ctx, queries.FinishVolumeParams{ID: op.ScopeID, State: volumeState, SizeGib: size})
 		}
 		if dbErr != nil {
-			slog.Error("volume completion", "error", dbErr)
-			return
+			return fmt.Errorf("volume completion: %w", dbErr)
 		}
 	}
 	if op.ScopeKind == "backup" || op.ScopeKind == "backup-repository" {
-		if dbErr = w.finishBackup(ctx, q, op, &payload, err); dbErr != nil {
-			slog.Error("backup completion", "error", dbErr)
-			return
+		if dbErr = w.finishBackup(ctx, q, op, payload, failure); dbErr != nil {
+			return fmt.Errorf("backup completion: %w", dbErr)
 		}
 	}
 	if op.Kind == "capture-recovery" || op.Kind == "delete-recovery" {
-		if dbErr = w.finishRecovery(ctx, q, op, &payload, err); dbErr != nil {
-			slog.Error("recovery completion", "error", dbErr)
-			return
+		if dbErr = w.finishRecovery(ctx, q, op, payload, failure); dbErr != nil {
+			return fmt.Errorf("recovery completion: %w", dbErr)
 		}
 		actual := payload.BeforeStatus
 		var runtimeError *string
 		if op.Kind == "capture-recovery" {
 			actual, dbErr = runtimeState(ctx, q, *op.EnvironmentID)
 			if dbErr != nil {
-				slog.Error("recovery runtime state", "error", dbErr)
-				return
+				return fmt.Errorf("recovery runtime state: %w", dbErr)
 			}
-			if err != nil && op.Phase == "recovery-resume" {
+			if failure != nil && op.Phase == "recovery-resume" {
 				actual, runtimeError = "failed", detail
 			}
 		}
 		if dbErr = q.FinishAuxiliaryOperation(ctx, queries.FinishAuxiliaryOperationParams{ID: *op.EnvironmentID, OperationID: &op.ID, Status: actual, Error: runtimeError}); dbErr != nil {
-			slog.Error("recovery environment completion", "error", dbErr)
-			return
+			return fmt.Errorf("recovery environment completion: %w", dbErr)
 		}
 	}
-	if op.Kind == "delete-storage-pool" && err == nil {
+	if op.Kind == "delete-storage-pool" && failure == nil {
 		if dbErr = q.DeleteStoragePool(ctx, op.ScopeID); dbErr != nil {
-			slog.Error("storage deletion completion", "error", dbErr)
-			return
+			return fmt.Errorf("storage deletion completion: %w", dbErr)
 		}
 	}
-	if op.Kind == "delete-template" && err == nil {
+	if op.Kind == "delete-template" && failure == nil {
 		if dbErr = q.DeleteTemplate(ctx, payload.Template.Id); dbErr != nil {
-			slog.Error("template deletion completion", "error", dbErr)
-			return
+			return fmt.Errorf("template deletion completion: %w", dbErr)
 		}
 	}
 	if op.Kind == "capture-template" {
 		if dbErr = q.FinishAuxiliaryOperation(ctx, queries.FinishAuxiliaryOperationParams{ID: *op.EnvironmentID, OperationID: &op.ID, Status: payload.BeforeStatus}); dbErr != nil {
-			slog.Error("template capture completion", "error", dbErr)
-			return
+			return fmt.Errorf("template capture completion: %w", dbErr)
 		}
 	}
 	if op.EnvironmentID != nil {
 		if dbErr = q.DeleteUnusedGuestConnections(ctx, *op.EnvironmentID); dbErr != nil {
-			slog.Error("guest connection cleanup", "error", dbErr)
-			return
+			return fmt.Errorf("guest connection cleanup: %w", dbErr)
 		}
 	}
 	count, dbErr := q.FinishOperation(ctx, queries.FinishOperationParams{ID: op.ID, LeaseOwner: op.LeaseOwner, State: state, Phase: phase, Results: raw, Error: detail})
-	if dbErr != nil || count != 1 {
-		slog.Error("operation completion", "error", dbErr)
-		return
+	if dbErr != nil {
+		return fmt.Errorf("operation completion: %w", dbErr)
 	}
-	if op.Kind == "retire-node" && err == nil {
+	if count != 1 {
+		return errPersistence
+	}
+	if op.Kind == "retire-node" && failure == nil {
 		if dbErr = q.DeleteRetiredNode(ctx, op.ScopeID); dbErr != nil {
-			slog.Error("node retirement completion", "error", dbErr)
-			return
+			return fmt.Errorf("node retirement completion: %w", dbErr)
 		}
 	}
 	if _, dbErr = q.AddEvent(ctx, queries.AddEventParams{EnvironmentID: op.EnvironmentID, Kind: "operation." + state, Payload: raw}); dbErr != nil {
-		slog.Error("operation event", "error", dbErr)
-		return
+		return fmt.Errorf("operation event: %w", dbErr)
 	}
 	if dbErr = tx.Commit(ctx); dbErr != nil {
-		slog.Error("operation commit", "error", dbErr)
-		return
+		return fmt.Errorf("operation commit: %w", dbErr)
 	}
-	if (op.Kind == "configure-storage-pool" || op.Kind == "configure-node-storage") && err == nil {
+	if (op.Kind == "configure-storage-pool" || op.Kind == "configure-node-storage") && failure == nil {
 		if dbErr = (Service{Pool: w.Pool, Queries: w.Queries}).ConfigureManagedStorage(ctx, nil); dbErr != nil {
-			slog.Error("storage membership", "error", dbErr)
+			return fmt.Errorf("storage membership: %w", dbErr)
 		}
 	}
+	return nil
+}
+func (w Worker) executeAction(ctx context.Context, op *queries.Operation, payload *Payload) ([]api.ExecutionResult, error) {
+	var err error
+	results := []api.ExecutionResult{}
+	switch {
+	case op.Kind == "prepare-template" || op.Kind == "capture-template":
+		err = w.prepareTemplate(ctx, op, payload)
+	case op.Kind == "trim-template-cache":
+		err = w.trimTemplateCache(ctx, op, payload)
+	case op.Kind == "delete-template":
+		err = w.deleteTemplate(ctx, op, payload)
+	case op.Kind == "delete-storage-pool":
+		err = w.deleteStoragePool(ctx, op, payload)
+	case op.Kind == "configure-storage-pool":
+		err = w.configureStoragePool(ctx, op, payload)
+	case op.Kind == "configure-node-storage":
+		err = w.configureNodeStorage(ctx, op, payload)
+	case op.ScopeKind == "volume":
+		err = w.volume(ctx, op, payload)
+	case op.ScopeKind == "backup" || op.ScopeKind == "backup-repository":
+		err = w.backup(ctx, op, payload)
+	case op.Kind == "capture-recovery" || op.Kind == "delete-recovery":
+		err = w.recovery(ctx, op, payload)
+		results = payload.Results
+	case op.Kind == "vpn-create" || op.Kind == "vpn-revoke":
+		err = w.vpnOperation(ctx, op, payload)
+	case op.Kind == "migrate":
+		err = w.migration(ctx, op, payload)
+		results = payload.Results
+	case op.Kind == "retire-node":
+		err = w.retireNode(ctx, op, payload)
+	case op.Kind == "move-network":
+		err = w.moveNetwork(ctx, op, payload)
+	case op.Kind == "refresh-network":
+		err = w.refreshNetwork(ctx, op, payload)
+	default:
+		err = w.environment(ctx, op, payload)
+		results = payload.Results
+	}
+
+	return results, err
 }
 func (w Worker) phase(ctx context.Context, op *queries.Operation, p *Payload, phase string) error {
 	raw, err := json.Marshal(p)
@@ -368,15 +363,10 @@ func (w Worker) prepareTemplate(ctx context.Context, op *queries.Operation, p *P
 			return err
 		}
 	}
-	err = w.Client.Do(ctx, "POST", n.Endpoint, "/node/v1/templates/prepare", request, &prepared)
-	if err != nil {
-		failed := api.TemplateStateFailed
-		t.State = &failed
-		message := err.Error()
-		t.Error = &message
-	} else {
-		t = prepared
+	if err = w.Client.Do(ctx, "POST", n.Endpoint, "/node/v1/templates/prepare", request, &prepared); err != nil {
+		return err
 	}
+	t = prepared
 	p.Template = &t
 	raw, marshalErr := json.Marshal(t)
 	if marshalErr != nil {
@@ -487,23 +477,21 @@ func (w Worker) batch(ctx context.Context, op *queries.Operation, p *Payload, ph
 			for _, a := range assets {
 				expected[a.InstanceId] = a.Asset.Id
 			}
-			observed := map[string]api.ExecutionResult{}
 			valid := make([]api.ExecutionResult, 0, len(result.Results))
 			for _, r := range result.Results {
 				if expected[r.InstanceId] != r.AssetId || expected[r.InstanceId] == "" {
-					err = errors.Join(err, fmt.Errorf("节点返回了请求范围外的资产结果 %s", r.InstanceId))
+					err = errors.Join(err, fmt.Errorf("节点返回了重复或请求范围外的资产结果 %s", r.InstanceId))
 					continue
 				}
+				delete(expected, r.InstanceId)
 				valid = append(valid, r)
 				valid[len(valid)-1].NodeId = &id
-				observed[r.InstanceId] = r
 				if r.Error != nil {
 					err = errors.Join(err, fmt.Errorf("asset %s: %s", r.AssetId, *r.Error))
 				}
 			}
 			for _, a := range assets {
-				r, ok := observed[a.InstanceId]
-				if !ok || r.AssetId != a.Asset.Id {
+				if _, omitted := expected[a.InstanceId]; omitted {
 					err = errors.Join(err, fmt.Errorf("node omitted asset result %s", a.Asset.Name))
 				}
 			}

@@ -100,8 +100,9 @@ func (w Worker) recovery(ctx context.Context, op *queries.Operation, p *Payload)
 			if err == nil {
 				var results []api.ExecutionResult
 				results, err = w.batch(ctx, op, p, api.NodePlanPhaseInspect, p.Recovery.Assets)
+				expected := indexInstances(p.Recovery.Assets)
 				for _, result := range results {
-					target := findInstance(p.Recovery.Assets, result.InstanceId)
+					target := expected[result.InstanceId]
 					if !matches(result.State, target.State) && !(matches(target.State, "stopped") && matches(result.State, "stopped")) {
 						err = errors.Join(err, fmt.Errorf("资产 %s 未恢复到 %s", target.Execution.Asset.Name, target.State))
 					}

@@ -3,10 +3,44 @@ package operation
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"netlab.local/core/api"
 )
+
+func TestRemovedVolumesKeepsInstanceAndPersistentIdentity(t *testing.T) {
+	first, second := "first", "second"
+	before := []Target{{Execution: api.AssetExecution{InstanceId: "retired", Asset: api.Asset{Id: "asset", Volumes: &[]api.Volume{{Id: "data", SizeGiB: 10}}}}},
+		{Execution: api.AssetExecution{InstanceId: "current", Asset: api.Asset{Id: "asset", Volumes: &[]api.Volume{{Id: "data", SizeGiB: 3, PersistentVolumeId: &first}, {Id: "keep", SizeGiB: 2}}}}}}
+	after := []Target{{Execution: api.AssetExecution{InstanceId: "current", Asset: api.Asset{Id: "asset", Volumes: &[]api.Volume{{Id: "data", SizeGiB: 3, PersistentVolumeId: &second}, {Id: "keep", SizeGiB: 4}}}}}}
+	removed := removedVolumes(before, after)
+	if len(removed) != 1 || removed[0].Execution.InstanceId != "current" || len(*removed[0].Execution.Asset.Volumes) != 1 || (*removed[0].Execution.Asset.Volumes)[0].PersistentVolumeId != &first {
+		t.Fatalf("cleanup selected the wrong instance or retained volume: %+v", removed)
+	}
+	if len(*before[1].Execution.Asset.Volumes) != 2 {
+		t.Fatal("cleanup selection mutated the saved execution")
+	}
+}
+
+func BenchmarkRemovedVolumes(b *testing.B) {
+	for _, size := range []int{100, 1000, 5000} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			before, after := make([]Target, size), make([]Target, size)
+			for i := range before {
+				before[i].Execution = api.AssetExecution{InstanceId: strconv.Itoa(i), Asset: api.Asset{Volumes: &[]api.Volume{{Id: "data", SizeGiB: 1}}}}
+				after[i].Execution.InstanceId = strconv.Itoa(i)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if len(removedVolumes(before, after)) != size {
+					b.Fatal("volume cleanup omitted assets")
+				}
+			}
+		})
+	}
+}
 
 func TestDiskBudgetPeaksKeepRealExecution(t *testing.T) {
 	before := api.Asset{Id: "server", Resources: api.Resources{DiskGiB: 2}, Volumes: &[]api.Volume{{Id: "data", SizeGiB: 4}}}
@@ -15,9 +49,6 @@ func TestDiskBudgetPeaksKeepRealExecution(t *testing.T) {
 		restoring bool
 		want      diskBudget
 	}{{false, diskBudget{system: 3, data: 11}}, {true, diskBudget{system: 5, data: 15}}} {
-		if actual := peakDiskBudget(before, after, test.restoring); actual != test.want {
-			t.Fatalf("restoring=%v peak=%+v want=%+v", test.restoring, actual, test.want)
-		}
 		previous := []Target{{Execution: api.AssetExecution{InstanceId: "instance", Asset: before}}}
 		targets := []Target{{Execution: api.AssetExecution{InstanceId: "instance", Asset: after}}}
 		raw, err := resourceRecords("environment", targets, previous, test.restoring)

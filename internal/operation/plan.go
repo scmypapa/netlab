@@ -382,9 +382,10 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		infos[n.ID] = info
 		capacity[n.ID] = schedulingCapacity(info, n.CpuAllocationRatio)
 	}
+	previous := indexInstances(p.Before)
 	for i := range p.Updates {
 		t := &p.Updates[i]
-		old := findInstance(p.Before, t.Execution.InstanceId)
+		old := *previous[t.Execution.InstanceId]
 		var available bool
 		t.Execution.PciDevices, available = deviceBindings(t.NodeID, infos[t.NodeID].VmHardware, t.Execution.Asset.PciBinding, row.ID, t.Execution.Asset.Id, occupiedDevices)
 		if !available {
@@ -456,7 +457,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			diskRequirement.data += (p.Recovery.Captures[t.Execution.Asset.Id].SizeBytes + (1 << 30) - 1) >> 30
 		}
 		if t.Execution.PreviousInstanceId != nil {
-			old := findInstance(p.Before, *t.Execution.PreviousInstanceId)
+			old := *previous[*t.Execution.PreviousInstanceId]
 			preferred, previousNode = actualPool(old.NodeID, old.Execution), old.NodeID
 			if t.Execution.Asset.Volumes != nil && old.Execution.Asset.Volumes != nil {
 				for _, volume := range *t.Execution.Asset.Volumes {
@@ -638,14 +639,6 @@ func schedulingCapacity(info api.NodeInfo, cpuRatio float64) api.Resources {
 }
 func fits(a, b api.Resources) bool {
 	return a.Cpu <= b.Cpu && a.MemoryMiB <= b.MemoryMiB
-}
-func findInstance(targets []Target, id string) Target {
-	for _, t := range targets {
-		if t.Execution.InstanceId == id {
-			return t
-		}
-	}
-	return Target{}
 }
 
 func findAsset(targets []Target, id string) Target {

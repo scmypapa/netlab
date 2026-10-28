@@ -41,6 +41,7 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 	if op.Phase == "rollback" {
 		return w.rollback(ctx, op, p)
 	}
+	previous := indexInstances(p.Before)
 	for op.Phase != "complete" {
 		var err error
 		next := ""
@@ -57,13 +58,13 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 		case "quiesce":
 			affected := slices.Clone(p.Old)
 			for _, t := range p.Updates {
-				old := findInstance(p.Before, t.Execution.InstanceId)
+				old := *previous[t.Execution.InstanceId]
 				if restoresData(op.Kind) || environment.RequiresStop(t.Execution.Template.Kind, old.Execution.Asset, t.Execution.Asset) || !reflect.DeepEqual(old.Execution.Interfaces, t.Execution.Interfaces) {
 					affected = append(affected, old)
 				}
 			}
 			// Uncreated leftovers are handled by destroy; only defined current instances need stopping.
-			affected = slices.DeleteFunc(affected, func(t Target) bool { return findInstance(p.Before, t.Execution.InstanceId).Execution.InstanceId == "" })
+			affected = slices.DeleteFunc(affected, func(t Target) bool { return previous[t.Execution.InstanceId] == nil })
 			err = w.quiesceServices(ctx, op, p, affected)
 			if err == nil {
 				phase := api.NodePlanPhaseStop
@@ -96,11 +97,12 @@ func (w Worker) environment(ctx context.Context, op *queries.Operation, p *Paylo
 			next = "verify"
 		case "verify":
 			desired := desiredTargets(p)
+			expected := indexInstances(desired)
 			var results []api.ExecutionResult
 			results, err = w.batch(ctx, op, p, api.NodePlanPhaseInspect, desired)
 			if err == nil {
 				for _, r := range results {
-					t := findInstance(desired, r.InstanceId)
+					t := expected[r.InstanceId]
 					if !matches(r.State, t.State) {
 						err = errors.Join(err, fmt.Errorf("资产 %s 的实际状态为 %s，目标为 %s", t.Execution.Asset.Name, r.State, t.State))
 					}
@@ -226,6 +228,14 @@ func desiredTargets(p *Payload) []Target {
 	return append(r, p.Unchanged...)
 }
 
+func indexInstances(targets []Target) map[string]*Target {
+	index := make(map[string]*Target, len(targets))
+	for i := range targets {
+		index[targets[i].Execution.InstanceId] = &targets[i]
+	}
+	return index
+}
+
 func matches(actual, expected string) bool {
 	if expected == "stopped" {
 		return actual == "stopped" || actual == "prepared" || actual == "created"
@@ -240,10 +250,11 @@ func (w Worker) activate(ctx context.Context, op *queries.Operation, p *Payload,
 		return err
 	}
 	resume := []Target{}
+	expected := indexInstances(active)
 	for _, r := range results {
-		t := findInstance(active, r.InstanceId)
+		t := expected[r.InstanceId]
 		if r.State == "suspended" && t.State == "running" {
-			resume = append(resume, t)
+			resume = append(resume, *t)
 		}
 	}
 	if _, err = w.batch(ctx, op, p, api.NodePlanPhaseResume, resume); err != nil {
@@ -368,8 +379,9 @@ func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) 
 	}
 	if restoresData(op.Kind) {
 		originals := []Target{}
+		previous := indexInstances(p.Before)
 		for _, target := range p.Updates {
-			originals = append(originals, findInstance(p.Before, target.Execution.InstanceId))
+			originals = append(originals, *previous[target.Execution.InstanceId])
 		}
 		_, err = w.batch(ctx, op, p, api.NodePlanPhaseCleanupRecovery, append(originals, p.Targets...))
 		if err != nil {
@@ -393,11 +405,13 @@ func (w Worker) cleanup(ctx context.Context, op *queries.Operation, p *Payload) 
 
 func removedVolumes(beforeTargets, afterTargets []Target) []Target {
 	removed := []Target{}
+	previous := indexInstances(beforeTargets)
 	for _, t := range afterTargets {
-		before := findInstance(beforeTargets, t.Execution.InstanceId)
-		if before.Execution.Asset.Volumes == nil {
+		source := previous[t.Execution.InstanceId]
+		if source == nil || source.Execution.Asset.Volumes == nil {
 			continue
 		}
+		before := *source
 		volumes := []api.Volume{}
 		for _, v := range *before.Execution.Asset.Volumes {
 			found := false
@@ -480,34 +494,36 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	results, err := w.batch(ctx, op, p, phase, p.Targets)
 	err = errors.Join(serviceErr, err, w.releaseDestroyed(ctx, results))
 	before := slices.Clone(p.Before)
+	previous := indexInstances(before)
 	var updateError error
 	if len(p.Updates) > 0 {
 		if restoresData(op.Kind) {
 			originals := []Target{}
 			for _, target := range p.Updates {
-				originals = append(originals, findInstance(before, target.Execution.InstanceId))
+				originals = append(originals, *previous[target.Execution.InstanceId])
 			}
 			_, updateError = w.batch(ctx, op, p, api.NodePlanPhaseRollbackRecovery, originals)
 		} else {
 			_, updateError = w.batch(ctx, op, p, api.NodePlanPhaseStop, p.Updates)
 			observed, inspectErr := w.batch(ctx, op, p, api.NodePlanPhaseInspect, p.Updates)
 			updateError = errors.Join(updateError, inspectErr)
+			actual := make(map[string]*api.AssetExecution, len(observed))
+			for _, result := range observed {
+				actual[result.InstanceId] = result.Execution
+			}
 			original := []Target{}
 			for _, t := range p.Updates {
-				old := findInstance(before, t.Execution.InstanceId)
+				old := *previous[t.Execution.InstanceId]
 				if old.Execution.Asset.Volumes != nil {
 					volumes := slices.Clone(*old.Execution.Asset.Volumes)
 					old.Execution.Asset.Volumes = &volumes
 				}
-				for _, r := range observed {
-					if r.InstanceId != t.Execution.InstanceId || r.Execution == nil {
-						continue
-					}
+				if observed := actual[t.Execution.InstanceId]; observed != nil {
 					// A completed expansion stays expanded; its data cannot be rolled back by shrinking.
-					old.Execution.Asset.Resources.DiskGiB = max(old.Execution.Asset.Resources.DiskGiB, r.Execution.Asset.Resources.DiskGiB)
-					if old.Execution.Asset.Volumes != nil && r.Execution.Asset.Volumes != nil {
+					old.Execution.Asset.Resources.DiskGiB = max(old.Execution.Asset.Resources.DiskGiB, observed.Asset.Resources.DiskGiB)
+					if old.Execution.Asset.Volumes != nil && observed.Asset.Volumes != nil {
 						for i := range *old.Execution.Asset.Volumes {
-							for _, actual := range *r.Execution.Asset.Volumes {
+							for _, actual := range *observed.Asset.Volumes {
 								if (*old.Execution.Asset.Volumes)[i].Id == actual.Id {
 									(*old.Execution.Asset.Volumes)[i].SizeGiB = max((*old.Execution.Asset.Volumes)[i].SizeGiB, actual.SizeGiB)
 								}
@@ -516,11 +532,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 					}
 				}
 				original = append(original, old)
-				for i := range before {
-					if before[i].Execution.InstanceId == old.Execution.InstanceId {
-						before[i] = old
-					}
-				}
+				*previous[old.Execution.InstanceId] = old
 			}
 			_, restoreErr := w.batch(ctx, op, p, api.NodePlanPhaseUpdate, original)
 			updateError = errors.Join(updateError, restoreErr)
@@ -534,11 +546,13 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 	if p.BeforeSpec != nil {
 		old := *p.BeforeSpec
 		old.Assets = slices.Clone(old.Assets)
+		assets := make(map[string]api.Asset, len(before))
+		for _, target := range before {
+			assets[target.Execution.Asset.Id] = target.Execution.Asset
+		}
 		for i := range old.Assets {
-			for _, t := range before {
-				if old.Assets[i].Id == t.Execution.Asset.Id {
-					old.Assets[i] = t.Execution.Asset
-				}
+			if asset, exists := assets[old.Assets[i].Id]; exists {
+				old.Assets[i] = asset
 			}
 		}
 		oldPlan := *p
@@ -558,7 +572,7 @@ func (w Worker) rollback(ctx context.Context, op *queries.Operation, p *Payload)
 		observed, inspectErr := w.batch(ctx, op, p, api.NodePlanPhaseInspect, before)
 		err = errors.Join(err, inspectErr)
 		for _, r := range observed {
-			t := findInstance(before, r.InstanceId)
+			t := previous[r.InstanceId]
 			if !matches(r.State, t.State) {
 				err = errors.Join(err, fmt.Errorf("资产 %s 未恢复到 %s", t.Execution.Asset.Name, t.State))
 			}

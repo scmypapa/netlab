@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -285,6 +286,7 @@ func TestBatchPersistsNodeResultsBeforeSlowNode(t *testing.T) {
 	finish := sync.OnceFunc(func() { close(release) })
 	defer finish()
 	nodes := map[string]*httptest.Server{}
+	var duplicate atomic.Bool
 	for _, id := range []string{"fast", "slow"} {
 		nodes[id] = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var plan api.NodePlan
@@ -302,6 +304,11 @@ func TestBatchPersistsNodeResultsBeforeSlowNode(t *testing.T) {
 			result := api.NodeResult{Results: []api.ExecutionResult{}}
 			for _, asset := range plan.Assets {
 				result.Results = append(result.Results, api.ExecutionResult{AssetId: asset.Asset.Id, InstanceId: asset.InstanceId, State: "running", ObservedAt: time.Now().UTC()})
+			}
+			if id == "fast" && duplicate.Load() {
+				extra := result.Results[0]
+				extra.State = "stopped"
+				result.Results = append(result.Results, extra)
 			}
 			json.NewEncoder(w).Encode(result)
 		}))
@@ -364,5 +371,14 @@ func TestBatchPersistsNodeResultsBeforeSlowNode(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+	duplicate.Store(true)
+	results, err := w.batch(ctx, &op, &p, api.NodePlanPhaseInspect, p.Targets)
+	if err == nil || len(results) != len(p.Targets) {
+		t.Fatalf("duplicate node result was accepted: %d results, %v", len(results), err)
+	}
+	var state string
+	if err := pool.QueryRow(ctx, "SELECT state FROM runtime_assets WHERE instance_id='fast'").Scan(&state); err != nil || state != "running" {
+		t.Fatalf("duplicate result overwrote observed state: %s %v", state, err)
 	}
 }
