@@ -194,7 +194,9 @@ func (q *Queries) ListSecurityAlerts(ctx context.Context, arg ListSecurityAlerts
 }
 
 const listSecurityTargets = `-- name: ListSecurityTargets :many
-SELECT a.environment_id,a.node_id,a.execution FROM runtime_assets a
+SELECT a.environment_id,a.node_id,a.asset_id,
+COALESCE(a.execution->'asset'->>'name','')::text AS asset_name,
+COALESCE(a.execution->'interfaces','[]'::jsonb)::jsonb AS interfaces FROM runtime_assets a
 JOIN environments e ON e.id=a.environment_id
 WHERE a.current AND a.state='running' AND e.status NOT IN ('destroying','destroyed')
 `
@@ -202,7 +204,9 @@ WHERE a.current AND a.state='running' AND e.status NOT IN ('destroying','destroy
 type ListSecurityTargetsRow struct {
 	EnvironmentID string
 	NodeID        string
-	Execution     []byte
+	AssetID       string
+	AssetName     string
+	Interfaces    []byte
 }
 
 func (q *Queries) ListSecurityTargets(ctx context.Context) ([]ListSecurityTargetsRow, error) {
@@ -214,7 +218,13 @@ func (q *Queries) ListSecurityTargets(ctx context.Context) ([]ListSecurityTarget
 	items := []ListSecurityTargetsRow{}
 	for rows.Next() {
 		var i ListSecurityTargetsRow
-		if err := rows.Scan(&i.EnvironmentID, &i.NodeID, &i.Execution); err != nil {
+		if err := rows.Scan(
+			&i.EnvironmentID,
+			&i.NodeID,
+			&i.AssetID,
+			&i.AssetName,
+			&i.Interfaces,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

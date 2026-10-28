@@ -47,13 +47,13 @@ func (s Service) securityCycle(ctx context.Context, failures map[string]string) 
 	}
 	interfaces := make([]api.SecurityInterface, 0)
 	for _, target := range targets {
-		var execution api.AssetExecution
-		if err = json.Unmarshal(target.Execution, &execution); err != nil {
+		var resolved []api.ResolvedInterface
+		if err = json.Unmarshal(target.Interfaces, &resolved); err != nil {
 			return err
 		}
-		for _, iface := range execution.Interfaces {
+		for _, iface := range resolved {
 			interfaces = append(interfaces, api.SecurityInterface{EnvironmentId: target.EnvironmentID, Interface: api.CaptureInterface{
-				AssetId: execution.Asset.Id, AssetName: execution.Asset.Name, InterfaceId: iface.Id, NetworkId: iface.NetworkId,
+				AssetId: target.AssetID, AssetName: target.AssetName, InterfaceId: iface.Id, NetworkId: iface.NetworkId,
 				PortName: iface.PortName, NodeId: target.NodeID, Mac: iface.Mac, Address: iface.Address,
 			}})
 		}

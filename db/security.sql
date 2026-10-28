@@ -1,5 +1,7 @@
 -- name: ListSecurityTargets :many
-SELECT a.environment_id,a.node_id,a.execution FROM runtime_assets a
+SELECT a.environment_id,a.node_id,a.asset_id,
+COALESCE(a.execution->'asset'->>'name','')::text AS asset_name,
+COALESCE(a.execution->'interfaces','[]'::jsonb)::jsonb AS interfaces FROM runtime_assets a
 JOIN environments e ON e.id=a.environment_id
 WHERE a.current AND a.state='running' AND e.status NOT IN ('destroying','destroyed');
 
