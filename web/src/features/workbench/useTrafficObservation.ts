@@ -9,6 +9,9 @@ export function useTrafficObservation(
     range: number;
     paused: boolean;
     filters: PacketFilters;
+    packets: boolean;
+    history: boolean;
+    graph: boolean;
   },
 ) {
   const id = environment.id;
@@ -22,6 +25,8 @@ export function useTrafficObservation(
     queryKey: ["environment-packets", id, options.filters],
     queryFn: ({ signal }) =>
       api.environmentPackets(id, options.filters, signal),
+    enabled: options.packets,
+    subscribed: options.packets,
     refetchInterval: options.paused ? false : 3000,
   });
   const earlier = useQueries({
@@ -30,17 +35,23 @@ export function useTrafficObservation(
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         api.environmentPackets(id, { ...options.filters, cursor }, signal),
       staleTime: Infinity,
+      enabled: options.packets,
     })),
+    subscribed: options.packets,
   });
   const traffic = useQuery({
     queryKey: ["traffic", id],
     queryFn: ({ signal }) => api.traffic(id, signal),
+    enabled: options.graph,
+    subscribed: options.graph,
     refetchInterval: options.paused ? false : 5000,
   });
   const history = useQuery({
     queryKey: ["traffic-timeline", id, options.range],
     queryFn: ({ signal }) =>
       api.environmentMetrics(id, options.range, signal, undefined, false),
+    enabled: options.history,
+    subscribed: options.history,
     refetchInterval: options.paused ? false : 10000,
   });
   const packets = [
@@ -56,19 +67,23 @@ export function useTrafficObservation(
   const cursor = earlier.length
     ? earlier.at(-1)?.data?.nextCursor
     : latest.data?.nextCursor;
-  const errors = [latest, ...earlier, traffic, history].flatMap((query) =>
-    query.error ? [query.error.message] : [],
-  );
-  errors.push(...Object.values(traffic.data?.errors ?? {}));
-  for (const page of [latest, ...earlier])
+  const errors = [
+    ...(options.packets ? [latest, ...earlier] : []),
+    ...(options.graph ? [traffic] : []),
+    ...(options.history ? [history] : []),
+  ].flatMap((query) => (query.error ? [query.error.message] : []));
+  if (options.graph) errors.push(...Object.values(traffic.data?.errors ?? {}));
+  for (const page of options.packets ? [latest, ...earlier] : [])
     errors.push(...Object.values(page.data?.errors ?? {}));
   return {
     packets,
     traffic,
     history,
     retention: latest.data?.retention ?? traffic.data?.retention,
-    loading: latest.isPending,
-    fetching: latest.isFetching || earlier.some((page) => page.isFetching),
+    loading: options.packets && latest.isPending,
+    fetching:
+      options.packets &&
+      (latest.isFetching || earlier.some((page) => page.isFetching)),
     errors: [...new Set(errors)],
     loadOlder: cursor
       ? () => setPaging({ key, cursors: [...cursors, cursor] })

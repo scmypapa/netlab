@@ -491,6 +491,79 @@ async function open(page: Page) {
     page.getByRole("grid", { name: "报文列表" }).getByRole("row").nth(1),
   ).toBeVisible();
 }
+
+test("隐藏分析面板停止查询，展开后恢复实时刷新", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.clock.install();
+  const { requests } = await fixture(page);
+  await open(page);
+  const count = (suffix: string) =>
+    requests.filter(({ url }) => url.pathname.endsWith(suffix)).length;
+  await page.clock.fastForward(11_000);
+  expect(count("/metrics")).toBe(0);
+  expect(count("/packets")).toBeGreaterThan(1);
+  expect(count("/traffic")).toBeGreaterThan(1);
+
+  await page.getByRole("button", { name: /^告警 \d/ }).click();
+  const packets = count("/packets");
+  await page.clock.fastForward(11_000);
+  expect(count("/packets")).toBe(packets);
+
+  await page.getByRole("button", { name: "流量趋势", exact: true }).click();
+  await expect.poll(() => count("/metrics")).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "流量趋势", exact: true }).click();
+  const history = count("/metrics");
+  await page.clock.fastForward(11_000);
+  expect(count("/metrics")).toBe(history);
+
+  await page.getByRole("button", { name: "报文", exact: true }).click();
+  await expect.poll(() => count("/packets")).toBeGreaterThan(packets);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByRole("button", { name: "通信图", exact: true }),
+  ).toBeVisible();
+  const flows = count("/traffic");
+  await page.clock.fastForward(11_000);
+  expect(count("/traffic")).toBe(flows);
+  await page.getByRole("button", { name: "通信图", exact: true }).click();
+  await expect.poll(() => count("/traffic")).toBeGreaterThan(flows);
+});
+
+test("收起时间轴会取消在途历史请求", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await fixture(page);
+  await open(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/environments/env/metrics?**", async (route) => {
+    await held;
+    await route.fulfill({
+      json: {
+        start: timestamp(),
+        end: timestamp(1000),
+        stepSeconds: 10,
+        series: [],
+      },
+    });
+  });
+  const requested = page.waitForRequest((request) =>
+    request.url().includes("/env/metrics?"),
+  );
+  await page.getByRole("button", { name: "流量趋势", exact: true }).click();
+  const request = await requested;
+  const cancelled = page.waitForEvent("requestfailed", {
+    predicate: (failed) => failed === request,
+  });
+  try {
+    await page.getByRole("button", { name: "流量趋势", exact: true }).click();
+    await cancelled;
+    expect(request.failure()?.errorText).toContain("ERR_ABORTED");
+  } finally {
+    release();
+  }
+});
 const connection = (page: Page, left = "DC01", right = "YINYU-WIN7") =>
   page
     .getByRole("region", { name: "资产通信图" })

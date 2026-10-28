@@ -8,7 +8,7 @@ import {
   Tooltip,
   useComputedColorScheme,
 } from "@mantine/core";
-import { useDebouncedValue } from "@mantine/hooks";
+import { useDebouncedValue, useMediaQuery } from "@mantine/hooks";
 import {
   useInfiniteQuery,
   useMutation,
@@ -144,6 +144,12 @@ export default function TrafficWorkspace({
     [roles, setRoles] = useState<Record<string, string>>({});
   const dragging = useRef<"column" | "row" | null>(null);
   const [graphTools, setGraphTools] = useState<HTMLSpanElement | null>(null);
+  const narrow = useMediaQuery("(max-width: 900px)", undefined, {
+    getInitialValueInEffect: false,
+  });
+  const graphVisible = !narrow || mobilePane === "graph";
+  const packetsVisible =
+    (!narrow || mobilePane === "packets") && recordView === "packets";
   const spec = environment.appliedSpec ?? environment.spec;
   const client = useQueryClient();
   const names = useMemo(
@@ -273,6 +279,9 @@ export default function TrafficWorkspace({
     range: Number(range),
     paused,
     filters,
+    packets: packetsVisible || (graphVisible && Boolean(timeRange || filter)),
+    history: timeline,
+    graph: graphVisible,
   });
   const selected = selectedId;
   const packet = useQuery({
