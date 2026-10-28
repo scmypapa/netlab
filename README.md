@@ -61,7 +61,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ### 1. 虚拟化与容器
 
 * **虚拟机（QEMU/KVM）**：支持 BIOS、UEFI、Secure Boot；支持 vTPM、独立 NVRAM、CPU 拓扑、来宾 NUMA、cloud-init / Cloudbase-Init 初始化。
-* **容器（containerd + runc）**：支持标准 OCI/Docker 镜像、持久化卷、CPU 与内存限额（cgroups）以及重启策略；CPU 支持 0.01 核粒度，节点可统一调整 CPU 分配比例。
+* **容器（containerd + runc）**：支持标准 OCI/Docker 镜像、持久化卷、CPU 与内存限额（cgroups）以及重启策略；CPU 支持 0.01 核粒度，镜像声明的数据卷纳入资产配置与容量调度。
 * **模板兼容**：支持 `qcow2`、`raw`、`vmdk`、`ova`、`ovf`、`iso`、`oci/docker` 镜像，支持把配好的 VM 直接固化为新模板。
 * **已验证 Guest**：Ubuntu 24.04、Windows 11、Windows Server 2022/2025，以及双机 Windows AD 域控环境（验证过 Generation ID 与安全通道恢复）。
 
@@ -101,7 +101,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 
 * **安装目标**：Ubuntu 24.04 LTS (x86_64)
 * **CPU**：运行 VM 的节点开启硬件虚拟化（Intel VT-x 或 AMD-V）；虚拟机宿主上的执行节点开启嵌套虚拟化。
-* **内存**：按运行资产的规格与宿主开销规划；节点上报实际容量供自动调度。
+* **内存**：节点支持调整 CPU 分配比例与宿主预留内存；创建、规格变更和迁移使用统一的可分配额度。
 * **磁盘**：本地目录即可运行；Btrfs 提供原生快照，Ceph RBD 提供共享存储。
 
 **常用通信端口：**
@@ -122,7 +122,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.1.3/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.1.4/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本
@@ -268,6 +268,7 @@ curl -H "Authorization: Bearer <Your-Token>" \
 - 项目各组件尊重并保留上游开源项目的协议：QEMU/KVM、libvirt、containerd、OVN/Open vSwitch、VictoriaMetrics、Restic、Apache Guacamole、noVNC、React Flow、React Flow Smart Edge、Suricata、GoFlow2。
 - 界面使用 Inter 与 JetBrains Mono 字体，均遵循 SIL Open Font License 1.1；随前端文件保留许可文本。
 - 拓扑自动布局使用 ELK.js，遵循 Eclipse Public License 2.0；随前端文件保留许可及来源说明。
+- 共享报文解析使用 singleflight，遵循 BSD-3-Clause；随前端文件保留许可文本。
 
 ## 文档
 
