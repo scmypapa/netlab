@@ -37,28 +37,32 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 	if err != nil {
 		return nil, err
 	}
-	endpoints := map[string]string{}
-	available := map[string]bool{}
+	byNode := make(map[string]queries.ListNodesRow, len(nodes))
 	candidates := []storageCandidate{}
 	for _, node := range nodes {
-		endpoints[node.ID] = node.Endpoint
-		available[node.ID] = node.State == "ready" && !node.Retiring
-		candidates = append(candidates, storageCandidate{id: defaultStorage(node.ID), node: node.ID, ready: available[node.ID]})
+		byNode[node.ID] = node
+		candidates = append(candidates, storageCandidate{id: defaultStorage(node.ID), node: node.ID, ready: node.State == "ready" && !node.Retiring})
 	}
 	for _, row := range rows {
 		for _, node := range row.NodeIds {
-			candidates = append(candidates, storageCandidate{id: row.ID, node: node, directory: row.Directory, ready: row.State == "ready" && available[node]})
+			info := byNode[node]
+			candidates = append(candidates, storageCandidate{id: row.ID, node: node, directory: row.Directory, ready: row.State == "ready" && info.State == "ready" && !info.Retiring})
 		}
 	}
 	var wg sync.WaitGroup
 	for i := range candidates {
 		wg.Go(func() {
 			p := &candidates[i]
+			node := byNode[p.node]
+			if node.State != "ready" {
+				p.err = fmt.Errorf("存储节点 %s 未连接", p.node)
+				return
+			}
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 			if p.id == defaultStorage(p.node) {
 				var info api.NodeInfo
-				info, p.err = w.Client.Info(ctx, endpoints[p.node])
+				info, p.err = w.Client.Info(ctx, node.Endpoint)
 				if p.err == nil {
 					p.container = info.ContainerStorage
 					if info.Storage == nil {
@@ -68,7 +72,7 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 					}
 				}
 			} else {
-				p.err = w.Client.Do(ctx, http.MethodGet, endpoints[p.node], transport.StorageRoute(p.id, p.directory), nil, &p.info)
+				p.err = w.Client.Do(ctx, http.MethodGet, node.Endpoint, transport.StorageRoute(p.id, p.directory), nil, &p.info)
 			}
 		})
 	}
