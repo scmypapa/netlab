@@ -557,6 +557,11 @@ test("隐藏分析面板停止查询，展开后恢复实时刷新", async ({ pa
 
   await page.getByRole("button", { name: "流量趋势", exact: true }).click();
   await expect.poll(() => count("/metrics")).toBeGreaterThan(0);
+  expect(
+    requests
+      .find(({ url }) => url.pathname.endsWith("/metrics"))!
+      .url.searchParams.get("metrics"),
+  ).toBe("receive,transmit");
   await page.getByRole("button", { name: "流量趋势", exact: true }).click();
   const history = count("/metrics");
   await page.clock.fastForward(11_000);

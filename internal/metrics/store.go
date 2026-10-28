@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ func responseError(response *http.Response) error {
 type Filter struct {
 	Environment, Asset, Node string
 	Aggregate                bool
+	Metrics                  []string
 }
 
 type measurement struct {
@@ -87,6 +89,11 @@ var hostMeasurements = []measurement{
 	{"disk_capacity", "disk_capacity_bytes", false},
 }
 
+func (scope Filter) SupportsMetric(name string) bool {
+	match := func(item measurement) bool { return item.metric == name }
+	return slices.ContainsFunc(measurements, match) || scope.Environment == "" && slices.ContainsFunc(hostMeasurements, match)
+}
+
 func historyQuery(scope Filter, step int) string {
 	filter := "environment=" + strconv.Quote(scope.Environment)
 	if scope.Asset != "" {
@@ -101,6 +108,9 @@ func historyQuery(scope Filter, step int) string {
 	}
 	queries := make([]string, 0, len(measures))
 	for _, measure := range measures {
+		if len(scope.Metrics) > 0 && !slices.Contains(scope.Metrics, measure.metric) {
+			continue
+		}
 		expression := "netlab_" + measure.source + "{" + filter + "}"
 		if measure.rate && step > 60 {
 			// Long-history buckets average the whole interval, including activity before an asset stopped.

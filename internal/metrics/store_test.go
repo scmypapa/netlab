@@ -82,6 +82,7 @@ func TestHistoryScopes(t *testing.T) {
 		{"environment", Filter{Environment: "lab", Aggregate: true}, []string{`sum(rate(netlab_cpu_seconds_total{environment="lab"}[1m])`, `sum(last_over_time(netlab_memory_bytes`}, []string{"cpu_capacity"}},
 		{"node", Filter{Node: "worker"}, []string{`environment="",node="worker"`, "netlab_memory_available_bytes", "netlab_disk_used_bytes", "netlab_cpu_capacity"}, []string{"sum("}},
 		{"cluster", Filter{Aggregate: true}, []string{`sum(rate(netlab_cpu_seconds_total{environment=""}[1m])`, `sum(last_over_time(netlab_cpu_capacity`}, nil},
+		{"traffic selection", Filter{Environment: "lab", Metrics: []string{"receive", "transmit"}}, []string{"netlab_interface_receive_bytes_total", "netlab_interface_transmit_bytes_total"}, []string{"netlab_cpu", "netlab_memory", "netlab_disk", "netlab_interface_receive_packets_total", "netlab_interface_transmit_drops_total"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			query := historyQuery(test.filter, 10)

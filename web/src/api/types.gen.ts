@@ -3170,6 +3170,8 @@ export interface components {
     Cursor: string;
     Limit: number;
     Search: string;
+    /** @description Comma-separated metric names from MetricSeries.metric; omitted returns all available metrics. */
+    Metrics: string[];
   };
   requestBodies: never;
   headers: never;
@@ -4757,6 +4759,8 @@ export interface operations {
   getEnvironmentMetrics: {
     parameters: {
       query?: {
+        /** @description Comma-separated metric names from MetricSeries.metric; omitted returns all available metrics. */
+        metrics?: components["parameters"]["Metrics"];
         assetId?: string;
         /** @description Sum measured asset resource usage across the environment; network values are asset interface totals */
         aggregate?: boolean;
@@ -4784,7 +4788,7 @@ export interface operations {
           "application/json": components["schemas"]["MetricHistory"];
         };
       };
-      /** @description Invalid range or step */
+      /** @description Invalid range */
       400: {
         headers: {
           [name: string]: unknown;
@@ -5842,6 +5846,8 @@ export interface operations {
   getNodeMetrics: {
     parameters: {
       query?: {
+        /** @description Comma-separated metric names from MetricSeries.metric; omitted returns all available metrics. */
+        metrics?: components["parameters"]["Metrics"];
         nodeId?: string;
         aggregate?: boolean;
         range?: number;
@@ -5864,7 +5870,7 @@ export interface operations {
           "application/json": components["schemas"]["MetricHistory"];
         };
       };
-      /** @description Invalid range or step */
+      /** @description Invalid range */
       400: {
         headers: {
           [name: string]: unknown;

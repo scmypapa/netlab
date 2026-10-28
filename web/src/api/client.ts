@@ -390,9 +390,10 @@ export const api = {
     signal?: AbortSignal,
     assetId?: string,
     aggregate = true,
+    metrics?: Schema<"MetricSeries">["metric"][],
   ) =>
     request<Schema<"MetricHistory">>(
-      `/environments/${id}/metrics?${new URLSearchParams({ range: String(range), aggregate: String(aggregate), ...(assetId ? { assetId } : {}) })}`,
+      `/environments/${id}/metrics?${new URLSearchParams({ range: String(range), aggregate: String(aggregate), ...(assetId ? { assetId } : {}), ...(metrics ? { metrics: metrics.join(",") } : {}) })}`,
       "GET",
       undefined,
       signal,

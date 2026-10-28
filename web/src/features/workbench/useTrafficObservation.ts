@@ -49,7 +49,10 @@ export function useTrafficObservation(
   const history = useQuery({
     queryKey: ["traffic-timeline", id, options.range],
     queryFn: ({ signal }) =>
-      api.environmentMetrics(id, options.range, signal, undefined, false),
+      api.environmentMetrics(id, options.range, signal, undefined, false, [
+        "receive",
+        "transmit",
+      ]),
     enabled: options.history,
     subscribed: options.history,
     refetchInterval: options.paused ? false : 10000,

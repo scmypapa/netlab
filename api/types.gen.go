@@ -2255,6 +2255,9 @@ type Id = string
 // Limit defines model for Limit.
 type Limit = int
 
+// Metrics defines model for Metrics.
+type Metrics = []string
+
 // Search defines model for Search.
 type Search = string
 
@@ -2356,7 +2359,9 @@ type ReplaceEnvironmentGrantsJSONBody = []EnvironmentGrant
 
 // GetEnvironmentMetricsParams defines parameters for GetEnvironmentMetrics.
 type GetEnvironmentMetricsParams struct {
-	AssetId *string `form:"assetId,omitempty" json:"assetId,omitempty"`
+	// Metrics Comma-separated metric names from MetricSeries.metric; omitted returns all available metrics.
+	Metrics *Metrics `form:"metrics,omitempty" json:"metrics,omitempty"`
+	AssetId *string  `form:"assetId,omitempty" json:"assetId,omitempty"`
 
 	// Aggregate Sum measured asset resource usage across the environment; network values are asset interface totals
 	Aggregate *bool `form:"aggregate,omitempty" json:"aggregate,omitempty"`
@@ -2433,6 +2438,8 @@ type ListNodesParams struct {
 
 // GetNodeMetricsParams defines parameters for GetNodeMetrics.
 type GetNodeMetricsParams struct {
+	// Metrics Comma-separated metric names from MetricSeries.metric; omitted returns all available metrics.
+	Metrics   *Metrics   `form:"metrics,omitempty" json:"metrics,omitempty"`
 	NodeId    *string    `form:"nodeId,omitempty" json:"nodeId,omitempty"`
 	Aggregate *bool      `form:"aggregate,omitempty" json:"aggregate,omitempty"`
 	Range     *int       `form:"range,omitempty" json:"range,omitempty"`

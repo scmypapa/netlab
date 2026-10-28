@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"netlab.local/core/internal/access"
@@ -65,14 +66,23 @@ func (s *Server) nodeMetrics(w http.ResponseWriter, r *http.Request, identity ac
 }
 
 func (s *Server) resourceMetrics(w http.ResponseWriter, r *http.Request, filter metrics.Filter) error {
-	start, end, step, err := metricRange(r.URL.Query(), time.Now())
+	query := r.URL.Query()
+	start, end, step, err := metricRange(query, time.Now())
 	if err != nil {
 		return httpError{http.StatusBadRequest, err.Error()}
 	}
-	if value := r.URL.Query().Get("aggregate"); value != "" {
+	if value := query.Get("aggregate"); value != "" {
 		filter.Aggregate, err = strconv.ParseBool(value)
 		if err != nil {
 			return httpError{http.StatusBadRequest, "aggregate 应为 true 或 false"}
+		}
+	}
+	if query.Has("metrics") {
+		filter.Metrics = strings.Split(query.Get("metrics"), ",")
+		for _, name := range filter.Metrics {
+			if !filter.SupportsMetric(name) {
+				return httpError{http.StatusBadRequest, "未知指标：" + name}
+			}
 		}
 	}
 	result, err := s.Metrics.History(r.Context(), filter, start, end, step)
