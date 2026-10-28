@@ -20,8 +20,8 @@ import (
 	"github.com/gopacket/gopacket/layers"
 	"github.com/gopacket/gopacket/pcapgo"
 	"github.com/klauspost/compress/zstd"
-	"golang.org/x/sync/singleflight"
 	"netlab.local/core/api"
+	"resenje.org/singleflight"
 )
 
 const PacketBudget int64 = 1 << 30
@@ -59,7 +59,7 @@ type Recorder struct {
 	directory, node string
 	environments    map[string]*environmentRecording
 	analysisSlots   chan struct{}
-	analyses        singleflight.Group
+	analyses        singleflight.Group[string, api.RecentPacketPage]
 }
 type compressedWriter struct {
 	recorder    *Recorder

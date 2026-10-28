@@ -205,21 +205,12 @@ func (r *Recorder) Recent(ctx context.Context, environment string, q RecentQuery
 	if err != nil {
 		return api.RecentPacketPage{}, err
 	}
-	result := r.analyses.DoChan(environment+"/"+string(key), func() (any, error) {
-		// A viewer leaving must not cancel a query shared with other viewers.
-		analysis, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	result, _, err := r.analyses.Do(ctx, environment+"/"+string(key), func(shared context.Context) (api.RecentPacketPage, error) {
+		analysis, cancel := context.WithTimeout(shared, 30*time.Second)
 		defer cancel()
 		return r.recent(analysis, environment, q)
 	})
-	select {
-	case <-ctx.Done():
-		return api.RecentPacketPage{}, ctx.Err()
-	case value := <-result:
-		if value.Err != nil {
-			return api.RecentPacketPage{}, value.Err
-		}
-		return value.Val.(api.RecentPacketPage), nil
-	}
+	return result, err
 }
 
 func (r *Recorder) analyze(ctx context.Context) (func(), error) {

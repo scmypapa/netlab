@@ -42,6 +42,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	libvirt.org/go/libvirt v1.12007.0
 	libvirt.org/go/libvirtxml v1.11009.0
+	resenje.org/singleflight v0.4.3
 )
 
 require (
