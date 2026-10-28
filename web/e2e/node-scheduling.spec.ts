@@ -67,9 +67,6 @@ test("宿主内存设置使用服务端额度，保存后刷新节点详情", as
         page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       )
       .toBe(true);
-    await page.screenshot({
-      path: `test-results/node-scheduling-${width}.png`,
-    });
   }
   await panel.getByText("自动", { exact: true }).click();
   await panel.getByRole("button", { name: "应用", exact: true }).click();

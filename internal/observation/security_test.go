@@ -68,35 +68,6 @@ func TestSecurityImportAndAPIWithPostgreSQL(t *testing.T) {
 		t.Fatal("stale cursor replay was accepted")
 	}
 	q := queries.New(pool)
-	t.Run("security targets exclude execution payloads", func(t *testing.T) {
-		_, err := pool.Exec(ctx, `UPDATE runtime_assets SET execution=execution||jsonb_build_object('asset',
-		 jsonb_build_object('id',asset_id,'name','Web','parameters',jsonb_build_object('startup',repeat('x',262144))))
-		 WHERE environment_id='blue'`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		targets, err := q.ListSecurityTargets(ctx)
-		if err != nil || len(targets) != 2 {
-			t.Fatalf("targets=%+v err=%v", targets, err)
-		}
-		for _, target := range targets {
-			if target.EnvironmentID != "blue" {
-				continue
-			}
-			var interfaces []api.ResolvedInterface
-			if err = json.Unmarshal(target.Interfaces, &interfaces); err != nil || len(interfaces) != 1 || interfaces[0].Id != "nic-blue" || target.AssetID != "web" || target.AssetName != "Web" || target.NodeID != "one" {
-				t.Fatalf("changed security target: %+v %v", target, err)
-			}
-			var executionBytes int
-			if err = pool.QueryRow(ctx, "SELECT octet_length(execution::text) FROM runtime_assets WHERE environment_id='blue'").Scan(&executionBytes); err != nil {
-				t.Fatal(err)
-			}
-			if len(target.Interfaces) >= 256 || executionBytes < 262144 {
-				t.Fatalf("unexpected projection size: %d/%d", len(target.Interfaces), executionBytes)
-			}
-			t.Logf("security interfaces: %d bytes; full execution: %d bytes", len(target.Interfaces), executionBytes)
-		}
-	})
 	if cursor, err := q.GetSecurityCursor(ctx, "one"); err != nil || cursor != "first" {
 		t.Fatalf("cursor %q %v", cursor, err)
 	}

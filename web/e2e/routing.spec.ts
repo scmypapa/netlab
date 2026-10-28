@@ -309,7 +309,7 @@ test("duplicate network labels use routing context and a sequence only when need
 
 test("router editor preserves interface identity and submits routes through the environment preview", async ({
   page,
-}, testInfo) => {
+}) => {
   const { calls } = await fixture(page);
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
   await page.locator('[data-id="router-a"]').click();
@@ -319,16 +319,12 @@ test("router editor preserves interface identity and submits routes through the 
   await drawer.getByLabel("路由器名称").fill("出口路由器");
   await drawer.getByLabel("接口 1 地址", { exact: true }).fill("10.0.0.254");
   await drawer.getByLabel("下一跳").fill("10.255.0.2");
-  await page.screenshot({ path: testInfo.outputPath("router-editor.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
     await drawer.evaluate(
       (element) => element.scrollWidth > element.clientWidth,
     ),
   ).toBe(false);
-  await page.screenshot({
-    path: testInfo.outputPath("router-editor-narrow.png"),
-  });
   await drawer.getByRole("button", { name: "更新路由器", exact: true }).click();
   await page.getByRole("button", { name: "预览变更", exact: true }).click();
   await expect(

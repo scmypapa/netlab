@@ -145,10 +145,6 @@ test("共享池集中展示真实容量与服务，副本变更复用配置任�
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    if (width === 1366)
-      await page.screenshot({ path: "../data/storage-workspace-desktop.png" });
-    if (width === 390)
-      await page.screenshot({ path: "../data/storage-workspace-mobile.png" });
   }
   await page.getByRole("button", { name: "副本设置", exact: true }).click();
   await page.getByRole("textbox", { name: "副本数量", exact: true }).fill("2");
@@ -158,7 +154,6 @@ test("共享池集中展示真实容量与服务，副本变更复用配置任�
     page.getByRole("dialog", { name: "数据副本", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "切换夜间主题", exact: true }).click();
-  await page.screenshot({ path: "../data/storage-workspace-dark.png" });
   await page.getByRole("tab", { name: "Ceph 服务", exact: true }).click();
   await expect(page.getByText("mon.one", { exact: true })).toBeVisible();
 });

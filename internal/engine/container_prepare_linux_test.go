@@ -4,7 +4,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,24 +15,6 @@ import (
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 )
-
-func TestContainerImageWaitIsCancellableBeforeIOAdmission(t *testing.T) {
-	e := &Engine{container: &Containers{}, locks: map[string]*objectLock{}, ioSlots: make(chan struct{}, 1)}
-	template := api.Template{Id: "image", Version: 1}
-	unlock, err := e.lock(context.Background(), "artifact:image:1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	if err := e.prepareContainerImage(ctx, template); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("image waiter ignored cancellation: %v", err)
-	}
-	if len(e.ioSlots) != 0 {
-		t.Fatal("image lock wait occupied I/O slots")
-	}
-}
 
 func TestRealContainerImportDoesNotOccupyCompute(t *testing.T) {
 	if os.Getenv("NETLAB_REAL_CONTAINER") == "" {

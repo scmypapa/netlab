@@ -1,5 +1,4 @@
 import { expect, test, type Page } from "@playwright/test";
-import { join } from "node:path";
 
 const permissions = [
   "read",
@@ -301,9 +300,7 @@ test("environment sharing applies a role to selected assets without file access"
   await expect(drawer).not.toBeVisible();
 });
 
-test("访问、授权与更新在四种屏宽和日夜主题保持完整可操作", async ({
-  page,
-}, info) => {
+test("访问、授权与更新在四种屏宽和日夜主题保持完整可操作", async ({ page }) => {
   test.setTimeout(60000);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await fixture(page);
@@ -326,7 +323,6 @@ test("访问、授权与更新在四种屏宽和日夜主题保持完整可操�
     }),
   );
   await page.goto("/accounts");
-  const output = info.outputPath("screenshots");
   for (const theme of ["light", "dark"]) {
     if (
       (await page.locator("html").getAttribute("data-mantine-color-scheme")) !==
@@ -358,9 +354,6 @@ test("访问、授权与更新在四种屏宽和日夜主题保持完整可操�
           return nav.right <= tools.left;
         }),
       ).toBe(true);
-      await page.screenshot({
-        path: join(output, `access-${width}-${theme}.png`),
-      });
       await page.getByRole("button", { name: "新建用户", exact: true }).click();
       const dialog = page.getByRole("dialog");
       await dialog.getByRole("button", { name: "添加授权范围" }).click();
@@ -380,9 +373,6 @@ test("访问、授权与更新在四种屏宽和日夜主题保持完整可操�
       await expect(
         dialog.getByRole("button", { name: "保存", exact: true }),
       ).toBeInViewport();
-      await page.screenshot({
-        path: join(output, `grant-${width}-${theme}.png`),
-      });
       await dialog.getByRole("button", { name: "取消", exact: true }).click();
       await page.locator(".profile").click();
       await page
@@ -400,18 +390,13 @@ test("访问、授权与更新在四种屏宽和日夜主题保持完整可操�
           (element) => element.scrollWidth <= element.clientWidth,
         ),
       ).toBe(true);
-      await page.screenshot({
-        path: join(output, `update-${width}-${theme}.png`),
-      });
       await page.keyboard.press("Escape");
       await expect(update).not.toBeVisible();
     }
   }
 });
 
-test("登录页在四种屏宽和日夜主题呈现统一字体及清晰表单", async ({
-  page,
-}, info) => {
+test("登录表单在日夜主题和窄屏下可访问", async ({ page }) => {
   test.setTimeout(30000);
   await page.route("**/api/v1/identity", (route) =>
     route.fulfill({ status: 401, json: { error: "unauthorized" } }),
@@ -439,9 +424,6 @@ test("登录页在四种屏宽和日夜主题呈现统一字体及清晰表单",
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBe(true);
-      await page.screenshot({
-        path: info.outputPath(`login-${width}-${theme}.png`),
-      });
     }
   }
 });

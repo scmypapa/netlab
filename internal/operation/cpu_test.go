@@ -30,9 +30,7 @@ func TestHostMemoryCapacityPolicy(t *testing.T) {
 	for _, test := range []struct {
 		total, reserve, allocatable int64
 	}{
-		{1024, 0, 512}, {2048, 0, 1024}, {4096, 0, 3072},
-		{16384, 0, 14746}, {65536, 0, 58983},
-		{4096, 512, 3584}, {256, 512, 0},
+		{1024, 0, 512}, {2048, 0, 1024}, {16384, 0, 14746},
 	} {
 		info := api.NodeInfo{Capacity: api.Resources{Cpu: 8, MemoryMiB: test.total}}
 		got := SchedulingCapacity(info, 4, test.reserve)

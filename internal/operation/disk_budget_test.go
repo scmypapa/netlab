@@ -3,7 +3,6 @@ package operation
 import (
 	"encoding/json"
 	"reflect"
-	"strconv"
 	"testing"
 
 	"netlab.local/core/api"
@@ -20,25 +19,6 @@ func TestRemovedVolumesKeepsInstanceAndPersistentIdentity(t *testing.T) {
 	}
 	if len(*before[1].Execution.Asset.Volumes) != 2 {
 		t.Fatal("cleanup selection mutated the saved execution")
-	}
-}
-
-func BenchmarkRemovedVolumes(b *testing.B) {
-	for _, size := range []int{100, 1000, 5000} {
-		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			before, after := make([]Target, size), make([]Target, size)
-			for i := range before {
-				before[i].Execution = api.AssetExecution{InstanceId: strconv.Itoa(i), Asset: api.Asset{Volumes: &[]api.Volume{{Id: "data", SizeGiB: 1}}}}
-				after[i].Execution.InstanceId = strconv.Itoa(i)
-			}
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				if len(removedVolumes(before, after)) != size {
-					b.Fatal("volume cleanup omitted assets")
-				}
-			}
-		})
 	}
 }
 

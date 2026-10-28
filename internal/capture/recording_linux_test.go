@@ -8,30 +8,12 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gopacket/gopacket"
 	"netlab.local/core/api"
 )
-
-func BenchmarkPacketDispatchAcrossEnvironments(b *testing.B) {
-	for _, count := range []int{0, 64, 1024} {
-		b.Run(strconv.Itoa(count), func(b *testing.B) {
-			m := &Manager{live: map[string]*session{}}
-			for i := range count {
-				m.live[strconv.Itoa(i)] = &session{}
-			}
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				m.recordSubscriptions("without-subscription", "tap", gopacket.CaptureInfo{}, nil)
-			}
-		})
-	}
-}
 
 func TestDumpcapRecordingIsolatedByEnvironment(t *testing.T) {
 	if os.Getenv("NETLAB_TEST_DUMPCAP") != "1" {

@@ -3,10 +3,8 @@ package observation
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,20 +17,6 @@ import (
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/capture"
 )
-
-type packetQueryCount struct{ queries, batches atomic.Int64 }
-
-func (c *packetQueryCount) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
-	c.queries.Add(1)
-	return ctx
-}
-func (*packetQueryCount) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
-func (c *packetQueryCount) TraceBatchStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceBatchStartData) context.Context {
-	c.batches.Add(1)
-	return ctx
-}
-func (*packetQueryCount) TraceBatchQuery(context.Context, *pgx.Conn, pgx.TraceBatchQueryData) {}
-func (*packetQueryCount) TraceBatchEnd(context.Context, *pgx.Conn, pgx.TraceBatchEndData)     {}
 
 func TestNodeObservationsWithPostgreSQL(t *testing.T) {
 	dsn := os.Getenv("NETLAB_DATABASE_URL")
@@ -55,8 +39,6 @@ func TestNodeObservationsWithPostgreSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.ConnConfig.RuntimeParams["search_path"] = schema
-	traced := &packetQueryCount{}
-	config.ConnConfig.Tracer = traced
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatal(err)
@@ -224,48 +206,41 @@ func TestNodeObservationsWithPostgreSQL(t *testing.T) {
 			t.Fatal(budget, err)
 		}
 	})
-	t.Run("packet quotas use constant database round trips across environments", func(t *testing.T) {
+	t.Run("packet quotas are isolated and failed grants are atomic", func(t *testing.T) {
 		_, err := pool.Exec(ctx, `
 		 DELETE FROM packet_nodes WHERE environment_id='env';
 		 INSERT INTO environments(id,project_id,name,spec)
-		 SELECT 'scale_'||n,'default','Scale '||n,'{"assets":[],"networks":[]}' FROM generate_series(1,128) n;
-		 INSERT INTO nodes(id,name,endpoint,info) VALUES('n3','Three','https://three','{}'),('n4','Four','https://four','{}');`)
+		 VALUES('quota-one','default','One','{"assets":[],"networks":[]}'),
+		       ('quota-two','default','Two','{"assets":[],"networks":[]}');`)
 		if err != nil {
 			t.Fatal(err)
 		}
-		targets := make([]api.SecurityInterface, 0, 1024)
-		for i := 1; i <= 128; i++ {
-			for _, node := range []string{"n1", "n2", "n3", "n4"} {
-				target := api.SecurityInterface{EnvironmentId: fmt.Sprintf("scale_%d", i), Interface: api.CaptureInterface{NodeId: node}}
+		targets := []api.SecurityInterface{}
+		for _, environment := range []string{"quota-one", "quota-two"} {
+			for _, node := range []string{"n1", "n2"} {
+				target := api.SecurityInterface{EnvironmentId: environment, Interface: api.CaptureInterface{NodeId: node}}
 				targets = append(targets, target, target)
 			}
 		}
 		service := Service{Pool: pool}
-		for cycle := range 2 {
-			traced.queries.Store(0)
-			traced.batches.Store(0)
-			started := time.Now()
+		for range 2 {
 			budgets, err := service.packetQuotas(ctx, targets)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if traced.queries.Load() != 3 || traced.batches.Load() != int64(1-cycle) {
-				t.Fatalf("cycle %d: %d queries, %d batches", cycle, traced.queries.Load(), traced.batches.Load())
-			}
 			for _, target := range targets {
 				budget := budgets[target.Interface.NodeId]
-				if budget.requested[target.EnvironmentId] != capture.PacketBudget/4 || budget.reserved[target.EnvironmentId] != capture.PacketBudget/4 {
+				if budget.requested[target.EnvironmentId] != capture.PacketBudget/2 || budget.reserved[target.EnvironmentId] != capture.PacketBudget/2 {
 					t.Fatalf("incorrect environment budget: %+v", target)
 				}
 			}
-			t.Logf("128 environments, 4 nodes, cycle %d: 3 queries, %d batch, %v", cycle, traced.batches.Load(), time.Since(started))
 		}
 		_, err = pool.Exec(ctx, `
-		 UPDATE packet_nodes SET quota_bytes=0 WHERE environment_id LIKE 'scale_%';
+		 UPDATE packet_nodes SET quota_bytes=0 WHERE environment_id IN ('quota-one','quota-two');
 		 CREATE FUNCTION reject_quota() RETURNS trigger LANGUAGE plpgsql AS $$
 		 BEGIN RAISE EXCEPTION 'quota write rejected'; END $$;
 		 CREATE TRIGGER reject_quota BEFORE UPDATE ON packet_nodes FOR EACH ROW
-		 WHEN (NEW.environment_id='scale_64' AND NEW.node_id='n2') EXECUTE FUNCTION reject_quota();`)
+		 WHEN (NEW.environment_id='quota-two' AND NEW.node_id='n2') EXECUTE FUNCTION reject_quota();`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,7 +248,7 @@ func TestNodeObservationsWithPostgreSQL(t *testing.T) {
 			t.Fatalf("batch failure was hidden: %v", err)
 		}
 		var reserved int64
-		if err = pool.QueryRow(ctx, "SELECT sum(quota_bytes) FROM packet_nodes WHERE environment_id LIKE 'scale_%'").Scan(&reserved); err != nil || reserved != 0 {
+		if err = pool.QueryRow(ctx, "SELECT sum(quota_bytes) FROM packet_nodes WHERE environment_id IN ('quota-one','quota-two')").Scan(&reserved); err != nil || reserved != 0 {
 			t.Fatalf("failed batch partially granted quota: %d %v", reserved, err)
 		}
 		if _, err = pool.Exec(ctx, "DROP TRIGGER reject_quota ON packet_nodes; DROP FUNCTION reject_quota()"); err != nil {

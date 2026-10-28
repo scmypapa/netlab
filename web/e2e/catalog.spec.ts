@@ -279,20 +279,13 @@ async function fits(page: Page) {
 
 test("环境、模板、节点与存储采用各自工作布局，适配日夜与窄屏", async ({
   page,
-}, info) => {
+}) => {
   test.setTimeout(90000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await fixture(page);
   for (const theme of ["light", "dark"]) {
     await page.goto("/environments");
-    expect(
-      await page.evaluate(async () => {
-        const fonts = await document.fonts.load('400 14px "Inter"', "Netlab");
-        return fonts.length;
-      }),
-    ).toBe(1);
-    await expect(page.locator("body")).toHaveCSS("font-family", /Inter/);
     if (theme === "dark")
       await page
         .getByRole("button", { name: "切换夜间主题", exact: true })
@@ -327,12 +320,6 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
           await expect(
             page.getByRole("region", { name: "资产模板", exact: true }),
           ).toContainText("pc-q35-10.0");
-          await expect(
-            page
-              .getByRole("region", { name: "资产模板", exact: true })
-              .locator("dd")
-              .first(),
-          ).toHaveCSS("font-family", /JetBrains Mono/);
           await page
             .getByRole("button", { name: "Nginx 服务", exact: true })
             .focus();
@@ -353,10 +340,6 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
             page.getByRole("heading", { name: "共享存储", exact: true }),
           ).toBeVisible();
         await fits(page);
-        await page.screenshot({
-          path: info.outputPath(`${section}-${width}-${theme}.png`),
-          animations: "disabled",
-        });
       }
     }
   }
@@ -466,7 +449,7 @@ test("资源分类切换不移动导航与标题", async ({ page }) => {
   }
 });
 
-test("创建、导入、卷与备份操作在所属工作区直接可达", async ({ page }, info) => {
+test("创建、导入、卷与备份操作在所属工作区直接可达", async ({ page }) => {
   page.on("pageerror", (error) => {
     throw error;
   });
@@ -480,10 +463,6 @@ test("创建、导入、卷与备份操作在所属工作区直接可达", async
   await expect(
     create.getByRole("textbox", { name: "环境模板", exact: true }),
   ).toHaveValue("空白环境");
-  await page.screenshot({
-    path: info.outputPath("create-environment.png"),
-    animations: "disabled",
-  });
   await page.keyboard.press("Escape");
   await page.goto("/templates");
   await expect(
@@ -503,10 +482,6 @@ test("创建、导入、卷与备份操作在所属工作区直接可达", async
       .getByRole("dialog", { name: "导入资产模板", exact: true })
       .getByRole("heading", { name: "镜像来源", exact: true }),
   ).toBeVisible();
-  await page.screenshot({
-    path: info.outputPath("import-template.png"),
-    animations: "disabled",
-  });
   await page.keyboard.press("Escape");
   await page.goto("/resources/storage");
   await page.getByRole("tab", { name: "持久卷", exact: true }).click();

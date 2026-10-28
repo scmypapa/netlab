@@ -112,9 +112,6 @@ test("外部设备发现后加入画布、编辑和移除，不创建运行实�
     expect(
       await drawer.evaluate((element) => element.scrollWidth),
     ).toBeLessThanOrEqual(width);
-    await page.screenshot({
-      path: test.info().outputPath(`discovery-${width}.png`),
-    });
   }
   await drawer.getByRole("button", { name: "加入画布 · 1" }).click();
   await expect(
@@ -132,9 +129,6 @@ test("外部设备发现后加入画布、编辑和移除，不创建运行实�
   expect(physical!.y + physical!.height).toBeLessThanOrEqual(
     segment!.y + segment!.height,
   );
-  await page.screenshot({
-    path: test.info().outputPath("physical-device-topology.png"),
-  });
   await page.getByRole("button", { name: "对象列表", exact: true }).click();
   await page.getByRole("button", { name: "PLC-01", exact: true }).click();
   const inspector = page.getByRole("complementary", { name: "对象详情" });

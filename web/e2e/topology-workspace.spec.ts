@@ -365,10 +365,6 @@ test("tasks open on the right without stealing canvas height, with working keybo
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({ path: `test-results/topology-${width}.png` });
-    await page.getByRole("button", { name: "切换夜间主题" }).click();
-    await page.screenshot({ path: `test-results/topology-${width}-dark.png` });
-    await page.getByRole("button", { name: "切换日间主题" }).click();
   }
 });
 

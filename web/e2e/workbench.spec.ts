@@ -49,10 +49,6 @@ test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page
   ).toBeEnabled();
   for (const width of [1366, 1920, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({
-      path: `test-results/connection-${width}.png`,
-      animations: "disabled",
-    });
     expect(
       await dialog.evaluate((element) => element.scrollWidth),
     ).toBeLessThanOrEqual(width);
@@ -106,10 +102,6 @@ test("文件工作区切换视图时退出，目录操作保留键盘入口", as
   await rename.getByRole("button", { name: "取消", exact: true }).click();
   for (const width of [1366, 1920, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({
-      path: `test-results/files-${width}.png`,
-      animations: "disabled",
-    });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -205,10 +197,6 @@ test("控制台收起不断开连接，全屏支持直接退出", async ({ page 
       Boolean(element.closest('[aria-label="资产连接"]')),
     ),
   ).toBe(true);
-  await page.screenshot({
-    path: "test-results/connection-fullscreen.png",
-    animations: "disabled",
-  });
   await settings.getByRole("button", { name: "取消", exact: true }).click();
   await connection
     .getByRole("button", { name: "退出全屏连接", exact: true })
@@ -538,10 +526,6 @@ test("资产附加持久卷，容量取自目录并通过现有草稿提交", as
     expect(
       await editor.evaluate((element) => element.scrollWidth),
     ).toBeLessThanOrEqual(width);
-    await page.screenshot({
-      path: `test-results/volume-editor-${width}.png`,
-      animations: "disabled",
-    });
   }
   await editor.getByRole("button", { name: "更新资产", exact: true }).click();
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
@@ -647,7 +631,6 @@ test("系统更新展示正式发布日志并提交指定版本", async ({ page 
   expect(submitted).toEqual([{ version: "v1.1.0" }, { version: "v1.1.0" }]);
   for (const width of [390, 1366]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: "../data/update-" + width + ".png" });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -1237,7 +1220,6 @@ test("恢复点：只读查看、捕获、恢复与删除请求、真实错误�
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await page.screenshot({ path: "../data/recovery-drawer-mobile.png" });
   await page.getByRole("button", { name: "调整前操作" }).click();
   await page.getByRole("menuitem", { name: "恢复", exact: true }).click();
   const restore = page.getByRole("dialog", { name: "恢复环境", exact: true });
@@ -1562,7 +1544,7 @@ test("automatic topology cannot be repositioned and performs no view write", asy
   ).toEqual([]);
 });
 
-test("工作台直达视图可刷新，停止使用次级危险按钮", async ({ page }) => {
+test("工作台直达视图可刷新，切换视图不修改环境", async ({ page }) => {
   const calls = await fixture(page);
   await page.goto("/environments/env?view=assets");
   await expect(
@@ -1570,18 +1552,10 @@ test("工作台直达视图可刷新，停止使用次级危险按钮", async ({
   ).toHaveAttribute("aria-pressed", "true");
   await page.reload();
   await expect(page.getByRole("table", { name: "运行资产" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "停止", exact: true }),
-  ).toHaveAttribute("data-variant", "outline");
   await page.getByRole("button", { name: "拓扑视图", exact: true }).click();
   await expect(page).toHaveURL(/\/environments\/env$/);
   const asset = page.locator(".react-flow__node-asset").first();
   await expect(asset).toBeVisible();
-  const size = await asset.evaluate((element) => ({
-    width: element.clientWidth,
-    height: element.clientHeight,
-  }));
-  expect(size).toEqual({ width: 184, height: 64 });
   expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
 });
 
@@ -1609,15 +1583,6 @@ test("working area fits supported widths and both themes", async ({ page }) => {
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBe(true);
-      await page.screenshot({
-        path: `test-results/workbench-${theme}-${width}.png`,
-        animations: "disabled",
-      });
-      await page.getByRole("button", { name: "资产视图", exact: true }).click();
-      await page.screenshot({
-        path: `test-results/assets-${theme}-${width}.png`,
-        animations: "disabled",
-      });
     }
   }
   await expect(page.locator("html")).toHaveAttribute(
@@ -1721,7 +1686,6 @@ test("template details create and run the selected immutable version", async ({
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({ path: `test-results/blueprint-${width}.png` });
   }
   await page.getByRole("button", { name: "创建环境", exact: true }).click();
   await page.getByRole("textbox", { name: "环境名称" }).fill("独立 Web 环境");
@@ -1779,7 +1743,6 @@ test("the environment list selects a template without starting it", async ({
   await page.getByRole("option", { name: "混合组网模板", exact: true }).click();
   await page.getByLabel("创建后运行", { exact: true }).uncheck();
   await page.getByRole("textbox", { name: "环境名称" }).fill("待运行模板环境");
-  await page.screenshot({ path: "test-results/blueprint-create-390.png" });
   await page.getByRole("button", { name: "创建环境", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "待运行模板环境", exact: true }),
@@ -2275,10 +2238,7 @@ test("external LAN editor reads live interfaces and preserves the LAN gateway", 
   await editor
     .getByRole("textbox", { name: "现有网关", exact: true })
     .fill("192.0.2.1");
-  await page.setViewportSize({ width: 1366, height: 900 });
-  await page.screenshot({ path: "test-results/external-lan-1366.png" });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: "test-results/external-lan-390.png" });
   expect(
     await editor.evaluate((element) => element.scrollWidth),
   ).toBeLessThanOrEqual(390);

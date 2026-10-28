@@ -200,10 +200,6 @@ test("持久卷创建、扩容和删除使用同一节点工作区", async ({ pa
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: `../data/volumes-${width}.png`,
-      animations: "disabled",
-    });
   }
   await page.getByRole("button", { name: "扩容", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "扩容 业务数据" });
@@ -295,15 +291,7 @@ test("仓库目录中的备份通过标准创建接口恢复", async ({ page }) 
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await page.screenshot({
-    path: "../data/backup-catalog-mobile.png",
-    fullPage: true,
-  });
   await page.setViewportSize({ width: 1366, height: 900 });
-  await page.screenshot({
-    path: "../data/backup-catalog-desktop.png",
-    fullPage: true,
-  });
   await page.getByRole("button", { name: "恢复", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "从备份创建环境" });
   await dialog.getByRole("textbox", { name: "环境名称" }).fill("恢复环境");
@@ -405,6 +393,7 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
   });
   await page.goto("/resources/storage");
   await expect(page.getByText("80 GiB", { exact: true })).toBeVisible();
+  await expect(page.getByText("100 GiB", { exact: true })).toBeVisible();
   await expect(page.getByText("准备中", { exact: true })).toHaveCount(0);
   await expect(page.getByText("两个就绪的 KVM 节点")).toBeVisible();
   await expect(page.getByText("至少一块专用盘")).toBeVisible();
@@ -431,15 +420,7 @@ test("节点存储登记、引用拒绝与删除任务重试", async ({ page }) 
   await expect(page.getByText("存储池仍包含保留数据")).toBeVisible();
   await page.getByRole("button", { name: "重试 数据盘", exact: true }).click();
   await expect.poll(() => tries).toBe(1);
-  await page.screenshot({
-    path: "../data/storage-panel-desktop.png",
-    fullPage: true,
-  });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({
-    path: "../data/storage-panel-mobile.png",
-    fullPage: true,
-  });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

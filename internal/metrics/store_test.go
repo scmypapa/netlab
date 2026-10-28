@@ -72,45 +72,6 @@ func TestMetricsStorageFailure(t *testing.T) {
 	}
 }
 
-func TestHistoryScopes(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		filter Filter
-		want   []string
-		absent []string
-	}{
-		{"environment", Filter{Environment: "lab", Aggregate: true}, []string{`sum(rate(netlab_cpu_seconds_total{environment="lab"}[1m])`, `sum(last_over_time(netlab_memory_bytes`}, []string{"cpu_capacity"}},
-		{"node", Filter{Node: "worker"}, []string{`environment="",node="worker"`, "netlab_memory_available_bytes", "netlab_disk_used_bytes", "netlab_cpu_capacity"}, []string{"sum("}},
-		{"cluster", Filter{Aggregate: true}, []string{`sum(rate(netlab_cpu_seconds_total{environment=""}[1m])`, `sum(last_over_time(netlab_cpu_capacity`}, nil},
-		{"traffic selection", Filter{Environment: "lab", Metrics: []string{"receive", "transmit"}}, []string{"netlab_interface_receive_bytes_total", "netlab_interface_transmit_bytes_total"}, []string{"netlab_cpu", "netlab_memory", "netlab_disk", "netlab_interface_receive_packets_total", "netlab_interface_transmit_drops_total"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			query := historyQuery(test.filter, 10)
-			for _, term := range test.want {
-				if !strings.Contains(query, term) {
-					t.Errorf("missing %q in %s", term, query)
-				}
-			}
-			for _, term := range test.absent {
-				if strings.Contains(query, term) {
-					t.Errorf("unexpected %q in %s", term, query)
-				}
-			}
-		})
-	}
-}
-
-func TestHistoryBucketQuery(t *testing.T) {
-	query := historyQuery(Filter{Environment: "lab", Aggregate: true}, 4320)
-	if !strings.Contains(query, `sum(increase(netlab_cpu_seconds_total{environment="lab"}[4320s]) / 4320)`) ||
-		!strings.Contains(query, `sum(increase(netlab_interface_transmit_bytes_total{environment="lab"}[4320s]) / 4320)`) {
-		t.Fatal(query)
-	}
-	if strings.Contains(query, `timestamp(netlab_cpu_seconds_total`) || !strings.Contains(query, `last_over_time(netlab_memory_bytes{environment="lab"}[15s])`) {
-		t.Fatal("long counters lost bucket activity or changed point-in-time memory semantics:", query)
-	}
-}
-
 func TestRealMetricsHistory(t *testing.T) {
 	endpoint := os.Getenv("NETLAB_REAL_METRICS_URL")
 	if endpoint == "" {

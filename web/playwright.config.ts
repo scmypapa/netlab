@@ -9,6 +9,7 @@ export default defineConfig({
     channel: "msedge",
     headless: true,
     trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   webServer: {
     command: "pnpm dev",

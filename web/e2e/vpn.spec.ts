@@ -292,14 +292,6 @@ test("VPN download waits for applied task and contains a matching private key an
   await expect(
     page.getByText("10.10.0.0/24 → 172.28.0.0/24", { exact: true }),
   ).toBeVisible();
-  await page.screenshot({
-    path: "D:/.cache/netlab/artifacts/vpn-web-desktop.png",
-  });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({
-    path: "D:/.cache/netlab/artifacts/vpn-web-mobile.png",
-  });
-  await page.setViewportSize({ width: 1366, height: 900 });
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载 WireGuard 配置" }).click();
   const download = await downloaded;

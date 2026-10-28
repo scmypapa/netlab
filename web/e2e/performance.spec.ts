@@ -181,9 +181,6 @@ test("环境性能区分当前快照和历史，支持切换指标与资产下�
         page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       )
       .toBe(true);
-    await page.screenshot({
-      path: `test-results/environment-performance-${width}.png`,
-    });
   }
   await page.getByRole("button", { name: "切换夜间主题", exact: true }).click();
   await expect(panel.getByRole("img", { name: "内存历史曲线" })).toBeVisible();
@@ -278,9 +275,6 @@ test("集群历史覆盖全量，节点卡片展示实测并下钻", async ({ pa
         page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       )
       .toBe(true);
-    await page.screenshot({
-      path: `test-results/cluster-performance-${width}.png`,
-    });
   }
 });
 

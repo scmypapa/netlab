@@ -982,9 +982,7 @@ test("流量刷新保留视角，只呈现环境对象，广播组播归入交�
   expect(query.get("filter")).toBeNull();
 });
 
-test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用", async ({
-  page,
-}, info) => {
+test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用", async ({ page }) => {
   await fixture(page);
   await open(page);
   await page.getByRole("button", { name: "全屏分析", exact: true }).click();
@@ -1012,7 +1010,6 @@ test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用",
   await expect(
     dialog.getByRole("link", { name: "下载抓包", exact: true }),
   ).toBeVisible();
-  await page.screenshot({ path: info.outputPath("traffic-fullscreen.png") });
   await dialog.locator(".mantine-Modal-close").click();
   await page.getByRole("button", { name: "退出全屏", exact: true }).click();
   await expect
@@ -1020,9 +1017,7 @@ test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用",
     .toBeNull();
 });
 
-test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", async ({
-  page,
-}, info) => {
+test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", async ({ page }) => {
   test.setTimeout(60000);
   await fixture(page);
   await open(page);
@@ -1144,9 +1139,6 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
       expect(panes!.y + panes!.height).toBeLessThanOrEqual(
         (await page.viewportSize())!.height,
       );
-      await page.screenshot({
-        path: info.outputPath(`traffic-${width}-${theme}.png`),
-      });
       if (width === 1366 || width === 390) {
         await page
           .getByRole("button", { name: "流量趋势", exact: true })
@@ -1178,9 +1170,6 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
         await expect(
           page.getByRole("region", { name: "资产通信图" }),
         ).toBeVisible();
-        await page.screenshot({
-          path: info.outputPath(`traffic-${width}-${theme}-graph.png`),
-        });
         await page
           .getByRole("button", { name: "报文", exact: true })
           .first()
@@ -1193,7 +1182,7 @@ test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", as
 });
 test("无流量资产不显示，密集连线绕开设备与名称，保留真实环境对象", async ({
   page,
-}, info) => {
+}) => {
   test.setTimeout(60000);
   const scene: EnvironmentSpec = {
     networks: [
@@ -1322,5 +1311,4 @@ test("无流量资产不显示，密集连线绕开设备与名称，保留真�
         .map((label) => label.textContent),
     );
   expect(clipped).toEqual([]);
-  await page.screenshot({ path: info.outputPath("traffic-dense.png") });
 });
