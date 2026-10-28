@@ -181,23 +181,29 @@ func Operation(row queries.Operation) (api.Operation, error) {
 		return result, err
 	}
 	result.Results = &results
+	type assetID struct{ Id string }
+	type target struct {
+		Execution struct {
+			Asset      assetID
+			InstanceId string
+		}
+	}
 	var payload struct {
-		Spec       api.EnvironmentSpec                      `json:"spec"`
-		BeforeSpec *api.EnvironmentSpec                     `json:"beforeSpec"`
-		Targets    []struct{ Execution api.AssetExecution } `json:"targets"`
-		Updates    []struct{ Execution api.AssetExecution } `json:"updates"`
-		Old        []struct{ Execution api.AssetExecution } `json:"old"`
-		Template   *api.Template                            `json:"template"`
-		Volume     *api.NodeVolume                          `json:"volume"`
-		Recovery   *struct {
-			Assets []struct{ Execution api.AssetExecution } `json:"assets"`
+		Spec     struct{ Assets []assetID } `json:"spec"`
+		Targets  []target                   `json:"targets"`
+		Updates  []target                   `json:"updates"`
+		Old      []target                   `json:"old"`
+		Template *struct{}                  `json:"template"`
+		Volume   *struct{}                  `json:"volume"`
+		Recovery *struct {
+			Assets []target `json:"assets"`
 		} `json:"recovery"`
 	}
 	if err := json.Unmarshal(row.Payload, &payload); err != nil {
 		return result, err
 	}
 	targets := map[string]string{}
-	for _, group := range [][]struct{ Execution api.AssetExecution }{payload.Targets, payload.Updates, payload.Old} {
+	for _, group := range [][]target{payload.Targets, payload.Updates, payload.Old} {
 		for _, t := range group {
 			if _, exists := targets[t.Execution.Asset.Id]; !exists {
 				targets[t.Execution.Asset.Id] = t.Execution.InstanceId
@@ -219,12 +225,21 @@ func Operation(row queries.Operation) (api.Operation, error) {
 		}
 	}
 	result.Total = len(targets)
-	if row.Kind == "change" && payload.BeforeSpec != nil && ServiceOnly(*payload.BeforeSpec, payload.Spec) {
-		services := map[string]bool{}
-		for _, service := range ChangedServices(*payload.BeforeSpec, payload.Spec) {
-			services[service.Id] = true
+	if row.Kind == "change" {
+		var change struct {
+			Spec       api.EnvironmentSpec  `json:"spec"`
+			BeforeSpec *api.EnvironmentSpec `json:"beforeSpec"`
 		}
-		result.Total = len(services)
+		if err := json.Unmarshal(row.Payload, &change); err != nil {
+			return result, err
+		}
+		if change.BeforeSpec != nil && ServiceOnly(*change.BeforeSpec, change.Spec) {
+			services := map[string]bool{}
+			for _, service := range ChangedServices(*change.BeforeSpec, change.Spec) {
+				services[service.Id] = true
+			}
+			result.Total = len(services)
+		}
 	}
 	if payload.Template != nil || payload.Volume != nil {
 		result.Total = 1
