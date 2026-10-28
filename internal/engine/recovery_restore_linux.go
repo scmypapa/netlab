@@ -95,7 +95,7 @@ func (e *Engine) prepareRecovery(ctx context.Context, plan api.NodePlan, a api.A
 		return err
 	}
 	templateDir := templateDirectory(e.cfg.DataDir, a.Template.Id, a.Template.Version)
-	if a.Template.ArtifactNodeId != nil {
+	if a.Template.Kind == api.Vm && a.Template.ArtifactNodeId != nil {
 		endpoint := ""
 		if plan.ArtifactEndpoints != nil {
 			endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
@@ -156,9 +156,6 @@ func recoveryLeaseID(a api.AssetExecution) string {
 
 func (c *Containers) prepareRecovery(ctx context.Context, env string, a api.AssetExecution, input, staging string, manifest recoveryManifest) (err error) {
 	ctx = namespaces.WithNamespace(ctx, "netlab")
-	if _, err = c.image(ctx, a.Template, nil); err != nil {
-		return err
-	}
 	if _, err = c.client.LeasesService().Create(ctx, leases.WithID(recoveryLeaseID(a))); err != nil && !errdefs.IsAlreadyExists(err) {
 		return err
 	}

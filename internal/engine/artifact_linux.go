@@ -45,6 +45,25 @@ func (e *Engine) TransferTemplate(ctx context.Context, request api.NodeTemplateP
 	return e.fetchTemplateArtifact(ctx, request.Template, *request.ArtifactEndpoint, false)
 }
 
+func (e *Engine) prepareContainerImage(ctx context.Context, t api.Template) error {
+	if e.container == nil {
+		return errors.New("container runtime not configured")
+	}
+	unlock, err := e.lock(ctx, fmt.Sprintf("artifact:%s:%d", t.Id, t.Version))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
+	_, err = e.container.image(ctx, t, nil)
+	return err
+}
+
 func (r *artifactReader) Close() error { err := r.ReadCloser.Close(); r.once.Do(r.unlock); return err }
 
 func (e *Engine) OpenTemplateArtifact(ctx context.Context, id string, version int, runtimeOnly bool) (io.ReadCloser, int64, error) {

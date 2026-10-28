@@ -47,7 +47,6 @@ type Containers struct {
 	client   *containerd.Client
 	data     string
 	ovs      *network.OVS
-	images   sync.Map
 	ctx      context.Context
 	cancel   context.CancelFunc
 	watching sync.Map
@@ -180,7 +179,7 @@ func (c *Containers) prepare(ctx context.Context, env string, a api.AssetExecuti
 	} else if !errdefs.IsNotFound(err) {
 		return "unknown", err
 	}
-	image, err := c.image(ctx, a.Template, nil)
+	image, err := c.client.GetImage(ctx, fmt.Sprintf("netlab/template/%s:%d", a.Template.Id, a.Template.Version))
 	if err != nil {
 		return "absent", err
 	}
@@ -247,10 +246,6 @@ func (c *Containers) containerConfiguration(ctx context.Context, env string, a a
 }
 func (c *Containers) image(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (containerd.Image, error) {
 	ref := fmt.Sprintf("netlab/template/%s:%d", t.Id, t.Version)
-	lock, _ := c.images.LoadOrStore(ref, &sync.Mutex{})
-	mu := lock.(*sync.Mutex)
-	mu.Lock()
-	defer mu.Unlock()
 	image, err := c.client.GetImage(ctx, ref)
 	if errdefs.IsNotFound(err) {
 		image, err = c.importImage(ctx, t, registry)

@@ -317,7 +317,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		wg.Add(1)
 		go func(i int, a api.AssetExecution) {
 			defer wg.Done()
-			if a.Template.Kind == api.Vm && (plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery) {
+			if plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery {
 				// Instances share template reads; cache trimming and deletion remain exclusive.
 				unlockTemplate, err := e.acquire(ctx, "template:"+a.Template.Id, true)
 				if err != nil {
@@ -332,12 +332,18 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 					return
 				}
 			}
-			if plan.Phase == api.NodePlanPhasePrepare && a.Template.ArtifactNodeId != nil {
+			if (plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery && a.Template.Kind == api.Container) && a.Template.ArtifactNodeId != nil {
 				endpoint := ""
 				if plan.ArtifactEndpoints != nil {
 					endpoint = (*plan.ArtifactEndpoints)[*a.Template.ArtifactNodeId]
 				}
 				if err := e.fetchTemplateArtifact(ctx, a.Template, endpoint, a.Rbd != nil); err != nil {
+					result.Results[i] = executionResult(a, "absent", err)
+					return
+				}
+			}
+			if a.Template.Kind == api.Container && (plan.Phase == api.NodePlanPhasePrepare || plan.Phase == api.NodePlanPhasePrepareRecovery) {
+				if err := e.prepareContainerImage(ctx, a.Template); err != nil {
 					result.Results[i] = executionResult(a, "absent", err)
 					return
 				}
