@@ -108,10 +108,8 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (ap
 	if settings.DurationSeconds < 10 || settings.DurationSeconds > 1800 || settings.FileSizeMiB < 1 || settings.FileSizeMiB > 1024 {
 		return api.CaptureSegment{}, errors.New("抓包时长或文件额度超出范围")
 	}
-	for _, active := range m.live {
-		if active.detail.Segment.EnvironmentId == request.EnvironmentId {
-			return api.CaptureSegment{}, errors.New("该环境在此节点已有运行中的抓包")
-		}
+	if m.live[request.EnvironmentId] != nil {
+		return api.CaptureSegment{}, errors.New("该环境在此节点已有运行中的抓包")
 	}
 	local := []api.CaptureInterface{}
 	assets := []string{}
@@ -157,7 +155,7 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (ap
 	}
 	lifetime, cancel := context.WithTimeout(context.Background(), time.Duration(settings.DurationSeconds)*time.Second)
 	s.cancel = cancel
-	m.live[request.Id] = s
+	m.live[request.EnvironmentId] = s
 	go func() {
 		<-lifetime.Done()
 		s.mu.Lock()
@@ -187,7 +185,7 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (ap
 		s.mu.Unlock()
 		if saveErr == nil {
 			m.mu.Lock()
-			delete(m.live, request.Id)
+			delete(m.live, request.EnvironmentId)
 			m.mu.Unlock()
 		}
 		close(s.done)
@@ -196,98 +194,86 @@ func (m *Manager) Start(ctx context.Context, request api.NodeCaptureRequest) (ap
 }
 func (m *Manager) recordSubscriptions(environment, portName string, info gopacket.CaptureInfo, data []byte) {
 	m.mu.Lock()
-	sessions := []*session{}
-	for _, s := range m.live {
-		if s.detail.Segment.EnvironmentId == environment {
-			sessions = append(sessions, s)
-		}
-	}
+	s := m.live[environment]
 	m.mu.Unlock()
-	for _, s := range sessions {
-		s.mu.Lock()
-		index := slices.Index(s.stats.capturePorts, portName)
-		if index < 0 || s.stopped || info.Timestamp.Before(s.detail.Segment.StartedAt) || s.filter != nil && !s.filter.Matches(info, data) {
-			s.mu.Unlock()
-			continue
-		}
-		if s.writer.part.Raw+int64(len(data))+32 > s.limit {
-			s.stopped = true
-			s.cancel()
-			s.mu.Unlock()
-			continue
-		}
-		info.InterfaceIndex = index
-		_, releaseWriter := m.recorder.lockRecording(environment)
-		err := s.writer.packets.WritePacket(info, data)
-		if err == nil {
-			s.writer.part.Raw += int64(len(data)) + 32
-			s.writer.part.Packets++
-			s.writer.part.End = info.Timestamp.UTC()
-		}
-		releaseWriter()
-		if err != nil {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := slices.Index(s.stats.capturePorts, portName)
+	if index < 0 || s.stopped || info.Timestamp.Before(s.detail.Segment.StartedAt) || s.filter != nil && !s.filter.Matches(info, data) {
+		return
+	}
+	if s.writer.part.Raw+int64(len(data))+32 > s.limit {
+		s.stopped = true
+		s.cancel()
+		return
+	}
+	info.InterfaceIndex = index
+	_, releaseWriter := m.recorder.lockRecording(environment)
+	err := s.writer.packets.WritePacket(info, data)
+	if err == nil {
+		s.writer.part.Raw += int64(len(data)) + 32
+		s.writer.part.Packets++
+		s.writer.part.End = info.Timestamp.UTC()
+	}
+	releaseWriter()
+	if err != nil {
+		message := err.Error()
+		s.detail.Segment.Error = &message
+		s.stopped = true
+		s.cancel()
+		return
+	}
+	packet := summarizePacket(0, data, info, layers.LinkTypeEthernet)
+	sample := Sample{At: info.Timestamp, Source: packet.Source, Destination: packet.Destination, Protocol: packet.Protocol, SourcePort: packet.SourcePort, DestinationPort: packet.DestinationPort, PortName: portName, Bytes: int64(len(data)), Packets: 1, Samples: 1, CaptureIndex: &index}
+	if packet.SourceMac != nil {
+		sample.SourceMAC = *packet.SourceMac
+	}
+	if packet.DestinationMac != nil {
+		sample.DestinationMAC = *packet.DestinationMac
+	}
+	s.stats.addSample(sample)
+	s.detail.Segment.Status = api.CaptureSegmentStatusRunning
+	if time.Since(s.persisted) >= 10*time.Second {
+		if err = m.save(s.snapshot()); err != nil {
 			message := err.Error()
 			s.detail.Segment.Error = &message
 			s.stopped = true
 			s.cancel()
-			s.mu.Unlock()
-			continue
 		}
-		packet := summarizePacket(0, data, info, layers.LinkTypeEthernet)
-		sample := Sample{At: info.Timestamp, Source: packet.Source, Destination: packet.Destination, Protocol: packet.Protocol, SourcePort: packet.SourcePort, DestinationPort: packet.DestinationPort, PortName: portName, Bytes: int64(len(data)), Packets: 1, Samples: 1, CaptureIndex: &index}
-		if packet.SourceMac != nil {
-			sample.SourceMAC = *packet.SourceMac
-		}
-		if packet.DestinationMac != nil {
-			sample.DestinationMAC = *packet.DestinationMac
-		}
-		s.stats.addSample(sample)
-		s.detail.Segment.Status = api.CaptureSegmentStatusRunning
-		if time.Since(s.persisted) >= 10*time.Second {
-			if err = m.save(s.snapshot()); err != nil {
-				message := err.Error()
-				s.detail.Segment.Error = &message
-				s.stopped = true
-				s.cancel()
-			}
-			s.persisted = time.Now()
-		}
-		s.mu.Unlock()
+		s.persisted = time.Now()
 	}
 }
 func (m *Manager) recordStatistics(environment, portName string, stats pcapgo.NgInterfaceStatistics) {
 	m.mu.Lock()
-	sessions := []*session{}
-	for _, s := range m.live {
-		if s.detail.Segment.EnvironmentId == environment {
-			sessions = append(sessions, s)
-		}
-	}
+	s := m.live[environment]
 	m.mu.Unlock()
-	for _, s := range sessions {
-		s.mu.Lock()
-		index := slices.Index(s.stats.capturePorts, portName)
-		if index < 0 || s.stopped {
-			s.mu.Unlock()
-			continue
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := slices.Index(s.stats.capturePorts, portName)
+	if index < 0 || s.stopped {
+		return
+	}
+	_, releaseWriter := m.recorder.lockRecording(environment)
+	err := s.writer.packets.WriteInterfaceStats(index, stats)
+	releaseWriter()
+	// dumpcap emits one cumulative ISB per interface when a physical capture closes.
+	if stats.PacketsDropped != pcapgo.NgNoValue64 {
+		if s.detail.Segment.KernelDroppedPackets == nil {
+			s.detail.Segment.KernelDroppedPackets = new(int64)
 		}
-		_, releaseWriter := m.recorder.lockRecording(environment)
-		err := s.writer.packets.WriteInterfaceStats(index, stats)
-		releaseWriter()
-		// dumpcap emits one cumulative ISB per interface when a physical capture closes.
-		if stats.PacketsDropped != pcapgo.NgNoValue64 {
-			if s.detail.Segment.KernelDroppedPackets == nil {
-				s.detail.Segment.KernelDroppedPackets = new(int64)
-			}
-			*s.detail.Segment.KernelDroppedPackets += int64(stats.PacketsDropped)
-		}
-		if err != nil {
-			message := err.Error()
-			s.detail.Segment.Error = &message
-			s.stopped = true
-			s.cancel()
-		}
-		s.mu.Unlock()
+		*s.detail.Segment.KernelDroppedPackets += int64(stats.PacketsDropped)
+	}
+	if err != nil {
+		message := err.Error()
+		s.detail.Segment.Error = &message
+		s.stopped = true
+		s.cancel()
 	}
 }
 func (s *session) snapshot() api.CaptureDetail {
@@ -300,9 +286,7 @@ func (m *Manager) Get(id, environment string) (api.CaptureDetail, error) {
 	if _, err := uuid.Parse(id); err != nil {
 		return api.CaptureDetail{}, err
 	}
-	m.mu.Lock()
-	s := m.live[id]
-	m.mu.Unlock()
+	s := m.liveSession(id, environment)
 	var detail api.CaptureDetail
 	var err error
 	if s != nil {
@@ -343,9 +327,7 @@ func (m *Manager) Stop(ctx context.Context, id, environment string) (api.Capture
 	if err != nil {
 		return api.CaptureSegment{}, err
 	}
-	m.mu.Lock()
-	s := m.live[id]
-	m.mu.Unlock()
+	s := m.liveSession(id, environment)
 	if s != nil {
 		s.mu.Lock()
 		s.stopped = true
@@ -435,14 +417,31 @@ func (m *Manager) Close() {
 		sessions[id] = s
 	}
 	m.mu.Unlock()
-	for id, s := range sessions {
+	for environment, s := range sessions {
+		s.mu.Lock()
+		id := s.detail.Segment.Id
+		s.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		m.Stop(ctx, id, s.detail.Segment.EnvironmentId)
+		m.Stop(ctx, id, environment)
 		cancel()
 	}
 	if m.recorder != nil {
 		m.recorder.Close()
 	}
+}
+func (m *Manager) liveSession(id, environment string) *session {
+	m.mu.Lock()
+	s := m.live[environment]
+	m.mu.Unlock()
+	if s != nil {
+		s.mu.Lock()
+		matches := s.detail.Segment.Id == id
+		s.mu.Unlock()
+		if !matches {
+			return nil
+		}
+	}
+	return s
 }
 func (m *Manager) File(w http.ResponseWriter, r *http.Request, id, environment string) error {
 	detail, err := m.Get(id, environment)
