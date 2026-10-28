@@ -545,22 +545,22 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 	if t.ArtifactNodeId == nil {
 		t.ArtifactNodeId = ptr(e.cfg.ID)
 	}
-	select {
-	case e.ioSlots <- struct{}{}:
-	case <-ctx.Done():
-		return t, ctx.Err()
-	}
-	defer func() { <-e.ioSlots }()
 	switch t.Kind {
 	case api.Container:
 		if e.container == nil {
 			return t, errors.New("container runtime not configured")
 		}
-		t, err = e.container.prepareTemplate(namespaces.WithNamespace(ctx, "netlab"), t, request.Registry)
+		t, err = e.container.prepareTemplate(namespaces.WithNamespace(ctx, "netlab"), t, request.Registry, e.ioSlots)
 	case api.Vm:
 		if e.vm == nil {
 			return t, errors.New("virtual machine runtime not configured")
 		}
+		select {
+		case e.ioSlots <- struct{}{}:
+		case <-ctx.Done():
+			return t, ctx.Err()
+		}
+		defer func() { <-e.ioSlots }()
 		t, err = e.vm.prepareTemplate(ctx, t, request.Capture)
 		if err == nil && request.StoragePoolId != nil {
 			var storage api.StorageInfo

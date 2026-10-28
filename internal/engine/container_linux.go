@@ -244,14 +244,30 @@ func (c *Containers) containerConfiguration(ctx context.Context, env string, a a
 	}
 	return []containerd.NewContainerOpts{containerd.WithImage(image), containerd.WithSnapshotter("overlayfs"), containerd.WithContainerLabels(labels), containerd.WithNewSpec(opts...)}, volumes, nil
 }
-func (c *Containers) image(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (containerd.Image, error) {
+func (c *Containers) image(ctx context.Context, t api.Template, registry *api.RegistryCredentials, ioSlots chan struct{}) (containerd.Image, error) {
 	ref := fmt.Sprintf("netlab/template/%s:%d", t.Id, t.Version)
 	image, err := c.client.GetImage(ctx, ref)
-	if errdefs.IsNotFound(err) {
-		image, err = c.importImage(ctx, t, registry)
-	}
-	if err != nil {
+	missing := errdefs.IsNotFound(err)
+	if err != nil && !missing {
 		return nil, err
+	}
+	if !missing {
+		unpacked, err := image.IsUnpacked(ctx, "overlayfs")
+		if err != nil || unpacked {
+			return image, err
+		}
+	}
+	select {
+	case ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-ioSlots }()
+	if missing {
+		image, err = c.importImage(ctx, t, registry)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err = image.Unpack(ctx, "overlayfs"); err != nil {
 		return nil, err
@@ -259,7 +275,7 @@ func (c *Containers) image(ctx context.Context, t api.Template, registry *api.Re
 	return image, nil
 }
 
-func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, registry *api.RegistryCredentials) (api.Template, error) {
+func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, registry *api.RegistryCredentials, ioSlots chan struct{}) (api.Template, error) {
 	directory := templateDirectory(c.data, t.Id, t.Version)
 	if raw, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
 		var cached api.Template
@@ -271,7 +287,7 @@ func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, regist
 	}
 	source := t
 	source.ArtifactNodeId = nil
-	image, err := c.image(ctx, source, registry)
+	image, err := c.image(ctx, source, registry, ioSlots)
 	if err != nil {
 		return t, err
 	}
@@ -290,6 +306,12 @@ func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, regist
 	if err != nil {
 		return t, err
 	}
+	select {
+	case ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return t, errors.Join(ctx.Err(), file.Close())
+	}
+	defer func() { <-ioSlots }()
 	exportErr := c.client.Export(ctx, file, archive.WithManifest(image.Target(), image.Name()), archive.WithPlatform(platforms.Default()), archive.WithSkipMissing(c.client.ContentStore()))
 	if err = errors.Join(exportErr, file.Close()); err != nil {
 		return t, err

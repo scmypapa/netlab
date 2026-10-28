@@ -76,8 +76,18 @@ func TestRealContainerImportDoesNotOccupyCompute(t *testing.T) {
 	defer unblock()
 	resources := api.Resources{Cpu: 1, MemoryMiB: 64, DiskGiB: 1}
 	template := api.Template{Id: uuid.NewString(), Kind: api.Container, Version: 1, Source: source.URL, Resources: resources}
+	warmTemplate := template
+	warmTemplate.Id, warmTemplate.Source = uuid.NewString(), archive
+	warmTemplate, err = e.PrepareTemplate(ctx, api.NodeTemplatePreparation{Template: warmTemplate})
+	if err != nil || warmTemplate.ArtifactNodeId == nil {
+		t.Fatalf("prepare the warm image through the production template path: %+v %v", warmTemplate, err)
+	}
 	a := api.AssetExecution{InstanceId: uuid.NewString(), Template: template, Asset: api.Asset{Id: "server", Name: "Server", Resources: resources}, Interfaces: []api.ResolvedInterface{}}
 	plan := api.NodePlan{EnvironmentId: uuid.NewString(), OperationId: uuid.NewString(), Phase: api.NodePlanPhasePrepare, Assets: []api.AssetExecution{a}}
+	warm := plan
+	warm.EnvironmentId = uuid.NewString()
+	warm.Assets = []api.AssetExecution{a}
+	warm.Assets[0].InstanceId, warm.Assets[0].Template = uuid.NewString(), warmTemplate
 	done := make(chan api.NodeResult, 1)
 	go func() { done <- e.Execute(ctx, plan) }()
 	completed := false
@@ -89,18 +99,22 @@ func TestRealContainerImportDoesNotOccupyCompute(t *testing.T) {
 		}
 		cleanup, finish := context.WithTimeout(context.Background(), 10*time.Second)
 		defer finish()
-		plan.Phase = api.NodePlanPhaseDestroy
-		result := e.Execute(cleanup, plan)
-		if result.Error != nil {
-			t.Error(*result.Error)
-		}
-		for _, result := range result.Results {
+		for _, input := range []api.NodePlan{plan, warm} {
+			input.Phase = api.NodePlanPhaseDestroy
+			result := e.Execute(cleanup, input)
 			if result.Error != nil {
 				t.Error(*result.Error)
 			}
+			for _, result := range result.Results {
+				if result.Error != nil {
+					t.Error(*result.Error)
+				}
+			}
 		}
-		if err := e.RemoveTemplate(cleanup, template.Id, nil); err != nil {
-			t.Error(err)
+		for _, id := range []string{template.Id, warmTemplate.Id} {
+			if err := e.RemoveTemplate(cleanup, id, nil); err != nil {
+				t.Error(err)
+			}
 		}
 	}()
 	select {
@@ -117,6 +131,12 @@ func TestRealContainerImportDoesNotOccupyCompute(t *testing.T) {
 	finish()
 	if result.Error != nil || len(result.Results) != 1 || result.Results[0].State != "absent" {
 		t.Fatalf("another environment waited behind image import: %+v", result)
+	}
+	control, finish = context.WithTimeout(ctx, time.Second)
+	result = e.Execute(control, warm)
+	finish()
+	if result.Error != nil || len(result.Results) != 1 || result.Results[0].State != "prepared" || result.Results[0].Error != nil {
+		t.Fatalf("an already unpacked image waited behind cold image I/O: %+v", result)
 	}
 	unblock()
 	select {

@@ -54,13 +54,7 @@ func (e *Engine) prepareContainerImage(ctx context.Context, t api.Template) erro
 		return err
 	}
 	defer unlock()
-	select {
-	case e.ioSlots <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	defer func() { <-e.ioSlots }()
-	_, err = e.container.image(ctx, t, nil)
+	_, err = e.container.image(ctx, t, nil, e.ioSlots)
 	return err
 }
 
@@ -172,12 +166,6 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 		return err
 	}
 	defer unlock()
-	select {
-	case e.ioSlots <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	defer func() { <-e.ioSlots }()
 	if *t.ArtifactNodeId == e.cfg.ID && !shared {
 		return e.hydrateTemplate(ctx, t)
 	}
@@ -198,6 +186,13 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 		return err
 	}
 	defer reader.Close()
+	// Open the source first: its hydration may need the same I/O budget.
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
 	return e.installTemplateArtifact(t, reader, shared)
 }
 

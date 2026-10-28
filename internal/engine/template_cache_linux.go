@@ -120,6 +120,7 @@ func (e *Engine) hydrateTemplate(ctx context.Context, t api.Template) error {
 	}
 	defer unlock()
 	directory := templateDirectory(e.cfg.DataDir, t.Id, t.Version)
+	missing := []int{}
 	for i := range *t.Disks {
 		path := systemDiskPath(directory, i)
 		if _, err := os.Stat(path); err == nil {
@@ -127,6 +128,19 @@ func (e *Engine) hydrateTemplate(ctx context.Context, t api.Template) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
+		missing = append(missing, i)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
+	for _, i := range missing {
+		path := systemDiskPath(directory, i)
 		pools, err := os.ReadDir(filepath.Join(e.cfg.DataDir, "storage-pools"))
 		if err != nil {
 			return err

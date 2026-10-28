@@ -235,8 +235,8 @@ func TestColdTemplateSourceDoesNotOccupyComputeSlot(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("cold source request did not start")
 			}
-			if len(e.slots) != 0 || len(e.ioSlots) != 1 {
-				t.Fatal("cold source preparation did not isolate I/O from compute slots")
+			if len(e.slots) != 0 || len(e.ioSlots) != 0 {
+				t.Fatal("waiting for source readiness occupied execution slots")
 			}
 			control := make(chan api.NodeResult, 1)
 			go func() {
