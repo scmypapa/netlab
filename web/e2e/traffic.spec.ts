@@ -322,6 +322,7 @@ async function fixture(page: Page, scene: EnvironmentSpec = spec) {
     packetReply: undefined as ((url: URL) => Packet[]) | undefined,
     alerts: [alert],
     olderAlerts: [] as Schema<"SecurityAlert">[],
+    retention: { ...retention },
   };
   const byId = new Map(packets.map((packet) => [packet.id!, packet]));
   await page.addInitScript(() => {
@@ -396,7 +397,7 @@ async function fixture(page: Page, scene: EnvironmentSpec = spec) {
         samplingRate: 1,
         windowSeconds: 60,
         omittedSamples: 0,
-        retention,
+        retention: state.retention,
       };
     else if (path === "/environments/env/metrics")
       response = {
@@ -464,7 +465,7 @@ async function fixture(page: Page, scene: EnvironmentSpec = spec) {
       for (const packet of rows) byId.set(packet.id!, packet);
       response = {
         packets: rows,
-        retention,
+        retention: state.retention,
         errors: {},
         ...(!url.searchParams.has("cursor") && state.nextCursor
           ? { nextCursor: state.nextCursor }
@@ -541,7 +542,7 @@ test("进度事件只刷新任务状态，终态同步关联资源", async ({ pa
 test("隐藏分析面板停止查询，展开后恢复实时刷新", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.clock.install();
-  const { requests } = await fixture(page);
+  const { requests, state } = await fixture(page);
   await open(page);
   const count = (suffix: string) =>
     requests.filter(({ url }) => url.pathname.endsWith(suffix)).length;
@@ -552,8 +553,10 @@ test("隐藏分析面板停止查询，展开后恢复实时刷新", async ({ pa
 
   await page.getByRole("button", { name: /^告警 \d/ }).click();
   const packets = count("/packets");
+  state.retention.status = "idle";
   await page.clock.fastForward(11_000);
   expect(count("/packets")).toBe(packets);
+  await expect(page.getByText("无运行接口", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "流量趋势", exact: true }).click();
   await expect.poll(() => count("/metrics")).toBeGreaterThan(0);

@@ -82,7 +82,10 @@ export function useTrafficObservation(
     packets,
     traffic,
     history,
-    retention: latest.data?.retention ?? traffic.data?.retention,
+    retention:
+      latest.dataUpdatedAt >= traffic.dataUpdatedAt
+        ? latest.data?.retention
+        : traffic.data?.retention,
     loading: options.packets && latest.isPending,
     fetching:
       options.packets &&
