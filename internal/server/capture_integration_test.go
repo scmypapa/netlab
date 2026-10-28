@@ -165,7 +165,7 @@ func testCaptureAPI(t *testing.T, ctx context.Context, s *Server, admin string, 
 	if err != nil || len(refs) != 0 {
 		t.Fatalf("capture ownership remains: %+v %v", refs, err)
 	}
-	if err = s.Queries.EnsurePacketNode(ctx, queries.EnsurePacketNodeParams{EnvironmentID: env.Id, NodeID: nodeID}); err != nil {
+	if err = s.Queries.EnsurePacketNodes(ctx, queries.EnsurePacketNodesParams{EnvironmentIds: []string{env.Id}, NodeIds: []string{nodeID}}); err != nil {
 		t.Fatal(err)
 	}
 	info, _ := json.Marshal(api.PacketRetention{LimitBytes: capture.PacketBudget, UsedBytes: 1024, Status: api.PacketRetentionStatusRecording})

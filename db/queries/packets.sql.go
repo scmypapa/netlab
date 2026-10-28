@@ -20,34 +20,19 @@ func (q *Queries) DeleteEnvironmentPacketNodes(ctx context.Context, environmentI
 	return err
 }
 
-const ensurePacketNode = `-- name: EnsurePacketNode :exec
-INSERT INTO packet_nodes(environment_id,node_id) VALUES($1,$2) ON CONFLICT DO NOTHING
+const ensurePacketNodes = `-- name: EnsurePacketNodes :exec
+INSERT INTO packet_nodes(environment_id,node_id)
+SELECT unnest($1::text[]),unnest($2::text[])
+ON CONFLICT DO NOTHING
 `
 
-type EnsurePacketNodeParams struct {
-	EnvironmentID string
-	NodeID        string
+type EnsurePacketNodesParams struct {
+	EnvironmentIds []string
+	NodeIds        []string
 }
 
-func (q *Queries) EnsurePacketNode(ctx context.Context, arg EnsurePacketNodeParams) error {
-	_, err := q.db.Exec(ctx, ensurePacketNode, arg.EnvironmentID, arg.NodeID)
-	return err
-}
-
-const grantPacketQuota = `-- name: GrantPacketQuota :exec
-UPDATE packet_nodes p SET quota_bytes=$3
-WHERE p.environment_id=$1 AND p.node_id=$2 AND $3>p.quota_bytes
-AND $3-p.quota_bytes<=1073741824-(SELECT COALESCE(sum(other.quota_bytes),0) FROM packet_nodes other WHERE other.environment_id=$1)
-`
-
-type GrantPacketQuotaParams struct {
-	EnvironmentID string
-	NodeID        string
-	QuotaBytes    int64
-}
-
-func (q *Queries) GrantPacketQuota(ctx context.Context, arg GrantPacketQuotaParams) error {
-	_, err := q.db.Exec(ctx, grantPacketQuota, arg.EnvironmentID, arg.NodeID, arg.QuotaBytes)
+func (q *Queries) EnsurePacketNodes(ctx context.Context, arg EnsurePacketNodesParams) error {
+	_, err := q.db.Exec(ctx, ensurePacketNodes, arg.EnvironmentIds, arg.NodeIds)
 	return err
 }
 

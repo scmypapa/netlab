@@ -15,6 +15,7 @@ type packetNodeBudget struct{ requested, reserved map[string]int64 }
 func (s Service) packetQuotas(ctx context.Context, interfaces []api.SecurityInterface) (map[string]packetNodeBudget, error) {
 	q := queries.New(s.Pool)
 	active := map[string]map[string]bool{}
+	environments, nodes := []string{}, []string{}
 	for _, iface := range interfaces {
 		if active[iface.EnvironmentId] == nil {
 			active[iface.EnvironmentId] = map[string]bool{}
@@ -23,7 +24,10 @@ func (s Service) packetQuotas(ctx context.Context, interfaces []api.SecurityInte
 			continue
 		}
 		active[iface.EnvironmentId][iface.Interface.NodeId] = true
-		if err := q.EnsurePacketNode(ctx, queries.EnsurePacketNodeParams{EnvironmentID: iface.EnvironmentId, NodeID: iface.Interface.NodeId}); err != nil {
+		environments, nodes = append(environments, iface.EnvironmentId), append(nodes, iface.Interface.NodeId)
+	}
+	if len(environments) > 0 {
+		if err := q.EnsurePacketNodes(ctx, queries.EnsurePacketNodesParams{EnvironmentIds: environments, NodeIds: nodes}); err != nil {
 			return nil, err
 		}
 	}
@@ -45,6 +49,7 @@ func (s Service) packetQuotas(ctx context.Context, interfaces []api.SecurityInte
 		}
 	}
 	desired := map[string]map[string]int64{}
+	grants := []queries.GrantPacketQuotasParams{}
 	for _, row := range rows {
 		limit := int64(0)
 		if retained[row.EnvironmentID+"/"+row.NodeID] {
@@ -55,9 +60,12 @@ func (s Service) packetQuotas(ctx context.Context, interfaces []api.SecurityInte
 		}
 		desired[row.NodeID][row.EnvironmentID] = limit
 		if limit > row.QuotaBytes {
-			if err = q.GrantPacketQuota(ctx, queries.GrantPacketQuotaParams{EnvironmentID: row.EnvironmentID, NodeID: row.NodeID, QuotaBytes: limit}); err != nil {
-				return nil, err
-			}
+			grants = append(grants, queries.GrantPacketQuotasParams{EnvironmentID: row.EnvironmentID, NodeID: row.NodeID, QuotaBytes: limit})
+		}
+	}
+	if len(grants) > 0 {
+		if err = q.GrantPacketQuotas(ctx, grants).Close(); err != nil {
+			return nil, err
 		}
 	}
 	rows, err = q.ListPacketNodes(ctx)
