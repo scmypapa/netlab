@@ -1,3 +1,5 @@
+DROP INDEX operations_compute_pending;
+
 CREATE OR REPLACE VIEW node_asset_reservations AS
 WITH planned AS MATERIALIZED (
  SELECT DISTINCT t->'execution'->>'instanceId' AS instance_id
