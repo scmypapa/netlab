@@ -1882,6 +1882,8 @@ export interface components {
       nicModels?: string[];
       initialization?: components["schemas"]["TemplateInitialization"];
       volumes?: components["schemas"]["Volume"][];
+      /** @description Mount paths declared by the prepared OCI image. Asset volume overrides are resolved before scheduling. */
+      readonly imageVolumes?: string[];
       state?: components["schemas"]["TemplateState"];
       error?: string;
     };

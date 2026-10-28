@@ -30,7 +30,7 @@ func TestResticRecoveryTransfer(t *testing.T) {
 	remote := &Engine{cfg: Config{ID: uuid.NewString(), DataDir: t.TempDir()}}
 	env, point, backupID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	content := bytes.Repeat([]byte("immutable recovery data\n"), 1<<12)
-	template := api.Template{Id: "transfer-template", Name: "Transfer template", Kind: api.Container, Version: 1}
+	template := api.Template{Id: "transfer-template", Name: "Transfer template", Kind: api.Container, Version: 1, ImageVolumes: &[]string{}}
 	templateDir := templateDirectory(local.cfg.DataDir, template.Id, template.Version)
 	if err := os.MkdirAll(templateDir, 0711); err != nil {
 		t.Fatal(err)

@@ -199,7 +199,8 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				return err
 			}
 		}
-		for _, a := range p.Spec.Assets {
+		for index := range p.Spec.Assets {
+			a := p.Spec.Assets[index]
 			t, ok := templates[a.TemplateId]
 			if restoring {
 				source, exists := sources[a.Id]
@@ -211,6 +212,8 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			if !ok || !restoring && (t.State == nil || *t.State != api.TemplateStateReady) {
 				return fmt.Errorf("资产 %s 的模板尚未准备完成", a.Name)
 			}
+			a.Volumes = environment.ResolveVolumeDefaults(t, a.Volumes)
+			p.Spec.Assets[index] = a
 			old, exists := current[a.Id]
 			delete(current, a.Id)
 			nics := []api.ResolvedInterface{}

@@ -212,8 +212,10 @@ func (c *Containers) containerConfiguration(ctx context.Context, env string, a a
 	if err = writeNetworkFiles(dir, a.Interfaces); err != nil {
 		return nil, nil, err
 	}
-	volumes := managedVolumes(config, a.Asset.Volumes)
-	a.Asset.Volumes = &volumes
+	var volumes []api.Volume
+	if a.Asset.Volumes != nil {
+		volumes = *a.Asset.Volumes
+	}
 	mounts := []specs.Mount{{Destination: "/etc/resolv.conf", Type: "bind", Source: filepath.Join(dir, "resolv.conf"), Options: []string{"rbind", "ro"}}, {Destination: "/etc/hosts", Type: "bind", Source: filepath.Join(dir, "hosts"), Options: []string{"rbind", "ro"}}}
 	volumeMounts, err := c.volumeMounts(env, a, volumes)
 	if err != nil {
@@ -279,9 +281,11 @@ func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, regist
 	directory := templateDirectory(c.data, t.Id, t.Version)
 	if raw, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
 		var cached api.Template
-		err = json.Unmarshal(raw, &cached)
+		if err = json.Unmarshal(raw, &cached); err != nil {
+			return t, err
+		}
 		cached.ArtifactNodeId = t.ArtifactNodeId
-		return cached, err
+		return containerTemplateMetadata(ctx, directory, cached)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return t, err
 	}
@@ -291,6 +295,11 @@ func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, regist
 	if err != nil {
 		return t, err
 	}
+	config, err := imageConfig(ctx, image)
+	if err != nil {
+		return t, err
+	}
+	t.ImageVolumes = declaredImageVolumes(config)
 	if err = os.MkdirAll(filepath.Dir(directory), 0711); err != nil {
 		return t, err
 	}
@@ -338,29 +347,6 @@ func imageConfig(ctx context.Context, image containerd.Image) (imagespec.Image, 
 	}
 	err = json.Unmarshal(blob, &config)
 	return config, err
-}
-
-func managedVolumes(config imagespec.Image, configured *[]api.Volume) []api.Volume {
-	volumes := []api.Volume{}
-	if configured != nil {
-		volumes = append(volumes, (*configured)...)
-	}
-	declared := make(map[string]bool)
-	for _, v := range volumes {
-		declared[v.MountPath] = true
-	}
-	paths := []string{}
-	for path := range config.Config.Volumes {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	// Stable image-volume identities do not change when another mount is overridden.
-	for i, path := range paths {
-		if !declared[path] {
-			volumes = append(volumes, api.Volume{Id: fmt.Sprintf("image-volume-%d", i), MountPath: path, SizeGiB: 1})
-		}
-	}
-	return volumes
 }
 
 func (c *Containers) volumeMounts(env string, a api.AssetExecution, volumes []api.Volume) ([]specs.Mount, error) {

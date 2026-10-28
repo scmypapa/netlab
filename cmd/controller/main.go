@@ -69,11 +69,12 @@ func run() error {
 	}
 	defer pool.Close()
 	updates.Operations = queries.New(pool)
+	updates.DataMigration = operation.ContainerVolumeMigration
+	nodes, err := transport.NewClient(os.Getenv("NETLAB_NODE_CA"), os.Getenv("NETLAB_NODE_CERT"), os.Getenv("NETLAB_NODE_KEY"))
+	if err != nil {
+		return err
+	}
 	if len(os.Args) == 2 && os.Args[1] == "update" {
-		nodes, err := transport.NewClient(os.Getenv("NETLAB_NODE_CA"), os.Getenv("NETLAB_NODE_CERT"), os.Getenv("NETLAB_NODE_KEY"))
-		if err != nil {
-			return err
-		}
 		return update.Execute(ctx, updateConfig, address, nil, func(ctx context.Context, version string) (func(error) error, error) {
 			return update.Rollout(ctx, pool, nodes, filepath.Join(dataDirectory, "update"), version)
 		})
@@ -83,10 +84,6 @@ func run() error {
 	}
 	q := queries.New(pool)
 	if err = (access.Service{Queries: q}).Bootstrap(ctx, os.Getenv("NETLAB_ADMIN_PASSWORD")); err != nil {
-		return err
-	}
-	nodes, err := transport.NewClient(os.Getenv("NETLAB_NODE_CA"), os.Getenv("NETLAB_NODE_CERT"), os.Getenv("NETLAB_NODE_KEY"))
-	if err != nil {
 		return err
 	}
 	webDirectory := os.Getenv("NETLAB_WEB_DIR")
@@ -115,7 +112,16 @@ func run() error {
 	}
 	worker := operation.Worker{Pool: pool, Queries: q, Client: nodes, Secrets: controller.Secrets}
 	workerDone := make(chan struct{})
-	go func() { defer close(workerDone); worker.Run(ctx) }()
+	go func() {
+		defer close(workerDone)
+		if err := updates.Initialize(ctx, pool, func(ctx context.Context) error {
+			return operation.UpgradeContainerVolumes(ctx, pool, nodes)
+		}); err != nil {
+			slog.Error("controller data preparation", "error", err)
+			return
+		}
+		worker.Run(ctx)
+	}()
 	observerDone := make(chan struct{})
 	go func() {
 		defer close(observerDone)

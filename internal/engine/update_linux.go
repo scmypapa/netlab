@@ -42,11 +42,10 @@ func (c *Containers) update(ctx context.Context, container containerd.Container,
 	if err != nil {
 		return "unknown", err
 	}
-	config, err := imageConfig(ctx, image)
-	if err != nil {
-		return "unknown", err
+	var volumes []api.Volume
+	if a.Asset.Volumes != nil {
+		volumes = *a.Asset.Volumes
 	}
-	volumes := managedVolumes(config, a.Asset.Volumes)
 	var oldVolumes []api.Volume
 	if err = json.Unmarshal([]byte(info.Labels["netlab.volumes"]), &oldVolumes); err != nil {
 		return "unknown", err

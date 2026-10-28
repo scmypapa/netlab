@@ -23,6 +23,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/environment"
 )
 
 func TestContainerNetworkFilesIgnoreServiceUmask(t *testing.T) {
@@ -65,7 +66,7 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(data)
-	archive := nonRootContainerArchive(t, ctx, data)
+	archive := nonRootContainerArchive(t, ctx, data, "/work")
 	e, err := New(ctx, Config{ID: uuid.NewString(), DataDir: data, ContainerdSocket: "/run/containerd/containerd.sock", OVNEndpoint: "unix:/run/ovn/ovnnb_db.sock", OVSEndpoint: "unix:/run/openvswitch/db.sock", Bridge: "br-int"})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +89,12 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 	id := uuid.NewString()
 	resources := api.Resources{Cpu: 0.25, MemoryMiB: 64, DiskGiB: 1}
 	template := api.Template{Id: uuid.NewString(), Name: "non-root", Kind: api.Container, Source: archive, Version: 1, Resources: resources}
+	template, err = e.PrepareTemplate(ctx, api.NodeTemplatePreparation{Template: template})
+	if err != nil {
+		t.Fatal(err)
+	}
 	asset := api.Asset{Id: "server", Name: "Server", TemplateId: template.Id, Resources: resources, Parameters: &map[string]string{"OVERRIDE_ME": "asset", "NETLAB_TEST_STOP_DELAY": "2s"}, Interfaces: []api.Interface{{Id: "nic", NetworkId: "lan", Address: "192.0.2.10", Mac: "02:ee:00:00:02:10", Primary: true}}}
+	asset.Volumes = environment.ResolveVolumeDefaults(template, nil)
 	resolved := api.ResolvedInterface{Id: "nic", NetworkId: "lan", PortName: uuid.NewString(), Address: "192.0.2.10", Prefix: 24, Mac: "02:ee:00:00:02:10", Mtu: 1400, Primary: true, Dns: &[]string{"192.0.2.53"}}
 	a := api.AssetExecution{Asset: asset, Template: template, InstanceId: uuid.NewString(), Interfaces: []api.ResolvedInterface{resolved}}
 	plan := api.NodePlan{EnvironmentId: id, OperationId: uuid.NewString(), Assets: []api.AssetExecution{a}, Spec: api.EnvironmentSpec{Assets: []api.Asset{asset}, Networks: []api.Network{{Id: "lan", Name: "LAN", Cidr: "192.0.2.0/24"}}}}
@@ -198,6 +204,33 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 	if after, err := os.ReadFile("/proc/sys/net/ipv4/ip_unprivileged_port_start"); err != nil || !bytes.Equal(hostPorts, after) {
 		t.Fatalf("container network policy changed the host: before=%q after=%q error=%v", hostPorts, after, err)
 	}
+	t.Run("volume observation and live resource update", func(t *testing.T) {
+		container, err := e.container.client.LoadContainer(ctx, a.InstanceId)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy := a
+		legacy.Asset.Volumes = nil
+		raw, err := json.Marshal(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = container.SetLabels(ctx, map[string]string{executionLabel: string(raw)}); err != nil {
+			t.Fatal(err)
+		}
+		observed, err := e.container.observedExecution(ctx, container)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if observed.Asset.Volumes == nil || len(*observed.Asset.Volumes) != 1 || (*observed.Asset.Volumes)[0].Id != "image-volume-0" {
+			t.Fatalf("runtime observation lost the actual volume: %+v", observed.Asset.Volumes)
+		}
+		a.Asset.Resources.Cpu = 0.5
+		if state, err := e.container.Execute(ctx, id, api.NodePlanPhaseUpdate, a, nil); err != nil || state != "running" {
+			t.Fatalf("live update changed the image mount: %s %v", state, err)
+		}
+		checkContainerHTTP(t, ctx, container, "192.0.2.10:502")
+	})
 	t.Run("same-node migration keeps the surviving instance and volume", func(t *testing.T) {
 		if state, err := e.container.Execute(ctx, id, api.NodePlanPhaseStop, a, nil); err != nil || state != "stopped" {
 			t.Fatalf("stop source: %s %v", state, err)
@@ -257,7 +290,7 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 	})
 }
 
-func nonRootContainerArchive(t *testing.T, ctx context.Context, directory string) string {
+func nonRootContainerArchive(t *testing.T, ctx context.Context, directory string, volumePaths ...string) string {
 	t.Helper()
 	binary := filepath.Join(directory, "server")
 	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../../tests/fixtures/container-runtime.go")
@@ -284,7 +317,11 @@ func nonRootContainerArchive(t *testing.T, ctx context.Context, directory string
 	if err = writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	config, err := json.Marshal(imagespec.Image{Platform: imagespec.Platform{Architecture: runtime.GOARCH, OS: "linux"}, Config: imagespec.ImageConfig{User: "1000:1000", Entrypoint: []string{"/server"}, Cmd: []string{"image-argument"}, WorkingDir: "/work", Env: []string{"IMAGE_DEFAULT=present", "OVERRIDE_ME=image"}}, RootFS: imagespec.RootFS{Type: "layers", DiffIDs: []digest.Digest{digest.FromBytes(layer.Bytes())}}})
+	volumes := map[string]struct{}{}
+	for _, path := range volumePaths {
+		volumes[path] = struct{}{}
+	}
+	config, err := json.Marshal(imagespec.Image{Platform: imagespec.Platform{Architecture: runtime.GOARCH, OS: "linux"}, Config: imagespec.ImageConfig{User: "1000:1000", Entrypoint: []string{"/server"}, Cmd: []string{"image-argument"}, WorkingDir: "/work", Env: []string{"IMAGE_DEFAULT=present", "OVERRIDE_ME=image"}, Volumes: volumes}, RootFS: imagespec.RootFS{Type: "layers", DiffIDs: []digest.Digest{digest.FromBytes(layer.Bytes())}}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2017,12 +2017,15 @@ type SystemUpdate struct {
 
 // Template defines model for Template.
 type Template struct {
-	ArtifactNodeId *string                 `json:"artifactNodeId,omitempty"`
-	Disks          *[]TemplateDisk         `json:"disks,omitempty"`
-	Error          *string                 `json:"error,omitempty"`
-	Format         *TemplateFormat         `json:"format,omitempty"`
-	Hardware       *Hardware               `json:"hardware,omitempty"`
-	Id             string                  `json:"id"`
+	ArtifactNodeId *string         `json:"artifactNodeId,omitempty"`
+	Disks          *[]TemplateDisk `json:"disks,omitempty"`
+	Error          *string         `json:"error,omitempty"`
+	Format         *TemplateFormat `json:"format,omitempty"`
+	Hardware       *Hardware       `json:"hardware,omitempty"`
+	Id             string          `json:"id"`
+
+	// ImageVolumes Mount paths declared by the prepared OCI image. Asset volume overrides are resolved before scheduling.
+	ImageVolumes   *[]string               `json:"imageVolumes,omitempty"`
 	Initialization *TemplateInitialization `json:"initialization,omitempty"`
 	Kind           TemplateKind            `json:"kind"`
 	Media          *[]TemplateMedia        `json:"media,omitempty"`
@@ -2079,12 +2082,15 @@ type TemplateFormat string
 
 // TemplateImport defines model for TemplateImport.
 type TemplateImport struct {
-	ArtifactNodeId *string                 `json:"artifactNodeId,omitempty"`
-	Disks          *[]TemplateDisk         `json:"disks,omitempty"`
-	Error          *string                 `json:"error,omitempty"`
-	Format         *TemplateFormat         `json:"format,omitempty"`
-	Hardware       *Hardware               `json:"hardware,omitempty"`
-	Id             string                  `json:"id"`
+	ArtifactNodeId *string         `json:"artifactNodeId,omitempty"`
+	Disks          *[]TemplateDisk `json:"disks,omitempty"`
+	Error          *string         `json:"error,omitempty"`
+	Format         *TemplateFormat `json:"format,omitempty"`
+	Hardware       *Hardware       `json:"hardware,omitempty"`
+	Id             string          `json:"id"`
+
+	// ImageVolumes Mount paths declared by the prepared OCI image. Asset volume overrides are resolved before scheduling.
+	ImageVolumes   *[]string               `json:"imageVolumes,omitempty"`
 	Initialization *TemplateInitialization `json:"initialization,omitempty"`
 	Kind           TemplateKind            `json:"kind"`
 	Media          *[]TemplateMedia        `json:"media,omitempty"`

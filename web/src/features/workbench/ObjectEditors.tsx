@@ -106,7 +106,20 @@ export function AssetEditor({
     const template = templates.find((item) => item.id === id);
     setChosenTemplate(template);
     if (template) {
-      if (!asset) setVolumes(template.volumes ?? []);
+      if (!asset) {
+        const defaults = template.volumes ?? [];
+        const mounts = new Set(defaults.map((volume) => volume.mountPath));
+        const volumes = [
+          ...defaults,
+          ...(template.imageVolumes ?? []).flatMap((mountPath, index) =>
+            mounts.has(mountPath)
+              ? []
+              : [{ id: `image-volume-${index}`, mountPath, sizeGiB: 1 }],
+          ),
+        ];
+        setVolumes(volumes);
+        setVolumesOpen(volumes.length > 0);
+      }
       setMedia(template.media?.map((item) => item.id));
       setCpu(template.resources.cpu);
       setMemoryGiB(template.resources.memoryMiB / 1024);
@@ -358,6 +371,9 @@ export function AssetEditor({
             <Collapse in={volumesOpen}>
               <div className={styles.form}>
                 {volumes.map((volume, index) => {
+                  const imageMount = template?.imageVolumes?.includes(
+                    volume.mountPath,
+                  );
                   const update = (values: Partial<Schema<"Volume">>) =>
                     setVolumes((items) =>
                       items.map((item, i) =>
@@ -409,23 +425,32 @@ export function AssetEditor({
                                   }))
                           }
                         />
-                        <ActionIcon
-                          variant="subtle"
-                          color="red"
-                          aria-label={`移除数据卷 ${index + 1}`}
-                          onClick={() =>
-                            setVolumes((items) =>
-                              items.filter((_, i) => i !== index),
-                            )
-                          }
-                        >
-                          <Trash2 size={16} />
-                        </ActionIcon>
+                        {!imageMount && (
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            aria-label={`移除数据卷 ${index + 1}`}
+                            onClick={() =>
+                              setVolumes((items) =>
+                                items.filter((_, i) => i !== index),
+                              )
+                            }
+                          >
+                            <Trash2 size={16} />
+                          </ActionIcon>
+                        )}
                       </div>
                       <div className={styles.columns}>
                         <TextInput
-                          label={template?.kind === "vm" ? "盘名" : "挂载目录"}
+                          label={
+                            template?.kind === "vm"
+                              ? "盘名"
+                              : imageMount
+                                ? "镜像挂载目录"
+                                : "挂载目录"
+                          }
                           value={volume.mountPath}
+                          readOnly={imageMount}
                           required
                           onChange={(event) =>
                             update({ mountPath: event.currentTarget.value })

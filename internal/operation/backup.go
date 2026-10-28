@@ -12,6 +12,7 @@ import (
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/backup"
+	"netlab.local/core/internal/environment"
 )
 
 type BackupDefinition struct {
@@ -259,6 +260,18 @@ func (w Worker) prepareBackupTemplates(ctx context.Context, p *Payload) error {
 			templates[key] = template
 		}
 		source.Execution.Template = template
+		source.Execution.Asset.Volumes = environment.ResolveVolumeDefaults(template, source.Execution.Asset.Volumes)
+	}
+	byAsset := map[string]api.Template{}
+	for _, source := range p.Recovery.Assets {
+		byAsset[source.Execution.Asset.Id] = source.Execution.Template
+	}
+	for _, spec := range []*api.EnvironmentSpec{&p.Recovery.Spec, &p.Spec} {
+		for i := range spec.Assets {
+			if template, exists := byAsset[spec.Assets[i].Id]; exists {
+				spec.Assets[i].Volumes = environment.ResolveVolumeDefaults(template, spec.Assets[i].Volumes)
+			}
+		}
 	}
 	latest := map[string]api.Template{}
 	for _, template := range templates {

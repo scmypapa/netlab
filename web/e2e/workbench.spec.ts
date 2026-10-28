@@ -1438,6 +1438,62 @@ test("draft persists across exit; applying removal uses preview revision", async
   ]);
 });
 
+test("container image volumes are visible and adjustable before saving", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.route("**/api/v1/templates?**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: "volume-image",
+          name: "Volume image",
+          kind: "container",
+          os: "Linux",
+          version: 1,
+          state: "ready",
+          source: "oci-archive",
+          imageVolumes: ["/data"],
+          resources: { cpu: 1, memoryMiB: 128, diskGiB: 2 },
+        },
+      ],
+    }),
+  );
+  await page.goto("/environments/env");
+  await page.getByRole("button", { name: "调整环境", exact: true }).click();
+  await page.getByRole("button", { name: "添加", exact: true }).click();
+  await page.getByRole("menuitem", { name: "资产", exact: true }).click();
+  const drawer = page.getByRole("dialog");
+  await drawer.getByRole("textbox", { name: "资产模板", exact: true }).click();
+  await page
+    .getByRole("option", { name: "Volume image · 容器", exact: true })
+    .click();
+  await expect(
+    drawer.getByRole("textbox", { name: "镜像挂载目录", exact: true }),
+  ).toHaveValue("/data");
+  await expect(
+    drawer.getByRole("textbox", { name: "镜像挂载目录", exact: true }),
+  ).toHaveAttribute("readonly", "");
+  await expect(
+    drawer.getByRole("button", { name: "移除数据卷 1", exact: true }),
+  ).toHaveCount(0);
+  await drawer.getByLabel("容量 · GiB", { exact: true }).fill("3");
+  await drawer.getByRole("button", { name: "添加到环境", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  expect(
+    calls.find((call) => call.path.endsWith("/draft"))?.body,
+  ).toMatchObject({
+    spec: {
+      assets: expect.arrayContaining([
+        expect.objectContaining({
+          templateId: "volume-image",
+          volumes: [{ id: "image-volume-0", mountPath: "/data", sizeGiB: 3 }],
+        }),
+      ]),
+    },
+  });
+});
+
 test("asset creation carries template resources and optional guest configuration", async ({
   page,
 }) => {

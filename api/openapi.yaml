@@ -1194,6 +1194,7 @@ components:
         nicModels: {type: array, items: {type: string}}
         initialization: {$ref: '#/components/schemas/TemplateInitialization'}
         volumes: {type: array, items: {$ref: '#/components/schemas/Volume'}}
+        imageVolumes: {type: array, items: {type: string}, readOnly: true, description: Mount paths declared by the prepared OCI image. Asset volume overrides are resolved before scheduling.}
         state: {$ref: '#/components/schemas/TemplateState'}
         error: {type: string}
     TemplateMedia:

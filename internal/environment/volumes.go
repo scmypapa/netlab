@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -9,6 +10,34 @@ import (
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/access"
 )
+
+func ResolveVolumeDefaults(template api.Template, configured *[]api.Volume) *[]api.Volume {
+	if configured == nil {
+		configured = template.Volumes
+	}
+	if template.Kind != api.Container || template.ImageVolumes == nil || len(*template.ImageVolumes) == 0 {
+		if configured == nil {
+			return nil
+		}
+		volumes := slices.Clone(*configured)
+		return &volumes
+	}
+	volumes := []api.Volume{}
+	if configured != nil {
+		volumes = slices.Clone(*configured)
+	}
+	declared := make(map[string]bool, len(volumes))
+	for _, volume := range volumes {
+		declared[volume.MountPath] = true
+	}
+	// The image's sorted path order preserves existing image-volume identities.
+	for index, path := range *template.ImageVolumes {
+		if !declared[path] {
+			volumes = append(volumes, api.Volume{Id: fmt.Sprintf("image-volume-%d", index), MountPath: path, SizeGiB: 1})
+		}
+	}
+	return &volumes
+}
 
 func PersistentVolumeIDs(assets []api.Asset) []string {
 	ids := []string{}

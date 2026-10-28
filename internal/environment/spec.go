@@ -180,10 +180,7 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 				return spec, Invalid("资产 %s 的容器重启策略无效", a.Name)
 			}
 		}
-		if a.Volumes == nil && t.Volumes != nil {
-			volumes := slices.Clone(*t.Volumes)
-			a.Volumes = &volumes
-		}
+		a.Volumes = ResolveVolumeDefaults(t, a.Volumes)
 		if a.Volumes != nil {
 			ids, paths := map[string]bool{}, map[string]bool{}
 			for j := range *a.Volumes {

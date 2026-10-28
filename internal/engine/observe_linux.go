@@ -41,6 +41,9 @@ func (c *Containers) observedExecution(ctx context.Context, container containerd
 	if err = json.Unmarshal([]byte(labels[executionLabel]), &execution); err != nil {
 		return nil, err
 	}
+	if err = json.Unmarshal([]byte(labels["netlab.volumes"]), &execution.Asset.Volumes); err != nil {
+		return nil, err
+	}
 	execution.Asset.Resources.Cpu = float64(*spec.Linux.Resources.CPU.Quota) / float64(*spec.Linux.Resources.CPU.Period)
 	execution.Asset.Resources.MemoryMiB = *spec.Linux.Resources.Memory.Limit / (1 << 20)
 	state, err := containerState(ctx, container)
