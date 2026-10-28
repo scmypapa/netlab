@@ -124,20 +124,7 @@ func (c *Containers) disconnect(ctx context.Context, env string, a api.AssetExec
 		if !owned {
 			continue
 		}
-		if err := network.ClearShape(name, i.PortName); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		link, err := netlink.LinkByName(name)
-		var missing netlink.LinkNotFoundError
-		if errors.As(err, &missing) {
-			continue
-		}
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if err = netlink.LinkDel(link); err != nil {
+		if err = network.RemoveShapedLink(name, i.PortName); err != nil {
 			errs = append(errs, err)
 		}
 	}

@@ -3,6 +3,7 @@
 package network
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -22,8 +23,11 @@ func TestRealBidirectionalShape(t *testing.T) {
 	if err := netlink.LinkAdd(device); err != nil {
 		t.Fatal(err)
 	}
-	defer netlink.LinkDel(device)
-	defer ClearShape(name, port)
+	t.Cleanup(func() {
+		if err := RemoveShapedLink(name, port); err != nil {
+			t.Error(err)
+		}
+	})
 	if err := netlink.LinkSetUp(device); err != nil {
 		t.Fatal(err)
 	}
@@ -43,5 +47,33 @@ func TestRealBidirectionalShape(t *testing.T) {
 	}
 	if _, err := netlink.LinkByName(ifbName(port)); err == nil {
 		t.Fatal("IFB remained after policy removal")
+	}
+	for _, kernelDeleted := range []bool{false, true} {
+		if kernelDeleted {
+			if err := netlink.LinkAdd(device); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := Shape(name, port, []api.Policy{policy}); err != nil {
+			t.Fatal(err)
+		}
+		if kernelDeleted {
+			if err := netlink.LinkDel(device); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := RemoveShapedLink(name, port); err != nil {
+			t.Fatal(err)
+		}
+		for _, removed := range []string{name, ifbName(port)} {
+			_, err := netlink.LinkByName(removed)
+			var missing netlink.LinkNotFoundError
+			if !errors.As(err, &missing) {
+				t.Fatalf("link %s remained after cleanup: %v", removed, err)
+			}
+		}
+		if err := RemoveShapedLink(name, port); err != nil {
+			t.Fatal("repeat cleanup", err)
+		}
 	}
 }

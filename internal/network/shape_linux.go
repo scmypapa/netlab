@@ -64,23 +64,9 @@ func Shape(device, port string, policies []api.Policy) error {
 	}
 	return shapeOutput(output, outgoing)
 }
-func ClearShape(device, port string) error {
-	link, err := netlink.LinkByName(device)
-	var missing netlink.LinkNotFoundError
-	if errors.As(err, &missing) {
-		ifb, err := netlink.LinkByName(ifbName(port))
-		if errors.As(err, &missing) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		return netlink.LinkDel(ifb)
-	}
-	if err != nil {
-		return err
-	}
-	return errors.Join(shapeOutput(link, nil), clearInput(link, port))
+func RemoveShapedLink(device, port string) error {
+	// The kernel removes qdiscs with the link; the independent IFB must also be deleted.
+	return errors.Join(deleteLink(device), deleteLink(ifbName(port)))
 }
 func clearInput(link netlink.Link, port string) error {
 	qdiscs, err := netlink.QdiscList(link)
@@ -94,15 +80,25 @@ func clearInput(link netlink.Link, port string) error {
 			}
 		}
 	}
-	ifb, err := netlink.LinkByName(ifbName(port))
+	return deleteLink(ifbName(port))
+}
+
+func deleteLink(name string) error {
+	link, err := netlink.LinkByName(name)
 	var missing netlink.LinkNotFoundError
 	if errors.As(err, &missing) {
 		return nil
 	}
-	if err != nil {
-		return err
+	if err == nil {
+		err = netlink.LinkDel(link)
 	}
-	return netlink.LinkDel(ifb)
+	if errors.Is(err, unix.ENODEV) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("remove link %s: %w", name, err)
+	}
+	return nil
 }
 func shapeOutput(link netlink.Link, policies []api.Policy) error {
 	index := link.Attrs().Index
