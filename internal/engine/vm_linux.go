@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -46,14 +47,17 @@ func noDomain(err error) bool {
 	var e libvirt.Error
 	return errors.As(err, &e) && e.Code == libvirt.ERR_NO_DOMAIN
 }
-func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution, releaseSlot func()) (string, error) {
+func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.NodePlanPhase, a api.AssetExecution, releaseSlot func(), references *vmVolumeReferences) (string, error) {
 	if phase == api.NodePlanPhasePrepare {
 		return v.prepare(ctx, env, a)
 	}
 	d, err := v.conn.LookupDomainByUUIDString(a.InstanceId)
 	if noDomain(err) {
 		if phase == api.NodePlanPhaseDestroy {
-			return "destroyed", v.removeFiles(ctx, env, a)
+			if references != nil {
+				references.release(a.InstanceId)
+			}
+			return "destroyed", v.removeFiles(ctx, env, a, references)
 		}
 		return "absent", err
 	}
@@ -71,11 +75,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 	}
 	switch phase {
 	case api.NodePlanPhaseCleanupVolumes:
-		references, err := v.volumeReferences(env, a.Asset.Id)
-		if err != nil {
-			return state, err
-		}
-		return state, v.removeVolumes(ctx, env, a, references, true)
+		return state, v.removeVolumes(ctx, env, a, references.forAsset(v.data, env, a), true)
 	case api.NodePlanPhaseUpdate:
 		return v.update(ctx, d, env, a)
 	case api.NodePlanPhaseStart:
@@ -111,6 +111,7 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 			err = d.Resume()
 		}
 	case api.NodePlanPhaseDestroy:
+		instance := a.InstanceId
 		if err = json.Unmarshal([]byte(owner.Execution), &a); err != nil {
 			return state, err
 		}
@@ -123,7 +124,10 @@ func (v *VirtualMachines) Execute(ctx context.Context, env string, phase api.Nod
 		if err = d.UndefineFlags(flags); err != nil {
 			return "stopped", err
 		}
-		return "destroyed", v.removeFiles(ctx, env, a)
+		if references != nil {
+			references.release(instance)
+		}
+		return "destroyed", v.removeFiles(ctx, env, a, references)
 	case api.NodePlanPhaseInspect:
 	default:
 		return state, fmt.Errorf("invalid virtual machine phase %s", phase)
@@ -214,7 +218,7 @@ func (v *VirtualMachines) prepare(ctx context.Context, env string, a api.AssetEx
 	}
 	return vmState(d)
 }
-func (v *VirtualMachines) removeFiles(ctx context.Context, env string, a api.AssetExecution) error {
+func (v *VirtualMachines) removeFiles(ctx context.Context, env string, a api.AssetExecution, references *vmVolumeReferences) error {
 	if err := os.RemoveAll(tpmDirectory(a.InstanceId)); err != nil {
 		return err
 	}
@@ -232,11 +236,7 @@ func (v *VirtualMachines) removeFiles(ctx context.Context, env string, a api.Ass
 	if a.Asset.Volumes == nil || len(*a.Asset.Volumes) == 0 {
 		return nil
 	}
-	references, err := v.volumeReferences(env, a.Asset.Id)
-	if err != nil {
-		return err
-	}
-	return v.removeVolumes(ctx, env, a, references, false)
+	return v.removeVolumes(ctx, env, a, references.forAsset(v.data, env, a), false)
 }
 
 func (v *VirtualMachines) removeVolumes(ctx context.Context, env string, a api.AssetExecution, references map[string]bool, requireUnused bool) error {
@@ -263,8 +263,27 @@ func (v *VirtualMachines) prepareVolumes(ctx context.Context, env string, a api.
 	return nil
 }
 
-func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, error) {
-	references := make(map[string]bool)
+type vmVolumeReferences struct {
+	mu      sync.Mutex
+	domains map[string][]string
+	counts  map[string]int
+}
+
+// One actual-domain snapshot belongs to one lifecycle phase under the environment lock.
+func (v *VirtualMachines) volumeReferences(ctx context.Context, env string, phase api.NodePlanPhase, assets []api.AssetExecution) (*vmVolumeReferences, error) {
+	if phase != api.NodePlanPhaseDestroy && phase != api.NodePlanPhaseCleanupVolumes && phase != api.NodePlanPhaseCleanupRecovery ||
+		!slices.ContainsFunc(assets, func(a api.AssetExecution) bool {
+			return a.Template.Kind == api.Vm && a.Asset.Volumes != nil && len(*a.Asset.Volumes) > 0
+		}) {
+		return nil, nil
+	}
+	references := &vmVolumeReferences{domains: map[string][]string{}, counts: map[string]int{}}
+	selected := make(map[string]bool, len(assets))
+	for _, a := range assets {
+		if a.Template.Kind == api.Vm {
+			selected[a.Asset.Id] = true
+		}
+	}
 	domains, err := v.conn.ListAllDomains(0)
 	if err != nil {
 		return nil, err
@@ -275,6 +294,9 @@ func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, 
 		}
 	}()
 	for _, domain := range domains {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		text, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
 		if noDomain(err) {
 			continue
@@ -293,24 +315,52 @@ func (v *VirtualMachines) volumeReferences(env, asset string) (map[string]bool, 
 		if err = xml.Unmarshal([]byte(config.Metadata.XML), &owner); err != nil {
 			continue
 		}
-		if owner.Environment == env && owner.Asset == asset {
-			var a api.AssetExecution
-			if err = json.Unmarshal([]byte(owner.Execution), &a); err != nil {
+		if owner.XMLName.Space != "urn:netlab:instance" || owner.Environment != env || !selected[owner.Asset] {
+			continue
+		}
+		var a api.AssetExecution
+		if err = json.Unmarshal([]byte(owner.Execution), &a); err != nil {
+			return nil, err
+		}
+		for _, disk := range config.Devices.Disks {
+			if disk.Device != "disk" {
+				continue
+			}
+			location, err := diskFromDomain(disk, a)
+			if err != nil {
 				return nil, err
 			}
-			for _, disk := range config.Devices.Disks {
-				if disk.Device != "disk" {
-					continue
-				}
-				location, err := diskFromDomain(disk, a)
-				if err != nil {
-					return nil, err
-				}
-				references[location.key()] = true
-			}
+			key := location.key()
+			references.domains[config.UUID] = append(references.domains[config.UUID], key)
+			references.counts[key]++
 		}
 	}
 	return references, nil
+}
+
+func (r *vmVolumeReferences) release(instance string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, path := range r.domains[instance] {
+		r.counts[path]--
+	}
+	delete(r.domains, instance)
+}
+
+func (r *vmVolumeReferences) forAsset(data, env string, a api.AssetExecution) map[string]bool {
+	references := map[string]bool{}
+	if a.Asset.Volumes == nil || len(*a.Asset.Volumes) == 0 {
+		return references
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, volume := range *a.Asset.Volumes {
+		path := volumeDisk(assetDirectory(data, env, a), env, a, volume.Id).key()
+		if r.counts[path] > 0 {
+			references[path] = true
+		}
+	}
+	return references
 }
 func (v *VirtualMachines) owned(d *libvirt.Domain, env, asset string) (Ownership, error) {
 	text, err := d.GetXMLDesc(0)

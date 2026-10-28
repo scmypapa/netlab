@@ -394,12 +394,12 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	}
 	t.Logf("native UEFI q35=%s, secure boot=%v, TPM2=%v", prepared.Hardware.Machine, profile.SecureBoot, profile.Tpm2)
 	defer func() {
-		if _, err := vm.Execute(context.Background(), env, api.NodePlanPhaseDestroy, a, nil); err != nil {
+		if _, err := executeVM(vm, context.Background(), env, api.NodePlanPhaseDestroy, a, nil); err != nil {
 			t.Errorf("cleanup: %v", err)
 		}
 	}()
 	for _, phase := range []api.NodePlanPhase{api.NodePlanPhasePrepare, api.NodePlanPhaseStart, api.NodePlanPhaseSuspend, api.NodePlanPhaseResume, api.NodePlanPhaseForceStop} {
-		state, err := vm.Execute(ctx, env, phase, a, nil)
+		state, err := executeVM(vm, ctx, env, phase, a, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", phase, err)
 		}
@@ -433,7 +433,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	a.Asset.Resources = api.Resources{Cpu: 2, MemoryMiB: 640, DiskGiB: 2}
 	updatedVolumes := []api.Volume{{Id: "data", MountPath: "/data", SizeGiB: 2}, {Id: "temporary", MountPath: "/temporary", SizeGiB: 1}}
 	a.Asset.Volumes = &updatedVolumes
-	if state, err := vm.Execute(ctx, env, api.NodePlanPhaseUpdate, a, nil); err != nil || state != "stopped" {
+	if state, err := executeVM(vm, ctx, env, api.NodePlanPhaseUpdate, a, nil); err != nil || state != "stopped" {
 		t.Fatalf("firmware VM update: %s %v", state, err)
 	}
 	after := readConfig()
@@ -443,17 +443,17 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if after.VCPU.Value != 2 || after.Memory.Value != 640*1024 || after.Memory.Unit != "KiB" {
 		t.Fatalf("updated VM resources do not match requested configuration: CPU=%d memory=%d %s", after.VCPU.Value, after.Memory.Value, after.Memory.Unit)
 	}
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, a, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseStart, a, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseForceStop, a, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseForceStop, a, nil); err != nil {
 		t.Fatal(err)
 	}
 	if image, err := inspectImage(ctx, volumeDisk(assetDirectory(vm.data, env, a), env, a, "data").file); err != nil || image.VirtualSize != 2<<30 {
 		t.Fatalf("data disk expansion: %+v %v", image, err)
 	}
 	updatedVolumes = updatedVolumes[:1]
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseUpdate, a, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseUpdate, a, nil); err != nil {
 		t.Fatal(err)
 	}
 	cleanup := a
@@ -462,7 +462,7 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "temporary").file); err != nil {
 		t.Fatal("VM update deleted a data disk before commit", err)
 	}
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseCleanupVolumes, cleanup, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseCleanupVolumes, cleanup, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "temporary").file); !os.IsNotExist(err) {
@@ -488,22 +488,22 @@ func TestRealUEFISecureBootTPM(t *testing.T) {
 	a.Asset.Resources.DiskGiB = resources.DiskGiB
 	replacement := a
 	replacement.InstanceId = uuid.NewString()
-	defer vm.Execute(context.Background(), env, api.NodePlanPhaseDestroy, replacement, nil)
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhasePrepare, replacement, nil); err != nil {
+	defer executeVM(vm, context.Background(), env, api.NodePlanPhaseDestroy, replacement, nil)
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhasePrepare, replacement, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, a, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseDestroy, a, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "data").file); err != nil {
 		t.Fatal("destroying the old VM removed the replacement data disk", err)
 	}
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, replacement, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseStart, replacement, nil); err != nil {
 		t.Fatal(err)
 	}
 	stale := replacement
 	stale.Asset.Volumes = nil
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseDestroy, stale, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseDestroy, stale, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = os.Stat(volumeDisk(assetDirectory(vm.data, env, a), env, a, "data").file); !os.IsNotExist(err) {

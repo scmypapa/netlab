@@ -311,7 +311,18 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 		return result
 	}
 	result.Results = make([]api.ExecutionResult, len(plan.Assets))
-	policies := policiesByNetwork(plan.Spec)
+	var policies map[string][]api.Policy
+	if plan.Phase == api.NodePlanPhaseStart || plan.Phase == api.NodePlanPhasePolicies {
+		policies = policiesByNetwork(plan.Spec)
+	}
+	var vmReferences *vmVolumeReferences
+	if e.vm != nil {
+		vmReferences, err = e.vm.volumeReferences(ctx, plan.EnvironmentId, plan.Phase, plan.Assets)
+		if err != nil {
+			result.Error = ptr(err.Error())
+			return result
+		}
+	}
 	var wg sync.WaitGroup
 	for i, asset := range plan.Assets {
 		wg.Add(1)
@@ -391,7 +402,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 				case api.NodePlanPhaseRollbackRecovery:
 					state, err = e.rollbackRecovery(ctx, plan.EnvironmentId, a, plan.RecoveryTargets[a.Asset.Id])
 				case api.NodePlanPhaseCleanupRecovery:
-					state, err = "cleaned", e.cleanupRecovery(ctx, plan.EnvironmentId, a, plan.RecoveryTargets[a.Asset.Id])
+					state, err = "cleaned", e.cleanupRecovery(ctx, plan.EnvironmentId, a, plan.RecoveryTargets[a.Asset.Id], vmReferences)
 				}
 				result.Results[i] = executionResult(a, state, err)
 				return
@@ -434,7 +445,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 							return
 						}
 					}
-					state, err = e.vm.Execute(ctx, plan.EnvironmentId, phase, a, releaseSlot)
+					state, err = e.vm.Execute(ctx, plan.EnvironmentId, phase, a, releaseSlot, vmReferences)
 					if phase == api.NodePlanPhaseStart && err == nil {
 						// Guest readiness is not host compute work. Keep the asset lock,
 						// but let other guests boot while this agent comes online.

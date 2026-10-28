@@ -129,11 +129,11 @@ func TestRealNativeVMMigration(t *testing.T) {
 				t.Error(*asset.Error)
 			}
 		}
-		if _, err := vm.Execute(context.Background(), env, api.NodePlanPhaseDestroy, a, nil); err != nil {
+		if _, err := executeVM(vm, context.Background(), env, api.NodePlanPhaseDestroy, a, nil); err != nil {
 			t.Error(err)
 		}
 	})
-	if _, err = vm.Execute(ctx, env, api.NodePlanPhaseStart, a, nil); err != nil {
+	if _, err = executeVM(vm, ctx, env, api.NodePlanPhaseStart, a, nil); err != nil {
 		t.Fatal(err)
 	}
 	domain, err := vm.conn.LookupDomainByUUIDString(a.InstanceId)
@@ -171,7 +171,7 @@ func TestRealNativeVMMigration(t *testing.T) {
 	if _, err = e.migrateVM(ctx, env, a, api.NodeVMMigration{Endpoint: endpoint, DomainXml: invalid}); err == nil {
 		t.Fatal("native migration accepted an incompatible destination")
 	}
-	if state, err := vm.Execute(ctx, env, api.NodePlanPhaseInspect, a, nil); err != nil || state != "running" {
+	if state, err := executeVM(vm, ctx, env, api.NodePlanPhaseInspect, a, nil); err != nil || state != "running" {
 		t.Fatalf("native rejection changed the source: %s %v", state, err)
 	}
 	if leftover, err := connection.LookupDomainByUUIDString(a.InstanceId); !noDomain(err) {
@@ -248,7 +248,7 @@ func TestRealNativeVMMigration(t *testing.T) {
 		raw, _ := json.Marshal(returned)
 		t.Fatalf("paused VM migration failed: %s", raw)
 	}
-	if state, err := vm.Execute(ctx, env, api.NodePlanPhaseResume, a, nil); err != nil || state != "running" {
+	if state, err := executeVM(vm, ctx, env, api.NodePlanPhaseResume, a, nil); err != nil || state != "running" {
 		t.Fatalf("returned VM did not resume: %s %v", state, err)
 	}
 	t.Logf("paused native migration through node plan and resume: %s", time.Since(start))

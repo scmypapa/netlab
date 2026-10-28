@@ -679,7 +679,7 @@ func (e *Engine) rollbackRecovery(ctx context.Context, env string, original, nex
 	return state, e.removeRecoveryData(ctx, env, next, false)
 }
 
-func (e *Engine) cleanupRecovery(ctx context.Context, env string, original, next api.AssetExecution) error {
+func (e *Engine) cleanupRecovery(ctx context.Context, env string, original, next api.AssetExecution, vmReferences *vmVolumeReferences) error {
 	directory := assetDirectory(e.cfg.DataDir, env, next)
 	if original.DataSetId != next.DataSetId {
 		if original.Template.Kind == api.Container {
@@ -706,11 +706,7 @@ func (e *Engine) cleanupRecovery(ctx context.Context, env string, original, next
 			if err := os.RemoveAll(assetDirectory(e.cfg.DataDir, env, original)); err != nil {
 				return err
 			}
-			references, err := e.vm.volumeReferences(env, original.Asset.Id)
-			if err != nil {
-				return err
-			}
-			if err = e.vm.removeVolumes(ctx, env, original, references, false); err != nil {
+			if err := e.vm.removeVolumes(ctx, env, original, vmReferences.forAsset(e.cfg.DataDir, env, original), false); err != nil {
 				return err
 			}
 		}
