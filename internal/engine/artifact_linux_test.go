@@ -30,7 +30,12 @@ func TestCachedTemplatePreservesNodeIdentity(t *testing.T) {
 			if err := os.MkdirAll(directory, 0711); err != nil {
 				t.Fatal(err)
 			}
-			manifest, err := json.Marshal(api.Template{Id: input.Id, Version: input.Version, Kind: kind, ArtifactNodeId: ptr("other-node")})
+			cached := input
+			cached.ArtifactNodeId = ptr("other-node")
+			if kind == api.Container {
+				cached.ImageVolumes = &[]string{}
+			}
+			manifest, err := json.Marshal(cached)
 			if err != nil {
 				t.Fatal(err)
 			}
