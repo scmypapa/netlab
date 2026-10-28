@@ -2255,6 +2255,16 @@ export interface components {
        * @default 4
        */
       cpuAllocationRatio: number;
+      /**
+       * Format: int64
+       * @description Configured host memory reservation; zero selects automatic reservation. Does not include assigned guest memory.
+       */
+      memoryReserveMiB: number;
+      /**
+       * Format: int64
+       * @description Physical memory minus the effective host reservation. This stable scheduling capacity is not instantaneous free memory.
+       */
+      readonly allocatableMemoryMiB: number;
       capabilities: string[];
       vmHardware?: components["schemas"]["VmHardware"];
       /** @description Dedicated Ceph disk selected during node installation */
@@ -2267,6 +2277,11 @@ export interface components {
     NodeScheduling: {
       /** Format: double */
       cpuAllocationRatio: number;
+      /**
+       * Format: int64
+       * @description Host memory reservation; zero restores automatic reservation. Omission preserves the current setting.
+       */
+      memoryReserveMiB?: number;
     };
     ResolvedInterface: {
       id: string;

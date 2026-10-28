@@ -1223,18 +1223,23 @@ type Network struct {
 
 // Node defines model for Node.
 type Node struct {
-	Capabilities []string  `json:"capabilities"`
-	Capacity     Resources `json:"capacity"`
+	// AllocatableMemoryMiB Physical memory minus the effective host reservation. This stable scheduling capacity is not instantaneous free memory.
+	AllocatableMemoryMiB int64     `json:"allocatableMemoryMiB,omitempty"`
+	Capabilities         []string  `json:"capabilities"`
+	Capacity             Resources `json:"capacity"`
 
 	// CpuAllocationRatio Maximum total assigned vCPUs per physical CPU; does not change physical capacity.
-	CpuAllocationRatio float64   `json:"cpuAllocationRatio"`
-	Endpoint           string    `json:"endpoint"`
-	Id                 string    `json:"id"`
-	Name               string    `json:"name"`
-	ObservedAt         time.Time `json:"observedAt"`
-	Reserved           Resources `json:"reserved"`
-	Slots              int       `json:"slots"`
-	State              *string   `json:"state,omitempty"`
+	CpuAllocationRatio float64 `json:"cpuAllocationRatio"`
+	Endpoint           string  `json:"endpoint"`
+	Id                 string  `json:"id"`
+
+	// MemoryReserveMiB Configured host memory reservation; zero selects automatic reservation. Does not include assigned guest memory.
+	MemoryReserveMiB int64     `json:"memoryReserveMiB"`
+	Name             string    `json:"name"`
+	ObservedAt       time.Time `json:"observedAt"`
+	Reserved         Resources `json:"reserved"`
+	Slots            int       `json:"slots"`
+	State            *string   `json:"state,omitempty"`
 
 	// StorageDevice Dedicated Ceph disk selected during node installation
 	StorageDevice *string     `json:"storageDevice,omitempty"`
@@ -1453,6 +1458,9 @@ type NodeSSH struct {
 // NodeScheduling defines model for NodeScheduling.
 type NodeScheduling struct {
 	CpuAllocationRatio float64 `json:"cpuAllocationRatio"`
+
+	// MemoryReserveMiB Host memory reservation; zero restores automatic reservation. Omission preserves the current setting.
+	MemoryReserveMiB *int64 `json:"memoryReserveMiB,omitempty"`
 }
 
 // NodeSecurityObservation defines model for NodeSecurityObservation.

@@ -148,6 +148,7 @@ type Node struct {
 	ObservedAt         pgtype.Timestamptz
 	Retiring           bool
 	CpuAllocationRatio float64
+	MemoryReserveMib   int64
 }
 
 type NodeAssetReservation struct {

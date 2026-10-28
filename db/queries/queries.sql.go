@@ -782,14 +782,19 @@ func (q *Queries) GetNodeReservations(ctx context.Context, dollar_1 []string) ([
 }
 
 const getNodeScheduling = `-- name: GetNodeScheduling :one
-SELECT cpu_allocation_ratio FROM nodes WHERE id=$1
+SELECT cpu_allocation_ratio,memory_reserve_mib FROM nodes WHERE id=$1
 `
 
-func (q *Queries) GetNodeScheduling(ctx context.Context, id string) (float64, error) {
+type GetNodeSchedulingRow struct {
+	CpuAllocationRatio float64
+	MemoryReserveMib   int64
+}
+
+func (q *Queries) GetNodeScheduling(ctx context.Context, id string) (GetNodeSchedulingRow, error) {
 	row := q.db.QueryRow(ctx, getNodeScheduling, id)
-	var cpu_allocation_ratio float64
-	err := row.Scan(&cpu_allocation_ratio)
-	return cpu_allocation_ratio, err
+	var i GetNodeSchedulingRow
+	err := row.Scan(&i.CpuAllocationRatio, &i.MemoryReserveMib)
+	return i, err
 }
 
 const getOperation = `-- name: GetOperation :one
@@ -1044,7 +1049,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsPara
 }
 
 const listNodePage = `-- name: ListNodePage :many
-SELECT n.id, n.name, n.endpoint, n.info, n.state, n.observed_at, n.retiring, n.cpu_allocation_ratio,COALESCE(sum(a.cpu),0)::numeric AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+SELECT n.id, n.name, n.endpoint, n.info, n.state, n.observed_at, n.retiring, n.cpu_allocation_ratio, n.memory_reserve_mib,COALESCE(sum(a.cpu),0)::numeric AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 WHERE ($1::text='' OR n.id>$1)
@@ -1067,6 +1072,7 @@ type ListNodePageRow struct {
 	ObservedAt         pgtype.Timestamptz
 	Retiring           bool
 	CpuAllocationRatio float64
+	MemoryReserveMib   int64
 	ReservedCpu        float64
 	ReservedMemory     int64
 	ReservedDisk       int64
@@ -1090,6 +1096,7 @@ func (q *Queries) ListNodePage(ctx context.Context, arg ListNodePageParams) ([]L
 			&i.ObservedAt,
 			&i.Retiring,
 			&i.CpuAllocationRatio,
+			&i.MemoryReserveMib,
 			&i.ReservedCpu,
 			&i.ReservedMemory,
 			&i.ReservedDisk,
@@ -1105,7 +1112,7 @@ func (q *Queries) ListNodePage(ctx context.Context, arg ListNodePageParams) ([]L
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT n.id, n.name, n.endpoint, n.info, n.state, n.observed_at, n.retiring, n.cpu_allocation_ratio,COALESCE(sum(a.cpu),0)::numeric AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
+SELECT n.id, n.name, n.endpoint, n.info, n.state, n.observed_at, n.retiring, n.cpu_allocation_ratio, n.memory_reserve_mib,COALESCE(sum(a.cpu),0)::numeric AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
 FROM nodes n LEFT JOIN node_asset_reservations a ON a.node_id=n.id
 LEFT JOIN (SELECT node_id,sum(size_gib)::bigint AS disk_gib FROM persistent_volumes GROUP BY node_id) v ON v.node_id=n.id
 GROUP BY n.id,v.disk_gib ORDER BY n.id
@@ -1120,6 +1127,7 @@ type ListNodesRow struct {
 	ObservedAt         pgtype.Timestamptz
 	Retiring           bool
 	CpuAllocationRatio float64
+	MemoryReserveMib   int64
 	ReservedCpu        float64
 	ReservedMemory     int64
 	ReservedDisk       int64
@@ -1143,6 +1151,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]ListNodesRow, error) {
 			&i.ObservedAt,
 			&i.Retiring,
 			&i.CpuAllocationRatio,
+			&i.MemoryReserveMib,
 			&i.ReservedCpu,
 			&i.ReservedMemory,
 			&i.ReservedDisk,
@@ -1450,7 +1459,7 @@ func (q *Queries) LockEnvironmentAssets(ctx context.Context, environmentID strin
 }
 
 const lockNode = `-- name: LockNode :one
-SELECT id, name, endpoint, info, state, observed_at, retiring, cpu_allocation_ratio FROM nodes WHERE id=$1 FOR UPDATE
+SELECT id, name, endpoint, info, state, observed_at, retiring, cpu_allocation_ratio, memory_reserve_mib FROM nodes WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockNode(ctx context.Context, id string) (Node, error) {
@@ -1465,12 +1474,13 @@ func (q *Queries) LockNode(ctx context.Context, id string) (Node, error) {
 		&i.ObservedAt,
 		&i.Retiring,
 		&i.CpuAllocationRatio,
+		&i.MemoryReserveMib,
 	)
 	return i, err
 }
 
 const lockNodes = `-- name: LockNodes :many
-SELECT id, name, endpoint, info, state, observed_at, retiring, cpu_allocation_ratio FROM nodes WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE
+SELECT id, name, endpoint, info, state, observed_at, retiring, cpu_allocation_ratio, memory_reserve_mib FROM nodes WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE
 `
 
 func (q *Queries) LockNodes(ctx context.Context, dollar_1 []string) ([]Node, error) {
@@ -1491,6 +1501,7 @@ func (q *Queries) LockNodes(ctx context.Context, dollar_1 []string) ([]Node, err
 			&i.ObservedAt,
 			&i.Retiring,
 			&i.CpuAllocationRatio,
+			&i.MemoryReserveMib,
 		); err != nil {
 			return nil, err
 		}
@@ -1940,16 +1951,17 @@ func (q *Queries) SetNetworkOwner(ctx context.Context, arg SetNetworkOwnerParams
 }
 
 const setNodeScheduling = `-- name: SetNodeScheduling :execrows
-UPDATE nodes SET cpu_allocation_ratio=$2 WHERE id=$1
+UPDATE nodes SET cpu_allocation_ratio=$2,memory_reserve_mib=COALESCE($3::bigint,memory_reserve_mib) WHERE id=$1
 `
 
 type SetNodeSchedulingParams struct {
 	ID                 string
 	CpuAllocationRatio float64
+	MemoryReserveMib   *int64
 }
 
 func (q *Queries) SetNodeScheduling(ctx context.Context, arg SetNodeSchedulingParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setNodeScheduling, arg.ID, arg.CpuAllocationRatio)
+	result, err := q.db.Exec(ctx, setNodeScheduling, arg.ID, arg.CpuAllocationRatio, arg.MemoryReserveMib)
 	if err != nil {
 		return 0, err
 	}

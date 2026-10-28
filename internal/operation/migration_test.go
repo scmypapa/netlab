@@ -149,7 +149,7 @@ func testMigrationOwnershipHandoff(t *testing.T, rejected bool) {
 	}))
 	defer target.Close()
 	info := api.NodeInfo{
-		Capacity: api.Resources{Cpu: 2, MemoryMiB: 1024, DiskGiB: 100}, Capabilities: []string{"vm"},
+		Capacity: api.Resources{Cpu: 2, MemoryMiB: 2048, DiskGiB: 100}, Capabilities: []string{"vm"},
 		VmHardware: &api.VmHardware{CpuModes: []string{"host-model"}, NicModels: []string{"virtio"}, Machines: []api.VmMachine{{Name: "q35", MaxVcpus: 8, Firmware: []string{"bios"}, DiskBuses: []string{"virtio"}}}},
 	}
 	raw, _ := json.Marshal(info)

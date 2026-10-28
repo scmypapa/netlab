@@ -237,6 +237,8 @@ func nodeRecord(row queries.ListNodePageRow) (api.Node, error) {
 	}
 	result.VmHardware = info.VmHardware
 	result.StorageDevice = info.StorageDevice
+	result.MemoryReserveMiB = row.MemoryReserveMib
+	result.AllocatableMemoryMiB = operation.SchedulingCapacity(info, row.CpuAllocationRatio, row.MemoryReserveMib).MemoryMiB
 	return result, nil
 }
 
@@ -318,13 +320,15 @@ func (s *Server) registerNode(w http.ResponseWriter, r *http.Request, identity a
 		return err
 	}
 	state := "ready"
-	ratio, err := s.Queries.GetNodeScheduling(r.Context(), info.Id)
+	scheduling, err := s.Queries.GetNodeScheduling(r.Context(), info.Id)
 	if err != nil {
 		return err
 	}
-	result := api.Node{Id: info.Id, Name: input.Name, Endpoint: input.Endpoint, Capacity: info.Capacity, CpuAllocationRatio: ratio, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: reserved.Cpu, MemoryMiB: reserved.MemoryMib, DiskGiB: reserved.DiskGib}, State: &state, ObservedAt: time.Now().UTC()}
+	result := api.Node{Id: info.Id, Name: input.Name, Endpoint: input.Endpoint, Capacity: info.Capacity, CpuAllocationRatio: scheduling.CpuAllocationRatio, Capabilities: info.Capabilities, Slots: info.Slots, Reserved: api.Resources{Cpu: reserved.Cpu, MemoryMiB: reserved.MemoryMib, DiskGiB: reserved.DiskGib}, State: &state, ObservedAt: time.Now().UTC()}
 	result.VmHardware = info.VmHardware
 	result.StorageDevice = info.StorageDevice
+	result.MemoryReserveMiB = scheduling.MemoryReserveMib
+	result.AllocatableMemoryMiB = operation.SchedulingCapacity(info, scheduling.CpuAllocationRatio, scheduling.MemoryReserveMib).MemoryMiB
 	return writeJSON(w, http.StatusCreated, result)
 }
 

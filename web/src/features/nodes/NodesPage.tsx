@@ -36,7 +36,9 @@ export function NodesPage() {
     { refetchInterval: 15_000, enabled: !storageView },
   );
   const [adding, setAdding] = useState(false);
-  const [selected, setSelected] = useState<Node>();
+  const [selection, setSelected] = useState<Node>();
+  const selected =
+    nodes.data?.find((node) => node.id === selection?.id) ?? selection;
   useEffect(() => {
     if (storageView) setSelected(undefined);
   }, [storageView]);
@@ -153,9 +155,8 @@ export function NodesPage() {
               </Tabs.List>
               <Tabs.Panel value="performance">
                 <NodeScheduling
-                  key={selected.id}
+                  key={`${selected.id}:${selected.cpuAllocationRatio}:${selected.memoryReserveMiB}:${selected.allocatableMemoryMiB}`}
                   node={selected}
-                  onSaved={setSelected}
                 />
                 <Suspense fallback={<Loading />}>
                   <PerformanceWorkspace node={selected} />

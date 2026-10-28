@@ -217,7 +217,7 @@ func TestControlClaimAndConcurrentCapacity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	q := queries.New(pool)
-	info := api.NodeInfo{Id: "node", Capabilities: []string{"container"}, Capacity: api.Resources{Cpu: 8, MemoryMiB: 1024, DiskGiB: 100}, Storage: &api.StorageInfo{Path: "/pool", Filesystem: "disk", CapacityBytes: 100 << 30, AvailableBytes: 100 << 30}}
+	info := api.NodeInfo{Id: "node", Capabilities: []string{"container"}, Capacity: api.Resources{Cpu: 8, MemoryMiB: 2048, DiskGiB: 100}, Storage: &api.StorageInfo{Path: "/pool", Filesystem: "disk", CapacityBytes: 100 << 30, AvailableBytes: 100 << 30}}
 	info.ContainerStorage = info.Storage
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(info) }))
 	defer node.Close()

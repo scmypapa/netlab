@@ -118,7 +118,7 @@ func migrationCandidates(source Target, nodes []queries.ListNodesRow, pools []qu
 		if !supports(info, source.Execution.Template, source.Execution.Asset.Resources.Cpu) || len(source.Execution.Interfaces) > 0 && !slices.Contains(info.Capabilities, "network") {
 			continue
 		}
-		capacity := schedulingCapacity(info, node.CpuAllocationRatio)
+		capacity := SchedulingCapacity(info, node.CpuAllocationRatio, node.MemoryReserveMib)
 		needed := add(used[node.ID], resources(source.Execution.Asset))
 		if node.ID == source.NodeID {
 			needed = used[node.ID]
@@ -261,6 +261,7 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 	for i := range nodes {
 		latest := byID[nodes[i].ID]
 		nodes[i].State, nodes[i].Info, nodes[i].CpuAllocationRatio = latest.State, latest.Info, latest.CpuAllocationRatio
+		nodes[i].MemoryReserveMib = latest.MemoryReserveMib
 		nodes[i].Retiring = latest.Retiring
 	}
 	reserved, err := q.GetNodeReservations(ctx, ids)

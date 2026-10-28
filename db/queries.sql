@@ -129,9 +129,9 @@ INSERT INTO nodes(id,name,endpoint,info) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO 
 -- name: SetNodeState :exec
 UPDATE nodes SET state=$2,observed_at=CASE WHEN $2='ready' THEN now() ELSE observed_at END WHERE id=$1;
 -- name: SetNodeScheduling :execrows
-UPDATE nodes SET cpu_allocation_ratio=$2 WHERE id=$1;
+UPDATE nodes SET cpu_allocation_ratio=$2,memory_reserve_mib=COALESCE(sqlc.narg(memory_reserve_mib)::bigint,memory_reserve_mib) WHERE id=$1;
 -- name: GetNodeScheduling :one
-SELECT cpu_allocation_ratio FROM nodes WHERE id=$1;
+SELECT cpu_allocation_ratio,memory_reserve_mib FROM nodes WHERE id=$1;
 -- name: LockNode :one
 SELECT * FROM nodes WHERE id=$1 FOR UPDATE;
 -- name: GetReservedResources :one

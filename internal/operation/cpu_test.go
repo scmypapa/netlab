@@ -10,11 +10,11 @@ import (
 
 func TestCPUAllocationDoesNotChangePhysicalCapacity(t *testing.T) {
 	info := api.NodeInfo{Capacity: api.Resources{Cpu: 2, MemoryMiB: 4096, DiskGiB: 100}}
-	capacity := schedulingCapacity(info, 4)
-	if capacity.Cpu != 8 || info.Capacity.Cpu != 2 || capacity.MemoryMiB != 4096 || capacity.DiskGiB != 100 {
+	capacity := SchedulingCapacity(info, 4, 0)
+	if capacity.Cpu != 8 || info.Capacity.Cpu != 2 || info.Capacity.MemoryMiB != 4096 || capacity.MemoryMiB != 3072 || capacity.DiskGiB != 100 {
 		t.Fatal("physical capacity or non-CPU resources changed", info.Capacity, capacity)
 	}
-	if !fits(api.Resources{Cpu: 8, MemoryMiB: 4096}, capacity) || fits(api.Resources{Cpu: 8.01}, capacity) || fits(api.Resources{Cpu: 1, MemoryMiB: 4097}, capacity) {
+	if !fits(api.Resources{Cpu: 8, MemoryMiB: 3072}, capacity) || fits(api.Resources{Cpu: 8.01}, capacity) || fits(api.Resources{Cpu: 1, MemoryMiB: 3073}, capacity) {
 		t.Fatal("CPU over-allocation or memory boundary ignored")
 	}
 	used := api.Resources{}
@@ -23,6 +23,22 @@ func TestCPUAllocationDoesNotChangePhysicalCapacity(t *testing.T) {
 	}
 	if used.Cpu != 3 || !fits(used, api.Resources{Cpu: 3}) {
 		t.Fatal("fractional CPU accumulation changed admission", used)
+	}
+}
+
+func TestHostMemoryCapacityPolicy(t *testing.T) {
+	for _, test := range []struct {
+		total, reserve, allocatable int64
+	}{
+		{1024, 0, 512}, {2048, 0, 1024}, {4096, 0, 3072},
+		{16384, 0, 14746}, {65536, 0, 58983},
+		{4096, 512, 3584}, {256, 512, 0},
+	} {
+		info := api.NodeInfo{Capacity: api.Resources{Cpu: 8, MemoryMiB: test.total}}
+		got := SchedulingCapacity(info, 4, test.reserve)
+		if got.MemoryMiB != test.allocatable || info.Capacity.MemoryMiB != test.total {
+			t.Fatalf("total=%d configured=%d: allocatable=%d, want %d", test.total, test.reserve, got.MemoryMiB, test.allocatable)
+		}
 	}
 }
 

@@ -383,7 +383,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		info.ExternalInterfaces = infos[n.ID].ExternalInterfaces
 		info.NetworkChassis = infos[n.ID].NetworkChassis
 		infos[n.ID] = info
-		capacity[n.ID] = schedulingCapacity(info, n.CpuAllocationRatio)
+		capacity[n.ID] = SchedulingCapacity(info, n.CpuAllocationRatio, n.MemoryReserveMib)
 	}
 	previous := indexInstances(p.Before)
 	for i := range p.Updates {
@@ -635,9 +635,16 @@ func resources(a api.Asset) api.Resources {
 func add(a, b api.Resources) api.Resources {
 	return api.Resources{Cpu: math.Round((a.Cpu+b.Cpu)*100) / 100, MemoryMiB: a.MemoryMiB + b.MemoryMiB, DiskGiB: a.DiskGiB + b.DiskGiB}
 }
-func schedulingCapacity(info api.NodeInfo, cpuRatio float64) api.Resources {
+func SchedulingCapacity(info api.NodeInfo, cpuRatio float64, memoryReserveMiB int64) api.Resources {
 	capacity := info.Capacity
 	capacity.Cpu *= cpuRatio
+	if memoryReserveMiB == 0 {
+		memoryReserveMiB = max(1024, capacity.MemoryMiB/10)
+		if capacity.MemoryMiB < 2048 {
+			memoryReserveMiB = capacity.MemoryMiB / 2
+		}
+	}
+	capacity.MemoryMiB = max(0, capacity.MemoryMiB-memoryReserveMiB)
 	return capacity
 }
 func fits(a, b api.Resources) bool {
