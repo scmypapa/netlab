@@ -240,6 +240,10 @@ type RuntimeAsset struct {
 	SystemGib     int64
 }
 
+type SchemaMigration struct {
+	Name string
+}
+
 type SecurityAlert struct {
 	ID              int64
 	EnvironmentID   string

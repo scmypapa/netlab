@@ -21,14 +21,15 @@ var ErrConflict = errors.New("已有更新正在执行，或所选发布版本�
 var ErrNotInstalled = errors.New("源码开发环境不执行自更新")
 
 type Service struct {
-	Operations *queries.Queries
-	cfg        Config
-	github     github
-	mu         sync.Mutex
-	latest     *api.UpdateRelease
-	checkedAt  *time.Time
-	checkError *string
-	start      func(context.Context) error
+	Operations    *queries.Queries
+	DataMigration string
+	cfg           Config
+	github        github
+	mu            sync.Mutex
+	latest        *api.UpdateRelease
+	checkedAt     *time.Time
+	checkError    *string
+	start         func(context.Context) error
 }
 
 func New(cfg Config) (*Service, error) {
@@ -127,6 +128,18 @@ func (s *Service) Status(ctx context.Context) (api.SystemUpdate, error) {
 				value.Activity.Phase = "waiting_operations"
 			}
 		}
+		if s.DataMigration != "" {
+			applied, err := s.Operations.SchemaMigrationApplied(ctx, s.DataMigration)
+			if err != nil {
+				return value, err
+			}
+			if operation.Phase == dataMigrationPhase || !applied && (value.Activity == nil || value.Activity.Phase == "succeeded") {
+				value.Activity = &api.UpdateActivity{Version: s.cfg.Version, Phase: "installing", UpdatedAt: operation.UpdatedAt.Time}
+				if operation.State == "failed" {
+					value.Activity.Phase, value.Activity.Error = "failed", operation.Error
+				}
+			}
+		}
 	}
 	return value, nil
 }
@@ -147,6 +160,9 @@ func (s *Service) Apply(ctx context.Context, version string) error {
 			}
 			if target.Version != version {
 				return ErrConflict
+			}
+			if operation.Phase == dataMigrationPhase && operation.State == "running" {
+				return nil
 			}
 			return s.apply(ctx, version)
 		}

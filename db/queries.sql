@@ -302,3 +302,14 @@ DELETE FROM capture_segments WHERE environment_id=$1;
 -- name: GetCaptureEndpoint :one
 SELECT n.endpoint FROM capture_segments c JOIN nodes n ON n.id=c.node_id
 WHERE c.environment_id=$1 AND c.node_id=$2 AND c.capture_id=$3;
+
+-- name: SchemaMigrationApplied :one
+SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name=$1);
+
+-- name: StartDataMigration :execrows
+UPDATE operations SET payload=jsonb_build_object('version',sqlc.arg(version)::text),state='running',phase='data-migration',error=NULL,updated_at=now()
+WHERE id='system-update' AND (state='succeeded' OR payload->>'version'=sqlc.arg(version));
+
+-- name: FinishDataMigration :execrows
+UPDATE operations SET state=sqlc.arg(state),phase=CASE WHEN sqlc.arg(state)='succeeded' THEN 'succeeded' ELSE 'data-migration' END,error=sqlc.narg(error)::text,updated_at=now()
+WHERE id='system-update' AND payload->>'version'=sqlc.arg(version)::text AND state='running' AND phase='data-migration';

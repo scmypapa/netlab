@@ -476,6 +476,25 @@ func (q *Queries) FinishAuxiliaryOperation(ctx context.Context, arg FinishAuxili
 	return err
 }
 
+const finishDataMigration = `-- name: FinishDataMigration :execrows
+UPDATE operations SET state=$1,phase=CASE WHEN $1='succeeded' THEN 'succeeded' ELSE 'data-migration' END,error=$2::text,updated_at=now()
+WHERE id='system-update' AND payload->>'version'=$3::text AND state='running' AND phase='data-migration'
+`
+
+type FinishDataMigrationParams struct {
+	State   string
+	Error   *string
+	Version string
+}
+
+func (q *Queries) FinishDataMigration(ctx context.Context, arg FinishDataMigrationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finishDataMigration, arg.State, arg.Error, arg.Version)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const finishOperation = `-- name: FinishOperation :execrows
 UPDATE operations SET state=$3,phase=$4,results=$5,error=$6,lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_owner=$2
 `
@@ -1865,6 +1884,17 @@ func (q *Queries) SaveView(ctx context.Context, arg SaveViewParams) error {
 	return err
 }
 
+const schemaMigrationApplied = `-- name: SchemaMigrationApplied :one
+SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name=$1)
+`
+
+func (q *Queries) SchemaMigrationApplied(ctx context.Context, name string) (bool, error) {
+	row := q.db.QueryRow(ctx, schemaMigrationApplied, name)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const setEnvironmentOperation = `-- name: SetEnvironmentOperation :exec
 UPDATE environments SET operation_id=$2,status=$3,error=NULL,updated_at=now() WHERE id=$1
 `
@@ -1958,6 +1988,19 @@ func (q *Queries) SetOperationPhase(ctx context.Context, arg SetOperationPhasePa
 		arg.Phase,
 		arg.Payload,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const startDataMigration = `-- name: StartDataMigration :execrows
+UPDATE operations SET payload=jsonb_build_object('version',$1::text),state='running',phase='data-migration',error=NULL,updated_at=now()
+WHERE id='system-update' AND (state='succeeded' OR payload->>'version'=$1)
+`
+
+func (q *Queries) StartDataMigration(ctx context.Context, version string) (int64, error) {
+	result, err := q.db.Exec(ctx, startDataMigration, version)
 	if err != nil {
 		return 0, err
 	}

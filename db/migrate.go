@@ -11,13 +11,16 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
+//go:embed schema.sql
+var migrationCatalog string
+
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(73421492); CREATE TABLE IF NOT EXISTS schema_migrations(name text PRIMARY KEY)`); err != nil {
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(73421492); "+migrationCatalog); err != nil {
 		return err
 	}
 	entries, err := fs.ReadDir(migrations, "migrations")
