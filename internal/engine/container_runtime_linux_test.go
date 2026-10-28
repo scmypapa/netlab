@@ -231,6 +231,38 @@ func TestRealNonRootContainerRuntime(t *testing.T) {
 		}
 		checkContainerHTTP(t, ctx, container, "192.0.2.10:502")
 	})
+	t.Run("normal stop finishes when PID 1 cannot handle the stop signal", func(t *testing.T) {
+		container, err := e.container.client.LoadContainer(ctx, a.InstanceId)
+		if err != nil {
+			t.Fatal(err)
+		}
+		task, err := container.Task(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = task.Kill(ctx, syscall.SIGSTOP); err != nil {
+			t.Fatal(err)
+		}
+		stopping, finish := context.WithTimeout(ctx, 20*time.Second)
+		defer finish()
+		plan.Phase = api.NodePlanPhaseStop
+		result := e.Execute(stopping, plan)
+		if result.Error != nil || len(result.Results) != 1 || result.Results[0].Error != nil || result.Results[0].State != "stopped" {
+			if err := task.Kill(context.WithoutCancel(ctx), syscall.SIGCONT); err != nil && !errdefs.IsNotFound(err) {
+				t.Error(err)
+			}
+			t.Fatalf("unresponsive PID 1 prevented normal stop: %+v", result)
+		}
+		if _, err = container.Task(ctx, nil); !errdefs.IsNotFound(err) {
+			t.Fatalf("stopped task was not removed: %v", err)
+		}
+		plan.Phase = api.NodePlanPhaseStart
+		result = e.Execute(ctx, plan)
+		if result.Error != nil || len(result.Results) != 1 || result.Results[0].Error != nil || result.Results[0].State != "running" {
+			t.Fatalf("stopped container could not restart: %+v", result)
+		}
+		checkContainerHTTP(t, ctx, container, "192.0.2.10:502")
+	})
 	t.Run("same-node migration keeps the surviving instance and volume", func(t *testing.T) {
 		if state, err := e.container.Execute(ctx, id, api.NodePlanPhaseStop, a, nil); err != nil || state != "stopped" {
 			t.Fatalf("stop source: %s %v", state, err)

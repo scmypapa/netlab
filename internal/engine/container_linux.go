@@ -595,12 +595,10 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 		stopSignal := syscall.SIGTERM
 		if force {
 			stopSignal = syscall.SIGKILL
-		} else {
-			if labels["netlab.stop-signal"] != "" {
-				stopSignal, err = signal.ParseSignal(labels["netlab.stop-signal"])
-				if err != nil {
-					return err
-				}
+		} else if labels["netlab.stop-signal"] != "" {
+			stopSignal, err = signal.ParseSignal(labels["netlab.stop-signal"])
+			if err != nil {
+				return err
 			}
 		}
 		if err = task.Kill(ctx, stopSignal); err != nil && !errdefs.IsNotFound(err) {
@@ -609,17 +607,32 @@ func (c *Containers) stop(ctx context.Context, container containerd.Container, a
 		if releaseSlot != nil {
 			releaseSlot()
 		}
-		timer := time.NewTimer(90 * time.Second)
+		// Match Docker's default grace period before terminating an unresponsive container.
+		timer := time.NewTimer(10 * time.Second)
 		defer timer.Stop()
+		var exit containerd.ExitStatus
 		select {
-		case exit := <-wait:
-			if _, _, err = exit.Result(); err != nil {
-				return err
-			}
+		case exit = <-wait:
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timer.C:
-			return errors.New("container has not completed normal stop")
+			if stopSignal == syscall.SIGKILL {
+				return errors.New("容器收到强制停止信号后未退出")
+			}
+			if err = task.Kill(ctx, syscall.SIGKILL, containerd.WithKillAll); err != nil && !errdefs.IsNotFound(err) {
+				return err
+			}
+			timer.Reset(10 * time.Second)
+			select {
+			case exit = <-wait:
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+				return errors.New("容器收到强制停止信号后未退出")
+			}
+		}
+		if _, _, err = exit.Result(); err != nil {
+			return err
 		}
 	}
 	if _, err = task.Delete(ctx); err != nil {
