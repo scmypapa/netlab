@@ -84,6 +84,9 @@ func TestHostMemoryAdmission(t *testing.T) {
 		if _, err = pool.Exec(ctx, "UPDATE operations SET state='running',lease_owner=$2 WHERE id=$1", op.ID, owner); err != nil {
 			t.Fatal(err)
 		}
+		if _, err = pool.Exec(ctx, "UPDATE environments SET operation_id=$2 WHERE id=$1", env.ID, op.ID); err != nil {
+			t.Fatal(err)
+		}
 		return op
 	}
 	for _, test := range []struct {
@@ -209,6 +212,14 @@ func TestHostMemoryAdmission(t *testing.T) {
 		}
 		assertReservation(0, 0, 2)
 		if _, err := pool.Exec(ctx, "UPDATE operations SET phase='rollback' WHERE id=$1", winner.ID); err != nil {
+			t.Fatal(err)
+		}
+		assertReservation(1, 2048, 2)
+		if _, err := pool.Exec(ctx, "UPDATE environments SET operation_id=NULL WHERE id=$1", winner.EnvironmentID); err != nil {
+			t.Fatal(err)
+		}
+		assertReservation(0, 0, 2)
+		if _, err := pool.Exec(ctx, "UPDATE environments SET operation_id=$2 WHERE id=$1", winner.EnvironmentID, winner.ID); err != nil {
 			t.Fatal(err)
 		}
 		assertReservation(1, 2048, 2)
