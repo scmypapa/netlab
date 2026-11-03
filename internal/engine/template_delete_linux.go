@@ -77,5 +77,5 @@ func (e *Engine) RemoveTemplate(ctx context.Context, id string, poolIDs []string
 			return err
 		}
 	}
-	return nil
+	return e.pruneTemplateContent(ctx)
 }

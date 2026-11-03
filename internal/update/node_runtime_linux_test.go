@@ -161,7 +161,7 @@ case "$name" in
     fi ;;
 esac
 `), 0700)
-	for _, name := range []string{"uname", "dpkg-query", "modinfo", "apt-get", "modprobe", "install", "suricata", "suricata-update", "systemctl", "logrotate"} {
+	for _, name := range []string{"uname", "dpkg-query", "modinfo", "apt-get", "modprobe", "install", "suricata", "suricata-update", "systemctl", "logrotate", "compsize"} {
 		if missingKmod && (name == "modprobe" || name == "modinfo") {
 			continue
 		}

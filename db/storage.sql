@@ -50,6 +50,16 @@ WITH assets AS (
 SELECT node_id,pool_id,sum(disk_gib)::bigint AS disk_gib,sum(container_gib)::bigint AS container_gib FROM allocations GROUP BY node_id,pool_id;
 -- name: NodeStorageOperation :one
 SELECT * FROM operations WHERE scope_kind='node' AND scope_id=$1 AND kind='configure-node-storage' ORDER BY created_at DESC,id DESC LIMIT 1;
+-- name: PendingStorageWrites :many
+SELECT allocation.fs::text AS filesystem,sum(allocation.amount::bigint)::bigint AS gib
+FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+LEFT JOIN persistent_volumes v ON o.scope_kind='volume' AND v.id=o.scope_id
+CROSS JOIN LATERAL jsonb_each_text(COALESCE(o.payload->'storageWrites','{}')) AS allocation(fs,amount)
+WHERE o.payload ? 'storageWrites' AND (
+ o.updated_at>=sqlc.arg(observed_at)::timestamptz OR
+ (o.phase NOT IN ('complete','rolled-back','cancelled') AND
+  (o.environment_id IS NOT NULL AND e.operation_id=o.id OR o.scope_kind='volume' AND v.operation_id=o.id)))
+GROUP BY allocation.fs;
 -- name: TemplateLocalReferences :many
 SELECT DISTINCT node_id FROM (
  SELECT node_id,execution FROM runtime_assets
@@ -86,3 +96,10 @@ SELECT name::text FROM (
   o.payload->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('storagePoolId',sqlc.arg(pool_id)::text))) OR
   o.payload->'beforeSpec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('storagePoolId',sqlc.arg(pool_id)::text))))
 ) refs ORDER BY name;
+
+-- name: EnvironmentStorageSources :many
+SELECT r.node_id,r.execution,''::text AS recovery_id FROM runtime_assets r WHERE r.environment_id=$1
+UNION ALL
+SELECT a->>'nodeId',a->'execution',p.id FROM recovery_points p
+CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a
+WHERE p.environment_id=$1;

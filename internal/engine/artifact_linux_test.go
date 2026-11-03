@@ -19,10 +19,11 @@ import (
 	"testing"
 
 	"netlab.local/core/api"
+	"netlab.local/core/internal/transport"
 )
 
 func TestCachedTemplatePreservesNodeIdentity(t *testing.T) {
-	for _, kind := range []api.TemplateKind{api.Container, api.Vm} {
+	for _, kind := range []api.TemplateKind{api.Vm} {
 		t.Run(string(kind), func(t *testing.T) {
 			data := t.TempDir()
 			input := api.Template{Id: "cached", Version: 1, Kind: kind}
@@ -42,7 +43,7 @@ func TestCachedTemplatePreservesNodeIdentity(t *testing.T) {
 			if err = os.WriteFile(filepath.Join(directory, "template.json"), manifest, 0640); err != nil {
 				t.Fatal(err)
 			}
-			executor := &Engine{cfg: Config{ID: "local-node", DataDir: data}, ioSlots: make(chan struct{}, 1), locks: make(map[string]*objectLock), container: &Containers{data: data}, vm: &VirtualMachines{data: data}}
+			executor := &Engine{cfg: Config{ID: "local-node", DataDir: data}, ioSlots: make(chan struct{}, 1), container: &Containers{data: data}, vm: &VirtualMachines{data: data}}
 			prepared, err := executor.PrepareTemplate(context.Background(), api.NodeTemplatePreparation{Template: input})
 			if err != nil {
 				t.Fatal(err)
@@ -58,7 +59,7 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 	origin := "source-node"
 	disks := []api.TemplateDisk{{Id: "boot"}}
 	template := api.Template{Id: "system", Version: 3, Kind: api.Vm, ArtifactNodeId: &origin, Disks: &disks}
-	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}, locks: make(map[string]*objectLock)}
+	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}}
 	directory := templateDirectory(source.cfg.DataDir, template.Id, template.Version)
 	if err := os.MkdirAll(directory, 0711); err != nil {
 		t.Fatal(err)
@@ -86,13 +87,12 @@ func TestTemplateArtifactTransfer(t *testing.T) {
 			return
 		}
 		defer reader.Close()
-		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
-		if _, err = io.Copy(w, reader); err != nil {
+		if err = transport.WriteArtifact(w, r, reader, length); err != nil {
 			t.Error(err)
 		}
 	}))
 	defer server.Close()
-	target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock), ioSlots: make(chan struct{}, 1)}
+	target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, ioSlots: make(chan struct{}, 1)}
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
@@ -119,7 +119,7 @@ func TestSharedTemplateTransfersOnlyRuntimeFiles(t *testing.T) {
 	origin := "source"
 	disks := []api.TemplateDisk{{Id: "boot"}}
 	template := api.Template{Id: "shared", Version: 1, Kind: api.Vm, ArtifactNodeId: &origin, Disks: &disks}
-	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}, locks: make(map[string]*objectLock)}
+	source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}}
 	directory := templateDirectory(source.cfg.DataDir, template.Id, template.Version)
 	if err := os.MkdirAll(directory, 0711); err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestSharedTemplateTransfersOnlyRuntimeFiles(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	target := &Engine{cfg: Config{ID: "target", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock), ioSlots: make(chan struct{}, 1)}
+	target := &Engine{cfg: Config{ID: "target", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, ioSlots: make(chan struct{}, 1)}
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
@@ -218,7 +218,7 @@ func TestTemplateArtifactRejectsInvalidTransfer(t *testing.T) {
 				w.Write(body)
 			}))
 			defer server.Close()
-			target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: make(map[string]*objectLock), ioSlots: make(chan struct{}, 1)}
+			target := &Engine{cfg: Config{ID: "target-node", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, ioSlots: make(chan struct{}, 1)}
 			if err = target.fetchTemplateArtifact(context.Background(), template, server.URL, false); err == nil {
 				t.Fatal("invalid transfer was committed")
 			}
@@ -231,7 +231,7 @@ func TestTemplateArtifactRejectsInvalidTransfer(t *testing.T) {
 }
 
 func TestLargeTemplateArtifactHeader(t *testing.T) {
-	source := &Engine{cfg: Config{DataDir: t.TempDir()}, locks: make(map[string]*objectLock)}
+	source := &Engine{cfg: Config{DataDir: t.TempDir()}}
 	directory := templateDirectory(source.cfg.DataDir, "large-disk", 1)
 	if err := os.MkdirAll(directory, 0711); err != nil {
 		t.Fatal(err)

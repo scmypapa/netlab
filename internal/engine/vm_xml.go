@@ -113,7 +113,7 @@ func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (s
 		if err != nil {
 			return err
 		}
-		disk := libvirtxml.DomainDisk{Device: "disk", Serial: serial, Driver: &libvirtxml.DomainDiskDriver{Name: "qemu", Type: location.format(), Cache: "none", Discard: "unmap"}, Source: source, Auth: auth, Target: &libvirtxml.DomainDiskTarget{Dev: device, Bus: bus}}
+		disk := libvirtxml.DomainDisk{Device: "disk", Serial: serial, Driver: &libvirtxml.DomainDiskDriver{Name: "qemu", Type: location.format(), Cache: "none", Discard: "unmap", ErrorPolicy: "enospace"}, Source: source, Auth: auth, Target: &libvirtxml.DomainDiskTarget{Dev: device, Bus: bus}}
 		if boot {
 			disk.Boot = &libvirtxml.DomainDeviceBoot{Order: uint(definition.BootOrder)}
 		}

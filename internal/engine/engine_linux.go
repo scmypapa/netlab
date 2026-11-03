@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,7 +17,6 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/namespaces"
-	"golang.org/x/sync/semaphore"
 	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
 	"netlab.local/core/internal/buildinfo"
@@ -48,18 +46,13 @@ type Engine struct {
 	external      *network.External
 	slots         chan struct{}
 	ioSlots       chan struct{}
-	mu            sync.Mutex
-	locks         map[string]*objectLock
+	locks         objectLocks
 	captures      *capture.Manager
 	captureError  error
 	collector     *capture.Collector
 	trafficError  error
 	security      *security.Manager
 	securityError error
-}
-type objectLock struct {
-	mu   *semaphore.Weighted
-	refs int
 }
 
 func New(ctx context.Context, cfg Config) (*Engine, error) {
@@ -70,7 +63,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 	concurrency := max(1, runtime.NumCPU()/2)
-	e := &Engine{cfg: cfg, slots: make(chan struct{}, concurrency), ioSlots: make(chan struct{}, concurrency), locks: make(map[string]*objectLock)}
+	e := &Engine{cfg: cfg, slots: make(chan struct{}, concurrency), ioSlots: make(chan struct{}, concurrency)}
+	if err := e.pruneTemplateContent(ctx); err != nil {
+		return nil, err
+	}
 	if err := e.initializeStorageSelection(); err != nil {
 		return nil, err
 	}
@@ -157,31 +153,7 @@ func (e *Engine) lock(ctx context.Context, id string) (func(), error) {
 }
 
 func (e *Engine) acquire(ctx context.Context, id string, shared bool) (func(), error) {
-	e.mu.Lock()
-	l := e.locks[id]
-	if l == nil {
-		l = &objectLock{mu: semaphore.NewWeighted(math.MaxInt64)}
-		e.locks[id] = l
-	}
-	l.refs++
-	e.mu.Unlock()
-	weight := int64(math.MaxInt64)
-	if shared {
-		weight = 1
-	}
-	release := func() {
-		e.mu.Lock()
-		l.refs--
-		if l.refs == 0 {
-			delete(e.locks, id)
-		}
-		e.mu.Unlock()
-	}
-	if err := l.mu.Acquire(ctx, weight); err != nil {
-		release()
-		return nil, err
-	}
-	return func() { l.mu.Release(weight); release() }, nil
+	return e.locks.acquire(ctx, id, shared)
 }
 func (e *Engine) Info(ctx context.Context) (api.NodeInfo, error) {
 	var mem unix.Sysinfo_t
@@ -197,7 +169,7 @@ func (e *Engine) Info(ctx context.Context) (api.NodeInfo, error) {
 		caps = append(caps, "container")
 	}
 	if e.vm != nil {
-		caps = append(caps, "vm")
+		caps = append(caps, "vm", "thin-storage")
 	}
 	info := api.NodeInfo{Id: e.cfg.ID, Name: e.cfg.Name, Version: buildinfo.Version, Slots: cap(e.slots), Capabilities: caps, Capacity: api.Resources{Cpu: float64(runtime.NumCPU()), MemoryMiB: int64(mem.Totalram) * int64(mem.Unit) / (1 << 20), DiskGiB: int64(disk.Blocks) * int64(disk.Bsize) / (1 << 30)}}
 	storage, err := StorageInfo(e.cfg.DataDir)
@@ -561,6 +533,11 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 		if e.container == nil {
 			return t, errors.New("container runtime not configured")
 		}
+		unlockReader, lockErr := e.lock(ctx, "template-reader:"+t.Id)
+		if lockErr != nil {
+			return t, lockErr
+		}
+		defer unlockReader()
 		t, err = e.container.prepareTemplate(namespaces.WithNamespace(ctx, "netlab"), t, request.Registry, e.ioSlots)
 	case api.Vm:
 		if e.vm == nil {
@@ -582,6 +559,9 @@ func (e *Engine) PrepareTemplate(ctx context.Context, request api.NodeTemplatePr
 		}
 	default:
 		err = fmt.Errorf("invalid template kind %s", t.Kind)
+	}
+	if err == nil {
+		err = e.shareTemplateContent(ctx, templateDirectory(e.cfg.DataDir, t.Id, t.Version), t, false)
 	}
 	if err != nil {
 		t.State = ptr(api.TemplateStateFailed)

@@ -33,7 +33,7 @@ func TestRealContainerImportDoesNotOccupyCompute(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	e := &Engine{cfg: Config{ID: c.node, DataDir: data}, container: c, locks: map[string]*objectLock{}, slots: make(chan struct{}, 1), ioSlots: make(chan struct{}, 1)}
+	e := &Engine{cfg: Config{ID: c.node, DataDir: data}, container: c, slots: make(chan struct{}, 1), ioSlots: make(chan struct{}, 1)}
 	started, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

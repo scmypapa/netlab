@@ -16,7 +16,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containerd/containerd/images/archive"
+	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/platforms"
+
 	"netlab.local/core/api"
+	"netlab.local/core/internal/transport"
 )
 
 func templateDirectory(data, id string, version int) string {
@@ -42,7 +47,13 @@ func (e *Engine) TransferTemplate(ctx context.Context, request api.NodeTemplateP
 	if request.ArtifactEndpoint == nil {
 		return errors.New("缺少模板源节点")
 	}
-	return e.fetchTemplateArtifact(ctx, request.Template, *request.ArtifactEndpoint, false)
+	if err = e.fetchTemplateArtifact(ctx, request.Template, *request.ArtifactEndpoint, false); err != nil {
+		return err
+	}
+	if request.Template.Kind == api.Container {
+		return e.prepareContainerImage(ctx, request.Template)
+	}
+	return nil
 }
 
 func (e *Engine) prepareContainerImage(ctx context.Context, t api.Template) error {
@@ -54,7 +65,12 @@ func (e *Engine) prepareContainerImage(ctx context.Context, t api.Template) erro
 		return err
 	}
 	defer unlock()
-	_, err = e.container.image(ctx, t, nil, e.ioSlots)
+	unlockReader, err := e.lock(ctx, "template-reader:"+t.Id)
+	if err != nil {
+		return err
+	}
+	defer unlockReader()
+	_, err = e.container.prepareTemplate(namespaces.WithNamespace(ctx, "netlab"), t, nil, e.ioSlots)
 	return err
 }
 
@@ -88,12 +104,68 @@ func (e *Engine) OpenTemplateArtifact(ctx context.Context, id string, version in
 			return nil, 0, err
 		}
 	}
+	if template.Kind == api.Container {
+		if _, err = os.Stat(filepath.Join(directory, "image.tar")); errors.Is(err, os.ErrNotExist) {
+			reader, size, err := e.exportContainerArtifact(ctx, template)
+			if err != nil {
+				return nil, 0, err
+			}
+			handed = true
+			return &artifactReader{ReadCloser: reader, unlock: unlock}, size, nil
+		} else if err != nil {
+			return nil, 0, err
+		}
+	}
 	reader, size, err := openArtifactFiles(directory, templateArtifactFiles(template, runtimeOnly))
 	if err != nil {
 		return nil, 0, err
 	}
 	handed = true
 	return &artifactReader{ReadCloser: reader, unlock: unlock}, size, nil
+}
+
+func (e *Engine) exportContainerArtifact(ctx context.Context, t api.Template) (io.ReadCloser, int64, error) {
+	if e.container == nil {
+		return nil, 0, errors.New("container runtime not configured")
+	}
+	ctx = namespaces.WithNamespace(ctx, "netlab")
+	image, err := e.container.client.GetImage(ctx, fmt.Sprintf("netlab/template/%s:%d", t.Id, t.Version))
+	if err != nil {
+		return nil, 0, err
+	}
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
+	staging, err := os.MkdirTemp(filepath.Join(e.cfg.DataDir, "artifacts", t.Id), "export-")
+	if err != nil {
+		return nil, 0, err
+	}
+	handed := false
+	defer func() {
+		if !handed {
+			os.RemoveAll(staging)
+		}
+	}()
+	if err = writeRecoveryJSON(filepath.Join(staging, "template.json"), t); err != nil {
+		return nil, 0, err
+	}
+	file, err := os.Create(filepath.Join(staging, "image.tar"))
+	if err != nil {
+		return nil, 0, err
+	}
+	exportErr := e.container.client.Export(ctx, file, archive.WithManifest(image.Target(), image.Name()), archive.WithPlatform(platforms.Default()), archive.WithSkipMissing(e.container.client.ContentStore()))
+	if err = errors.Join(exportErr, file.Close()); err != nil {
+		return nil, 0, err
+	}
+	reader, size, err := openDirectoryArtifact(staging)
+	if err != nil {
+		return nil, 0, err
+	}
+	handed = true
+	return &recoveryArtifact{ReadCloser: reader, directory: staging}, size, nil
 }
 
 func openDirectoryArtifact(directory string) (io.ReadCloser, int64, error) {
@@ -193,7 +265,7 @@ func (e *Engine) fetchTemplateArtifact(ctx context.Context, t api.Template, endp
 		return ctx.Err()
 	}
 	defer func() { <-e.ioSlots }()
-	return e.installTemplateArtifact(t, reader, shared)
+	return e.installTemplateArtifact(ctx, t, reader, shared)
 }
 
 func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, endpoint string, shared bool) (io.ReadCloser, int64, error) {
@@ -222,15 +294,19 @@ func (e *Engine) openTemplateSource(ctx context.Context, t api.Template, node, e
 		}
 		return nil, 0, fmt.Errorf("template artifact download: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
 	}
-	return response.Body, response.ContentLength, nil
+	length, err := transport.ArtifactLength(response)
+	if err != nil {
+		response.Body.Close()
+		return nil, 0, err
+	}
+	return response.Body, length, nil
 }
 
-func (e *Engine) installTemplateArtifact(t api.Template, reader io.Reader, shared bool) error {
+func (e *Engine) installTemplateArtifact(ctx context.Context, t api.Template, reader io.Reader, shared bool) (err error) {
 	directory := templateDirectory(e.cfg.DataDir, t.Id, t.Version)
 	if shared {
 		directory = templateRuntimeDirectory(e.cfg.DataDir, t.Id, t.Version)
 	}
-	var err error
 	if err = os.MkdirAll(filepath.Dir(directory), 0711); err != nil {
 		return err
 	}
@@ -238,7 +314,13 @@ func (e *Engine) installTemplateArtifact(t api.Template, reader io.Reader, share
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(staging)
+	defer func() {
+		cleanupErr := os.RemoveAll(staging)
+		if err != nil {
+			cleanupErr = errors.Join(cleanupErr, e.pruneTemplateContent(context.WithoutCancel(ctx)))
+		}
+		err = errors.Join(err, cleanupErr)
+	}()
 	if err = os.Chmod(staging, 0711); err != nil {
 		return err
 	}
@@ -265,6 +347,9 @@ func (e *Engine) installTemplateArtifact(t api.Template, reader io.Reader, share
 		if _, err = os.Stat(filepath.Join(staging, name)); err != nil {
 			return err
 		}
+	}
+	if err = e.shareTemplateContent(ctx, staging, prepared, shared); err != nil {
+		return err
 	}
 	return os.Rename(staging, directory)
 }
@@ -311,7 +396,7 @@ func receiveDirectoryArtifact(reader io.Reader, directory string) error {
 		if err != nil {
 			return err
 		}
-		_, copyErr := io.Copy(file, archive)
+		_, copyErr := copySparse(file, archive)
 		if err = errors.Join(copyErr, file.Close()); err != nil {
 			return err
 		}

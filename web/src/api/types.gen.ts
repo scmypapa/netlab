@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+  "/environments/{id}/storage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["environmentStorage"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/templates/{id}/cache": {
     parameters: {
       query?: never;
@@ -2631,6 +2649,33 @@ export interface components {
     };
     /** @enum {string} */
     StorageDriver: "directory" | "rbd";
+    EnvironmentStorage: {
+      /**
+       * Format: int64
+       * @description Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.
+       */
+      bytes: number;
+      /** Format: date-time */
+      measuredAt: string;
+    };
+    StorageUsagePart: {
+      key: string;
+      /** Format: int64 */
+      bytes: number;
+    };
+    StorageUsageSource: {
+      execution: components["schemas"]["AssetExecution"];
+      recoveryId: string;
+    };
+    NodeStorageUsage: {
+      environmentId: string;
+      sources: components["schemas"]["StorageUsageSource"][];
+    };
+    NodeStorageEstimate: {
+      assets: {
+        [key: string]: components["schemas"]["AssetExecution"];
+      };
+    };
     StorageInfo: {
       path: string;
       filesystem: string;
@@ -2867,6 +2912,11 @@ export interface components {
         | "resume"
         | "rebuild"
         | "destroy";
+      /**
+       * @description Rebuild with fresh environment data volumes. Independently managed volumes are detached and retained.
+       * @default false
+       */
+      resetVolumes: boolean;
       expectedRevision?: number;
       clientRequestId?: string;
     };
@@ -3196,6 +3246,28 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  environmentStorage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Measured environment storage excluding shared template bases */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EnvironmentStorage"];
+        };
+      };
+    };
+  };
   templateCache: {
     parameters: {
       query?: never;

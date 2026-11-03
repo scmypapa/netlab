@@ -410,6 +410,9 @@ type ActionRequest struct {
 	Action           ActionRequestAction `json:"action"`
 	ClientRequestId  *string             `json:"clientRequestId,omitempty"`
 	ExpectedRevision *int                `json:"expectedRevision,omitempty"`
+
+	// ResetVolumes Rebuild with fresh environment data volumes. Independently managed volumes are detached and retained.
+	ResetVolumes bool `json:"resetVolumes,omitempty"`
 }
 
 // ActionRequestAction defines model for ActionRequest.Action.
@@ -978,6 +981,13 @@ type EnvironmentState struct {
 // EnvironmentStatus defines model for EnvironmentStatus.
 type EnvironmentStatus string
 
+// EnvironmentStorage defines model for EnvironmentStorage.
+type EnvironmentStorage struct {
+	// Bytes Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.
+	Bytes      int64     `json:"bytes"`
+	MeasuredAt time.Time `json:"measuredAt"`
+}
+
 // EnvironmentSummary defines model for EnvironmentSummary.
 type EnvironmentSummary struct {
 	AssetCount        int               `json:"assetCount"`
@@ -1500,6 +1510,17 @@ type NodeStorageDevices struct {
 	Selected  string          `json:"selected"`
 }
 
+// NodeStorageEstimate defines model for NodeStorageEstimate.
+type NodeStorageEstimate struct {
+	Assets map[string]AssetExecution `json:"assets"`
+}
+
+// NodeStorageUsage defines model for NodeStorageUsage.
+type NodeStorageUsage struct {
+	EnvironmentId string               `json:"environmentId"`
+	Sources       []StorageUsageSource `json:"sources"`
+}
+
 // NodeTemplatePreparation defines model for NodeTemplatePreparation.
 type NodeTemplatePreparation struct {
 	ArtifactEndpoint *string                `json:"artifactEndpoint,omitempty"`
@@ -2010,6 +2031,18 @@ type StoragePoolAsset struct {
 	Revision        int64  `json:"revision"`
 	SizeGiB         int64  `json:"sizeGiB"`
 	State           string `json:"state"`
+}
+
+// StorageUsagePart defines model for StorageUsagePart.
+type StorageUsagePart struct {
+	Bytes int64  `json:"bytes"`
+	Key   string `json:"key"`
+}
+
+// StorageUsageSource defines model for StorageUsageSource.
+type StorageUsageSource struct {
+	Execution  AssetExecution `json:"execution"`
+	RecoveryId string         `json:"recoveryId"`
 }
 
 // SystemUpdate defines model for SystemUpdate.

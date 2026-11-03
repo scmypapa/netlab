@@ -263,6 +263,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 			}
 			replace := exists && (environment.RequiresReplacement(t, old.Execution.Asset, a, !reflect.DeepEqual(old.Execution.Interfaces, execution.Interfaces)) || old.Execution.Template.Version != t.Version || op.Kind == "rebuild" && (op.AssetID == nil || *op.AssetID == a.Id))
 			if !exists || replace {
+				if p.ResetVolumes && (op.AssetID == nil || *op.AssetID == a.Id) {
+					execution.DataSetId = op.ID
+				}
 				if replace {
 					previous := old.Execution.InstanceId
 					execution.PreviousInstanceId = &previous
@@ -286,6 +289,13 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	storage := map[string]storageCandidate{}
 	if len(p.Targets)+len(p.Updates) > 0 {
 		if storage, err = w.storage(ctx, nodes); err != nil {
+			return err
+		}
+	}
+	estimates := map[string]map[string]int64{}
+	if !restoring {
+		targets := append(slices.Clone(p.Targets), p.Updates...)
+		if estimates, err = w.estimateStorage(ctx, targets, storage, nodes); err != nil {
 			return err
 		}
 	}
@@ -349,11 +359,9 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 				storage[id] = pool
 			}
 		}
-		allocated, err := q.StorageReservations(ctx, ids)
-		if err != nil {
+		if diskUsed, err = pendingStorage(ctx, q, storage); err != nil {
 			return err
 		}
-		diskUsed = storageUsage(allocated, storage)
 	}
 	nodeStorage := map[string][]storageCandidate{}
 	for _, pool := range storage {
@@ -429,10 +437,13 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if err != nil {
 			return err
 		}
+		if estimated, ok := estimates[estimateKey(t.NodeID, pool.id, t.Execution.InstanceId)]; ok {
+			amounts = estimated
+		}
 		if !pool.ready || !storageFits(diskUsed, diskPending, diskLimits, amounts) {
 			return fmt.Errorf("资产 %s 的存储容量不足", t.Execution.Asset.Name)
 		}
-		reserveStorage(diskUsed, diskPending, amounts)
+		reserveStorage(diskPending, amounts)
 		assignStorage(&t.Execution, pool)
 	}
 	// Large requirements go first, then choose the lowest dominant utilization.
@@ -466,7 +477,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if t.Execution.PreviousInstanceId != nil {
 			old := *previous[*t.Execution.PreviousInstanceId]
 			preferred, previousNode = actualPool(old.NodeID, old.Execution), old.NodeID
-			if t.Execution.Asset.Volumes != nil && old.Execution.Asset.Volumes != nil {
+			if t.Execution.DataSetId == old.Execution.DataSetId && t.Execution.Asset.Volumes != nil && old.Execution.Asset.Volumes != nil {
 				for _, volume := range *t.Execution.Asset.Volumes {
 					for _, existing := range *old.Execution.Asset.Volumes {
 						if volume.Id == existing.Id && volume.PersistentVolumeId == nil && existing.PersistentVolumeId == nil {
@@ -504,13 +515,16 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 					continue
 				}
 				amounts, err := storageAmounts(n.ID, t.Execution.Template.Kind, pool, diskRequirement, storage)
+				if estimated, ok := estimates[estimateKey(n.ID, pool.id, t.Execution.InstanceId)]; ok {
+					amounts = estimated
+				}
 				if err != nil || !storageFits(diskUsed, diskPending, diskLimits, amounts) {
 					continue
 				}
 				s := max(float64(u.Cpu)/float64(c.Cpu), float64(u.MemoryMiB)/float64(c.MemoryMiB))
 				for key, amount := range amounts {
 					info := diskLimits[key]
-					s = max(s, float64(diskUsed[key]+amount)/float64(info.CapacityBytes>>30), 1-float64(info.AvailableBytes)/float64(info.CapacityBytes))
+					s = max(s, 1-float64(info.AvailableBytes)/float64(info.CapacityBytes)+float64(diskUsed[key]+diskPending[key]+amount)/float64(info.CapacityBytes>>30))
 				}
 				priority := 0
 				if preferred == "" && t.Execution.Template.Kind == api.Vm && pool.info.Rbd == nil {
@@ -543,7 +557,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 		if !restoring {
 			t.Execution.VolumeSources, _ = volumeBindings(t.Execution.Asset, volumes, storage, best)
 		}
-		reserveStorage(diskUsed, diskPending, bestAmounts)
+		reserveStorage(diskPending, bestAmounts)
 		used[best] = add(used[best], requirement)
 	}
 	if restoring {
@@ -614,6 +628,7 @@ func (w Worker) plan(ctx context.Context, op *queries.Operation, p *Payload) err
 	}
 	transactionWorker := w
 	transactionWorker.Queries = q
+	p.StorageWrites = diskPending
 	phase := "prepare"
 	if restoring {
 		phase = "prepare-recovery"

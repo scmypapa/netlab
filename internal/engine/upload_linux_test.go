@@ -26,7 +26,7 @@ func TestTemplateUploadKeepsRelativeFilesAndCleansFailedStreams(t *testing.T) {
 		{"missing main", "machine.ovf", []string{"disk.vmdk"}, false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			e := &Engine{cfg: Config{DataDir: t.TempDir()}, locks: make(map[string]*objectLock)}
+			e := &Engine{cfg: Config{DataDir: t.TempDir()}}
 			var input bytes.Buffer
 			body := multipart.NewWriter(&input)
 			for _, name := range test.files {

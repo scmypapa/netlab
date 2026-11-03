@@ -107,6 +107,9 @@ func (e *Engine) TrimTemplateCache(ctx context.Context, input api.TemplateCacheR
 			return result, err
 		}
 	}
+	if err = e.pruneTemplateContent(ctx); err != nil {
+		return result, err
+	}
 	return e.TemplateCache(ctx, t.Id, t.Version)
 }
 
@@ -141,6 +144,7 @@ func (e *Engine) hydrateTemplate(ctx context.Context, t api.Template) error {
 	defer func() { <-e.ioSlots }()
 	for _, i := range missing {
 		path := systemDiskPath(directory, i)
+		defer os.Remove(path + ".pending")
 		pools, err := os.ReadDir(filepath.Join(e.cfg.DataDir, "storage-pools"))
 		if err != nil {
 			return err
@@ -162,10 +166,13 @@ func (e *Engine) hydrateTemplate(ctx context.Context, t api.Template) error {
 			if !exists {
 				continue
 			}
-			if err = command(ctx, "qemu-img", "convert", "-f", "raw", "-O", "qcow2", base.address(), path+".pending"); err != nil {
+			if err = compressTemplateDisk(ctx, "raw", base.address(), path+".pending"); err != nil {
 				return err
 			}
 			if err = os.Rename(path+".pending", path); err != nil {
+				return err
+			}
+			if err = e.shareTemplateFile(ctx, path); err != nil {
 				return err
 			}
 			restored = true

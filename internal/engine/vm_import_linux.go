@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"netlab.local/core/api"
 )
@@ -193,7 +192,7 @@ func copyArtifact(ctx context.Context, source, destination string) error {
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(file, reader)
+	_, copyErr := copySparse(file, reader)
 	return errors.Join(copyErr, file.Close())
 }
 
@@ -227,7 +226,7 @@ func extractOVA(source, destination string) (string, error) {
 			var output *os.File
 			output, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0640)
 			if err == nil {
-				_, copyErr := io.Copy(output, archive)
+				_, copyErr := copySparse(output, archive)
 				err = errors.Join(copyErr, output.Close())
 			}
 			if strings.EqualFold(filepath.Ext(path), ".ovf") {
@@ -484,10 +483,11 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template, c
 		return t, errors.New("template id must be a single stable identifier")
 	}
 	key := fmt.Sprintf("%s/%d", t.Id, t.Version)
-	lock, _ := v.sources.LoadOrStore(key, &sync.Mutex{})
-	mutex := lock.(*sync.Mutex)
-	mutex.Lock()
-	defer mutex.Unlock()
+	unlock, err := v.sources.acquire(ctx, key, false)
+	if err != nil {
+		return t, err
+	}
+	defer unlock()
 	directory := filepath.Join(v.data, "artifacts", key)
 	if data, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
 		var cached api.Template
@@ -629,7 +629,7 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template, c
 		disk.definition.SizeGiB = (image.VirtualSize + (1 << 30) - 1) / (1 << 30)
 		definitions[index] = disk.definition
 		t.Resources.DiskGiB += disk.definition.SizeGiB
-		if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", disk.path, filepath.Join(staging, fmt.Sprintf("disk-%d.qcow2", index))); err != nil {
+		if err = compressTemplateDisk(ctx, image.Format, disk.path, systemDiskPath(staging, index)); err != nil {
 			return t, fmt.Errorf("disk %s: %w", disk.definition.Id, err)
 		}
 	}
@@ -661,6 +661,11 @@ func (v *VirtualMachines) prepareTemplate(ctx context.Context, t api.Template, c
 		}
 	}
 	return commitVMTemplate(t, staging, directory)
+}
+
+// Templates are immutable; guests write to their own uncompressed overlays.
+func compressTemplateDisk(ctx context.Context, format, source, destination string) error {
+	return command(ctx, "qemu-img", "convert", "-c", "-o", "compression_type=zstd", "-f", format, "-O", "qcow2", source, destination)
 }
 
 func commitVMTemplate(t api.Template, staging, directory string) (api.Template, error) {

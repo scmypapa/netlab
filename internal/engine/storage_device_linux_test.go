@@ -48,7 +48,7 @@ func TestDiskSelectionSurvivesStartupConfiguration(t *testing.T) {
 }
 
 func TestDiskSelectionRejectsExistingFilesystems(t *testing.T) {
-	e := Engine{cfg: Config{DataDir: t.TempDir()}, locks: map[string]*objectLock{}}
+	e := Engine{cfg: Config{DataDir: t.TempDir()}}
 	inventory, err := e.StorageDevices(context.Background())
 	if err != nil {
 		t.Fatal(err)

@@ -144,7 +144,7 @@ func TestRealSharedTemplateClones(t *testing.T) {
 	if err = writeRecoveryJSON(filepath.Join(registration, "storage.json"), storage); err != nil {
 		t.Fatal(err)
 	}
-	e := Engine{cfg: Config{DataDir: v.data}, locks: make(map[string]*objectLock)}
+	e := Engine{cfg: Config{DataDir: v.data}}
 	if err = e.RemoveTemplate(ctx, template.Id, []string{poolID}); err == nil {
 		t.Fatal("deleted a template with active version-one clones")
 	}

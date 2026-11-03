@@ -75,6 +75,40 @@ func (q *Queries) DeleteStoragePool(ctx context.Context, id string) error {
 	return err
 }
 
+const environmentStorageSources = `-- name: EnvironmentStorageSources :many
+SELECT r.node_id,r.execution,''::text AS recovery_id FROM runtime_assets r WHERE r.environment_id=$1
+UNION ALL
+SELECT a->>'nodeId',a->'execution',p.id FROM recovery_points p
+CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a
+WHERE p.environment_id=$1
+`
+
+type EnvironmentStorageSourcesRow struct {
+	NodeID     string
+	Execution  []byte
+	RecoveryID string
+}
+
+func (q *Queries) EnvironmentStorageSources(ctx context.Context, environmentID string) ([]EnvironmentStorageSourcesRow, error) {
+	rows, err := q.db.Query(ctx, environmentStorageSources, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EnvironmentStorageSourcesRow{}
+	for rows.Next() {
+		var i EnvironmentStorageSourcesRow
+		if err := rows.Scan(&i.NodeID, &i.Execution, &i.RecoveryID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const finishManagedStorage = `-- name: FinishManagedStorage :exec
 UPDATE storage_pools SET node_ids=$2,path=$3,state='ready' WHERE id=$1
 `
@@ -262,6 +296,43 @@ func (q *Queries) NodeStorageOperation(ctx context.Context, scopeID string) (Ope
 		&i.ClientRequestID,
 	)
 	return i, err
+}
+
+const pendingStorageWrites = `-- name: PendingStorageWrites :many
+SELECT allocation.fs::text AS filesystem,sum(allocation.amount::bigint)::bigint AS gib
+FROM operations o LEFT JOIN environments e ON e.id=o.environment_id
+LEFT JOIN persistent_volumes v ON o.scope_kind='volume' AND v.id=o.scope_id
+CROSS JOIN LATERAL jsonb_each_text(COALESCE(o.payload->'storageWrites','{}')) AS allocation(fs,amount)
+WHERE o.payload ? 'storageWrites' AND (
+ o.updated_at>=$1::timestamptz OR
+ (o.phase NOT IN ('complete','rolled-back','cancelled') AND
+  (o.environment_id IS NOT NULL AND e.operation_id=o.id OR o.scope_kind='volume' AND v.operation_id=o.id)))
+GROUP BY allocation.fs
+`
+
+type PendingStorageWritesRow struct {
+	Filesystem string
+	Gib        int64
+}
+
+func (q *Queries) PendingStorageWrites(ctx context.Context, observedAt pgtype.Timestamptz) ([]PendingStorageWritesRow, error) {
+	rows, err := q.db.Query(ctx, pendingStorageWrites, observedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PendingStorageWritesRow{}
+	for rows.Next() {
+		var i PendingStorageWritesRow
+		if err := rows.Scan(&i.Filesystem, &i.Gib); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const storagePoolAssets = `-- name: StoragePoolAssets :many

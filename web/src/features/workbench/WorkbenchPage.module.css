@@ -386,3 +386,27 @@
     padding: 12px;
   }
 }
+
+.storageUsage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.storageUsage:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.storageUsage:disabled {
+  cursor: progress;
+}

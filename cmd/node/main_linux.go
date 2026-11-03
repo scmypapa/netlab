@@ -374,6 +374,48 @@ func run() error {
 		}
 		respond(w, struct{}{}, executor.Volume(r.Context(), action, input))
 	})
+	mux.HandleFunc("POST /node/v1/storage-usage", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeStorageUsage
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !pathID(input.EnvironmentId) {
+			http.Error(w, "invalid environment identity", http.StatusBadRequest)
+			return
+		}
+		for _, source := range input.Sources {
+			if err := validateExecutionPaths(source.Execution); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if source.RecoveryId != "" && !pathID(source.RecoveryId) {
+				http.Error(w, "invalid recovery identity", http.StatusBadRequest)
+				return
+			}
+		}
+		result, err := executor.StorageUsage(r.Context(), input)
+		respond(w, result, err)
+	})
+	mux.HandleFunc("POST /node/v1/storage-estimate", func(w http.ResponseWriter, r *http.Request) {
+		var input api.NodeStorageEstimate
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, a := range input.Assets {
+			if a.Template.Id != "" && !pathID(a.Template.Id) {
+				http.Error(w, "invalid template identity", http.StatusBadRequest)
+				return
+			}
+			if a.StorageFilesystem == nil || a.StoragePath == nil || a.Asset.Resources.DiskGiB < 1 {
+				http.Error(w, "missing storage or disk capacity", http.StatusBadRequest)
+				return
+			}
+		}
+		result, err := executor.EstimateStorage(r.Context(), input)
+		respond(w, result, err)
+	})
 	mux.HandleFunc("GET /node/v1/storage/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !pathID(r.PathValue("id")) {
 			http.Error(w, "invalid storage identity", http.StatusBadRequest)
@@ -588,10 +630,9 @@ func run() error {
 			return
 		}
 		defer reader.Close()
-		w.Header().Set("Content-Type", "application/x-tar")
-		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
-		if _, err = io.Copy(w, reader); err != nil {
+		if err = transport.WriteArtifact(w, r, reader, length); err != nil {
 			slog.Warn("template artifact transfer interrupted", "template", r.PathValue("id"), "error", err)
+			panic(http.ErrAbortHandler)
 		}
 	})
 	mux.HandleFunc("POST /node/v1/environments/{environmentId}/recovery-points/{pointId}/assets/{assetId}/artifact", func(w http.ResponseWriter, r *http.Request) {
@@ -616,10 +657,9 @@ func run() error {
 			return
 		}
 		defer reader.Close()
-		w.Header().Set("Content-Type", "application/x-tar")
-		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
-		if _, err = io.Copy(w, reader); err != nil {
+		if err = transport.WriteArtifact(w, r, reader, length); err != nil {
 			slog.Warn("recovery transfer interrupted", "error", err)
+			panic(http.ErrAbortHandler)
 		}
 	})
 	mux.HandleFunc("DELETE /node/v1/retirement", func(w http.ResponseWriter, r *http.Request) {

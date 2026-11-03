@@ -56,6 +56,7 @@ import { FileWorkspace } from "./FileWorkspace";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { LogDrawer } from "./LogDrawer";
 import { ServiceDrawer } from "./ServiceDrawer";
+import { StorageUsage } from "./StorageUsage";
 import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
 import { connectAsset, connectRouter, networkColors } from "./topology";
@@ -114,6 +115,7 @@ function Workbench({ id }: { id: string }) {
   >();
   const [editingObject, setEditingObject] = useState(false);
   const [destroying, setDestroying] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [recoveryOpened, setRecoveryOpened] = useState(false);
   const [rebuilding, setRebuilding] = useState<Asset>();
   const [migrating, setMigrating] = useState<Asset>();
@@ -497,6 +499,9 @@ function Workbench({ id }: { id: string }) {
           <div className={styles.title}>
             <h1>{environment.name}</h1>
             <Status value={status} />
+            {canRead && (
+              <StorageUsage id={id} revision={environment.revision} />
+            )}
           </div>
           {workbench.editing && <span className={styles.editing}>调整中</span>}
         </div>
@@ -610,6 +615,15 @@ function Workbench({ id }: { id: string }) {
                     {canRead && (
                       <Menu.Item onClick={() => setRecoveryOpened(true)}>
                         恢复点
+                      </Menu.Item>
+                    )}
+                    {canCompose && (
+                      <Menu.Item
+                        color="red"
+                        disabled={busy || status === "destroyed"}
+                        onClick={() => setResetting(true)}
+                      >
+                        全面重建环境
                       </Menu.Item>
                     )}
                     {canCompose && (
@@ -1472,6 +1486,39 @@ function Workbench({ id }: { id: string }) {
             }}
           >
             重建资产
+          </Button>
+        </div>
+      </Modal>
+      <Modal
+        opened={resetting}
+        onClose={() => setResetting(false)}
+        title={`全面重建 ${environment.name}`}
+        centered
+        size="sm"
+      >
+        <p>
+          全部资产的系统盘和环境数据卷将恢复初始内容。网络、IP、名称和规格保留。
+        </p>
+        {spec.assets.some((asset) =>
+          asset.volumes?.some((volume) => volume.persistentVolumeId),
+        ) && <p>独立挂载的数据卷将解除挂载，原卷保留。</p>}
+        <div className="dialog-actions">
+          <Button variant="default" onClick={() => setResetting(false)}>
+            取消
+          </Button>
+          <Button
+            color="red"
+            disabled={busy}
+            loading={workbench.action.isPending}
+            onClick={() => {
+              workbench.action.mutate({
+                action: "rebuild",
+                resetVolumes: true,
+              });
+              setResetting(false);
+            }}
+          >
+            清空改动并重建
           </Button>
         </div>
       </Modal>

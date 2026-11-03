@@ -3,7 +3,6 @@ package blueprint
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -31,14 +30,8 @@ func (s Service) Delete(ctx context.Context, identity access.Identity, id string
 	if _, err = q.LockBlueprintVersions(ctx, id); err != nil {
 		return err
 	}
-	references, err := q.BlueprintReferences(ctx, id)
-	if err != nil {
-		return err
-	}
-	if len(references) > 0 {
-		return fmt.Errorf("%w：%s", environment.ErrInUse, strings.Join(references, "、"))
-	}
-	if err = q.DetachDestroyedBlueprint(ctx, id); err != nil {
+	// Created environments own their specifications; this link records provenance only.
+	if err = q.DetachBlueprint(ctx, id); err != nil {
 		return err
 	}
 	if err = q.DeleteBlueprintVersions(ctx, id); err != nil {
@@ -140,6 +133,11 @@ func (s Service) Save(ctx context.Context, identity access.Identity, environment
 	}
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
+	if blueprintID != "" {
+		if _, err = q.LockBlueprint(ctx, blueprintID); err != nil {
+			return api.Blueprint{}, api.BlueprintVersion{}, err
+		}
+	}
 	source, err = q.LockEnvironment(ctx, environmentID)
 	if err != nil {
 		return api.Blueprint{}, api.BlueprintVersion{}, err

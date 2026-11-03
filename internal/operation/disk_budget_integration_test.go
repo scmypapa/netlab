@@ -70,6 +70,9 @@ func TestContainerPlanUsesActualRootFilesystem(t *testing.T) {
 			return id, err
 		}
 		op.LeaseOwner = &owner
+		if _, err = pool.Exec(ctx, "UPDATE environments SET operation_id=$2 WHERE id=$1", id, op.ID); err != nil {
+			return id, err
+		}
 		return id, w.plan(ctx, &op, &Payload{Spec: spec})
 	}
 	id, err := plan(8, 3)

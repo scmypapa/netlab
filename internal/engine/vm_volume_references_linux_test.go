@@ -39,7 +39,7 @@ func TestRealVMVolumeReferenceLifecycle(t *testing.T) {
 	t.Cleanup(func() { connection.Close() })
 	data := t.TempDir()
 	v := &VirtualMachines{conn: connection, data: data}
-	e := &Engine{vm: v, cfg: Config{DataDir: data}, locks: map[string]*objectLock{}, slots: make(chan struct{}, 4)}
+	e := &Engine{vm: v, cfg: Config{DataDir: data}, slots: make(chan struct{}, 4)}
 	volumes := []api.Volume{{Id: "data", SizeGiB: 1}}
 	asset := func() api.AssetExecution {
 		return api.AssetExecution{InstanceId: uuid.NewString(), Template: api.Template{Kind: api.Vm}, Asset: api.Asset{Id: uuid.NewString(), Volumes: &volumes}}

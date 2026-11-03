@@ -21,7 +21,6 @@ import (
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
-	"github.com/containerd/containerd/images/archive"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
@@ -279,18 +278,18 @@ func (c *Containers) image(ctx context.Context, t api.Template, registry *api.Re
 
 func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, registry *api.RegistryCredentials, ioSlots chan struct{}) (api.Template, error) {
 	directory := templateDirectory(c.data, t.Id, t.Version)
+	source := t
 	if raw, err := os.ReadFile(filepath.Join(directory, "template.json")); err == nil {
-		var cached api.Template
-		if err = json.Unmarshal(raw, &cached); err != nil {
+		if err = json.Unmarshal(raw, &source); err != nil {
 			return t, err
 		}
-		cached.ArtifactNodeId = t.ArtifactNodeId
-		return containerTemplateMetadata(ctx, directory, cached)
-	} else if !errors.Is(err, os.ErrNotExist) {
+		source.ArtifactNodeId = t.ArtifactNodeId
+		t = source
+	} else if errors.Is(err, os.ErrNotExist) {
+		source.ArtifactNodeId = nil
+	} else {
 		return t, err
 	}
-	source := t
-	source.ArtifactNodeId = nil
 	image, err := c.image(ctx, source, registry, ioSlots)
 	if err != nil {
 		return t, err
@@ -300,39 +299,26 @@ func (c *Containers) prepareTemplate(ctx context.Context, t api.Template, regist
 		return t, err
 	}
 	t.ImageVolumes = declaredImageVolumes(config)
-	if err = os.MkdirAll(filepath.Dir(directory), 0711); err != nil {
-		return t, err
-	}
-	staging, err := os.MkdirTemp(filepath.Dir(directory), "import-")
-	if err != nil {
-		return t, err
-	}
-	defer os.RemoveAll(staging)
-	if err = os.Chmod(staging, 0711); err != nil {
-		return t, err
-	}
-	file, err := os.OpenFile(filepath.Join(staging, "image.tar"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
-	if err != nil {
-		return t, err
-	}
-	select {
-	case ioSlots <- struct{}{}:
-	case <-ctx.Done():
-		return t, errors.Join(ctx.Err(), file.Close())
-	}
-	defer func() { <-ioSlots }()
-	exportErr := c.client.Export(ctx, file, archive.WithManifest(image.Target(), image.Name()), archive.WithPlatform(platforms.Default()), archive.WithSkipMissing(c.client.ContentStore()))
-	if err = errors.Join(exportErr, file.Close()); err != nil {
+	if err = os.MkdirAll(directory, 0711); err != nil {
 		return t, err
 	}
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return t, err
 	}
-	if err = os.WriteFile(filepath.Join(staging, "template.json"), raw, 0640); err != nil {
+	pending := filepath.Join(directory, "template.json.pending")
+	defer os.Remove(pending)
+	if err = os.WriteFile(pending, raw, 0640); err != nil {
 		return t, err
 	}
-	return t, os.Rename(staging, directory)
+	if err = os.Rename(pending, filepath.Join(directory, "template.json")); err != nil {
+		return t, err
+	}
+	// containerd owns the image and its shared layers after a successful import.
+	if err = os.Remove(filepath.Join(directory, "image.tar")); errors.Is(err, os.ErrNotExist) {
+		err = nil
+	}
+	return t, err
 }
 
 func imageConfig(ctx context.Context, image containerd.Image) (imagespec.Image, error) {

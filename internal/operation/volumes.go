@@ -33,6 +33,13 @@ func (w Worker) SubmitVolume(ctx context.Context, id, kind string, input api.Cre
 	if selected.id == "" {
 		return api.Operation{}, environment.Invalid("没有可用的目标存储")
 	}
+	estimates := map[string]map[string]int64{}
+	if kind != "delete-volume" && input.Kind == api.Vm {
+		a := api.AssetExecution{InstanceId: id, Asset: api.Asset{Resources: api.Resources{DiskGiB: input.SizeGiB}}, Template: api.Template{Kind: api.Vm}}
+		if estimates, err = w.estimateStorage(ctx, []Target{{NodeID: selected.node, Execution: a}}, storage, nodes); err != nil {
+			return api.Operation{}, err
+		}
+	}
 	tx, err := w.Pool.Begin(ctx)
 	if err != nil {
 		return api.Operation{}, err
@@ -93,18 +100,23 @@ func (w Worker) SubmitVolume(ctx context.Context, id, kind string, input api.Cre
 		input.Name, input.Kind, input.StoragePoolId = row.Name, api.TemplateKind(row.Kind), row.StoragePoolID
 		delta -= row.SizeGib
 	}
+	writes := map[string]int64{}
 	if kind != "delete-volume" {
-		allocated, err := q.StorageReservations(ctx, ids)
+		allocated, err := pendingStorage(ctx, q, storage)
 		if err != nil {
 			return api.Operation{}, err
 		}
-		if !storageFits(storageUsage(allocated, storage), nil, storageLimits(storage), map[string]int64{selected.filesystem(): delta}) {
+		writes[selected.filesystem()] = delta
+		if estimated, ok := estimates[estimateKey(selected.node, selected.id, id)]; ok {
+			writes = estimated
+		}
+		if !storageFits(allocated, nil, storageLimits(storage), writes) {
 			return api.Operation{}, environment.Invalid("存储容量不足")
 		}
 	}
 	opID := uuid.NewString()
 	volume := api.NodeVolume{Id: id, Kind: input.Kind, SizeGiB: input.SizeGiB, Storage: selected.info, StoragePoolId: selected.id}
-	raw, err := json.Marshal(Payload{Volume: &volume, VolumeNode: selected.node})
+	raw, err := json.Marshal(Payload{Volume: &volume, VolumeNode: selected.node, StorageWrites: writes})
 	if err != nil {
 		return api.Operation{}, err
 	}
