@@ -559,6 +559,13 @@ export const api = {
       undefined,
       signal,
     ),
+  environmentStorage: (id: string, signal?: AbortSignal) =>
+    request<Schema<"EnvironmentStorage">>(
+      `/environments/${id}/storage`,
+      "GET",
+      undefined,
+      signal,
+    ),
   environment: (id: string, signal?: AbortSignal) =>
     request<Environment>(`/environments/${id}`, "GET", undefined, signal),
   createEnvironment: (body: Schema<"CreateEnvironment">) =>

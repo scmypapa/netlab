@@ -200,7 +200,7 @@ func (s Service) changeVPN(ctx context.Context, identity access.Identity, id, ac
 		kind = "vpn-create"
 	}
 	if requestID != nil {
-		previous, err := existingRequest(ctx, q, id, requestID, kind, "")
+		previous, err := existingRequest(ctx, q, id, requestID, kind, "", false)
 		if err == nil {
 			return previous, nil
 		}

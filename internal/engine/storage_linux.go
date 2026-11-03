@@ -3,10 +3,12 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +17,33 @@ import (
 	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
 )
+
+// Archive streams contain zero-filled holes; retain those holes on disk.
+func copySparse(file *os.File, reader io.Reader) (int64, error) {
+	buffer, zero := make([]byte, 128<<10), make([]byte, 128<<10)
+	var size int64
+	for {
+		n, readErr := reader.Read(buffer)
+		if n > 0 {
+			var err error
+			if bytes.Equal(buffer[:n], zero[:n]) {
+				_, err = file.Seek(int64(n), io.SeekCurrent)
+			} else {
+				_, err = file.Write(buffer[:n])
+			}
+			if err != nil {
+				return size, err
+			}
+			size += int64(n)
+		}
+		if errors.Is(readErr, io.EOF) {
+			return size, file.Truncate(size)
+		}
+		if readErr != nil {
+			return size, readErr
+		}
+	}
+}
 
 func StorageInfo(path string) (api.StorageInfo, error) {
 	var filesystem unix.Statfs_t

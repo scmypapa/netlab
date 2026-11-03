@@ -41,6 +41,9 @@ func TestVMHardwareProfiles(t *testing.T) {
 			if domain.OS.Type.Machine != profile.machine || domain.Devices.Disks[0].Target.Bus != string(profile.bus) {
 				t.Fatal("template hardware changed")
 			}
+			if driver := domain.Devices.Disks[0].Driver; driver.Discard != "unmap" || driver.ErrorPolicy != "enospace" {
+				t.Fatal("disk space reclamation or exhaustion policy missing")
+			}
 			if len(domain.Devices.Interfaces) != 1 || domain.Devices.Interfaces[0].VirtualPort.Params.OpenVSwitch.InterfaceID != exec.Interfaces[0].PortName {
 				t.Fatal("unexpected or unstable business interface")
 			}

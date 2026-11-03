@@ -27,7 +27,7 @@ func TestRealManagedCephLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer v.Close()
-	e := Engine{cfg: Config{DataDir: data, StorageDevice: device, AdvertiseAddress: address}, vm: v, locks: make(map[string]*objectLock)}
+	e := Engine{cfg: Config{DataDir: data, StorageDevice: device, AdvertiseAddress: address}, vm: v}
 	if err = e.initializeStorageSelection(); err != nil {
 		t.Fatal(err)
 	}

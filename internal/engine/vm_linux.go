@@ -23,7 +23,7 @@ import (
 type VirtualMachines struct {
 	conn         *libvirt.Connect
 	data, bridge string
-	sources      sync.Map
+	sources      objectLocks
 	hardware     api.VmHardware
 }
 

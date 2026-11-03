@@ -17,6 +17,7 @@ import (
 
 	"netlab.local/core/api"
 	"netlab.local/core/internal/backup"
+	"netlab.local/core/internal/transport"
 )
 
 func (e *Engine) backupStore(repository api.NodeBackupRepository) backup.Store {
@@ -43,12 +44,6 @@ func (e *Engine) BackupRecovery(ctx context.Context, id string, plan api.NodeBac
 		return api.NodeBackupResult{}, err
 	}
 	defer unlock()
-	select {
-	case e.ioSlots <- struct{}{}:
-	case <-ctx.Done():
-		return api.NodeBackupResult{}, ctx.Err()
-	}
-	defer func() { <-e.ioSlots }()
 	s := e.backupStore(plan.Repository)
 	group := "netlab:backup:" + id
 	result := api.NodeBackupResult{Parts: map[string]api.NodeBackupPart{}, Templates: map[string]api.NodeBackupPart{}}
@@ -57,8 +52,8 @@ func (e *Engine) BackupRecovery(ctx context.Context, id string, plan api.NodeBac
 		if err != nil {
 			return result, fmt.Errorf("asset %s: %w", source.Execution.Asset.Name, err)
 		}
-		snapshot, backupErr := s.Put(ctx, group, source.Execution.Asset.Id, backupAssetName(source.Execution.Asset.Id), size, reader)
-		if err = errors.Join(backupErr, reader.Close()); err != nil {
+		snapshot, err := e.backupArtifact(ctx, s, group, source.Execution.Asset.Id, backupAssetName(source.Execution.Asset.Id), size, reader)
+		if err != nil {
 			return result, fmt.Errorf("asset %s: %w", source.Execution.Asset.Name, err)
 		}
 		result.Parts[source.Execution.Asset.Id] = api.NodeBackupPart{SnapshotId: snapshot.ID, SizeBytes: size}
@@ -70,8 +65,8 @@ func (e *Engine) BackupRecovery(ctx context.Context, id string, plan api.NodeBac
 		if err != nil {
 			return result, fmt.Errorf("template %s: %w", source.Execution.Template.Name, err)
 		}
-		snapshot, backupErr = s.Put(ctx, group, "template:"+key, "/templates/"+key+".tar", size, reader)
-		if err = errors.Join(backupErr, reader.Close()); err != nil {
+		snapshot, err = e.backupArtifact(ctx, s, group, "template:"+key, "/templates/"+key+".tar", size, reader)
+		if err != nil {
 			return result, fmt.Errorf("template %s: %w", source.Execution.Template.Name, err)
 		}
 		result.Templates[key] = api.NodeBackupPart{SnapshotId: snapshot.ID, SizeBytes: size}
@@ -84,6 +79,18 @@ func (e *Engine) BackupRecovery(ctx context.Context, id string, plan api.NodeBac
 	snapshot, err := s.Put(ctx, group, "manifest", "/manifest.json", int64(len(manifest)), bytes.NewReader(manifest))
 	result.ManifestSnapshotId = snapshot.ID
 	return result, err
+}
+
+func (e *Engine) backupArtifact(ctx context.Context, store backup.Store, group, part, name string, size int64, reader io.ReadCloser) (snapshot backup.Snapshot, err error) {
+	defer func() { err = errors.Join(err, reader.Close()) }()
+	// Open and hydrate the source before acquiring its destination's I/O slot.
+	select {
+	case e.ioSlots <- struct{}{}:
+	case <-ctx.Done():
+		return snapshot, ctx.Err()
+	}
+	defer func() { <-e.ioSlots }()
+	return store.Put(ctx, group, part, name, size, reader)
 }
 
 func (e *Engine) BackupCatalog(ctx context.Context, repository api.NodeBackupRepository) ([]api.NodeBackupManifest, error) {
@@ -138,7 +145,7 @@ func (e *Engine) RestoreBackupTemplate(ctx context.Context, request api.NodeRest
 		}
 		defer func() { <-e.ioSlots }()
 		reader := e.openBackupStream(ctx, request.Source, "/templates/"+backup.TemplateKey(t)+".tar")
-		err = e.installTemplateArtifact(t, reader, false)
+		err = e.installTemplateArtifact(ctx, t, reader, false)
 		if err = errors.Join(err, reader.Close()); err != nil {
 			return t, err
 		}
@@ -232,5 +239,10 @@ func (e *Engine) openRecoverySource(ctx context.Context, point string, source ap
 		message, readErr := io.ReadAll(io.LimitReader(response.Body, 16384))
 		return nil, 0, errors.Join(fmt.Errorf("recovery artifact: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(message))), readErr)
 	}
-	return response.Body, response.ContentLength, nil
+	length, err := transport.ArtifactLength(response)
+	if err != nil {
+		response.Body.Close()
+		return nil, 0, err
+	}
+	return response.Body, length, nil
 }

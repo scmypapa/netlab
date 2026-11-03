@@ -29,6 +29,8 @@ type Target struct {
 	State     string             `json:"state"`
 }
 type Payload struct {
+	StorageWrites       map[string]int64           `json:"storageWrites,omitempty"`
+	ResetVolumes        bool                       `json:"resetVolumes,omitempty"`
 	RetirementChild     *string                    `json:"retirementChild,omitempty"`
 	NetworkSource       string                     `json:"networkSource,omitempty"`
 	Migration           *Migration                 `json:"migration,omitempty"`

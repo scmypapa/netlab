@@ -71,7 +71,45 @@ func testTemplateLifecycleAPI(t *testing.T, ctx context.Context, pool *pgxpool.P
 		}
 		blocked(runtime, "运行资产")
 	})
-	t.Run("blueprints retain references until their environments are destroyed", func(t *testing.T) {
+	t.Run("full rebuild keeps configuration and distinguishes retried requests", func(t *testing.T) {
+		image := template()
+		desired := spec(image)
+		desired.Assets[0].Volumes = &[]api.Volume{{Id: "data", MountPath: "/data", SizeGiB: 2}}
+		e := create(desired)
+		var usage api.EnvironmentStorage
+		if err := json.Unmarshal(call("GET", "/environments/"+e.Id+"/storage", token, nil, 200), &usage); err != nil || usage.Bytes != 0 || usage.MeasuredAt.IsZero() {
+			t.Fatalf("new environment storage: %+v %v", usage, err)
+		}
+		requestID := uuid.NewString()
+		input := api.ActionRequest{Action: api.ActionRequestActionRebuild, ResetVolumes: true, ClientRequestId: &requestID}
+		var first, repeat api.Operation
+		if err := json.Unmarshal(call("POST", "/environments/"+e.Id+"/actions", token, input, 202), &first); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(call("POST", "/environments/"+e.Id+"/actions", token, input, 202), &repeat); err != nil {
+			t.Fatal(err)
+		}
+		if repeat.Id != first.Id {
+			t.Fatal("retry created a second rebuild")
+		}
+		input.ResetVolumes = false
+		call("POST", "/environments/"+e.Id+"/actions", token, input, 409)
+		stored, err := s.Queries.GetOperation(ctx, first.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload struct {
+			ResetVolumes bool
+			Spec         api.EnvironmentSpec
+		}
+		if err = json.Unmarshal(stored.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if !payload.ResetVolumes || len(payload.Spec.Assets) != 1 || payload.Spec.Assets[0].TemplateId != image.Id || (*payload.Spec.Assets[0].Volumes)[0].SizeGiB != 2 {
+			t.Fatal("rebuild changed asset configuration")
+		}
+	})
+	t.Run("deleting a blueprint preserves its independent environments", func(t *testing.T) {
 		image := template()
 		e := create(spec(image))
 		var b api.Blueprint
@@ -82,13 +120,20 @@ func testTemplateLifecycleAPI(t *testing.T, ctx context.Context, pool *pgxpool.P
 		if err := json.Unmarshal(call("POST", "/environments", token, api.CreateEnvironment{Name: "Blueprint copy", BlueprintVersionId: &b.LatestVersionId}, 201), &copied); err != nil {
 			t.Fatal(err)
 		}
-		call("DELETE", "/blueprints/"+b.Id, token, nil, 409)
-		if _, err := pool.Exec(ctx, `UPDATE environments SET status='destroyed' WHERE id=ANY($1::text[])`, []string{e.Id, copied.Id}); err != nil {
-			t.Fatal(err)
-		}
 		blocked(image, "环境模板")
 		call("DELETE", "/blueprints/"+b.Id, token, nil, 204)
 		call("GET", "/blueprints/"+b.Id, token, nil, 404)
+		var retained api.Environment
+		if err := json.Unmarshal(call("GET", "/environments/"+copied.Id, token, nil, 200), &retained); err != nil {
+			t.Fatal(err)
+		}
+		if retained.BlueprintVersionId != nil || len(retained.Spec.Assets) != 1 || retained.Spec.Assets[0].TemplateId != image.Id {
+			t.Fatal("blueprint deletion changed the environment's own specification")
+		}
+		blocked(image, "环境")
+		if _, err := pool.Exec(ctx, `UPDATE environments SET status='destroyed' WHERE id=ANY($1::text[])`, []string{e.Id, copied.Id}); err != nil {
+			t.Fatal(err)
+		}
 		call("DELETE", "/templates/"+image.Id, token, nil, 202)
 		var refs int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM environments WHERE blueprint_version_id=$1`, b.LatestVersionId).Scan(&refs); err != nil || refs != 0 {
@@ -151,7 +196,7 @@ func testTemplateLifecycleAPI(t *testing.T, ctx context.Context, pool *pgxpool.P
 			}()
 			go func() { deleteDone <- service.Delete(ctx, identity, b.Id) }()
 			createErr, deleteErr := <-createDone, <-deleteDone
-			if !((createErr == nil && errors.Is(deleteErr, environment.ErrInUse)) || (deleteErr == nil && errors.Is(createErr, pgx.ErrNoRows))) {
+			if deleteErr != nil || createErr != nil && !errors.Is(createErr, pgx.ErrNoRows) {
 				t.Fatalf("creation=%v deletion=%v", createErr, deleteErr)
 			}
 		}

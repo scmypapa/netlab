@@ -99,6 +99,11 @@ func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.A
 	if err != nil {
 		return api.RecoveryCapture{}, err
 	}
+	if a.Template.Kind == api.Vm {
+		if err = compactRecoveryDisks(ctx, staging, a, &manifest, e.cfg.DataDir); err != nil {
+			return api.RecoveryCapture{}, err
+		}
+	}
 	for _, disk := range manifest.Disks {
 		if disk.RBDImage != "" {
 			source := executionDiskMap(e.cfg.DataDir, env, a)[disk.Serial]
@@ -133,6 +138,39 @@ func (e *Engine) captureRecovery(ctx context.Context, env, point string, a api.A
 		return api.RecoveryCapture{}, err
 	}
 	return manifest.captured(), nil
+}
+
+// Compact completed backups after the guest has resumed; native CoW snapshots already share blocks.
+func compactRecoveryDisks(ctx context.Context, directory string, a api.AssetExecution, manifest *recoveryManifest, data string) error {
+	storage, err := StorageInfo(directory)
+	if err != nil {
+		return err
+	}
+	for i := range manifest.Disks {
+		disk := &manifest.Disks[i]
+		if disk.RBDImage != "" || storage.NativeSnapshots {
+			continue
+		}
+		source := filepath.Join(directory, disk.File)
+		target := source + ".compact"
+		args := []string{"convert", "-c", "-o", "compression_type=zstd", "-f", "qcow2", "-O", "qcow2"}
+		if a.Rbd == nil && a.Template.Disks != nil {
+			for index, definition := range *a.Template.Disks {
+				if disk.Serial == "image-"+definition.Id {
+					args = append(args, "-B", systemDiskPath(templateDirectory(data, a.Template.Id, a.Template.Version), index), "-F", "qcow2")
+					disk.BackingTemplateDisk = ptr(index)
+					break
+				}
+			}
+		}
+		if err = command(ctx, "qemu-img", append(args, source, target)...); err != nil {
+			return fmt.Errorf("compact recovery disk %s: %w", disk.Serial, err)
+		}
+		if err = os.Rename(target, source); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (v *VirtualMachines) captureRecovery(ctx context.Context, env string, a api.AssetExecution, directory string, manifest *recoveryManifest, includeMemory, quiesce bool) error {

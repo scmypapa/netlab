@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/containerd/containerd/errdefs"
 	"github.com/google/uuid"
 	"netlab.local/core/api"
 )
@@ -34,7 +33,7 @@ func TestRealTemplateVolumeMetadataFromArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer container.Close()
-	engine := &Engine{cfg: Config{ID: container.node, DataDir: data}, container: container, locks: map[string]*objectLock{}, ioSlots: make(chan struct{}, 1)}
+	engine := &Engine{cfg: Config{ID: container.node, DataDir: data}, container: container, ioSlots: make(chan struct{}, 1)}
 	template := api.Template{Id: uuid.NewString(), Kind: api.Container, Version: 1, Source: archive}
 	defer func() {
 		if err := engine.RemoveTemplate(context.Background(), template.Id, nil); err != nil {
@@ -45,7 +44,26 @@ func TestRealTemplateVolumeMetadataFromArchive(t *testing.T) {
 	if err != nil || template.ImageVolumes == nil || !slices.Equal(*template.ImageVolumes, []string{"/cache", "/work"}) {
 		t.Fatalf("prepared image volume metadata: %+v, %v", template, err)
 	}
-	// Retain only the old exported template format, with no imported image left.
+	if _, err = os.Stat(filepath.Join(templateDirectory(data, template.Id, 1), "image.tar")); !os.IsNotExist(err) {
+		t.Fatalf("prepared image retained a duplicate archive: %v", err)
+	}
+	reader, _, err := engine.OpenTemplateArtifact(ctx, template.Id, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := t.TempDir()
+	err = receiveDirectoryArtifact(reader, legacy)
+	closeErr := reader.Close()
+	if err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
+	if err = os.RemoveAll(templateDirectory(data, template.Id, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Rename(legacy, templateDirectory(data, template.Id, 1)); err != nil {
+		t.Fatal(err)
+	}
+	// Import a portable archive produced by the same public transfer path.
 	template.ImageVolumes = nil
 	raw, err := json.Marshal(template)
 	if err != nil {
@@ -62,7 +80,13 @@ func TestRealTemplateVolumeMetadataFromArchive(t *testing.T) {
 	if err != nil || prepared.ImageVolumes == nil || !slices.Equal(*prepared.ImageVolumes, []string{"/cache", "/work"}) {
 		t.Fatalf("upgrade cached archive metadata: %+v, %v", prepared, err)
 	}
-	if _, err := container.client.GetImage(ctx, reference); !errdefs.IsNotFound(err) {
-		t.Fatalf("metadata upgrade imported the full image: %v", err)
+	if _, err := container.client.GetImage(ctx, reference); err != nil {
+		t.Fatalf("imported image is missing: %v", err)
+	}
+	if _, err = os.Stat(filepath.Join(templateDirectory(data, template.Id, 1), "image.tar")); !os.IsNotExist(err) {
+		t.Fatalf("archive was retained after import: %v", err)
+	}
+	if prepared.ArtifactNodeId == nil || *prepared.ArtifactNodeId != engine.cfg.ID {
+		t.Fatal("cached import changed the owning node")
 	}
 }

@@ -26,7 +26,7 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libvirt-dev libpcap-dev openvswitch-switch ovn-central suricata suricata-update tshark
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libvirt-dev libpcap-dev qemu-utils btrfs-compsize openvswitch-switch ovn-central suricata suricata-update tshark
       - name: Verify resource, networking and execution changes
         run: |
           go test -tags libvirt_dlopen ./... -count=1

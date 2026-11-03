@@ -86,7 +86,9 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ### 4. 存储、快照与灾备
 
 * **存储支持**：本地目录、Btrfs CoW 原生快照、Ceph RBD 共享块存储。
-* **容器存储**：containerd 管理容器系统盘，数据卷使用所选存储池。
+* **容器存储**：containerd 管理容器系统盘，数据卷使用所选存储池。导入成功后由 containerd 保存镜像与共享层，分发和备份时按需生成归档。
+* **空间效率**：虚拟机基础镜像使用 zstd 压缩，相同内容在节点内共享；实例使用独立增量盘。磁盘调度结合实际剩余空间与并发任务的新增写入量，虚拟容量表示来宾可用上限。
+* **环境占用与重建**：工作台展示实例与恢复点的实际磁盘占用，支持一键全面重建系统盘和环境数据卷；独立持久卷保留原数据并解除挂载。
 * **存储管理**：在工作台选择节点存储盘，查看 Ceph 成员、容量、健康状态与副本数；已有资产保留原存储，可按需迁移到其他节点或同节点的其他存储池。
 * **共享镜像**：单机使用本地基础盘与独立写入层；多节点自动优先使用共享池。每个池、模板版本保存一份基础盘，实例原生克隆，其他节点仅传输模板配置、固件和挂载介质。
 * **缓存释放**：查看各节点镜像基础盘的实际占用，释放已存入共享池且未被本地资产或恢复点引用的基础盘；再次使用本地存储时从共享池恢复。
@@ -122,7 +124,7 @@ Netlab 采用 **Controller（控制面）** + **Node（执行节点）** 分布�
 ```bash
 # 获取发布包并解压
 curl -fL -o netlab_linux_amd64.tar.gz \
-  https://github.com/scmypapa/netlab/releases/download/v1.1.7/netlab_linux_amd64.tar.gz
+  https://github.com/scmypapa/netlab/releases/download/v1.2.0/netlab_linux_amd64.tar.gz
 mkdir netlab-release && tar -xzf netlab_linux_amd64.tar.gz -C netlab-release
 
 # 运行自动化安装脚本

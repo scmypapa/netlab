@@ -3,6 +3,12 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /environments/{id}/storage:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: environmentStorage
+      responses:
+        '200': {description: Measured environment storage excluding shared template bases, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentStorage'}}}}
   /templates/{id}/cache:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -1937,6 +1943,35 @@ components:
       type: string
       enum: [directory, rbd]
       x-enum-varnames: [StorageDriverDirectory, StorageDriverRBD]
+    EnvironmentStorage:
+      type: object
+      required: [bytes, measuredAt]
+      properties:
+        bytes: {type: integer, format: int64, description: Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.}
+        measuredAt: {type: string, format: date-time}
+    StorageUsagePart:
+      type: object
+      required: [key, bytes]
+      properties:
+        key: {type: string}
+        bytes: {type: integer, format: int64}
+    StorageUsageSource:
+      type: object
+      required: [execution, recoveryId]
+      properties:
+        execution: {$ref: '#/components/schemas/AssetExecution'}
+        recoveryId: {type: string}
+    NodeStorageUsage:
+      type: object
+      required: [environmentId, sources]
+      properties:
+        environmentId: {type: string}
+        sources: {type: array, items: {$ref: '#/components/schemas/StorageUsageSource'}}
+    NodeStorageEstimate:
+      type: object
+      required: [assets]
+      properties:
+        assets: {type: object, additionalProperties: {$ref: '#/components/schemas/AssetExecution'}}
     StorageInfo:
       type: object
       required: [path, filesystem, capacityBytes, availableBytes]
@@ -2191,6 +2226,7 @@ components:
       required: [action]
       properties:
         action: {type: string, enum: [start, stop, force-stop, reboot, suspend, resume, rebuild, destroy]}
+        resetVolumes: {type: boolean, default: false, x-go-type-skip-optional-pointer: true, description: Rebuild with fresh environment data volumes. Independently managed volumes are detached and retained.}
         expectedRevision: {type: integer}
         clientRequestId: {type: string}
     ChangeRequest:

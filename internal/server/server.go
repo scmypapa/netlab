@@ -25,9 +25,11 @@ import (
 	"netlab.local/core/internal/secret"
 	"netlab.local/core/internal/transport"
 	"netlab.local/core/internal/update"
+	"resenje.org/singleflight"
 )
 
 type Server struct {
+	storageReads singleflight.Group[string, api.EnvironmentStorage]
 	Pool         *pgxpool.Pool
 	Queries      *queries.Queries
 	Access       access.Service
@@ -59,6 +61,7 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/environments/{id}/storage":                                              s.environmentStorage,
 		"GET /api/v1/templates/{id}/cache":                                                   s.templateCache,
 		"DELETE /api/v1/templates/{id}/cache":                                                s.templateCache,
 		"PUT /api/v1/identity/password":                                                      s.changePassword,

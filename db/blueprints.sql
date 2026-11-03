@@ -30,11 +30,8 @@ SELECT * FROM blueprints WHERE id=$1 FOR UPDATE;
 SELECT * FROM blueprint_versions WHERE id=$1 FOR KEY SHARE;
 -- name: LockBlueprintVersions :many
 SELECT id FROM blueprint_versions WHERE blueprint_id=$1 ORDER BY id FOR UPDATE;
--- name: BlueprintReferences :many
-SELECT e.name FROM environments e JOIN blueprint_versions v ON v.id=e.blueprint_version_id
-WHERE v.blueprint_id=$1 AND e.status<>'destroyed' ORDER BY e.name;
--- name: DetachDestroyedBlueprint :exec
-UPDATE environments SET blueprint_version_id=NULL WHERE status='destroyed' AND blueprint_version_id IN (SELECT id FROM blueprint_versions WHERE blueprint_id=$1);
+-- name: DetachBlueprint :exec
+UPDATE environments SET blueprint_version_id=NULL WHERE blueprint_version_id IN (SELECT id FROM blueprint_versions WHERE blueprint_id=$1);
 -- name: DeleteBlueprintVersions :exec
 DELETE FROM blueprint_versions WHERE blueprint_id=$1;
 -- name: DeleteBlueprint :exec

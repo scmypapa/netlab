@@ -276,11 +276,11 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 	if err != nil {
 		return err
 	}
-	allocated, err := q.StorageReservations(ctx, ids)
+	used, err := pendingStorage(ctx, q, storage)
 	if err != nil {
 		return err
 	}
-	used, limits := storageUsage(allocated, storage), storageLimits(storage)
+	limits := storageLimits(storage)
 	for _, candidate := range candidates {
 		if p.Migration.RequestedNode != nil && candidate.Id != *p.Migration.RequestedNode {
 			continue
@@ -355,6 +355,7 @@ func (w Worker) planMigration(ctx context.Context, op *queries.Operation, p *Pay
 			continue
 		}
 		p.Migration.Target = &target
+		p.StorageWrites = additional
 		p.Migration.Live = live
 		p.Targets = []Target{target}
 		if !live {

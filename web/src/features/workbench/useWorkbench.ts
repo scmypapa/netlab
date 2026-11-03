@@ -201,12 +201,15 @@ export function useWorkbench(id: string) {
     mutationFn: ({
       action: value,
       assetId,
+      resetVolumes,
     }: {
       action: Schema<"ActionRequest">["action"];
       assetId?: string;
+      resetVolumes?: boolean;
     }) => {
       const body = {
         action: value,
+        resetVolumes: resetVolumes ?? false,
         expectedRevision: environment.data!.revision,
         clientRequestId: randomUUID(),
       };

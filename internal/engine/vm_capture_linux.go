@@ -90,7 +90,7 @@ func (v *VirtualMachines) captureTemplate(ctx context.Context, t api.Template, s
 		}
 		definition.SizeGiB = (image.VirtualSize + (1 << 30) - 1) / (1 << 30)
 		t.Resources.DiskGiB += definition.SizeGiB
-		if err = command(ctx, "qemu-img", "convert", "-f", image.Format, "-O", "qcow2", location.address(), systemDiskPath(staging, len(definitions))); err != nil {
+		if err = compressTemplateDisk(ctx, image.Format, location.address(), systemDiskPath(staging, len(definitions))); err != nil {
 			return t, fmt.Errorf("disk %s: %w", id, err)
 		}
 		definitions = append(definitions, definition)

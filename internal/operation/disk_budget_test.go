@@ -65,10 +65,10 @@ func TestStorageBudgetFollowsFilesystems(t *testing.T) {
 		t.Fatal("same-filesystem components were not combined", amounts, err)
 	}
 	limits = map[string]api.StorageInfo{"disk": {CapacityBytes: 100 << 30, AvailableBytes: 20 << 30}}
-	if !storageFits(map[string]int64{"disk": 80}, nil, limits, map[string]int64{"disk": 20}) {
-		t.Fatal("existing reservations were subtracted from available space twice")
+	if !storageFits(nil, nil, limits, map[string]int64{"disk": 15}) {
+		t.Fatal("allocated disks were subtracted from physical free space twice")
 	}
-	if storageFits(map[string]int64{"disk": 80}, map[string]int64{"disk": 15}, limits, map[string]int64{"disk": 10}) {
+	if storageFits(map[string]int64{"disk": 8}, map[string]int64{"disk": 5}, limits, map[string]int64{"disk": 3}) {
 		t.Fatal("one batch admitted more new physical demand than available space")
 	}
 }

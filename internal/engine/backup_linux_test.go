@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"netlab.local/core/api"
+	"netlab.local/core/internal/transport"
 )
 
 func TestResticRecoveryTransfer(t *testing.T) {
@@ -26,7 +27,7 @@ func TestResticRecoveryTransfer(t *testing.T) {
 		t.Skip("restic is not installed")
 	}
 	ctx := context.Background()
-	local := &Engine{cfg: Config{ID: uuid.NewString(), DataDir: t.TempDir()}, locks: map[string]*objectLock{}, ioSlots: make(chan struct{}, 1)}
+	local := &Engine{cfg: Config{ID: uuid.NewString(), DataDir: t.TempDir()}, ioSlots: make(chan struct{}, 1)}
 	remote := &Engine{cfg: Config{ID: uuid.NewString(), DataDir: t.TempDir()}}
 	env, point, backupID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	content := bytes.Repeat([]byte("immutable recovery data\n"), 1<<12)
@@ -82,11 +83,13 @@ func TestResticRecoveryTransfer(t *testing.T) {
 			return
 		}
 		defer reader.Close()
-		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 		if truncate {
+			w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 			io.CopyN(w, reader, size/2)
 		} else {
-			io.Copy(w, reader)
+			if err = transport.WriteArtifact(w, r, reader, size); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()

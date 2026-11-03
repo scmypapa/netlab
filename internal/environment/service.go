@@ -408,7 +408,7 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 			}
 			op, createErr = submitPayload(ctx, q, row, "clone-recovery", nil, payload, request.ClientRequestId)
 		} else {
-			op, createErr = submit(ctx, q, row, "start", nil, spec, request.ClientRequestId)
+			op, createErr = submit(ctx, q, row, "start", nil, spec, request.ClientRequestId, false)
 		}
 		if createErr != nil {
 			return api.Environment{}, createErr
@@ -421,12 +421,13 @@ func (s Service) Create(ctx context.Context, identity access.Identity, request a
 	}
 	return Record(row)
 }
-func submit(ctx context.Context, q *queries.Queries, row queries.Environment, kind string, asset *string, spec api.EnvironmentSpec, requestId *string) (queries.Operation, error) {
+func submit(ctx context.Context, q *queries.Queries, row queries.Environment, kind string, asset *string, spec api.EnvironmentSpec, requestId *string, resetVolumes bool) (queries.Operation, error) {
 	raw, err := json.Marshal(struct {
 		Spec         api.EnvironmentSpec `json:"spec"`
 		BeforeStatus string              `json:"beforeStatus"`
 		BeforeSpec   json.RawMessage     `json:"beforeSpec,omitempty"`
-	}{spec, row.Status, row.AppliedSpec})
+		ResetVolumes bool                `json:"resetVolumes,omitempty"`
+	}{spec, row.Status, row.AppliedSpec, resetVolumes})
 	if err != nil {
 		return queries.Operation{}, err
 	}
@@ -450,7 +451,7 @@ func submitPayload(ctx context.Context, q *queries.Queries, row queries.Environm
 	}
 	return op, q.SetEnvironmentOperation(ctx, queries.SetEnvironmentOperationParams{ID: row.ID, OperationID: &op.ID, Status: state})
 }
-func existingRequest(ctx context.Context, q *queries.Queries, id string, requestID *string, kind, asset string) (api.Operation, error) {
+func existingRequest(ctx context.Context, q *queries.Queries, id string, requestID *string, kind, asset string, resetVolumes bool) (api.Operation, error) {
 	previous, err := q.GetOperationByRequest(ctx, queries.GetOperationByRequestParams{EnvironmentID: &id, ClientRequestID: requestID})
 	if err != nil {
 		return api.Operation{}, err
@@ -459,12 +460,21 @@ func existingRequest(ctx context.Context, q *queries.Queries, id string, request
 	if previous.AssetID != nil {
 		target = *previous.AssetID
 	}
-	if previous.Kind != kind || target != asset {
+	var payload struct {
+		ResetVolumes bool `json:"resetVolumes"`
+	}
+	if err := json.Unmarshal(previous.Payload, &payload); err != nil {
+		return api.Operation{}, err
+	}
+	if previous.Kind != kind || target != asset || payload.ResetVolumes != resetVolumes {
 		return api.Operation{}, ErrConflict
 	}
 	return Operation(previous)
 }
 func (s Service) Action(ctx context.Context, identity access.Identity, id, asset string, request api.ActionRequest) (api.Operation, error) {
+	if request.ResetVolumes && request.Action != api.ActionRequestActionRebuild {
+		return api.Operation{}, Invalid("清空数据卷只用于重建")
+	}
 	permission := access.OperationPermission(string(request.Action))
 	if _, err := s.Authorized(ctx, identity, id, permission, asset); err != nil {
 		return api.Operation{}, err
@@ -480,7 +490,7 @@ func (s Service) Action(ctx context.Context, identity access.Identity, id, asset
 		return api.Operation{}, err
 	}
 	if request.ClientRequestId != nil {
-		previous, err := existingRequest(ctx, q, id, request.ClientRequestId, string(request.Action), asset)
+		previous, err := existingRequest(ctx, q, id, request.ClientRequestId, string(request.Action), asset, request.ResetVolumes)
 		if err == nil {
 			return previous, nil
 		}
@@ -521,6 +531,16 @@ func (s Service) Action(ctx context.Context, identity access.Identity, id, asset
 		assetID = &asset
 	}
 	if request.Action == api.ActionRequestActionStart || request.Action == api.ActionRequestActionRebuild {
+		if request.ResetVolumes {
+			for i := range spec.Assets {
+				a := &spec.Assets[i]
+				if (asset == "" || a.Id == asset) && a.Volumes != nil {
+					for j := range *a.Volumes {
+						(*a.Volumes)[j].PersistentVolumeId = nil
+					}
+				}
+			}
+		}
 		if err = ReferenceResources(ctx, q, spec.Assets); err != nil {
 			return api.Operation{}, err
 		}
@@ -528,7 +548,7 @@ func (s Service) Action(ctx context.Context, identity access.Identity, id, asset
 			return api.Operation{}, err
 		}
 	}
-	op, err := submit(ctx, q, row, string(request.Action), assetID, spec, request.ClientRequestId)
+	op, err := submit(ctx, q, row, string(request.Action), assetID, spec, request.ClientRequestId, request.ResetVolumes)
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -600,7 +620,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		}
 	}
 	if request.Apply && request.ClientRequestId != nil {
-		previous, err := existingRequest(ctx, s.Queries, id, request.ClientRequestId, "change", "")
+		previous, err := existingRequest(ctx, s.Queries, id, request.ClientRequestId, "change", "", false)
 		if err == nil {
 			return api.ChangePreview{}, &previous, nil
 		}
@@ -626,7 +646,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		return preview, nil, err
 	}
 	if request.ClientRequestId != nil {
-		previous, err := existingRequest(ctx, q, id, request.ClientRequestId, "change", "")
+		previous, err := existingRequest(ctx, q, id, request.ClientRequestId, "change", "", false)
 		if err == nil {
 			return preview, &previous, nil
 		}
@@ -662,7 +682,7 @@ func (s Service) Change(ctx context.Context, identity access.Identity, id string
 		}
 		return preview, nil, tx.Commit(ctx)
 	}
-	op, err := submit(ctx, q, row, "change", nil, spec, request.ClientRequestId)
+	op, err := submit(ctx, q, row, "change", nil, spec, request.ClientRequestId, false)
 	if err != nil {
 		return preview, nil, err
 	}

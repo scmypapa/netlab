@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/sync/errgroup"
 	"netlab.local/core/api"
 	"netlab.local/core/db/queries"
 	"netlab.local/core/internal/transport"
@@ -21,6 +23,8 @@ type storageCandidate struct {
 	container           *api.StorageInfo
 	ready               bool
 	err                 error
+	observed            time.Time
+	thin                bool
 }
 
 func (p storageCandidate) filesystem() string {
@@ -50,9 +54,11 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 		}
 	}
 	var wg sync.WaitGroup
+	observed := time.Now()
 	for i := range candidates {
 		wg.Go(func() {
 			p := &candidates[i]
+			p.observed = observed
 			node := byNode[p.node]
 			if node.State != "ready" {
 				p.err = fmt.Errorf("存储节点 %s 未连接", p.node)
@@ -65,6 +71,7 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 				info, p.err = w.Client.Info(ctx, node.Endpoint)
 				if p.err == nil {
 					p.container = info.ContainerStorage
+					p.thin = slices.Contains(info.Capabilities, "thin-storage")
 					if info.Storage == nil {
 						p.err = fmt.Errorf("节点未提供存储信息")
 					} else {
@@ -93,23 +100,6 @@ func (w Worker) storage(ctx context.Context, nodes []queries.ListNodesRow) (map[
 		result[storageKey(p.node, p.id)] = p
 	}
 	return result, nil
-}
-
-func storageUsage(rows []queries.StorageReservationsRow, storage map[string]storageCandidate) map[string]int64 {
-	used := map[string]int64{}
-	for _, row := range rows {
-		pool := row.PoolID
-		if pool == "" {
-			pool = defaultStorage(row.NodeID)
-		}
-		if p, exists := storage[storageKey(row.NodeID, pool)]; exists {
-			used[p.filesystem()] += row.DiskGib
-		}
-		if root := storage[storageKey(row.NodeID, defaultStorage(row.NodeID))].container; root != nil {
-			used[row.NodeID+"/"+root.Filesystem] += row.ContainerGib
-		}
-	}
-	return used
 }
 
 func storageLimits(storage map[string]storageCandidate) map[string]api.StorageInfo {
@@ -149,18 +139,92 @@ func storageAmounts(node string, kind api.TemplateKind, pool storageCandidate, b
 func storageFits(used, pending map[string]int64, limits map[string]api.StorageInfo, additional map[string]int64) bool {
 	for key, amount := range additional {
 		info := limits[key]
-		if used[key]+amount > info.CapacityBytes>>30 || pending[key]+amount > info.AvailableBytes>>30 {
+		// Keep five percent free for running guests and filesystem metadata.
+		available := max(int64(0), info.AvailableBytes-info.CapacityBytes/20) >> 30
+		if used[key]+pending[key]+amount > available {
 			return false
 		}
 	}
 	return true
 }
 
-func reserveStorage(used, pending, additional map[string]int64) {
+func reserveStorage(pending, additional map[string]int64) {
 	for key, amount := range additional {
-		used[key] += amount
 		pending[key] += amount
 	}
+}
+
+func pendingStorage(ctx context.Context, q *queries.Queries, storage map[string]storageCandidate) (map[string]int64, error) {
+	observed := time.Now()
+	for _, pool := range storage {
+		if !pool.observed.IsZero() && pool.observed.Before(observed) {
+			observed = pool.observed
+		}
+	}
+	rows, err := q.PendingStorageWrites(ctx, pgtype.Timestamptz{Time: observed, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	writes := map[string]int64{}
+	for _, row := range rows {
+		writes[row.Filesystem] = row.Gib
+	}
+	return writes, nil
+}
+
+func estimateKey(node, pool, instance string) string { return node + "/" + pool + "/" + instance }
+
+func (w Worker) estimateStorage(ctx context.Context, targets []Target, storage map[string]storageCandidate, nodes []queries.ListNodesRow) (map[string]map[string]int64, error) {
+	result := map[string]map[string]int64{}
+	var mu sync.Mutex
+	group, ctx := errgroup.WithContext(ctx)
+	group.SetLimit(8)
+	for _, node := range nodes {
+		if !storage[storageKey(node.ID, defaultStorage(node.ID))].thin {
+			continue
+		}
+		group.Go(func() error {
+			request := api.NodeStorageEstimate{Assets: map[string]api.AssetExecution{}}
+			for _, pool := range storage {
+				if pool.node != node.ID || !pool.ready || pool.err != nil {
+					continue
+				}
+				for _, target := range targets {
+					a := target.Execution
+					if a.Template.Kind != api.Vm || target.NodeID != "" && target.NodeID != node.ID {
+						continue
+					}
+					assignStorage(&a, pool)
+					request.Assets[estimateKey(node.ID, pool.id, a.InstanceId)] = a
+				}
+			}
+			if len(request.Assets) == 0 {
+				return nil
+			}
+			var estimates map[string][]api.StorageUsagePart
+			if err := w.Client.Do(ctx, http.MethodPost, node.Endpoint, "/node/v1/storage-estimate", request, &estimates); err != nil {
+				return fmt.Errorf("检查节点 %s 的磁盘空间：%w", node.Name, err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			for key := range request.Assets {
+				parts, ok := estimates[key]
+				if !ok {
+					return fmt.Errorf("节点 %s 未返回磁盘用量估算", node.Name)
+				}
+				bytes := map[string]int64{}
+				for _, part := range parts {
+					bytes[part.Key] += part.Bytes
+				}
+				for fs, amount := range bytes {
+					bytes[fs] = (amount + (1 << 30) - 1) >> 30
+				}
+				result[key] = bytes
+			}
+			return nil
+		})
+	}
+	return result, group.Wait()
 }
 
 func actualPool(node string, a api.AssetExecution) string {

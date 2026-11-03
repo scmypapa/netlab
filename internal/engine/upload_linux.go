@@ -66,7 +66,7 @@ func (e *Engine) ReceiveTemplate(ctx context.Context, id string, version int, up
 		if err != nil {
 			return "", err
 		}
-		_, copyErr := io.Copy(file, part)
+		_, copyErr := copySparse(file, part)
 		if err = errors.Join(copyErr, file.Close()); err != nil {
 			return "", err
 		}

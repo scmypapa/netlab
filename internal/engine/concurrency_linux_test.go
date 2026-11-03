@@ -19,7 +19,7 @@ import (
 )
 
 func TestCancelledLockWaitReleasesReference(t *testing.T) {
-	e := &Engine{locks: map[string]*objectLock{}}
+	e := &Engine{}
 	unlock, err := e.lock(context.Background(), "environment")
 	if err != nil {
 		t.Fatal(err)
@@ -30,14 +30,14 @@ func TestCancelledLockWaitReleasesReference(t *testing.T) {
 	if result.Error == nil || !strings.Contains(*result.Error, context.Canceled.Error()) {
 		t.Fatalf("cancelled execute: %+v", result)
 	}
-	e.mu.Lock()
-	refs := e.locks["environment"].refs
-	e.mu.Unlock()
+	e.locks.mu.Lock()
+	refs := e.locks.entries["environment"].refs
+	e.locks.mu.Unlock()
 	if refs != 1 {
 		t.Fatalf("cancelled waiter retained %d references", refs)
 	}
 	unlock()
-	if len(e.locks) != 0 {
+	if len(e.locks.entries) != 0 {
 		t.Fatal("lock was retained")
 	}
 	if _, err = e.lock(ctx, "new"); !errors.Is(err, context.Canceled) {
@@ -46,7 +46,7 @@ func TestCancelledLockWaitReleasesReference(t *testing.T) {
 }
 
 func TestTemplateReadersShareTransferAndExcludeDeletion(t *testing.T) {
-	e := &Engine{cfg: Config{DataDir: t.TempDir()}, locks: map[string]*objectLock{}}
+	e := &Engine{cfg: Config{DataDir: t.TempDir()}}
 	template := api.Template{Id: "source", Kind: api.Container, Version: 1}
 	directory := templateDirectory(e.cfg.DataDir, template.Id, template.Version)
 	if err := os.MkdirAll(directory, 0711); err != nil {
@@ -96,7 +96,7 @@ func TestTemplateReadersShareTransferAndExcludeDeletion(t *testing.T) {
 func TestParallelTemplatePreparationAndTrim(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	e := &Engine{cfg: Config{DataDir: t.TempDir()}, locks: map[string]*objectLock{}, slots: make(chan struct{}, 2)}
+	e := &Engine{cfg: Config{DataDir: t.TempDir()}, slots: make(chan struct{}, 2)}
 	template := api.Template{Id: "system", Kind: api.Vm, Version: 1}
 	first, err := e.lock(ctx, "one/guest")
 	if err != nil {
@@ -123,9 +123,9 @@ func TestParallelTemplatePreparationAndTrim(t *testing.T) {
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {
-		e.mu.Lock()
-		waiting := e.locks["one/guest"].refs == 2 && e.locks["two/guest"].refs == 2
-		e.mu.Unlock()
+		e.locks.mu.Lock()
+		waiting := e.locks.entries["one/guest"].refs == 2 && e.locks.entries["two/guest"].refs == 2
+		e.locks.mu.Unlock()
 		if waiting {
 			break
 		}
@@ -174,7 +174,7 @@ func TestParallelTemplatePreparationAndTrim(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("cache trim did not finish after both preparations released the template")
 	}
-	if len(e.locks) != 0 || len(e.slots) != 0 {
+	if len(e.locks.entries) != 0 || len(e.slots) != 0 {
 		t.Fatal("completed preparations retained locks or slots")
 	}
 }
@@ -196,7 +196,7 @@ func TestColdTemplateSourceDoesNotOccupyComputeSlot(t *testing.T) {
 				t.Fatal(err)
 			}
 			files["template.json"] = manifest
-			source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}, locks: map[string]*objectLock{}}
+			source := &Engine{cfg: Config{ID: origin, DataDir: t.TempDir()}}
 			directory := templateDirectory(source.cfg.DataDir, template.Id, template.Version)
 			if err := os.MkdirAll(directory, 0711); err != nil {
 				t.Fatal(err)
@@ -224,7 +224,7 @@ func TestColdTemplateSourceDoesNotOccupyComputeSlot(t *testing.T) {
 				io.Copy(w, reader)
 			}))
 			defer server.Close()
-			e := &Engine{cfg: Config{ID: "target", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, locks: map[string]*objectLock{}, slots: make(chan struct{}, 1), ioSlots: make(chan struct{}, 1)}
+			e := &Engine{cfg: Config{ID: "target", DataDir: t.TempDir(), ArtifactHTTP: server.Client()}, slots: make(chan struct{}, 1), ioSlots: make(chan struct{}, 1)}
 			endpoints := map[string]string{origin: server.URL}
 			cold := make(chan api.NodeResult, 1)
 			go func() {

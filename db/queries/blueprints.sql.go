@@ -11,31 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const blueprintReferences = `-- name: BlueprintReferences :many
-SELECT e.name FROM environments e JOIN blueprint_versions v ON v.id=e.blueprint_version_id
-WHERE v.blueprint_id=$1 AND e.status<>'destroyed' ORDER BY e.name
-`
-
-func (q *Queries) BlueprintReferences(ctx context.Context, blueprintID string) ([]string, error) {
-	rows, err := q.db.Query(ctx, blueprintReferences, blueprintID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		items = append(items, name)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const createBlueprint = `-- name: CreateBlueprint :exec
 INSERT INTO blueprints(id,project_id,owner_id,name) VALUES($1,$2,$3,$4)
 `
@@ -120,12 +95,12 @@ func (q *Queries) DeleteBlueprintVersions(ctx context.Context, blueprintID strin
 	return err
 }
 
-const detachDestroyedBlueprint = `-- name: DetachDestroyedBlueprint :exec
-UPDATE environments SET blueprint_version_id=NULL WHERE status='destroyed' AND blueprint_version_id IN (SELECT id FROM blueprint_versions WHERE blueprint_id=$1)
+const detachBlueprint = `-- name: DetachBlueprint :exec
+UPDATE environments SET blueprint_version_id=NULL WHERE blueprint_version_id IN (SELECT id FROM blueprint_versions WHERE blueprint_id=$1)
 `
 
-func (q *Queries) DetachDestroyedBlueprint(ctx context.Context, blueprintID string) error {
-	_, err := q.db.Exec(ctx, detachDestroyedBlueprint, blueprintID)
+func (q *Queries) DetachBlueprint(ctx context.Context, blueprintID string) error {
+	_, err := q.db.Exec(ctx, detachBlueprint, blueprintID)
 	return err
 }
 
