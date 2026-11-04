@@ -418,6 +418,10 @@
 }
 .storageDetails {
   max-width: calc(100vw - 24px);
+  max-height: min(600px, calc(100dvh - 120px));
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--text);
 }
 .storageHeading {
   display: flex;
@@ -434,11 +438,100 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 20px 0 16px;
   font-size: 13px;
 }
 .storageTotal strong {
-  font-size: 22px;
+  font-size: 26px;
   font-family: var(--font-mono);
+}
+.storageLegend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 0 0 20px;
+}
+.storageLegend dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.storageLegend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.storageLegend dd {
+  margin: 6px 0 0 14px;
+  font: 600 14px var(--font-mono);
+}
+.storageBase {
+  background: #3268cf;
+  fill: #3268cf;
+}
+.storageDelta {
+  background: #8bb8f4;
+  fill: #8bb8f4;
+}
+.storageLocation {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.storageLocation + .storageLocation {
+  margin-top: 18px;
+}
+.storageLocationHeading,
+.storageBalance {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.storageLocationHeading h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.storageWave {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin: 12px 0 10px;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+.storageWave rect {
+  transition: width 400ms ease;
+}
+.storageWaveMotion {
+  animation: storageWave 12s linear infinite;
+}
+@keyframes storageWave {
+  to {
+    transform: translateX(-600px);
+  }
+}
+.storageBalance {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.storageBalance strong {
+  margin-left: 4px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: reduce) {
+  .storageWaveMotion {
+    animation: none;
+  }
+  .storageWave rect {
+    transition: none;
+  }
 }

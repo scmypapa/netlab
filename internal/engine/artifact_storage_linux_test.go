@@ -241,16 +241,38 @@ func TestEnvironmentStorageCountsPhysicalBlocks(t *testing.T) {
 			if err = os.Symlink(systemDiskPath(base, 0), filepath.Join(instance, "media.iso")); err != nil {
 				t.Fatal(err)
 			}
-			usage, err := e.StorageUsage(ctx, api.NodeStorageUsage{EnvironmentId: "environment", Sources: []api.StorageUsageSource{{Execution: a}, {Execution: a}, {Execution: a, RecoveryId: "point"}}})
+			shared := a
+			shared.Template.Id = "shared-template"
+			otherBase := templateDirectory(data, shared.Template.Id, 1)
+			packets := filepath.Join(data, "packets", "environment")
+			for _, directory := range []string{otherBase, packets} {
+				if err = os.MkdirAll(directory, 0711); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err = os.Link(systemDiskPath(base, 0), systemDiskPath(otherBase, 0)); err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filepath.Join(packets, "traffic.pcapng.zst"), bytes.Repeat([]byte("packet"), 1024), 0600); err != nil {
+				t.Fatal(err)
+			}
+			usage, err := e.StorageUsage(ctx, api.NodeStorageUsage{EnvironmentId: "environment", Sources: []api.StorageUsageSource{{Execution: a}, {Execution: shared}, {Execution: a, RecoveryId: "point"}}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			var allocated int64
+			var allocated, baseBytes int64
 			for _, part := range usage {
 				allocated += part.Bytes
+				baseBytes += part.BaseBytes
+				if part.Storage == nil || part.Storage.CapacityBytes <= 0 || part.Filesystem == "" {
+					t.Fatalf("missing physical capacity: %+v", part)
+				}
 			}
-			if allocated <= 0 || allocated > 1<<20 {
-				t.Fatalf("counted holes, shared bases or duplicate blocks: %d", allocated)
+			if baseBytes <= 0 || allocated <= baseBytes || allocated-baseBytes > 1<<20 || allocated > 5<<20 {
+				t.Fatalf("physical total must include one base and unique incremental blocks: total=%d base=%d", allocated, baseBytes)
+			}
+			if root == "" && baseBytes != 4<<20 {
+				t.Fatalf("base image counted more than once: %d", baseBytes)
 			}
 		})
 	}

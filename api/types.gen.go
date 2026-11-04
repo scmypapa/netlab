@@ -983,7 +983,10 @@ type EnvironmentStatus string
 
 // EnvironmentStorage defines model for EnvironmentStorage.
 type EnvironmentStorage struct {
-	// Bytes Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.
+	// BaseBytes Base images counted once per physical copy within this environment.
+	BaseBytes int64 `json:"baseBytes"`
+
+	// Bytes Deduplicated storage required by the environment including base images
 	Bytes      int64             `json:"bytes"`
 	Locations  []StorageLocation `json:"locations"`
 	MeasuredAt time.Time         `json:"measuredAt"`
@@ -1995,9 +1998,13 @@ type StorageInfo struct {
 
 // StorageLocation defines model for StorageLocation.
 type StorageLocation struct {
-	Bytes int64  `json:"bytes"`
-	Id    string `json:"id"`
-	Name  string `json:"name"`
+	// AvailableBytes Space currently available to scheduling after the running reserve and pending writes.
+	AvailableBytes int64  `json:"availableBytes"`
+	BaseBytes      int64  `json:"baseBytes"`
+	Bytes          int64  `json:"bytes"`
+	CapacityBytes  int64  `json:"capacityBytes"`
+	Id             string `json:"id"`
+	Name           string `json:"name"`
 }
 
 // StoragePool defines model for StoragePool.
@@ -2043,8 +2050,11 @@ type StoragePoolAsset struct {
 
 // StorageUsagePart defines model for StorageUsagePart.
 type StorageUsagePart struct {
-	Bytes int64  `json:"bytes"`
-	Key   string `json:"key"`
+	BaseBytes  int64        `json:"baseBytes,omitempty"`
+	Bytes      int64        `json:"bytes"`
+	Filesystem string       `json:"filesystem,omitempty"`
+	Key        string       `json:"key"`
+	Storage    *StorageInfo `json:"storage,omitempty"`
 }
 
 // StorageUsageSource defines model for StorageUsageSource.

@@ -2670,9 +2670,14 @@ export interface components {
     EnvironmentStorage: {
       /**
        * Format: int64
-       * @description Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.
+       * @description Deduplicated storage required by the environment including base images
        */
       bytes: number;
+      /**
+       * Format: int64
+       * @description Base images counted once per physical copy within this environment.
+       */
+      baseBytes: number;
       /** Format: date-time */
       measuredAt: string;
       locations: components["schemas"]["StorageLocation"][];
@@ -2682,11 +2687,24 @@ export interface components {
       name: string;
       /** Format: int64 */
       bytes: number;
+      /** Format: int64 */
+      baseBytes: number;
+      /** Format: int64 */
+      capacityBytes: number;
+      /**
+       * Format: int64
+       * @description Space currently available to scheduling after the running reserve and pending writes.
+       */
+      availableBytes: number;
     };
     StorageUsagePart: {
       key: string;
       /** Format: int64 */
       bytes: number;
+      /** Format: int64 */
+      baseBytes?: number;
+      filesystem?: string;
+      storage?: components["schemas"]["StorageInfo"];
     };
     StorageUsageSource: {
       execution: components["schemas"]["AssetExecution"];
@@ -3304,7 +3322,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Measured environment storage excluding shared template bases */
+      /** @description Measured environment footprint including shared template bases */
       200: {
         headers: {
           [name: string]: unknown;
