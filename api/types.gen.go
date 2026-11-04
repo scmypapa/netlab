@@ -984,8 +984,9 @@ type EnvironmentStatus string
 // EnvironmentStorage defines model for EnvironmentStorage.
 type EnvironmentStorage struct {
 	// Bytes Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.
-	Bytes      int64     `json:"bytes"`
-	MeasuredAt time.Time `json:"measuredAt"`
+	Bytes      int64             `json:"bytes"`
+	Locations  []StorageLocation `json:"locations"`
+	MeasuredAt time.Time         `json:"measuredAt"`
 }
 
 // EnvironmentSummary defines model for EnvironmentSummary.
@@ -1990,6 +1991,13 @@ type StorageInfo struct {
 	NativeSnapshots bool        `json:"nativeSnapshots,omitempty"`
 	Path            string      `json:"path"`
 	Rbd             *RbdStorage `json:"rbd,omitempty"`
+}
+
+// StorageLocation defines model for StorageLocation.
+type StorageLocation struct {
+	Bytes int64  `json:"bytes"`
+	Id    string `json:"id"`
+	Name  string `json:"name"`
 }
 
 // StoragePool defines model for StoragePool.

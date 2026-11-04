@@ -2027,7 +2027,7 @@ WHERE e.status<>'destroyed' AND (
  e.applied_spec @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text))) OR
  e.draft->'spec' @> jsonb_build_object('assets',jsonb_build_array(jsonb_build_object('templateId',$1::text))))
 UNION
-SELECT '运行资产：'||e.name FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
+SELECT '环境：'||e.name FROM runtime_assets a JOIN environments e ON e.id=a.environment_id
 WHERE a.execution->'template'->>'id'=$1
 UNION
 SELECT '环境模板：'||b.name||' v'||v.version::text FROM blueprint_versions v JOIN blueprints b ON b.id=v.blueprint_id

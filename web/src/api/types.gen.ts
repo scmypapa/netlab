@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+  "/templates/{id}/references": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    get: operations["templateReferences"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/environments/{id}/storage": {
     parameters: {
       query?: never;
@@ -2657,6 +2675,13 @@ export interface components {
       bytes: number;
       /** Format: date-time */
       measuredAt: string;
+      locations: components["schemas"]["StorageLocation"][];
+    };
+    StorageLocation: {
+      id: string;
+      name: string;
+      /** Format: int64 */
+      bytes: number;
     };
     StorageUsagePart: {
       key: string;
@@ -3246,6 +3271,28 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  templateReferences: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["parameters"]["Id"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Objects using the template */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": string[];
+        };
+      };
+    };
+  };
   environmentStorage: {
     parameters: {
       query?: never;

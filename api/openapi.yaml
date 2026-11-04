@@ -3,6 +3,12 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /templates/{id}/references:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: templateReferences
+      responses:
+        '200': {description: Objects using the template, content: {application/json: {schema: {type: array, items: {type: string}}}}}
   /environments/{id}/storage:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -1945,10 +1951,18 @@ components:
       x-enum-varnames: [StorageDriverDirectory, StorageDriverRBD]
     EnvironmentStorage:
       type: object
-      required: [bytes, measuredAt]
+      required: [bytes, measuredAt, locations]
       properties:
         bytes: {type: integer, format: int64, description: Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.}
         measuredAt: {type: string, format: date-time}
+        locations: {type: array, items: {$ref: '#/components/schemas/StorageLocation'}}
+    StorageLocation:
+      type: object
+      required: [id, name, bytes]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        bytes: {type: integer, format: int64}
     StorageUsagePart:
       type: object
       required: [key, bytes]

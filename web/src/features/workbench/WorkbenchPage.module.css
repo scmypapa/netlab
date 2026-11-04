@@ -407,6 +407,38 @@
   background: var(--surface-hover);
   color: var(--text);
 }
-.storageUsage:disabled {
-  cursor: progress;
+.storageUsage strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.storageUsage:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.storageDetails {
+  max-width: calc(100vw - 24px);
+}
+.storageHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.storageHeading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.storageTotal {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.storageTotal strong {
+  font-size: 22px;
+  font-family: var(--font-mono);
 }

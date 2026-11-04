@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,6 +59,8 @@ func (s *Server) readEnvironmentStorage(ctx context.Context, id string) (api.Env
 		return api.EnvironmentStorage{}, fmt.Errorf("环境存储节点未登记，请检查节点管理")
 	}
 	parts := map[string]int64{}
+	locations := map[string]api.StorageLocation{}
+	partLocations := map[string]string{}
 	var mu sync.Mutex
 	group, ctx := errgroup.WithContext(ctx)
 	group.SetLimit(8)
@@ -69,6 +73,12 @@ func (s *Server) readEnvironmentStorage(ctx context.Context, id string) (api.Env
 			mu.Lock()
 			for _, part := range usage {
 				parts[part.Key] = max(parts[part.Key], part.Bytes)
+				location := api.StorageLocation{Id: node.ID, Name: node.Name}
+				if strings.HasPrefix(part.Key, "rbd:") {
+					location = api.StorageLocation{Id: "shared", Name: "共享存储"}
+				}
+				locations[location.Id] = location
+				partLocations[part.Key] = location.Id
 			}
 			mu.Unlock()
 			return nil
@@ -77,9 +87,17 @@ func (s *Server) readEnvironmentStorage(ctx context.Context, id string) (api.Env
 	if err = group.Wait(); err != nil {
 		return api.EnvironmentStorage{}, err
 	}
-	result := api.EnvironmentStorage{MeasuredAt: time.Now().UTC()}
-	for _, size := range parts {
+	result := api.EnvironmentStorage{MeasuredAt: time.Now().UTC(), Locations: []api.StorageLocation{}}
+	for key, size := range parts {
 		result.Bytes += size
+		id := partLocations[key]
+		location := locations[id]
+		location.Bytes += size
+		locations[id] = location
 	}
+	for _, location := range locations {
+		result.Locations = append(result.Locations, location)
+	}
+	slices.SortFunc(result.Locations, func(a, b api.StorageLocation) int { return strings.Compare(a.Id, b.Id) })
 	return result, nil
 }

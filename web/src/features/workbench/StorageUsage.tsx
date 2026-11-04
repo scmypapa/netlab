@@ -1,6 +1,10 @@
+import { ActionIcon, Popover } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { HardDrive, RefreshCw } from "lucide-react";
+import { ChevronDown, HardDrive, RefreshCw } from "lucide-react";
 import { api } from "../../api/client";
+import { ErrorMessage, Loading } from "../../foundation/Feedback";
+import { byteUnit, reading } from "../../foundation/format";
+import { StorageLocations } from "../../foundation/StorageLocations";
 import styles from "./WorkbenchPage.module.css";
 
 export function StorageUsage({
@@ -17,35 +21,60 @@ export function StorageUsage({
     retry: false,
   });
   const bytes = usage.data?.bytes;
-  const unit = bytes !== undefined && bytes >= 2 ** 30 ? "GiB" : "MiB";
+  const { scale, unit } = byteUnit(bytes ?? 0);
   const value =
     bytes === undefined
-      ? undefined
-      : new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(
-          bytes / (unit === "GiB" ? 2 ** 30 : 2 ** 20),
-        );
+      ? usage.error
+        ? "读取失败"
+        : "统计中"
+      : `${reading(bytes, scale)} ${unit}`;
   return (
-    <button
-      className={styles.storageUsage}
-      onClick={() => void usage.refetch()}
-      disabled={usage.isFetching}
-      title={
-        usage.error ? usage.error.message : "实例与恢复点的实际占用，点击刷新"
-      }
-      aria-label={
-        usage.error
-          ? "读取存储占用失败，点击重试"
-          : `磁盘实际占用 ${value ?? "读取中"} ${value ? unit : ""}`
-      }
+    <Popover
+      position="bottom-start"
+      width={340}
+      shadow="md"
+      withArrow
+      trapFocus
+      returnFocus
     >
-      {usage.error ? <RefreshCw size={14} /> : <HardDrive size={14} />}
-      <span>
-        {usage.error
-          ? "重试存储统计"
-          : value === undefined
-            ? "统计中"
-            : `${value} ${unit}`}
-      </span>
-    </button>
+      <Popover.Target>
+        <button
+          className={styles.storageUsage}
+          aria-label={`环境数据 ${value}，查看存放位置`}
+        >
+          <HardDrive size={15} />
+          <span>环境数据</span>
+          <strong>{value}</strong>
+          <ChevronDown size={13} />
+        </button>
+      </Popover.Target>
+      <Popover.Dropdown className={styles.storageDetails}>
+        <div className={styles.storageHeading}>
+          <h3>实例与恢复点</h3>
+          <ActionIcon
+            data-autofocus
+            variant="subtle"
+            aria-label="刷新存储占用"
+            loading={usage.isFetching}
+            onClick={() => void usage.refetch()}
+          >
+            <RefreshCw size={16} />
+          </ActionIcon>
+        </div>
+        <ErrorMessage error={usage.error} />
+        {usage.isPending && <Loading />}
+        {usage.data && (
+          <>
+            <div className={styles.storageTotal}>
+              <span>实际占用</span>
+              <strong>{value}</strong>
+            </div>
+            {usage.data.locations.length > 0 && (
+              <StorageLocations locations={usage.data.locations} />
+            )}
+          </>
+        )}
+      </Popover.Dropdown>
+    </Popover>
   );
 }

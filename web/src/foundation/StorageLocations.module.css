@@ -1,0 +1,44 @@
+.head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.locations {
+  margin: 0;
+  display: grid;
+}
+.locations > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+}
+.locations > div + div {
+  border-top: 1px solid var(--line);
+}
+.locations dt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13px;
+}
+.locations dt svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.locations dt span {
+  overflow-wrap: anywhere;
+}
+.locations dd {
+  margin: 0;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}

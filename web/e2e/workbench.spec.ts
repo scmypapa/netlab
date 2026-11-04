@@ -1,5 +1,53 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("环境数据展开存放位置，刷新与键盘关闭各有明确入口", async ({ page }) => {
+  await fixture(page);
+  let reads = 0;
+  await page.route("**/api/v1/environments/env/storage", (route) => {
+    reads++;
+    return route.fulfill({
+      json: {
+        bytes: 3.7 * 2 ** 30,
+        measuredAt: "2026-11-04T05:00:00Z",
+        locations: [{ id: "node", name: "计算节点", bytes: 3.7 * 2 ** 30 }],
+      },
+    });
+  });
+  await page.goto("/environments/env");
+  const trigger = page.getByRole("button", {
+    name: "环境数据 3.7 GiB，查看存放位置",
+    exact: true,
+  });
+  await expect(trigger).toBeVisible();
+  const initialReads = reads;
+  for (const width of [390, 1366, 1920, 2560]) {
+    await page.setViewportSize({ width, height: 900 });
+    await trigger.click();
+    await expect(
+      page.getByRole("heading", { name: "实例与恢复点", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("计算节点", { exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    if (width === 1366)
+      await page.screenshot({
+        path: test.info().outputPath("environment-storage.png"),
+        animations: "disabled",
+      });
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("heading", { name: "实例与恢复点", exact: true }),
+    ).toHaveCount(0);
+  }
+  expect(reads).toBe(initialReads);
+  await trigger.click();
+  await page.getByRole("button", { name: "刷新存储占用", exact: true }).click();
+  await expect.poll(() => reads).toBe(initialReads + 1);
+});
+
 test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page }) => {
   await fixture(page);
   let submitted: unknown;

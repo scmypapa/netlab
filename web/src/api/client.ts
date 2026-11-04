@@ -217,8 +217,8 @@ function list<T>(
 export const api = {
   templateCache: (id: string) =>
     request<Schema<"TemplateCache">[]>(`/templates/${id}/cache`),
-  trimTemplateCache: (id: string) =>
-    request<Operation>(`/templates/${id}/cache`, "DELETE"),
+  templateReferences: (id: string) =>
+    request<string[]>(`/templates/${id}/references`),
   changePassword: (input: Schema<"ChangePassword">) =>
     request<void>("/identity/password", "PUT", input),
   principalGrants: (id: string) =>

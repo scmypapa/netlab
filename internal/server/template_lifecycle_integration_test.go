@@ -45,6 +45,10 @@ func testTemplateLifecycleAPI(t *testing.T, ctx context.Context, pool *pgxpool.P
 	}
 	blocked := func(template api.Template, reason string) {
 		t.Helper()
+		var references []string
+		if err := json.Unmarshal(call("GET", "/templates/"+template.Id+"/references", token, nil, 200), &references); err != nil || !strings.Contains(strings.Join(references, "、"), reason) {
+			t.Fatalf("template usage missing %q: %v %v", reason, references, err)
+		}
 		raw := call("DELETE", "/templates/"+template.Id, token, nil, 409)
 		if !strings.Contains(string(raw), reason) {
 			t.Fatalf("missing reference %q: %s", reason, raw)
@@ -69,7 +73,7 @@ func testTemplateLifecycleAPI(t *testing.T, ctx context.Context, pool *pgxpool.P
 		if _, err := pool.Exec(ctx, `UPDATE environments SET status='destroyed' WHERE id=$1`, r.Id); err != nil {
 			t.Fatal(err)
 		}
-		blocked(runtime, "运行资产")
+		blocked(runtime, "环境")
 	})
 	t.Run("full rebuild keeps configuration and distinguishes retried requests", func(t *testing.T) {
 		image := template()

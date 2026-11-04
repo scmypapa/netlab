@@ -37,6 +37,10 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 				writeJSON(w, 200, info)
 			}
 		case http.MethodPost:
+			if r.URL.Path == "/node/v1/storage-usage" {
+				writeJSON(w, 200, []api.StorageUsagePart{{Key: id + "/filesystem/data", Bytes: 100}, {Key: "rbd:cluster/pool/disk", Bytes: 50}, {Key: "rbd:cluster/pool/disk", Bytes: 50}})
+				return
+			}
 			writeJSON(w, 200, api.StorageInfo{Path: "/mnt/pool/netlab-" + id + "/" + r.PathValue("id"), Filesystem: "root", CapacityBytes: 8 << 30, AvailableBytes: 4 << 30})
 		case http.MethodDelete:
 			cleaned++
@@ -117,6 +121,13 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 	allocations, err := s.Queries.StorageReservations(ctx, []string{id})
 	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 2 || allocations[0].ContainerGib != 2 {
 		t.Fatalf("shared volumes counted twice: %+v %v", allocations, err)
+	}
+	var usage api.EnvironmentStorage
+	if err := json.Unmarshal(call("GET", "/environments/"+e.Id+"/storage", admin, nil, 200), &usage); err != nil {
+		t.Fatal(err)
+	}
+	if usage.Bytes != 150 || len(usage.Locations) != 2 || usage.Locations[0] != (api.StorageLocation{Id: id, Name: "Storage node", Bytes: 100}) || usage.Locations[1] != (api.StorageLocation{Id: "shared", Name: "共享存储", Bytes: 50}) {
+		t.Fatalf("storage locations must preserve deduplicated totals: %+v", usage)
 	}
 	listedPools := func(token string) map[string]api.StoragePool {
 		t.Helper()

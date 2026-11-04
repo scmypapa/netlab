@@ -179,6 +179,20 @@
   display: grid;
   gap: 12px;
 }
+.references {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.emptyStorage {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
 .disks > div {
   display: flex;
   justify-content: space-between;
