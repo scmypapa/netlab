@@ -71,13 +71,14 @@ func NewCollector(ctx context.Context, ovs *network.OVS, node string) (*Collecto
 		conn.Close()
 		return nil, err
 	}
-	if err = ovs.SetFlowExport(ctx, node, conn.LocalAddr().String()); err != nil {
-		conn.Close()
-		return nil, err
-	}
 	s := &Collector{ovs: ovs, node: node, conn: conn, interfaces: interfaces, index: map[samplePort]map[sampleKey]int{}, templates: netflow.CreateTemplateSystem()}
 	s.workers.Add(1)
 	go func() { defer s.workers.Done(); s.receive() }()
+	if err = ovs.SetFlowExport(ctx, node, conn.LocalAddr().String()); err != nil {
+		conn.Close()
+		s.workers.Wait()
+		return nil, err
+	}
 	return s, nil
 }
 
