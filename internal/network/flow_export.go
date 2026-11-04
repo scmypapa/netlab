@@ -3,6 +3,8 @@ package network
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"time"
 
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
@@ -86,8 +88,7 @@ func (n *OVS) SetFlowExport(ctx context.Context, node, target string) error {
 	return n.applyFlowExport(ctx, append(ops, more...))
 }
 
-// OVSDB commit precedes datapath reconfiguration; acknowledge the applied generation
-// before accepting traffic or replacing the collector's UDP endpoint.
+// Configuration acknowledgement precedes revalidation of cached datapath actions.
 func (n *OVS) applyFlowExport(ctx context.Context, ops []ovsdb.Operation) error {
 	var roots []OpenVSwitch
 	if err := n.client.List(ctx, &roots); err != nil {
@@ -111,7 +112,18 @@ func (n *OVS) applyFlowExport(ctx context.Context, ops []ovsdb.Operation) error 
 	}
 	revision := results[len(results)-1].Rows[0]["next_cfg"]
 	timeout := 5000
-	return transact(ctx, n.client, []ovsdb.Operation{{Op: ovsdb.OperationWait, Table: "Open_vSwitch", Where: append(where, ovsdb.NewCondition("cur_cfg", ovsdb.ConditionGreaterThanOrEqual, revision)), Columns: []string{"_uuid"}, Until: "==", Rows: []ovsdb.Row{{"_uuid": root}}, Timeout: &timeout}})
+	if err = transact(ctx, n.client, []ovsdb.Operation{{Op: ovsdb.OperationWait, Table: "Open_vSwitch", Where: append(where, ovsdb.NewCondition("cur_cfg", ovsdb.ConditionGreaterThanOrEqual, revision)), Columns: []string{"_uuid"}, Until: "==", Rows: []ovsdb.Row{{"_uuid": root}}, Timeout: &timeout}}); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	// The first pass may already be in progress; the second starts after this configuration.
+	for range 2 {
+		if output, err := exec.CommandContext(ctx, "ovs-appctl", "-t", "ovs-vswitchd", "revalidator/wait").CombinedOutput(); err != nil {
+			return fmt.Errorf("OVS bridge %s IPFIX datapath update: %w: %s", n.bridge, err, output)
+		}
+	}
+	return nil
 }
 
 // Kernel ifindex identifies the actual ingress/egress attachment, even when environments reuse IPs.

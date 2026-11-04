@@ -21,7 +21,7 @@ func TestRealContinuousOVSFlows(t *testing.T) {
 	if os.Getenv("NETLAB_REAL_CAPTURE") != "1" {
 		t.Skip("set NETLAB_REAL_CAPTURE=1 for native OVS test")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:10]
 	bridge, device, peer := "sf"+suffix, "si"+suffix, "sp"+suffix
@@ -81,7 +81,7 @@ func TestRealContinuousOVSFlows(t *testing.T) {
 	output, _ := netlink.LinkByName(peer)
 	address := &unix.SockaddrLinklayer{Ifindex: output.Attrs().Index, Protocol: htons(unix.ETH_P_ALL)}
 	frame := sampleFrame(t)
-	for attempt := range 2 {
+	for attempt := range 3 {
 		if err := unix.Sendto(fd, frame, 0, address); err != nil {
 			t.Fatal(err)
 		}
@@ -103,14 +103,20 @@ func TestRealContinuousOVSFlows(t *testing.T) {
 		if observed == nil || observed.Packets != 1 || observed.Bytes < int64(len(frame)) {
 			t.Fatalf("single packet on collector start %d: %+v", attempt, observed)
 		}
-		if err := collector.Close(); err != nil {
-			t.Fatal(err)
+		if attempt == 1 {
+			// A process exit leaves the OVS exporter pointing at the old UDP receiver.
+			collector.conn.Close()
+			collector.workers.Wait()
+		} else {
+			if err := collector.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if output, err := exec.CommandContext(ctx, "ovs-vsctl", "get", "Bridge", bridge, "ipfix").CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "[]" {
+				t.Fatalf("IPFIX collector retained: %s %v", output, err)
+			}
 		}
 		collector = nil
-		if output, err := exec.CommandContext(ctx, "ovs-vsctl", "get", "Bridge", bridge, "ipfix").CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "[]" {
-			t.Fatalf("IPFIX collector retained: %s %v", output, err)
-		}
-		if attempt == 0 {
+		if attempt < 2 {
 			collector, err = NewCollector(ctx, ovs, "sample-node")
 			if err != nil {
 				t.Fatal("collector restart", err)
