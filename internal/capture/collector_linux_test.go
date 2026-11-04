@@ -101,13 +101,6 @@ func TestRealContinuousOVSFlows(t *testing.T) {
 			}
 		}
 		if observed == nil || observed.Packets != 1 || observed.Bytes < int64(len(frame)) {
-			collector.mu.Lock()
-			t.Logf("collector port=%s interfaces=%v samples=%+v err=%v", collector.conn.LocalAddr(), collector.interfaces, collector.samples, collector.err)
-			collector.mu.Unlock()
-			for _, args := range [][]string{{"ovs-ofctl", "dump-ipfix-bridge", bridge}, {"ovs-appctl", "dpif/dump-flows", bridge}, {"cat", "/proc/net/udp"}, {"cat", "/proc/net/snmp"}} {
-				output, err := exec.Command(args[0], args[1:]...).CombinedOutput()
-				t.Logf("%v: %s %v", args, output, err)
-			}
 			t.Fatalf("single packet on collector start %d: %+v", attempt, observed)
 		}
 		if attempt == 1 {
