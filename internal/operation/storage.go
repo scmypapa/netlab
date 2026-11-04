@@ -136,11 +136,15 @@ func storageAmounts(node string, kind api.TemplateKind, pool storageCandidate, b
 	return amounts, nil
 }
 
+// AvailableStorageBytes keeps the running reserve and scheduler granularity identical for admission and display.
+func AvailableStorageBytes(info api.StorageInfo) int64 {
+	return (max(int64(0), info.AvailableBytes-info.CapacityBytes/20) >> 30) << 30
+}
+
 func storageFits(used, pending map[string]int64, limits map[string]api.StorageInfo, additional map[string]int64) bool {
 	for key, amount := range additional {
 		info := limits[key]
-		// Keep five percent free for running guests and filesystem metadata.
-		available := max(int64(0), info.AvailableBytes-info.CapacityBytes/20) >> 30
+		available := AvailableStorageBytes(info) >> 30
 		if used[key]+pending[key]+amount > available {
 			return false
 		}

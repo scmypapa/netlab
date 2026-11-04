@@ -37,6 +37,12 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 				writeJSON(w, 200, info)
 			}
 		case http.MethodPost:
+			if r.URL.Path == "/node/v1/storage-usage" {
+				info := &api.StorageInfo{CapacityBytes: 20 << 30, AvailableBytes: 10 << 30}
+				shared := api.StorageUsagePart{Key: "rbd:cluster/pool/disk", Bytes: 50, BaseBytes: 20, Filesystem: "cluster/pool", Storage: info}
+				writeJSON(w, 200, []api.StorageUsagePart{{Key: id + "/filesystem/data", Bytes: 100, BaseBytes: 60, Filesystem: id + "/data", Storage: info}, shared, shared})
+				return
+			}
 			writeJSON(w, 200, api.StorageInfo{Path: "/mnt/pool/netlab-" + id + "/" + r.PathValue("id"), Filesystem: "root", CapacityBytes: 8 << 30, AvailableBytes: 4 << 30})
 		case http.MethodDelete:
 			cleaned++
@@ -117,6 +123,44 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 	allocations, err := s.Queries.StorageReservations(ctx, []string{id})
 	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 2 || allocations[0].ContainerGib != 2 {
 		t.Fatalf("shared volumes counted twice: %+v %v", allocations, err)
+	}
+	var usage api.EnvironmentStorage
+	if err := json.Unmarshal(call("GET", "/environments/"+e.Id+"/storage", admin, nil, 200), &usage); err != nil {
+		t.Fatal(err)
+	}
+	if usage.Bytes != 150 || usage.BaseBytes != 80 || len(usage.Locations) != 2 {
+		t.Fatalf("storage locations must preserve deduplicated totals: %+v", usage)
+	}
+	for _, location := range usage.Locations {
+		if location.CapacityBytes != 20<<30 || location.AvailableBytes != 9<<30 {
+			t.Fatalf("display must use scheduler capacity: %+v", location)
+		}
+	}
+	writeID := uuid.NewString()
+	writes, _ := json.Marshal(map[string]any{"storageWrites": map[string]int64{id + "/data": 2}})
+	if _, err := s.Pool.Exec(ctx, "INSERT INTO operations(id,environment_id,scope_kind,scope_id,kind,payload,expected_revision) VALUES($1,$2,'environment',$2,'start',$3,1)", writeID, e.Id, writes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, "UPDATE environments SET operation_id=$1 WHERE id=$2", writeID, e.Id); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(call("GET", "/environments/"+e.Id+"/storage", admin, nil, 200), &usage); err != nil {
+		t.Fatal(err)
+	}
+	for _, location := range usage.Locations {
+		want := int64(9 << 30)
+		if location.Id == id+"/data" {
+			want = 7 << 30
+		}
+		if location.AvailableBytes != want {
+			t.Fatalf("in-flight writes not reflected: %+v", location)
+		}
+	}
+	if _, err := s.Pool.Exec(ctx, "UPDATE environments SET operation_id=NULL WHERE id=$1", e.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, "DELETE FROM operations WHERE id=$1", writeID); err != nil {
+		t.Fatal(err)
 	}
 	listedPools := func(token string) map[string]api.StoragePool {
 		t.Helper()

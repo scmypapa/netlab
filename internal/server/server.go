@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	routes := map[string]endpoint{
 		"GET /api/v1/environments/{id}/storage":                                              s.environmentStorage,
 		"GET /api/v1/templates/{id}/cache":                                                   s.templateCache,
+		"GET /api/v1/templates/{id}/references":                                              s.templateReferences,
 		"DELETE /api/v1/templates/{id}/cache":                                                s.templateCache,
 		"PUT /api/v1/identity/password":                                                      s.changePassword,
 		"GET /api/v1/principals/{id}/grants":                                                 s.principalGrants,

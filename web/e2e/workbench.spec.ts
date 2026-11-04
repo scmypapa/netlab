@@ -1,5 +1,93 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("环境占用包含基础镜像，波浪条展示动态可用空间", async ({ page }) => {
+  await fixture(page);
+  let reads = 0;
+  let availableGiB = 10;
+  await page.route("**/api/v1/environments/env/storage", (route) => {
+    reads++;
+    return route.fulfill({
+      json: {
+        bytes: 3.7 * 2 ** 30,
+        baseBytes: 2 * 2 ** 30,
+        measuredAt: "2026-11-04T05:00:00Z",
+        locations: [
+          {
+            id: "node",
+            name: "计算节点",
+            bytes: 3.7 * 2 ** 30,
+            baseBytes: 2 * 2 ** 30,
+            capacityBytes: 20 * 2 ** 30,
+            availableBytes: availableGiB * 2 ** 30,
+          },
+        ],
+      },
+    });
+  });
+  await page.goto("/environments/env");
+  const trigger = page.getByRole("button", {
+    name: "环境占用 3.7 GiB，查看存储详情",
+    exact: true,
+  });
+  await expect(trigger).toBeVisible();
+  const initialReads = reads;
+  for (const width of [390, 1366, 1920, 2560]) {
+    await page.setViewportSize({ width, height: 900 });
+    await trigger.click();
+    await expect(
+      page.getByRole("heading", { name: "环境存储", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("计算节点", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("img", {
+        name: /^基础镜像 2 GiB，增量数据 1.7 GiB，当前可用/,
+      }),
+    ).toBeVisible();
+    const panel = page.locator(".mantine-Popover-dropdown");
+    await expect(panel).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    if (width === 1366)
+      await page.screenshot({
+        path: test.info().outputPath("environment-storage.png"),
+        animations: "disabled",
+      });
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("heading", { name: "环境存储", exact: true }),
+    ).toHaveCount(0);
+  }
+  expect(reads).toBe(initialReads);
+  availableGiB = 5;
+  await trigger.click();
+  await page.getByRole("button", { name: "刷新存储占用", exact: true }).click();
+  await expect.poll(() => reads).toBe(initialReads + 1);
+  await expect(
+    page.getByRole("img", {
+      name: "基础镜像 2 GiB，增量数据 1.7 GiB，当前可用 5 GiB",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(
+    page.getByRole("img", { name: /^基础镜像/ }).locator("path"),
+  ).toHaveCSS("animation-name", "none");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "切换夜间主题" }).click();
+  await trigger.click();
+  await expect(page.locator(".mantine-Popover-dropdown")).toHaveCSS(
+    "background-color",
+    "rgb(34, 35, 38)",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("environment-storage-dark.png"),
+    animations: "disabled",
+  });
+});
+
 test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page }) => {
   await fixture(page);
   let submitted: unknown;

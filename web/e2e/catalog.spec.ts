@@ -163,6 +163,8 @@ async function fixture(
         },
       ];
     else if (path.endsWith("/cache")) response = [];
+    else if (path.endsWith("/references"))
+      response = ["环境：企业网络实验室", "恢复点：初始状态"];
     else if (path === "/nodes")
       response = nodes.filter((node) =>
         node.name.includes(url.searchParams.get("search") ?? ""),
@@ -385,17 +387,23 @@ test("模板只读入口与安装权限保持服务端边界", async ({ page }) 
     ).toContainText("Windows Server 2022");
     await expect(
       page.getByRole("tab", { name: "节点缓存", exact: true }),
-    ).toHaveCount(scenario.administrator ? 1 : 0);
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "释放闲置基础盘", exact: true }),
+    ).toHaveCount(0);
     if (scenario.administrator) {
-      await page.getByRole("tab", { name: "节点缓存", exact: true }).click();
       await expect(
-        page.getByRole("tabpanel", { name: "节点缓存", exact: true }),
-      ).toContainText("16.00 GiB");
+        page.getByRole("region", { name: "镜像文件", exact: true }),
+      ).toContainText("16 GiB");
       await expect(
-        page.getByRole("button", { name: "释放闲置基础盘", exact: true }),
-      ).toBeEnabled();
+        page.getByRole("region", { name: "使用此镜像", exact: true }),
+      ).toContainText("环境：企业网络实验室");
     } else {
-      expect(requests.filter((path) => path.endsWith("/cache"))).toEqual([]);
+      expect(
+        requests.filter(
+          (path) => path.endsWith("/cache") || path.endsWith("/references"),
+        ),
+      ).toEqual([]);
       await expect(
         page.getByRole("button", { name: "导入模板", exact: true }),
       ).toHaveCount(0);
@@ -468,14 +476,19 @@ test("创建、导入、卷与备份操作在所属工作区直接可达", async
   await expect(
     page.getByRole("region", { name: "资产模板", exact: true }),
   ).toContainText("pc-q35-10.0");
-  expect(requests.filter((path) => path.endsWith("/cache"))).toEqual([]);
-  await page.getByRole("tab", { name: "节点缓存", exact: true }).click();
   await expect(
-    page.getByRole("tabpanel", { name: "节点缓存", exact: true }),
-  ).toContainText("16.00 GiB");
+    page.getByRole("region", { name: "镜像文件", exact: true }),
+  ).toContainText("16 GiB");
+  await expect(
+    page.getByRole("region", { name: "使用此镜像", exact: true }),
+  ).toContainText("恢复点：初始状态");
   expect(requests.filter((path) => path.endsWith("/cache"))).toEqual([
     "/templates/windows/cache",
   ]);
+  await page.screenshot({
+    path: test.info().outputPath("template-storage.png"),
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "导入模板", exact: true }).click();
   await expect(
     page

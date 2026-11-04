@@ -124,6 +124,8 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	userSession := login("operator", "operator-password")
+	call("GET", "/templates/missing/references", userSession, nil, 403)
+	call("GET", "/templates/missing/references", admin, nil, 404)
 	call("GET", "/environments/env-a", userSession, nil, 403)
 	call("POST", "/principals", userSession, api.CreateUser{Name: "other", Password: "other-password"}, 403)
 	assets := []string{"one"}

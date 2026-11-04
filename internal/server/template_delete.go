@@ -13,6 +13,25 @@ import (
 	"netlab.local/core/internal/operation"
 )
 
+func (s *Server) templateReferences(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+	if err := requireAdministrator(identity); err != nil {
+		return err
+	}
+	id := r.PathValue("id")
+	templates, err := s.Queries.GetTemplates(r.Context(), []string{id})
+	if err != nil {
+		return err
+	}
+	if len(templates) == 0 {
+		return httpError{http.StatusNotFound, "模板不存在"}
+	}
+	references, err := s.Queries.TemplateReferences(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, references)
+}
+
 func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	if err := requireAdministrator(identity); err != nil {
 		return err

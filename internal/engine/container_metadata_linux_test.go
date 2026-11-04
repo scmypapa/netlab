@@ -47,6 +47,29 @@ func TestRealTemplateVolumeMetadataFromArchive(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(templateDirectory(data, template.Id, 1), "image.tar")); !os.IsNotExist(err) {
 		t.Fatalf("prepared image retained a duplicate archive: %v", err)
 	}
+	source := api.StorageUsageSource{Execution: api.AssetExecution{InstanceId: uuid.NewString(), Asset: api.Asset{Id: uuid.NewString()}, Template: template}}
+	usage, err := engine.StorageUsage(ctx, api.NodeStorageUsage{EnvironmentId: "storage", Sources: []api.StorageUsageSource{source}})
+	if err != nil || len(usage) < 2 {
+		t.Fatalf("image content and unpacked layers: %+v, %v", usage, err)
+	}
+	var imageBytes int64
+	for _, part := range usage {
+		if part.Bytes <= 0 || part.Bytes != part.BaseBytes || part.Storage == nil || part.Filesystem == "" {
+			t.Fatalf("image storage classification: %+v", part)
+		}
+		imageBytes += part.Bytes
+	}
+	duplicate, err := engine.StorageUsage(ctx, api.NodeStorageUsage{EnvironmentId: "storage", Sources: []api.StorageUsageSource{source, source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var duplicateBytes int64
+	for _, part := range duplicate {
+		duplicateBytes += part.Bytes
+	}
+	if imageBytes != duplicateBytes {
+		t.Fatalf("shared container layers counted twice: %d != %d", imageBytes, duplicateBytes)
+	}
 	reader, _, err := engine.OpenTemplateArtifact(ctx, template.Id, 1, false)
 	if err != nil {
 		t.Fatal(err)

@@ -3,12 +3,18 @@ info: {title: Netlab API, version: 1.0.0}
 servers: [{url: /api/v1}]
 security: [{bearer: []}]
 paths:
+  /templates/{id}/references:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      operationId: templateReferences
+      responses:
+        '200': {description: Objects using the template, content: {application/json: {schema: {type: array, items: {type: string}}}}}
   /environments/{id}/storage:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
       operationId: environmentStorage
       responses:
-        '200': {description: Measured environment storage excluding shared template bases, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentStorage'}}}}
+        '200': {description: Measured environment footprint including shared template bases, content: {application/json: {schema: {$ref: '#/components/schemas/EnvironmentStorage'}}}}
   /templates/{id}/cache:
     parameters: [{$ref: '#/components/parameters/Id'}]
     get:
@@ -1945,16 +1951,31 @@ components:
       x-enum-varnames: [StorageDriverDirectory, StorageDriverRBD]
     EnvironmentStorage:
       type: object
-      required: [bytes, measuredAt]
+      required: [bytes, baseBytes, measuredAt, locations]
       properties:
-        bytes: {type: integer, format: int64, description: Allocated blocks referenced by the environment and its recovery points; shared template bases are excluded.}
+        bytes: {type: integer, format: int64, description: Deduplicated storage required by the environment including base images, instance data and recovery points.}
+        baseBytes: {type: integer, format: int64, description: Base images counted once per physical copy within this environment.}
         measuredAt: {type: string, format: date-time}
+        locations: {type: array, items: {$ref: '#/components/schemas/StorageLocation'}}
+    StorageLocation:
+      type: object
+      required: [id, name, bytes, baseBytes, capacityBytes, availableBytes]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        bytes: {type: integer, format: int64}
+        baseBytes: {type: integer, format: int64}
+        capacityBytes: {type: integer, format: int64}
+        availableBytes: {type: integer, format: int64, description: Space currently available to scheduling after the running reserve and pending writes.}
     StorageUsagePart:
       type: object
       required: [key, bytes]
       properties:
         key: {type: string}
         bytes: {type: integer, format: int64}
+        baseBytes: {type: integer, format: int64, x-go-type-skip-optional-pointer: true}
+        filesystem: {type: string, x-go-type-skip-optional-pointer: true}
+        storage: {$ref: '#/components/schemas/StorageInfo'}
     StorageUsageSource:
       type: object
       required: [execution, recoveryId]
