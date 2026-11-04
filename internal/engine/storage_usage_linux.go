@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -225,6 +226,11 @@ func allocatedFiles(ctx context.Context, paths map[string]bool) (map[string]api.
 	for key, files := range native {
 		out, err := commandOutput(ctx, "compsize", append([]string{"-b", "--"}, files...)...)
 		if err != nil {
+			// compsize reports zero allocated extents with exit status 1.
+			var exit *exec.ExitError
+			if errors.As(err, &exit) && exit.ExitCode() == 1 && strings.TrimSpace(string(exit.Stderr)) == "All empty or still-delalloced files." {
+				continue
+			}
 			return nil, fmt.Errorf("measure Btrfs storage: %w", err)
 		}
 		found := false

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"netlab.local/core/api"
 )
 
@@ -218,6 +219,15 @@ func TestEnvironmentStorageCountsPhysicalBlocks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			empty, err := e.StorageUsage(ctx, api.NodeStorageUsage{EnvironmentId: "environment", Sources: []api.StorageUsageSource{{Execution: a}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, part := range empty {
+				if part.Bytes != 0 || part.BaseBytes != 0 {
+					t.Fatalf("empty disk occupies data blocks: %+v", part)
+				}
+			}
 			if _, err = file.Write(bytes.Repeat([]byte("sparse-data"), 1<<16)); err != nil {
 				t.Fatal(err)
 			}
@@ -255,6 +265,17 @@ func TestEnvironmentStorageCountsPhysicalBlocks(t *testing.T) {
 			}
 			if err = os.WriteFile(filepath.Join(packets, "traffic.pcapng.zst"), bytes.Repeat([]byte("packet"), 1024), 0600); err != nil {
 				t.Fatal(err)
+			}
+			if root != "" {
+				directory, err := os.Open(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = unix.Syncfs(int(directory.Fd()))
+				directory.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			usage, err := e.StorageUsage(ctx, api.NodeStorageUsage{EnvironmentId: "environment", Sources: []api.StorageUsageSource{{Execution: a}, {Execution: shared}, {Execution: a, RecoveryId: "point"}}})
 			if err != nil {
