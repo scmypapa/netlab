@@ -38,6 +38,7 @@ jobs:
       - name: Verify native IPFIX and packet analysis
         run: |
           go test -race -c -o "$RUNNER_TEMP/netlab-capture.test" ./internal/capture
+          sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run '^TestRealContinuousOVSFlows$' -test.count=5 -test.v -test.timeout=120s
           sudo env NETLAB_REAL_CAPTURE=1 "$RUNNER_TEMP/netlab-capture.test" -test.run 'TestRealContinuousOVSFlows|TestRealPacketDecoding|TestRealCompressedRecentPackets|TestRealInterfaceCaptureLifecycle' -test.v -test.timeout=90s
       - name: Verify full Suricata rules
         run: |
