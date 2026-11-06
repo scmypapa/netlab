@@ -1,0 +1,4 @@
+interface:
+  display_name: "Netlab 底座操作"
+  short_description: "通过平台 API 完成镜像导入、组网场景部署、生命周期管理与故障定位"
+  default_prompt: "使用 $netlab-operations 根据当前平台状态完成本次底座操作，并验证实际结果。"
