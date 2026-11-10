@@ -20,7 +20,7 @@ test("同源嵌入复用工作区、权限与主题，所有请求沿上下文�
   });
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    seen.push(path);
+    seen.push(path + new URL(route.request().url()).search);
     expect(path.startsWith(prefix)).toBe(true);
     const endpoint = path.slice((prefix + "/api/v1").length);
     const environment = {
@@ -29,7 +29,18 @@ test("同源嵌入复用工作区、权限与主题，所有请求沿上下文�
       status: "draft",
       revision: 1,
       projectId: "project",
-      spec: { assets: [], networks: [] },
+      spec: {
+        assets: [
+          {
+            id: "host",
+            name: "风电主机",
+            templateId: "image",
+            resources: { cpu: 1, memoryMiB: 1024, diskGiB: 10 },
+            interfaces: [],
+          },
+        ],
+        networks: [],
+      },
       permissions: ["read", "observe", "manage"],
     };
     if (endpoint === "/identity")
@@ -43,6 +54,16 @@ test("同源嵌入复用工作区、权限与主题，所有请求沿上下文�
       });
     if (endpoint === "/environments/env")
       return route.fulfill({ json: environment });
+    if (endpoint === "/templates") {
+      expect(new URL(route.request().url()).searchParams.get("ids")).toBe(
+        "image",
+      );
+      return route.fulfill({
+        json: [
+          { id: "image", name: "演练主机镜像", kind: "vm", state: "ready" },
+        ],
+      });
+    }
     if (endpoint.endsWith("/events"))
       return route.fulfill({
         contentType: "text/event-stream",
@@ -83,6 +104,16 @@ test("同源嵌入复用工作区、权限与主题，所有请求沿上下文�
   await expect
     .poll(() => seen.some((path) => path.endsWith("/events")))
     .toBe(true);
+  await expect
+    .poll(() =>
+      seen.some(
+        (path) => path.includes("/templates?") && path.includes("ids=image"),
+      ),
+    )
+    .toBe(true);
+  expect(seen.some((path) => /\/(nodes|blueprints)(\?|$)/.test(path))).toBe(
+    false,
+  );
   for (const width of [390, 1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
