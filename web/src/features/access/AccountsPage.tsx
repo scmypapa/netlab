@@ -7,6 +7,7 @@ import {
   PasswordInput,
   TextInput,
   Checkbox,
+  SegmentedControl,
 } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -148,7 +149,7 @@ export function AccountsPage() {
                     {principal.administrator && (
                       <span className={styles.adminLabel}>
                         <ShieldCheck size={13} />
-                        管理员
+                        {kind === "token" ? "平台集成" : "管理员"}
                       </span>
                     )}
                   </td>
@@ -442,10 +443,15 @@ function TokenEditor({
               onChange={(event) => setExpires(event.currentTarget.value)}
             />
           </div>
-          <Checkbox
-            label="管理底座"
-            checked={administrator}
-            onChange={(event) => setAdministrator(event.currentTarget.checked)}
+          <SegmentedControl
+            aria-label="令牌类型"
+            fullWidth
+            value={administrator ? "integration" : "resource"}
+            onChange={(value) => setAdministrator(value === "integration")}
+            data={[
+              { value: "resource", label: "资源访问" },
+              { value: "integration", label: "平台集成" },
+            ]}
           />
           {!administrator && (
             <GrantEditor roles={roles} value={grants} onChange={setGrants} />

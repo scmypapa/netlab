@@ -100,6 +100,7 @@ async function fixture(page: Page) {
         ...player,
         id: "service",
         name: body.name,
+        administrator: body.administrator,
         kind: "token",
       };
       principals.push(principal);
@@ -114,6 +115,8 @@ async function fixture(page: Page) {
     else if (path === "/environments")
       response = [{ ...environment, assetCount: 1, networkCount: 0 }];
     else if (path === "/environments/env") response = environment;
+    else if (path === "/environments/env/storage")
+      response = { bytes: 0, baseBytes: 0, locations: [], measuredAt: time };
     else if (path === "/environments/env/state")
       response = {
         id: "env",
@@ -229,6 +232,7 @@ test("service token uses a scoped role with file permission removed, then revoke
   const issued = calls.find((call) => call.path === "/service-tokens")?.body;
   expect(issued).toEqual({
     name: "自动化服务",
+    administrator: false,
     grants: [
       {
         scopeKind: "environment",
@@ -426,4 +430,35 @@ test("登录表单在日夜主题和窄屏下可访问", async ({ page }) => {
       ).toBe(true);
     }
   }
+});
+
+test("管理员可签发平台集成令牌", async ({ page }) => {
+  const calls = await fixture(page);
+  await page.goto("/accounts");
+  await page.getByRole("button", { name: "服务 Token", exact: true }).click();
+  await page.getByRole("button", { name: "签发 Token", exact: true }).click();
+  const drawer = page.getByRole("dialog");
+  await drawer
+    .getByRole("textbox", { name: "Token 名称", exact: true })
+    .fill("YINYU 平台");
+  await drawer.getByText("平台集成", { exact: true }).click();
+  await expect(
+    drawer.getByRole("button", { name: "添加授权范围" }),
+  ).toHaveCount(0);
+  await page.screenshot({
+    path: "test-results/integration-token.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+  await drawer.getByRole("button", { name: "签发", exact: true }).click();
+  await expect(drawer.locator("code")).toHaveText("fixture-once-token");
+  expect(calls.find((call) => call.path === "/service-tokens")?.body).toEqual({
+    name: "YINYU 平台",
+    administrator: true,
+    grants: [],
+  });
+  await drawer.getByRole("button", { name: "完成", exact: true }).click();
+  await expect(
+    page.locator("tbody tr").filter({ hasText: "YINYU 平台" }),
+  ).toContainText("平台集成");
 });
