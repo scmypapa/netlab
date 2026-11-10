@@ -76,9 +76,12 @@ func TestInvalidLoginAndCrossSiteRequests(t *testing.T) {
 	}
 }
 
-func TestInfrastructureWritesRejectEnvironmentUsersAndPrivilegedTokens(t *testing.T) {
+func TestInfrastructureWritesRejectEnvironmentUsersAndResourceTokens(t *testing.T) {
 	s := &Server{}
-	for _, identity := range []access.Identity{{Principal: queries.Principal{Kind: "user"}}, {Principal: queries.Principal{Kind: "token", Administrator: true}}} {
+	for _, identity := range []access.Identity{
+		{Principal: queries.Principal{Kind: "user"}},
+		{Principal: queries.Principal{Kind: "token"}, Grants: []queries.Grant{{ScopeKind: "project", ScopeID: "default", Permissions: []string{"read", "compose", "operate", "manage"}}}},
+	} {
 		for _, handler := range []endpoint{s.createTemplate, s.registerNode, s.listNodes, s.configureNodeScheduling} {
 			if err := handler(httptest.NewRecorder(), httptest.NewRequest("POST", "/", nil), identity); !errors.Is(err, access.ErrForbidden) {
 				t.Fatalf("expected forbidden, got %v", err)
