@@ -317,7 +317,12 @@ func (v *VirtualMachines) prepareRecovery(ctx context.Context, env string, a api
 	if err != nil {
 		return err
 	}
-	metadata, err := xml.Marshal(Ownership{Environment: env, Asset: a.Asset.Id, Instance: a.InstanceId, Execution: string(execution)})
+	var owner Ownership
+	if err = xml.Unmarshal([]byte(domain.Metadata.XML), &owner); err != nil {
+		return err
+	}
+	owner.Environment, owner.Asset, owner.Instance, owner.Execution = env, a.Asset.Id, a.InstanceId, string(execution)
+	metadata, err := xml.Marshal(owner)
 	if err != nil {
 		return err
 	}

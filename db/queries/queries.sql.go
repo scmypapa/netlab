@@ -156,27 +156,28 @@ func (q *Queries) CommitEnvironment(ctx context.Context, arg CommitEnvironmentPa
 }
 
 const countEnvironmentsByStatus = `-- name: CountEnvironmentsByStatus :many
-WITH readable AS (
+WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements($2::jsonb) AS g), readable AS (
  SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.gateway_address, e.vpn_public_key, e.vpn_mtu,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
- ($3::boolean OR ($4::boolean AND e.owner_id=$1) OR EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$1 AND 'read'=ANY(g.permissions) AND
+ ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS
+ (SELECT 1 FROM request_grants g WHERE 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
  FROM environments e WHERE e.status<>'destroyed'
 )
 SELECT e.status,count(*)::integer AS count FROM readable e
 WHERE (e.full_read OR EXISTS
  (SELECT 1 FROM jsonb_array_elements(e.runtime_spec->'assets') a WHERE EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$1 AND g.scope_kind='asset'
+ (SELECT 1 FROM request_grants g WHERE g.scope_kind='asset'
  AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))))
- AND ($2::text='' OR e.name ILIKE '%'||$2||'%' OR e.external_reference ILIKE '%'||$2||'%')
+ AND ($1::text='' OR e.name ILIKE '%'||$1||'%' OR e.external_reference ILIKE '%'||$1||'%')
 GROUP BY e.status
 `
 
 type CountEnvironmentsByStatusParams struct {
-	PrincipalID string
-	Search      string
-	IsAdmin     bool
-	IsUser      bool
+	Search        string
+	RequestGrants []byte
+	IsAdmin       bool
+	IsUser        bool
+	PrincipalID   *string
 }
 
 type CountEnvironmentsByStatusRow struct {
@@ -186,10 +187,11 @@ type CountEnvironmentsByStatusRow struct {
 
 func (q *Queries) CountEnvironmentsByStatus(ctx context.Context, arg CountEnvironmentsByStatusParams) ([]CountEnvironmentsByStatusRow, error) {
 	rows, err := q.db.Query(ctx, countEnvironmentsByStatus,
-		arg.PrincipalID,
 		arg.Search,
+		arg.RequestGrants,
 		arg.IsAdmin,
 		arg.IsUser,
+		arg.PrincipalID,
 	)
 	if err != nil {
 		return nil, err
@@ -963,16 +965,16 @@ func (q *Queries) ListCaptureSegments(ctx context.Context, environmentID string)
 }
 
 const listEnvironments = `-- name: ListEnvironments :many
-WITH readable AS (
+WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements($5::jsonb) AS g), readable AS (
  SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.gateway_address, e.vpn_public_key, e.vpn_mtu,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
- ($5::boolean OR ($6::boolean AND e.owner_id=$7) OR EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$7 AND 'read'=ANY(g.permissions) AND
+ ($6::boolean OR ($7::boolean AND e.owner_id=$8) OR EXISTS
+ (SELECT 1 FROM request_grants g WHERE 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
  FROM environments e WHERE e.status<>'destroyed'
 ), visible AS (
  SELECT e.id, e.project_id, e.owner_id, e.name, e.external_reference, e.revision, e.status, e.spec, e.applied_spec, e.view, e.draft, e.network_node_id, e.operation_id, e.error, e.client_request_id, e.created_at, e.updated_at, e.blueprint_version_id, e.gateway_address, e.vpn_public_key, e.vpn_mtu, e.runtime_spec, e.full_read,CASE WHEN full_read THEN runtime_spec->'assets' ELSE
  (SELECT jsonb_agg(a) FROM jsonb_array_elements(runtime_spec->'assets') a WHERE EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$7 AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))) END AS visible_assets
+ (SELECT 1 FROM request_grants g WHERE g.scope_kind='asset' AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))) END AS visible_assets
  FROM readable e
 )
 SELECT e.id,e.project_id,e.name,e.external_reference,e.revision,e.status,e.created_at,e.updated_at,
@@ -987,13 +989,14 @@ FROM visible e WHERE (e.full_read OR jsonb_array_length(e.visible_assets)>0)
 `
 
 type ListEnvironmentsParams struct {
-	Search      string
-	Status      string
-	Cursor      string
-	PageLimit   int32
-	IsAdmin     bool
-	IsUser      bool
-	PrincipalID *string
+	Search        string
+	Status        string
+	Cursor        string
+	PageLimit     int32
+	RequestGrants []byte
+	IsAdmin       bool
+	IsUser        bool
+	PrincipalID   *string
 }
 
 type ListEnvironmentsRow struct {
@@ -1015,6 +1018,7 @@ func (q *Queries) ListEnvironments(ctx context.Context, arg ListEnvironmentsPara
 		arg.Status,
 		arg.Cursor,
 		arg.PageLimit,
+		arg.RequestGrants,
 		arg.IsAdmin,
 		arg.IsUser,
 		arg.PrincipalID,
@@ -1247,20 +1251,34 @@ func (q *Queries) ListRuntimeAssets(ctx context.Context, environmentID string) (
 }
 
 const listTemplatePage = `-- name: ListTemplatePage :many
+WITH request_grants AS (
+ SELECT value->>'scopeKind' AS kind, value->>'scopeId' AS id, value->'permissions' AS permissions
+ FROM jsonb_array_elements($7::jsonb)
+)
 SELECT t.id, t.definition, t.created_at FROM templates t
 WHERE ($1::text='' OR (t.created_at,t.id)<(SELECT p.created_at,p.id FROM templates p WHERE p.id=$1))
 AND ($2::text='' OR t.definition->>'name' ILIKE '%'||$2||'%' OR t.definition->>'os' ILIKE '%'||$2||'%')
 AND ($3::text='' OR t.definition->>'kind'=$3)
 AND (cardinality($4::text[])=0 OR t.id=ANY($4::text[]))
-ORDER BY t.created_at DESC,t.id DESC LIMIT $5
+AND ($5::boolean OR EXISTS (
+ SELECT 1 FROM environments e,
+ LATERAL jsonb_array_elements(COALESCE(e.spec->'assets','[]') || COALESCE(e.applied_spec->'assets','[]')) a
+ WHERE a->>'templateId'=t.id AND EXISTS (
+  SELECT 1 FROM request_grants g WHERE g.permissions ? 'read' AND
+  ((g.kind='project' AND g.id=e.project_id) OR (g.kind='environment' AND g.id=e.id) OR
+   (g.kind='asset' AND g.id=e.id||'/'||(a->>'id'))))
+))
+ORDER BY t.created_at DESC,t.id DESC LIMIT $6
 `
 
 type ListTemplatePageParams struct {
-	Cursor    string
-	Search    string
-	Kind      string
-	Ids       []string
-	PageLimit int32
+	Cursor        string
+	Search        string
+	Kind          string
+	Ids           []string
+	CatalogAccess bool
+	PageLimit     int32
+	RequestGrants []byte
 }
 
 func (q *Queries) ListTemplatePage(ctx context.Context, arg ListTemplatePageParams) ([]Template, error) {
@@ -1269,7 +1287,9 @@ func (q *Queries) ListTemplatePage(ctx context.Context, arg ListTemplatePagePara
 		arg.Search,
 		arg.Kind,
 		arg.Ids,
+		arg.CatalogAccess,
 		arg.PageLimit,
+		arg.RequestGrants,
 	)
 	if err != nil {
 		return nil, err
@@ -1314,6 +1334,7 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]Template, error) {
 }
 
 const listVisibleOperations = `-- name: ListVisibleOperations :many
+WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements($7::jsonb) AS g)
 SELECT o.id, o.environment_id, o.scope_kind, o.scope_id, o.kind, o.asset_id, o.state, o.phase, o.payload, o.results, o.error, o.expected_revision, o.lease_owner, o.lease_until, o.created_at, o.updated_at, o.client_request_id,COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
  COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id
  WHEN 'template' THEN t.definition->>'operationId' WHEN 'storage-pool' THEN sp.operation_id
@@ -1328,12 +1349,12 @@ LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
 WHERE ($1::text='' OR o.environment_id=$1)
 AND ($2::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=$2))
 AND ($3::boolean OR ($4::boolean AND e.owner_id=$5) OR EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$5 AND 'read'=ANY(g.permissions) AND
+ (SELECT 1 FROM request_grants g WHERE 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id)))
  OR (o.kind='change' AND (o.payload->'beforeSpec')-'services'=(o.payload->'spec')-'services'
  AND cardinality(service_change_assets(o.payload))>0 AND NOT EXISTS
  (SELECT 1 FROM unnest(service_change_assets(o.payload)) a(asset_id) WHERE NOT EXISTS
- (SELECT 1 FROM grants g WHERE g.principal_id=$5 AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||a.asset_id AND 'read'=ANY(g.permissions)))))
+ (SELECT 1 FROM request_grants g WHERE g.scope_kind='asset' AND g.scope_id=e.id||'/'||a.asset_id AND 'read'=ANY(g.permissions)))))
 ORDER BY o.created_at DESC,o.id DESC LIMIT $6
 `
 
@@ -1344,6 +1365,7 @@ type ListVisibleOperationsParams struct {
 	IsUser        bool
 	PrincipalID   *string
 	PageLimit     int32
+	RequestGrants []byte
 }
 
 type ListVisibleOperationsRow struct {
@@ -1361,6 +1383,7 @@ func (q *Queries) ListVisibleOperations(ctx context.Context, arg ListVisibleOper
 		arg.IsUser,
 		arg.PrincipalID,
 		arg.PageLimit,
+		arg.RequestGrants,
 	)
 	if err != nil {
 		return nil, err

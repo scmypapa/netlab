@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"strings"
@@ -64,8 +65,13 @@ func guestAgentConnected(domain *libvirt.Domain) (bool, error) {
 	return false, nil
 }
 
-func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, env string, a api.AssetExecution) error {
-	if !strings.EqualFold(a.Template.Os, "linux") || initializationMethod(a.Template) != api.None || a.Template.Hardware.GuestAgent == nil || !*a.Template.Hardware.GuestAgent {
+func (v *VirtualMachines) initializeGuest(ctx context.Context, env string, a api.AssetExecution) error {
+	network := strings.EqualFold(a.Template.Os, "linux") && initializationMethod(a.Template) == api.None && a.Template.Hardware.GuestAgent != nil && *a.Template.Hardware.GuestAgent
+	var files map[string]string
+	if a.Asset.Guest != nil && a.Asset.Guest.Files != nil {
+		files = *a.Asset.Guest.Files
+	}
+	if !network && len(files) == 0 {
 		return nil
 	}
 	// Installation media boots an installer, before the declared guest agent exists.
@@ -81,7 +87,8 @@ func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, env string, a ap
 		return err
 	}
 	defer domain.Free()
-	if _, err = v.owned(domain, env, a.Asset.Id); err != nil {
+	owner, err := v.owned(domain, env, a.Asset.Id)
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -107,21 +114,44 @@ func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, env string, a ap
 		select {
 		case <-ready:
 		case <-ctx.Done():
-			return fmt.Errorf("guest network initialization: waiting for QGA: %w", ctx.Err())
+			return fmt.Errorf("guest initialization: waiting for QGA: %w", ctx.Err())
 		}
+	}
+	if len(files) > 0 && !owner.GuestFilesInitialized {
+		for path, content := range files {
+			command := guestFileCommand(a.Template.Os, path, content)
+			if err = runGuestCommand(ctx, domain, command); err != nil {
+				return fmt.Errorf("initialize guest file %s: %w", path, err)
+			}
+		}
+		owner.GuestFilesInitialized = true
+		metadata, err := xml.Marshal(owner)
+		if err != nil {
+			return err
+		}
+		if err = domain.SetMetadata(libvirt.DOMAIN_METADATA_ELEMENT, string(metadata), "netlab", "urn:netlab:instance", libvirt.DOMAIN_AFFECT_CONFIG|libvirt.DOMAIN_AFFECT_LIVE); err != nil {
+			return err
+		}
+	}
+	if !network {
+		return nil
 	}
 	interfaces, err := json.Marshal(a.Interfaces)
 	if err != nil {
 		return err
 	}
+	return runGuestCommand(ctx, domain, map[string]any{
+		"path": "/bin/sh", "arg": []string{"-c", `if [ -d /etc/netplan ]; then exec /usr/bin/python3 -c "$1" "$2"; fi`, "netlab-network", guestNetplan, string(interfaces)}, "capture-output": true,
+	})
+}
+
+func runGuestCommand(ctx context.Context, domain *libvirt.Domain, command map[string]any) error {
 	var process struct {
 		PID int `json:"pid"`
 	}
-	err = guestAgentCommand(domain, "guest-exec", map[string]any{
-		"path": "/bin/sh", "arg": []string{"-c", `if [ -d /etc/netplan ]; then exec /usr/bin/python3 -c "$1" "$2"; fi`, "netlab-network", guestNetplan, string(interfaces)}, "capture-output": true,
-	}, &process)
+	err := guestAgentCommand(domain, "guest-exec", command, &process)
 	if err != nil {
-		return fmt.Errorf("guest network initialization: %w", err)
+		return fmt.Errorf("guest initialization: %w", err)
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -137,7 +167,7 @@ func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, env string, a ap
 		}
 		if status.Exited {
 			if status.ExitCode == nil {
-				return fmt.Errorf("guest network initialization terminated by signal %d", status.Signal)
+				return fmt.Errorf("guest initialization terminated by signal %d", status.Signal)
 			}
 			if *status.ExitCode == 0 {
 				return nil
@@ -146,11 +176,11 @@ func (v *VirtualMachines) bindGuestNetwork(ctx context.Context, env string, a ap
 			if err != nil {
 				return err
 			}
-			return fmt.Errorf("guest network initialization exited %d: %s", *status.ExitCode, strings.TrimSpace(string(detail)))
+			return fmt.Errorf("guest initialization exited %d: %s", *status.ExitCode, strings.TrimSpace(string(detail)))
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("guest network initialization: %w", ctx.Err())
+			return fmt.Errorf("guest initialization: %w", ctx.Err())
 		case <-ticker.C:
 		}
 	}

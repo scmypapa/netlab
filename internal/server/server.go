@@ -61,6 +61,9 @@ func (e httpError) Error() string { return e.detail }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	routes := map[string]endpoint{
+		"GET /api/v1/capabilities": func(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
+			return writeJSON(w, http.StatusOK, api.Capabilities{ApiVersion: "1", WorkspaceProtocol: 1, Permissions: access.Permissions})
+		},
 		"GET /api/v1/environments/{id}/storage":                                              s.environmentStorage,
 		"GET /api/v1/templates/{id}/cache":                                                   s.templateCache,
 		"GET /api/v1/templates/{id}/references":                                              s.templateReferences,
@@ -222,6 +225,13 @@ func (s *Server) authorize(handler endpoint) http.HandlerFunc {
 			return
 		}
 		identity, err := s.Access.Authenticate(r.Context(), token)
+		if err == nil {
+			var scope *api.RequestScope
+			scope, err = access.ParseRequestScope(r.Header.Get("X-Netlab-Context"))
+			if err == nil {
+				identity, err = identity.Restrict(scope)
+			}
+		}
 		if err == nil {
 			err = handler(w, r, identity)
 		}

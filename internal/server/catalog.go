@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,7 +32,11 @@ func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request, identity 
 	if raw := r.URL.Query().Get("ids"); raw != "" {
 		ids = strings.Split(raw, ",")
 	}
-	rows, err := s.Queries.ListTemplatePage(r.Context(), queries.ListTemplatePageParams{Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Kind: r.URL.Query().Get("kind"), Ids: ids})
+	catalogAccess := identity.RequestScope == nil || identity.Administrator()
+	for _, grant := range identity.Grants {
+		catalogAccess = catalogAccess || (grant.ScopeKind == "project" && slices.Contains(grant.Permissions, "compose"))
+	}
+	rows, err := s.Queries.ListTemplatePage(r.Context(), queries.ListTemplatePageParams{Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Kind: r.URL.Query().Get("kind"), Ids: ids, CatalogAccess: catalogAccess, RequestGrants: identity.GrantsJSON()})
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"maps"
@@ -58,6 +59,7 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	}
 	httpServer := httptest.NewServer(s.Handler())
 	defer httpServer.Close()
+	requestScope := ""
 	call := func(method, path, token string, body any, status int) []byte {
 		t.Helper()
 		raw, err := json.Marshal(body)
@@ -69,6 +71,7 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 			t.Fatal(err)
 		}
 		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-Netlab-Context", requestScope)
 		if token != "" {
 			request.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -309,7 +312,8 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	password := "changed-password"
 	call("PUT", "/principals/"+user.Id, admin, api.UpdateUser{Name: user.Name, Password: &password}, 204)
 	call("GET", "/identity", userSession, nil, 401)
-	call("GET", "/identity", login("operator", password), nil, 200)
+	userSession = login("operator", password)
+	call("GET", "/identity", userSession, nil, 200)
 	var issued api.IssuedServiceToken
 	if err = json.Unmarshal(call("POST", "/service-tokens", admin, api.CreateServiceToken{Name: "automation", Grants: []api.ScopeGrant{{ScopeKind: api.ScopeGrantScopeKindEnvironment, ScopeId: "env-a", Permissions: []api.Permission{api.PermissionRead, api.PermissionSession}}}}, 201), &issued); err != nil {
 		t.Fatal(err)
@@ -347,9 +351,6 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	call("GET", "/environments/env-b", assetToken.Token, nil, 403)
 	checkScopedEvents(assetToken.Token)
 	call("DELETE", "/service-tokens/"+assetToken.Principal.Id, admin, nil, 204)
-	if _, err = pool.Exec(ctx, `UPDATE principals SET administrator=true WHERE id=$1`, issued.Principal.Id); err != nil {
-		t.Fatal(err)
-	}
 	identity, err = s.Access.Authenticate(ctx, issued.Token)
 	if err != nil {
 		t.Fatal(err)
@@ -370,6 +371,42 @@ func TestAccessAPIWithPostgreSQL(t *testing.T) {
 	if slices.Contains(identity.Permissions("default", "env-a", "one", nil), api.PermissionFile) {
 		t.Fatal("ungranted file permission")
 	}
+	t.Run("upstream service keeps request scoped authority", func(t *testing.T) {
+		var service api.IssuedServiceToken
+		if err := json.Unmarshal(call("POST", "/service-tokens", admin, api.CreateServiceToken{Name: "upstream", Administrator: true}, 201), &service); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(api.RequestScope{Name: "Team A", Grants: []api.ScopeGrant{{ScopeKind: api.ScopeGrantScopeKindEnvironment, ScopeId: "env-a", Permissions: []api.Permission{api.PermissionRead}}}})
+		requestScope = base64.RawURLEncoding.EncodeToString(raw)
+		defer func() { requestScope = ""; call("DELETE", "/service-tokens/"+service.Principal.Id, admin, nil, 204) }()
+		call("GET", "/identity", userSession, nil, 403)
+		call("GET", "/environments/env-b", service.Token, nil, 403)
+		call("POST", "/environments/env-a/actions", service.Token, api.ActionRequest{Action: api.ActionRequestActionStop}, 403)
+		var visible []api.EnvironmentSummary
+		if err := json.Unmarshal(call("GET", "/environments", service.Token, nil, 200), &visible); err != nil || len(visible) != 1 || visible[0].Id != "env-a" {
+			t.Fatalf("delegated environment list: %+v, %v", visible, err)
+		}
+		var counts api.EnvironmentCounts
+		if err := json.Unmarshal(call("GET", "/environments/summary", service.Token, nil, 200), &counts); err != nil || counts.Total != 1 {
+			t.Fatalf("delegated counts: %+v, %v", counts, err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE environments SET spec=jsonb_set(spec,'{assets,0,parameters}','{"GZCTF_FLAG":"test-secret"}') WHERE id='env-a'`); err != nil {
+			t.Fatal(err)
+		}
+		if body := call("GET", "/environments/env-a", service.Token, nil, 200); bytes.Contains(body, []byte("test-secret")) {
+			t.Fatal("provisioning secret is visible to a reader")
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO templates(id,definition) VALUES ('scope-visible','{"id":"scope-visible","name":"Visible"}'),('scope-hidden','{"id":"scope-hidden","name":"Hidden"}'); UPDATE environments SET spec=jsonb_set(spec,'{assets,0,templateId}','"scope-visible"') WHERE id='env-a'`); err != nil {
+			t.Fatal(err)
+		}
+		var templates []api.Template
+		if err := json.Unmarshal(call("GET", "/templates", service.Token, nil, 200), &templates); err != nil || len(templates) != 1 || templates[0].Id != "scope-visible" {
+			t.Fatalf("delegated template catalog: %+v, %v", templates, err)
+		}
+		if err := json.Unmarshal(call("GET", "/templates?ids=scope-hidden", service.Token, nil, 200), &templates); err != nil || len(templates) != 0 {
+			t.Fatal("template IDs bypassed environment authorization")
+		}
+	})
 	testServiceAccessAPI(t, ctx, pool, s, admin, call)
 	t.Run("template retry retains the accepted source and credentials", func(t *testing.T) {
 		for _, scenario := range []struct{ kind, phase, field, payload string }{

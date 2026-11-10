@@ -80,13 +80,14 @@ func TestListCursorsAndFilters(t *testing.T) {
 		if _, err := tx.Exec(ctx, `INSERT INTO grants VALUES($1,'environment',$2,ARRAY['read'])`, other, prefix+"105"); err != nil {
 			t.Fatal(err)
 		}
+		params.RequestGrants = []byte(fmt.Sprintf(`[{"scopeKind":"environment","scopeId":%q,"permissions":["read"]}]`, prefix+"105"))
 		allowed, err := q.ListEnvironments(ctx, params)
 		if err != nil || len(allowed) != 1 || allowed[0].ID != prefix+"105" {
 			t.Fatalf("environment grant: rows=%v error=%v", allowed, err)
 		}
 	})
 	t.Run("template cursor kind and exact references", func(t *testing.T) {
-		params := queries.ListTemplatePageParams{Search: prefix, Ids: []string{}, PageLimit: 100}
+		params := queries.ListTemplatePageParams{Search: prefix, Ids: []string{}, PageLimit: 100, CatalogAccess: true}
 		first, err := q.ListTemplatePage(ctx, params)
 		if err != nil || len(first) != 100 || first[99].ID != prefix+"006" {
 			t.Fatalf("first page: count=%d error=%v", len(first), err)

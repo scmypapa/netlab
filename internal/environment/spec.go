@@ -212,6 +212,33 @@ func Normalize(spec api.EnvironmentSpec, templates map[string]api.Template) (api
 		if err := guest.ValidateCPU(t.Kind, t.Hardware, a.Resources); err != nil {
 			return spec, Invalid("资产 %s：%v", a.Name, err)
 		}
+		if a.Guest != nil && a.Guest.Files != nil && len(*a.Guest.Files) > 0 {
+			if t.Kind != api.Vm || t.Hardware == nil || t.Hardware.GuestAgent == nil || !*t.Hardware.GuestAgent {
+				return spec, Invalid("资产 %s 的文件初始化需要启用 QEMU Guest Agent", a.Name)
+			}
+			if t.Media != nil {
+				for _, media := range *t.Media {
+					if media.Id == "installer" {
+						return spec, Invalid("资产 %s 请先完成系统安装，再配置初始化文件", a.Name)
+					}
+				}
+			}
+			size := 0
+			for path, content := range *a.Guest.Files {
+				windows := len(path) > 3 && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
+				absolute := strings.HasPrefix(path, "/")
+				if strings.EqualFold(t.Os, "windows") {
+					absolute = windows
+				}
+				if !absolute || strings.ContainsAny(path, "\x00\r\n") {
+					return spec, Invalid("资产 %s 的初始化文件需要使用来宾系统的绝对路径", a.Name)
+				}
+				size += len(content)
+			}
+			if size > 1<<20 {
+				return spec, Invalid("资产 %s 的初始化文件内容合计不能超过 1 MiB", a.Name)
+			}
+		}
 		primary := 0
 		for j := range a.Interfaces {
 			nic := &a.Interfaces[j]

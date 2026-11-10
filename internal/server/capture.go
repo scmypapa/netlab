@@ -184,7 +184,7 @@ func (s *Server) captureFile(w http.ResponseWriter, r *http.Request, identity ac
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	release, err := s.trackConnection(ctx, &accessConnection{principal: identity.Principal.ID, environment: r.PathValue("id"), credential: credential(r), permission: "observe", close: cancel})
+	release, err := s.trackConnection(ctx, &accessConnection{scope: identity.RequestScope, principal: identity.Principal.ID, environment: r.PathValue("id"), credential: credential(r), permission: "observe", close: cancel})
 	if err != nil {
 		return err
 	}

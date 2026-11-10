@@ -263,7 +263,8 @@ func (e *Engine) prepareMigration(ctx context.Context, input api.NodeMigrationPr
 	if err != nil {
 		return "", err
 	}
-	metadata, err := xml.Marshal(Ownership{Environment: env, Asset: a.Asset.Id, Instance: a.InstanceId, Execution: string(raw)})
+	owner.Execution = string(raw)
+	metadata, err := xml.Marshal(owner)
 	if err != nil {
 		return "", err
 	}

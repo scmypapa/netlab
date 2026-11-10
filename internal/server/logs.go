@@ -27,7 +27,7 @@ func (s *Server) assetLogs(w http.ResponseWriter, r *http.Request, identity acce
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	release, err := s.trackConnection(ctx, &accessConnection{principal: identity.Principal.ID, environment: id, asset: asset, credential: credential(r), permission: "observe", close: cancel})
+	release, err := s.trackConnection(ctx, &accessConnection{scope: identity.RequestScope, principal: identity.Principal.ID, environment: id, asset: asset, credential: credential(r), permission: "observe", close: cancel})
 	if err != nil {
 		return err
 	}

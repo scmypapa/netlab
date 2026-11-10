@@ -65,7 +65,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	r = r.WithContext(ctx)
-	release, err := s.trackConnection(ctx, &accessConnection{
+	release, err := s.trackConnection(ctx, &accessConnection{scope: identity.RequestScope,
 		principal: identity.Principal.ID, environment: id, credential: credential(r), permission: "read", close: cancel,
 	})
 	if err != nil {
@@ -101,9 +101,13 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, identity access.
 	}
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	scope := identity.RequestScope
 	for {
 		if len(rows) > 0 {
 			identity, err = s.Access.Authenticate(r.Context(), credential(r))
+			if err == nil {
+				identity, err = identity.Restrict(scope)
+			}
 			if err == nil {
 				_, visible, err = s.Environments.Readable(r.Context(), identity, id)
 			}

@@ -46,7 +46,7 @@ func (s *Server) recentPackets(w http.ResponseWriter, r *http.Request, identity 
 	if packetID == "export" {
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		release, trackErr := s.trackConnection(ctx, &accessConnection{principal: identity.Principal.ID, environment: environment.ID, credential: credential(r), permission: "observe", close: cancel})
+		release, trackErr := s.trackConnection(ctx, &accessConnection{scope: identity.RequestScope, principal: identity.Principal.ID, environment: environment.ID, credential: credential(r), permission: "observe", close: cancel})
 		if trackErr != nil {
 			return trackErr
 		}

@@ -38,7 +38,7 @@ func (s *Server) assetFiles(w http.ResponseWriter, r *http.Request, identity acc
 			return err
 		}
 	}
-	release, err := s.trackConnection(ctx, &accessConnection{principal: identity.Principal.ID, environment: env, asset: asset, credential: credential(r), permission: "file", close: func() { cancel(); control.SetReadDeadline(time.Now()); control.SetWriteDeadline(time.Now()) }})
+	release, err := s.trackConnection(ctx, &accessConnection{scope: identity.RequestScope, principal: identity.Principal.ID, environment: env, asset: asset, credential: credential(r), permission: "file", close: func() { cancel(); control.SetReadDeadline(time.Now()); control.SetWriteDeadline(time.Now()) }})
 	if err != nil {
 		return err
 	}

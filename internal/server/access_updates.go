@@ -5,10 +5,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"netlab.local/core/api"
 	"netlab.local/core/internal/access"
 )
 
 type accessConnection struct {
+	scope                                                 *api.RequestScope
 	principal, environment, asset, credential, permission string
 	close                                                 func()
 }
@@ -88,11 +90,16 @@ func (s *Server) refreshSessions(ctx context.Context, principalID string) {
 }
 
 func (s *Server) authorizeConnection(ctx context.Context, identity access.Identity, owner *accessConnection) error {
+	var err error
+	identity, err = identity.Restrict(owner.scope)
+	if err != nil {
+		return err
+	}
 	if owner.permission == "read" && owner.asset == "" {
 		_, _, err := s.Environments.Readable(ctx, identity, owner.environment)
 		return err
 	}
-	_, err := s.Environments.Authorized(ctx, identity, owner.environment, owner.permission, owner.asset)
+	_, err = s.Environments.Authorized(ctx, identity, owner.environment, owner.permission, owner.asset)
 	return err
 }
 

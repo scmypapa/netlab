@@ -422,7 +422,7 @@ func (e *Engine) Execute(ctx context.Context, plan api.NodePlan) api.NodeResult 
 						// Guest readiness is not host compute work. Keep the asset lock,
 						// but let other guests boot while this agent comes online.
 						releaseSlot()
-						err = e.vm.bindGuestNetwork(ctx, plan.EnvironmentId, a)
+						err = e.vm.initializeGuest(ctx, plan.EnvironmentId, a)
 					}
 				}
 			default:

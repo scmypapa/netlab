@@ -19,7 +19,7 @@ func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request, identi
 		return err
 	}
 	principal := identity.Principal.ID
-	rows, err := s.Queries.ListEnvironments(r.Context(), queries.ListEnvironmentsParams{IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Status: r.URL.Query().Get("status")})
+	rows, err := s.Queries.ListEnvironments(r.Context(), queries.ListEnvironmentsParams{RequestGrants: identity.GrantsJSON(), IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Cursor: cursor, PageLimit: limit, Search: strings.TrimSpace(r.URL.Query().Get("search")), Status: r.URL.Query().Get("status")})
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request, identi
 
 func (s *Server) environmentCounts(w http.ResponseWriter, r *http.Request, identity access.Identity) error {
 	principal := identity.Principal.ID
-	rows, err := s.Queries.CountEnvironmentsByStatus(r.Context(), queries.CountEnvironmentsByStatusParams{IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: principal, Search: strings.TrimSpace(r.URL.Query().Get("search"))})
+	rows, err := s.Queries.CountEnvironmentsByStatus(r.Context(), queries.CountEnvironmentsByStatusParams{RequestGrants: identity.GrantsJSON(), IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Search: strings.TrimSpace(r.URL.Query().Get("search"))})
 	if err != nil {
 		return err
 	}
@@ -75,6 +75,22 @@ func (s *Server) getEnvironment(w http.ResponseWriter, r *http.Request, identity
 	}
 	for _, asset := range spec.Assets {
 		assetPermissions[asset.Id] = identity.Permissions(row.ProjectID, row.ID, asset.Id, row.OwnerID)
+	}
+	redact := func(spec *api.EnvironmentSpec) {
+		for index := range spec.Assets {
+			asset := &spec.Assets[index]
+			if !identity.Allows("compose", row.ProjectID, row.ID, asset.Id, row.OwnerID) {
+				asset.Parameters = nil
+				asset.Guest = nil
+			}
+		}
+	}
+	redact(&result.Spec)
+	if result.AppliedSpec != nil {
+		redact(result.AppliedSpec)
+	}
+	if result.Draft != nil {
+		redact(&result.Draft.Spec)
 	}
 	result.AssetPermissions = &assetPermissions
 	return writeJSON(w, http.StatusOK, result)
@@ -214,7 +230,7 @@ func (s *Server) listOperations(w http.ResponseWriter, r *http.Request, identity
 		return err
 	}
 	principal := identity.Principal.ID
-	rows, err := s.Queries.ListVisibleOperations(r.Context(), queries.ListVisibleOperationsParams{EnvironmentID: id, IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Cursor: cursor, PageLimit: limit})
+	rows, err := s.Queries.ListVisibleOperations(r.Context(), queries.ListVisibleOperationsParams{RequestGrants: identity.GrantsJSON(), EnvironmentID: id, IsAdmin: identity.Administrator(), IsUser: identity.Principal.Kind == "user", PrincipalID: &principal, Cursor: cursor, PageLimit: limit})
 	if err != nil {
 		return err
 	}
