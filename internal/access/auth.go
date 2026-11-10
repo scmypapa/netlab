@@ -18,10 +18,9 @@ import (
 )
 
 type Identity struct {
-	Principal    queries.Principal
-	Grants       []queries.Grant
-	ExpiresAt    *time.Time
-	RequestScope *api.RequestScope
+	Principal queries.Principal
+	Grants    []queries.Grant
+	ExpiresAt *time.Time
 }
 type Service struct {
 	Pool    *pgxpool.Pool
@@ -118,7 +117,7 @@ func (s Service) Logout(ctx context.Context, token string) error {
 	return s.Queries.DeleteCredential(ctx, hash[:])
 }
 func (i Identity) Administrator() bool {
-	return i.Principal.Administrator
+	return i.Principal.Kind == "user" && i.Principal.Administrator
 }
 func (i Identity) Allows(permission, project, environment, asset string, owner *string) bool {
 	if i.Administrator() || (i.Principal.Kind == "user" && owner != nil && *owner == i.Principal.ID) {

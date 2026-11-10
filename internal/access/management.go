@@ -256,7 +256,7 @@ func (s Service) CreateToken(ctx context.Context, identity Identity, input api.C
 	if err != nil {
 		return api.IssuedServiceToken{}, err
 	}
-	if len(input.Grants) == 0 && !input.Administrator {
+	if len(input.Grants) == 0 {
 		return api.IssuedServiceToken{}, InputError("请选择授权范围")
 	}
 	if input.ExpiresAt != nil && !input.ExpiresAt.After(time.Now()) {
@@ -273,7 +273,7 @@ func (s Service) CreateToken(ctx context.Context, identity Identity, input api.C
 	defer tx.Rollback(ctx)
 	q := s.Queries.WithTx(tx)
 	id := uuid.NewString()
-	if err = q.CreatePrincipal(ctx, queries.CreatePrincipalParams{ID: id, Name: name, Kind: "token", Administrator: input.Administrator}); err != nil {
+	if err = q.CreatePrincipal(ctx, queries.CreatePrincipalParams{ID: id, Name: name, Kind: "token"}); err != nil {
 		return api.IssuedServiceToken{}, err
 	}
 	if err = replacePrincipalGrants(ctx, q, id, input.Grants); err != nil {

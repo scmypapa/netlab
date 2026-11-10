@@ -33,7 +33,6 @@ export function useWorkbench(id: string) {
     ["templates", "picker", { search }],
     (page) => api.templates({ ...page, search }),
     {
-      enabled: environment.data?.permissions?.includes("compose") === true,
       refetchInterval: (items) =>
         items.some((template) => template.state === "importing") ? 2500 : false,
     },

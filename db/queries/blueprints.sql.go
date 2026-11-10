@@ -228,24 +228,22 @@ func (q *Queries) ListBlueprintVersions(ctx context.Context, arg ListBlueprintVe
 }
 
 const listBlueprints = `-- name: ListBlueprints :many
-WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements($7::jsonb) AS g)
 SELECT b.id, b.project_id, b.owner_id, b.name, b.version, b.created_at, b.updated_at,v.id AS latest_version_id,v.asset_count,v.network_count FROM blueprints b
 JOIN blueprint_versions v ON v.blueprint_id=b.id AND v.version=b.version
 WHERE ($1::boolean OR ($2::boolean AND b.owner_id=$3) OR EXISTS
- (SELECT 1 FROM request_grants g WHERE g.scope_kind='project' AND g.scope_id=b.project_id AND 'read'=ANY(g.permissions)))
+ (SELECT 1 FROM grants g WHERE g.principal_id=$3 AND g.scope_kind='project' AND g.scope_id=b.project_id AND 'read'=ANY(g.permissions)))
 AND ($4::text='' OR b.name ILIKE '%'||$4||'%')
 AND ($5::text='' OR (b.created_at,b.id)<(SELECT p.created_at,p.id FROM blueprints p WHERE p.id=$5))
 ORDER BY b.created_at DESC,b.id DESC LIMIT $6
 `
 
 type ListBlueprintsParams struct {
-	IsAdmin       bool
-	IsUser        bool
-	PrincipalID   *string
-	Search        string
-	Cursor        string
-	PageLimit     int32
-	RequestGrants []byte
+	IsAdmin     bool
+	IsUser      bool
+	PrincipalID *string
+	Search      string
+	Cursor      string
+	PageLimit   int32
 }
 
 type ListBlueprintsRow struct {
@@ -269,7 +267,6 @@ func (q *Queries) ListBlueprints(ctx context.Context, arg ListBlueprintsParams) 
 		arg.Search,
 		arg.Cursor,
 		arg.PageLimit,
-		arg.RequestGrants,
 	)
 	if err != nil {
 		return nil, err

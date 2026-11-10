@@ -1,4 +1,3 @@
-import { host } from "../../app/host";
 import { randomUUID } from "../../foundation/id";
 import {
   ActionIcon,
@@ -488,17 +487,15 @@ function Workbench({ id }: { id: string }) {
     <main className={styles.workbench} data-editing={workbench.editing}>
       <header className={styles.header}>
         <div className={styles.identity}>
-          {!host?.environmentOnly && (
-            <ActionIcon
-              component={Link}
-              to="/environments"
-              variant="subtle"
-              color="gray"
-              aria-label="返回环境列表"
-            >
-              <ArrowLeft size={18} />
-            </ActionIcon>
-          )}
+          <ActionIcon
+            component={Link}
+            to="/environments"
+            variant="subtle"
+            color="gray"
+            aria-label="返回环境列表"
+          >
+            <ArrowLeft size={18} />
+          </ActionIcon>
           <div className={styles.title}>
             <h1>{environment.name}</h1>
             <Status value={status} />
@@ -521,7 +518,7 @@ function Workbench({ id }: { id: string }) {
               VPN
             </Button>
           )}
-          {!host && environment.permissions?.includes("manage") && (
+          {environment.permissions?.includes("manage") && (
             <Button
               variant="default"
               aria-label="共享环境"

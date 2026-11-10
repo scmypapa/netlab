@@ -6,7 +6,6 @@ import { BrowserRouter } from "react-router-dom";
 import "@mantine/core/styles.css";
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
-import { basePath, host } from "./app/host";
 import { App } from "./app/App";
 
 const queryClient = new QueryClient({
@@ -125,9 +124,9 @@ const theme = createTheme({
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme={host?.theme ?? "auto"}>
+    <MantineProvider theme={theme} defaultColorScheme="auto">
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter basename={basePath || undefined}>
+        <BrowserRouter>
           <App />
         </BrowserRouter>
       </QueryClientProvider>

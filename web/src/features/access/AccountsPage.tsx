@@ -7,7 +7,6 @@ import {
   PasswordInput,
   TextInput,
   Checkbox,
-  SegmentedControl,
 } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -149,7 +148,7 @@ export function AccountsPage() {
                     {principal.administrator && (
                       <span className={styles.adminLabel}>
                         <ShieldCheck size={13} />
-                        {kind === "token" ? "平台集成" : "管理员"}
+                        管理员
                       </span>
                     )}
                   </td>
@@ -379,7 +378,6 @@ function TokenEditor({
   onSaved: () => void;
 }) {
   const [name, setName] = useState("");
-  const [administrator, setAdministrator] = useState(false);
   const [grants, setGrants] = useState<Schema<"ScopeGrant">[]>([]);
   const [expires, setExpires] = useState("");
   const [copied, setCopied] = useState(false);
@@ -387,8 +385,7 @@ function TokenEditor({
     mutationFn: () =>
       api.createToken({
         name,
-        administrator,
-        grants: administrator ? [] : grants,
+        grants,
         ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}),
       }),
     onSuccess: onSaved,
@@ -443,19 +440,7 @@ function TokenEditor({
               onChange={(event) => setExpires(event.currentTarget.value)}
             />
           </div>
-          <SegmentedControl
-            aria-label="令牌类型"
-            fullWidth
-            value={administrator ? "integration" : "resource"}
-            onChange={(value) => setAdministrator(value === "integration")}
-            data={[
-              { value: "resource", label: "资源访问" },
-              { value: "integration", label: "平台集成" },
-            ]}
-          />
-          {!administrator && (
-            <GrantEditor roles={roles} value={grants} onChange={setGrants} />
-          )}
+          <GrantEditor roles={roles} value={grants} onChange={setGrants} />
           <ErrorMessage error={issue.error} />
           <div className={styles.footer}>
             <Button variant="default" onClick={onClose}>
@@ -463,7 +448,7 @@ function TokenEditor({
             </Button>
             <Button
               type="submit"
-              disabled={!administrator && !grants.length}
+              disabled={!grants.length}
               loading={issue.isPending}
             >
               签发

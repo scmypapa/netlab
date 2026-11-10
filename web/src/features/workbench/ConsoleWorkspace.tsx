@@ -1,4 +1,3 @@
-import { apiPath } from "../../app/host";
 import { ActionIcon, Button, Modal, Textarea } from "@mantine/core";
 import {
   Clipboard,
@@ -169,9 +168,7 @@ function ConsoleConnection({
     if (tab.kind === "rdp") return;
     const element = host.current!;
     const url = new URL(
-      apiPath(
-        `/environments/${encodeURIComponent(environmentId)}/assets/${encodeURIComponent(tab.id)}/console?kind=${tab.kind}`,
-      ),
+      `/api/v1/environments/${encodeURIComponent(environmentId)}/assets/${encodeURIComponent(tab.id)}/console?kind=${tab.kind}`,
       window.location.href,
     );
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";

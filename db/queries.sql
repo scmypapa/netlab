@@ -15,16 +15,16 @@ SELECT * FROM grants WHERE principal_id=$1;
 -- name: PutGrant :exec
 INSERT INTO grants(principal_id,scope_kind,scope_id,permissions) VALUES($1,$2,$3,$4) ON CONFLICT(principal_id,scope_kind,scope_id) DO UPDATE SET permissions=EXCLUDED.permissions;
 -- name: ListEnvironments :many
-WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements(sqlc.arg(request_grants)::jsonb) AS g), readable AS (
+WITH readable AS (
  SELECT e.*,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
  (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
- (SELECT 1 FROM request_grants g WHERE 'read'=ANY(g.permissions) AND
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
  FROM environments e WHERE e.status<>'destroyed'
 ), visible AS (
  SELECT e.*,CASE WHEN full_read THEN runtime_spec->'assets' ELSE
  (SELECT jsonb_agg(a) FROM jsonb_array_elements(runtime_spec->'assets') a WHERE EXISTS
- (SELECT 1 FROM request_grants g WHERE g.scope_kind='asset' AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))) END AS visible_assets
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))) END AS visible_assets
  FROM readable e
 )
 SELECT e.id,e.project_id,e.name,e.external_reference,e.revision,e.status,e.created_at,e.updated_at,
@@ -37,17 +37,17 @@ FROM visible e WHERE (e.full_read OR jsonb_array_length(e.visible_assets)>0)
  AND (sqlc.arg(cursor)::text='' OR (e.created_at,e.id)<(SELECT p.created_at,p.id FROM environments p WHERE p.id=sqlc.arg(cursor)))
  ORDER BY e.created_at DESC,e.id DESC LIMIT sqlc.arg(page_limit);
 -- name: CountEnvironmentsByStatus :many
-WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements(sqlc.arg(request_grants)::jsonb) AS g), readable AS (
+WITH readable AS (
  SELECT e.*,COALESCE(e.applied_spec,e.spec) AS runtime_spec,
  (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
- (SELECT 1 FROM request_grants g WHERE 'read'=ANY(g.permissions) AND
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id)))) AS full_read
  FROM environments e WHERE e.status<>'destroyed'
 )
 SELECT e.status,count(*)::integer AS count FROM readable e
 WHERE (e.full_read OR EXISTS
  (SELECT 1 FROM jsonb_array_elements(e.runtime_spec->'assets') a WHERE EXISTS
- (SELECT 1 FROM request_grants g WHERE g.scope_kind='asset'
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='asset'
  AND g.scope_id=e.id||'/'||(a->>'id') AND 'read'=ANY(g.permissions))))
  AND (sqlc.arg(search)::text='' OR e.name ILIKE '%'||sqlc.arg(search)||'%' OR e.external_reference ILIKE '%'||sqlc.arg(search)||'%')
 GROUP BY e.status;
@@ -223,23 +223,11 @@ UPDATE runtime_assets a SET execution=r.execution,cpu=r.cpu,memory_mib=r.memory_
 FROM reported r JOIN locked l ON l.instance_id=r.instance_id
 WHERE a.instance_id=r.instance_id;
 -- name: ListTemplatePage :many
-WITH request_grants AS (
- SELECT value->>'scopeKind' AS kind, value->>'scopeId' AS id, value->'permissions' AS permissions
- FROM jsonb_array_elements(sqlc.arg(request_grants)::jsonb)
-)
 SELECT t.* FROM templates t
 WHERE (sqlc.arg(cursor)::text='' OR (t.created_at,t.id)<(SELECT p.created_at,p.id FROM templates p WHERE p.id=sqlc.arg(cursor)))
 AND (sqlc.arg(search)::text='' OR t.definition->>'name' ILIKE '%'||sqlc.arg(search)||'%' OR t.definition->>'os' ILIKE '%'||sqlc.arg(search)||'%')
 AND (sqlc.arg(kind)::text='' OR t.definition->>'kind'=sqlc.arg(kind))
 AND (cardinality(sqlc.arg(ids)::text[])=0 OR t.id=ANY(sqlc.arg(ids)::text[]))
-AND (sqlc.arg(catalog_access)::boolean OR EXISTS (
- SELECT 1 FROM environments e,
- LATERAL jsonb_array_elements(COALESCE(e.spec->'assets','[]') || COALESCE(e.applied_spec->'assets','[]')) a
- WHERE a->>'templateId'=t.id AND EXISTS (
-  SELECT 1 FROM request_grants g WHERE g.permissions ? 'read' AND
-  ((g.kind='project' AND g.id=e.project_id) OR (g.kind='environment' AND g.id=e.id) OR
-   (g.kind='asset' AND g.id=e.id||'/'||(a->>'id'))))
-))
 ORDER BY t.created_at DESC,t.id DESC LIMIT sqlc.arg(page_limit);
 -- name: ListNodePage :many
 SELECT n.*,COALESCE(sum(a.cpu),0)::numeric AS reserved_cpu,COALESCE(sum(a.memory_mib),0)::bigint AS reserved_memory,(COALESCE(sum(a.disk_gib),0)+COALESCE(v.disk_gib,0))::bigint AS reserved_disk
@@ -249,7 +237,6 @@ WHERE (sqlc.arg(cursor)::text='' OR n.id>sqlc.arg(cursor))
 AND (sqlc.arg(search)::text='' OR n.name ILIKE '%'||sqlc.arg(search)||'%')
 GROUP BY n.id,v.disk_gib ORDER BY n.id LIMIT sqlc.arg(page_limit);
 -- name: ListVisibleOperations :many
-WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements(sqlc.arg(request_grants)::jsonb) AS g)
 SELECT sqlc.embed(o),COALESCE(e.project_id,'')::text AS project_id,e.owner_id,
  COALESCE(CASE o.scope_kind WHEN 'volume' THEN v.operation_id WHEN 'backup' THEN b.operation_id WHEN 'backup-repository' THEN r.operation_id
  WHEN 'template' THEN t.definition->>'operationId' WHEN 'storage-pool' THEN sp.operation_id
@@ -264,12 +251,12 @@ LEFT JOIN backups b ON o.scope_kind='backup' AND b.id=o.scope_id
 WHERE (sqlc.arg(environment_id)::text='' OR o.environment_id=sqlc.arg(environment_id))
 AND (sqlc.arg(cursor)::text='' OR (o.created_at,o.id)<(SELECT created_at,id FROM operations WHERE id=sqlc.arg(cursor)))
 AND (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND e.owner_id=sqlc.arg(principal_id)) OR EXISTS
- (SELECT 1 FROM request_grants g WHERE 'read'=ANY(g.permissions) AND
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND 'read'=ANY(g.permissions) AND
  ((g.scope_kind='project' AND g.scope_id=e.project_id) OR (g.scope_kind='environment' AND g.scope_id=e.id) OR (g.scope_kind='asset' AND g.scope_id=e.id||'/'||o.asset_id)))
  OR (o.kind='change' AND (o.payload->'beforeSpec')-'services'=(o.payload->'spec')-'services'
  AND cardinality(service_change_assets(o.payload))>0 AND NOT EXISTS
  (SELECT 1 FROM unnest(service_change_assets(o.payload)) a(asset_id) WHERE NOT EXISTS
- (SELECT 1 FROM request_grants g WHERE g.scope_kind='asset' AND g.scope_id=e.id||'/'||a.asset_id AND 'read'=ANY(g.permissions)))))
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='asset' AND g.scope_id=e.id||'/'||a.asset_id AND 'read'=ANY(g.permissions)))))
 ORDER BY o.created_at DESC,o.id DESC LIMIT sqlc.arg(page_limit);
 -- name: SaveOperationProgress :execrows
 WITH changed AS (UPDATE operations SET phase=$3,payload=$4,results=$5,updated_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running' RETURNING environment_id,id,phase)

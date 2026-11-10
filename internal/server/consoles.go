@@ -57,7 +57,7 @@ func (s *Server) assetConsole(w http.ResponseWriter, r *http.Request, identity a
 		return httpError{http.StatusBadGateway, err.Error()}
 	}
 	defer backend.CloseNow()
-	release, err := s.trackConnection(r.Context(), &accessConnection{scope: identity.RequestScope,
+	release, err := s.trackConnection(r.Context(), &accessConnection{
 		principal: identity.Principal.ID, environment: id, asset: asset, credential: credential(r), permission: "session",
 		close: func() { backend.Close(websocket.StatusPolicyViolation, "访问授权已更新") },
 	})

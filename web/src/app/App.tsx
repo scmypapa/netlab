@@ -23,8 +23,6 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
-import { host } from "./host";
-import { HostBridge } from "./HostBridge";
 import { api, ApiError } from "../api/client";
 import { ErrorMessage, Loading } from "../foundation/Feedback";
 import { EnvironmentsPage } from "../features/environments/EnvironmentsPage";
@@ -70,11 +68,7 @@ export function App() {
     },
   });
   if (identity.isPending) return <Loading />;
-  if (
-    identity.error instanceof ApiError &&
-    identity.error.status === 401 &&
-    !host
-  )
+  if (identity.error instanceof ApiError && identity.error.status === 401)
     return <Login />;
   if (identity.error)
     return (
@@ -87,118 +81,88 @@ export function App() {
     );
   return (
     <div className="app-shell">
-      {host ? (
-        <>
-          <HostBridge />
-          {!host.environmentOnly && (
-            <nav className="embedded-nav" aria-label="组网导航">
-              <NavLink to="/environments">
-                <Layers3 size={16} />
-                环境
-              </NavLink>
-              <NavLink to="/templates">
-                <Boxes size={16} />
-                模板
-              </NavLink>
-              {identity.data?.administrator && (
-                <NavLink to="/resources">
-                  <Server size={16} />
-                  资源
-                </NavLink>
-              )}
-            </nav>
-          )}
-        </>
-      ) : (
-        <header className="global-header">
-          <NavLink
-            to="/environments"
-            className="brand"
-            aria-label="Netlab 首页"
-          >
-            <img
-              className="brand-mark"
-              src="/netlab-icon.png"
-              alt=""
-              width={32}
-              height={32}
-            />
-            <span>
-              netlab<span className="brand-period">.</span>
-            </span>
+      <header className="global-header">
+        <NavLink to="/environments" className="brand" aria-label="Netlab 首页">
+          <img
+            className="brand-mark"
+            src="/netlab-icon.png"
+            alt=""
+            width={32}
+            height={32}
+          />
+          <span>
+            netlab<span className="brand-period">.</span>
+          </span>
+        </NavLink>
+        <nav className="primary-nav" aria-label="主导航">
+          <NavLink to="/environments">
+            <Layers3 size={17} />
+            环境
           </NavLink>
-          <nav className="primary-nav" aria-label="主导航">
-            <NavLink to="/environments">
-              <Layers3 size={17} />
-              环境
+          <NavLink to="/templates">
+            <Boxes size={17} />
+            模板
+          </NavLink>
+          {identity.data?.administrator && (
+            <NavLink to="/resources">
+              <Server size={17} />
+              资源
             </NavLink>
-            <NavLink to="/templates">
-              <Boxes size={17} />
-              模板
-            </NavLink>
-            {identity.data?.administrator && (
-              <NavLink to="/resources">
-                <Server size={17} />
-                资源
-              </NavLink>
-            )}
-          </nav>
-          <div className="global-tools">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              aria-label={scheme === "dark" ? "切换日间主题" : "切换夜间主题"}
-              onClick={() =>
-                setColorScheme(scheme === "dark" ? "light" : "dark")
-              }
-            >
-              {scheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            </ActionIcon>
-            <Menu position="bottom-end">
-              <Menu.Target>
-                <button className="profile">
-                  <Avatar size={26} radius="sm" color="gray">
-                    {identity.data?.name.slice(0, 1).toUpperCase()}
-                  </Avatar>
-                  <span>{identity.data?.name}</span>
-                  <ChevronDown size={14} />
-                </button>
-              </Menu.Target>
-              <Menu.Dropdown>
+          )}
+        </nav>
+        <div className="global-tools">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            aria-label={scheme === "dark" ? "切换日间主题" : "切换夜间主题"}
+            onClick={() => setColorScheme(scheme === "dark" ? "light" : "dark")}
+          >
+            {scheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </ActionIcon>
+          <Menu position="bottom-end">
+            <Menu.Target>
+              <button className="profile">
+                <Avatar size={26} radius="sm" color="gray">
+                  {identity.data?.name.slice(0, 1).toUpperCase()}
+                </Avatar>
+                <span>{identity.data?.name}</span>
+                <ChevronDown size={14} />
+              </button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item
+                leftSection={<KeyRound size={15} />}
+                onClick={() => setPasswordOpen(true)}
+              >
+                修改密码
+              </Menu.Item>
+              {identity.data?.administrator && (
                 <Menu.Item
-                  leftSection={<KeyRound size={15} />}
-                  onClick={() => setPasswordOpen(true)}
+                  leftSection={<Download size={15} />}
+                  onClick={() => setUpdatesOpen(true)}
                 >
-                  修改密码
+                  系统更新
                 </Menu.Item>
-                {identity.data?.administrator && (
-                  <Menu.Item
-                    leftSection={<Download size={15} />}
-                    onClick={() => setUpdatesOpen(true)}
-                  >
-                    系统更新
-                  </Menu.Item>
-                )}
-                {identity.data?.administrator && (
-                  <Menu.Item
-                    component={NavLink}
-                    to="/accounts"
-                    leftSection={<UsersRound size={15} />}
-                  >
-                    访问管理
-                  </Menu.Item>
-                )}
+              )}
+              {identity.data?.administrator && (
                 <Menu.Item
-                  leftSection={<LogOut size={15} />}
-                  onClick={() => logout.mutate()}
+                  component={NavLink}
+                  to="/accounts"
+                  leftSection={<UsersRound size={15} />}
                 >
-                  退出登录
+                  访问管理
                 </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          </div>
-        </header>
-      )}
+              )}
+              <Menu.Item
+                leftSection={<LogOut size={15} />}
+                onClick={() => logout.mutate()}
+              >
+                退出登录
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        </div>
+      </header>
       <Suspense fallback={null}>
         {passwordOpen && (
           <PasswordDialog onClose={() => setPasswordOpen(false)} />
@@ -212,7 +176,7 @@ export function App() {
           <Route path="/resources" element={<NodesPage />} />
           <Route path="/resources/storage" element={<NodesPage />} />
           <Route path="/resources/performance" element={<NodesPage />} />
-          {!host && <Route path="/accounts" element={<AccountsPage />} />}
+          <Route path="/accounts" element={<AccountsPage />} />
           <Route path="*" element={<EnvironmentsPage />} />
         </Routes>
       </Suspense>

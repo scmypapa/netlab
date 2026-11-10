@@ -20,7 +20,7 @@ func (s *Server) runtimeInterfaces(ctx context.Context, id string) ([]api.Captur
 	}
 	interfaces := []api.CaptureInterface{}
 	for _, asset := range assets {
-		if !asset.Current || asset.State != "running" {
+		if !asset.Current || asset.State!="running" {
 			continue
 		}
 		var execution api.AssetExecution

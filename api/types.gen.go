@@ -565,13 +565,6 @@ type CanvasView struct {
 	Roles *map[string]string `json:"roles,omitempty"`
 }
 
-// Capabilities defines model for Capabilities.
-type Capabilities struct {
-	ApiVersion        string       `json:"apiVersion"`
-	Permissions       []Permission `json:"permissions"`
-	WorkspaceProtocol int          `json:"workspaceProtocol"`
-}
-
 // CaptureDetail defines model for CaptureDetail.
 type CaptureDetail struct {
 	Flows   []CaptureFlow  `json:"flows"`
@@ -866,11 +859,9 @@ type CreateService struct {
 
 // CreateServiceToken defines model for CreateServiceToken.
 type CreateServiceToken struct {
-	// Administrator Explicit server integration authority; only a Netlab administrator may issue this token.
-	Administrator bool         `json:"administrator,omitempty"`
-	ExpiresAt     *time.Time   `json:"expiresAt,omitempty"`
-	Grants        []ScopeGrant `json:"grants"`
-	Name          string       `json:"name"`
+	ExpiresAt *time.Time   `json:"expiresAt,omitempty"`
+	Grants    []ScopeGrant `json:"grants"`
+	Name      string       `json:"name"`
 }
 
 // CreateStoragePool defines model for CreateStoragePool.
@@ -1773,13 +1764,6 @@ type RegistryCredentials struct {
 	// PlainHttp Explicitly connect to this registry over HTTP
 	PlainHttp *bool   `json:"plainHttp,omitempty"`
 	Username  *string `json:"username,omitempty"`
-}
-
-// RequestScope Request-only authority supplied by an administrator service token using the base64url JSON X-Netlab-Context header. The caller authenticates its users; Netlab keeps the service identity and applies these resource grants without creating users.
-type RequestScope struct {
-	Administrator bool         `json:"administrator,omitempty"`
-	Grants        []ScopeGrant `json:"grants"`
-	Name          string       `json:"name"`
 }
 
 // ResolvedInterface defines model for ResolvedInterface.

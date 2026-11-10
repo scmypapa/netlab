@@ -9,11 +9,10 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *;
 SELECT b.*,v.id AS latest_version_id,v.asset_count,v.network_count FROM blueprints b
 JOIN blueprint_versions v ON v.blueprint_id=b.id AND v.version=b.version WHERE b.id=$1;
 -- name: ListBlueprints :many
-WITH request_grants AS (SELECT g.value->>'scopeKind' AS scope_kind,g.value->>'scopeId' AS scope_id,ARRAY(SELECT jsonb_array_elements_text(g.value->'permissions')) AS permissions FROM jsonb_array_elements(sqlc.arg(request_grants)::jsonb) AS g)
 SELECT b.*,v.id AS latest_version_id,v.asset_count,v.network_count FROM blueprints b
 JOIN blueprint_versions v ON v.blueprint_id=b.id AND v.version=b.version
 WHERE (sqlc.arg(is_admin)::boolean OR (sqlc.arg(is_user)::boolean AND b.owner_id=sqlc.arg(principal_id)) OR EXISTS
- (SELECT 1 FROM request_grants g WHERE g.scope_kind='project' AND g.scope_id=b.project_id AND 'read'=ANY(g.permissions)))
+ (SELECT 1 FROM grants g WHERE g.principal_id=sqlc.arg(principal_id) AND g.scope_kind='project' AND g.scope_id=b.project_id AND 'read'=ANY(g.permissions)))
 AND (sqlc.arg(search)::text='' OR b.name ILIKE '%'||sqlc.arg(search)||'%')
 AND (sqlc.arg(cursor)::text='' OR (b.created_at,b.id)<(SELECT p.created_at,p.id FROM blueprints p WHERE p.id=sqlc.arg(cursor)))
 ORDER BY b.created_at DESC,b.id DESC LIMIT sqlc.arg(page_limit);
