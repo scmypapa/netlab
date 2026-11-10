@@ -1,3 +1,4 @@
+import { apiPath } from "../app/host";
 import type { components } from "./types.gen";
 
 export type Schema<K extends keyof components["schemas"]> =
@@ -76,7 +77,7 @@ function uploadRequest<T>(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const abort = () => xhr.abort();
-    xhr.open(method, "/api/v1" + path);
+    xhr.open(method, apiPath(path));
     if (body instanceof File)
       xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (event) => {
@@ -114,7 +115,7 @@ async function request<T>(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await fetch(apiPath(path), {
     method,
     credentials: "same-origin",
     signal,
@@ -156,7 +157,9 @@ async function assetLogs(
     follow: String(options.follow),
   });
   const response = await fetch(
-    `/api/v1/environments/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}/logs?${params}`,
+    apiPath(
+      `/environments/${encodeURIComponent(id)}/assets/${encodeURIComponent(assetId)}/logs?${params}`,
+    ),
     { credentials: "same-origin", signal },
   );
   await checkResponse(response);
@@ -304,13 +307,7 @@ export const api = {
       "DELETE",
     ),
   captureDownload: (id: string, node: string, capture: string) =>
-    "/api/v1/environments/" +
-    id +
-    "/captures/" +
-    node +
-    "/" +
-    capture +
-    "/file",
+    apiPath(`/environments/${id}/captures/${node}/${capture}/file`),
   capturePackets: (
     id: string,
     node: string,
@@ -360,7 +357,7 @@ export const api = {
     signal?: AbortSignal,
   ) => {
     const response = await fetch(
-      `/api/v1/environments/${id}/packets/export?${packetQuery(filters)}`,
+      apiPath(`/environments/${id}/packets/export?${packetQuery(filters)}`),
       { credentials: "same-origin", signal },
     );
     await checkResponse(response);
@@ -482,7 +479,9 @@ export const api = {
       signal,
     ),
   fileURL: (id: string, assetId: string, path: string) =>
-    `/api/v1/environments/${id}/assets/${assetId}/files/content?path=${encodeURIComponent(path)}`,
+    apiPath(
+      `/environments/${id}/assets/${assetId}/files/content?path=${encodeURIComponent(path)}`,
+    ),
   backupRepositories: () =>
     request<Schema<"BackupRepository">[]>("/backup-repositories"),
   createBackupRepository: (body: Schema<"CreateBackupRepository">) =>
@@ -658,7 +657,8 @@ export const api = {
       `/environments/${id}/services/${serviceId}?${new URLSearchParams({ expectedRevision: String(expectedRevision), clientRequestId })}`,
       "DELETE",
     ),
-  events: (id: string) => new EventSource(`/api/v1/environments/${id}/events`),
+  events: (id: string) =>
+    new EventSource(apiPath(`/environments/${id}/events`)),
   action: (id: string, body: Schema<"ActionRequest">) =>
     request<Operation>(`/environments/${id}/actions`, "POST", body),
   assetAction: (id: string, assetId: string, body: Schema<"ActionRequest">) =>

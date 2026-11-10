@@ -378,6 +378,7 @@ function TokenEditor({
   onSaved: () => void;
 }) {
   const [name, setName] = useState("");
+  const [administrator, setAdministrator] = useState(false);
   const [grants, setGrants] = useState<Schema<"ScopeGrant">[]>([]);
   const [expires, setExpires] = useState("");
   const [copied, setCopied] = useState(false);
@@ -385,7 +386,8 @@ function TokenEditor({
     mutationFn: () =>
       api.createToken({
         name,
-        grants,
+        administrator,
+        grants: administrator ? [] : grants,
         ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}),
       }),
     onSuccess: onSaved,
@@ -440,7 +442,14 @@ function TokenEditor({
               onChange={(event) => setExpires(event.currentTarget.value)}
             />
           </div>
-          <GrantEditor roles={roles} value={grants} onChange={setGrants} />
+          <Checkbox
+            label="管理底座"
+            checked={administrator}
+            onChange={(event) => setAdministrator(event.currentTarget.checked)}
+          />
+          {!administrator && (
+            <GrantEditor roles={roles} value={grants} onChange={setGrants} />
+          )}
           <ErrorMessage error={issue.error} />
           <div className={styles.footer}>
             <Button variant="default" onClick={onClose}>
@@ -448,7 +457,7 @@ function TokenEditor({
             </Button>
             <Button
               type="submit"
-              disabled={!grants.length}
+              disabled={!administrator && !grants.length}
               loading={issue.isPending}
             >
               签发

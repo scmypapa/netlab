@@ -1,3 +1,4 @@
+import { apiPath } from "../../app/host";
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import Guacamole from "../../vendor/guacamole";
 import styles from "./ConsoleWorkspace.module.css";
@@ -53,7 +54,9 @@ export function RDPDisplay({
     onStatus("连接中");
     let failed = false;
     const url = new URL(
-      `/api/v1/environments/${encodeURIComponent(environmentId)}/assets/${encodeURIComponent(assetId)}/console`,
+      apiPath(
+        `/environments/${encodeURIComponent(environmentId)}/assets/${encodeURIComponent(assetId)}/console`,
+      ),
       window.location.href,
     );
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
