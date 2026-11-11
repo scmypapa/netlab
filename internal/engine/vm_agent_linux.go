@@ -91,6 +91,9 @@ func (v *VirtualMachines) initializeGuest(ctx context.Context, env string, a api
 	if err != nil {
 		return err
 	}
+	if !network && owner.GuestFilesInitialized {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	ready := make(chan struct{}, 1)
