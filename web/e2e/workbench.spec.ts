@@ -1240,6 +1240,16 @@ test("设计迁移：手动选择不移画布，定位器和属性栏保持稳�
   await web.click();
   const inspector = page.getByRole("complementary", { name: "对象详情" });
   await expect(inspector).toContainText("web-01");
+  const primaryButton = inspector.getByRole("button", {
+    name: "终端",
+    exact: true,
+  });
+  const connectionMenu = inspector.getByRole("button", {
+    name: "连接方式",
+    exact: true,
+  });
+  await expect(primaryButton).toHaveCSS("background-color", "rgb(23, 32, 28)");
+  await expect(connectionMenu).toHaveCSS("background-color", "rgb(23, 32, 28)");
   await expect(viewport).toHaveAttribute("style", before!);
   await windows.click();
   await expect(inspector).toContainText("windows-01");

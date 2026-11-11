@@ -103,7 +103,7 @@ const theme = createTheme({
       defaultProps: { transitionProps: { duration: workspaceMotionDuration } },
     },
     Button: {
-      defaultProps: { size: "sm" },
+      defaultProps: { size: "sm", variant: "filled" },
       styles: { root: { fontWeight: 500, letterSpacing: 0 } },
     },
     TextInput: { defaultProps: { size: "sm" } },
