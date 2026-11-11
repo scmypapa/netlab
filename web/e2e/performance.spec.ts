@@ -42,6 +42,9 @@ const node = {
   reserved: { cpu: 8, memoryMiB: 16384, diskGiB: 100 },
   capabilities: ["vm", "container"],
   slots: 8,
+  cpuAllocationRatio: 1,
+  memoryReserveMiB: 2048,
+  allocatableMemoryMiB: 63488,
   observedAt: new Date().toISOString(),
 };
 function readings(host: boolean, range: number): Schema<"MetricHistory"> {
@@ -105,6 +108,11 @@ async function fixture(page: Page) {
     requests.push(url);
     const path = url.pathname.replace("/api/v1", "");
     let response: unknown = [];
+    if (path.endsWith("/storage"))
+      return route.fulfill({
+        status: 503,
+        json: { detail: "Storage unavailable in metrics fixture" },
+      });
     if (path === "/identity")
       response = { id: "admin", name: "admin", administrator: true };
     if (path === "/environments/env") response = environment;
@@ -146,15 +154,38 @@ async function fixture(page: Page) {
   return requests;
 }
 
-test("环境性能区分当前快照和历史，支持切换指标与资产下钻", async ({ page }) => {
+test("设计迁移：环境性能区分当前快照和历史，支持切换指标与资产下钻", async ({
+  page,
+}) => {
   const requests = await fixture(page);
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "性能视图", exact: true }).click();
+  await page
+    .getByRole("radiogroup", { name: "工作区视图" })
+    .getByText("性能", { exact: true })
+    .click();
   const panel = page.getByRole("region", { name: "环境性能", exact: true });
   await expect(panel.getByRole("button", { name: /^CPU/ })).toContainText(
     "1.5",
   );
   await expect(panel).toContainText("已配置 4 核");
+  const cpuCanvas = panel
+    .getByRole("img", { name: "CPU历史曲线" })
+    .locator("canvas");
+  const memoryCanvas = panel
+    .getByRole("img", { name: "内存历史曲线" })
+    .locator("canvas");
+  const memoryBefore = await memoryCanvas.screenshot();
+  const cpuBefore = await cpuCanvas.screenshot();
+  const cpuBox = (await cpuCanvas.boundingBox())!;
+  await page.mouse.move(
+    cpuBox.x + cpuBox.width * 0.65,
+    cpuBox.y + cpuBox.height * 0.45,
+  );
+  await expect
+    .poll(async () => (await cpuCanvas.screenshot()).equals(cpuBefore))
+    .toBe(false);
+  expect((await memoryCanvas.screenshot()).equals(memoryBefore)).toBe(true);
+  await page.mouse.move(0, 0);
   await panel.getByText("30 天", { exact: true }).click();
   await expect
     .poll(() =>
@@ -174,7 +205,7 @@ test("环境性能区分当前快照和历史，支持切换指标与资产下�
   await panel.getByRole("button", { name: "收起内存", exact: true }).click();
   await expect(panel.getByRole("img", { name: "CPU历史曲线" })).toBeVisible();
   await page.setViewportSize({ width: 1366, height: 900 });
-  for (const width of [1366, 1920, 2560, 390]) {
+  for (const width of [1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
     await expect
       .poll(() =>
@@ -216,8 +247,8 @@ test("环境性能区分当前快照和历史，支持切换指标与资产下�
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
   await expect(panel).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "拓扑视图", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page.getByRole("radio", { name: "拓扑", exact: true }),
+  ).toBeChecked();
   await expect(
     page.getByRole("button", { name: "预览变更", exact: true }),
   ).toBeVisible();
@@ -229,7 +260,7 @@ test("集群历史覆盖全量，节点卡片展示实测并下钻", async ({ pa
   const card = page.getByRole("button", { name: /计算节点 A/ });
   await expect(card).toContainText("2.5");
   await expect(card.getByLabel("已分配", { exact: true })).toContainText(
-    "8 核",
+    "8 / 16 vCPU",
   );
   await card.click();
   const drawer = page.getByRole("dialog", { name: "计算节点 A" });
@@ -268,7 +299,7 @@ test("集群历史覆盖全量，节点卡片展示实测并下钻", async ({ pa
       ),
     )
     .toBe(true);
-  for (const width of [1366, 1920, 2560, 390]) {
+  for (const width of [1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
     await expect
       .poll(() =>

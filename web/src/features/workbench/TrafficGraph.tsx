@@ -1,19 +1,12 @@
 import { useComputedColorScheme } from "@mantine/core";
+import { useReducedMotion } from "@mantine/hooks";
 import {
   createSmartEdge,
   SmartEdgeProvider,
 } from "@tisoap/react-flow-smart-edge";
-import { createPortal } from "react-dom";
-import {
-  Fragment,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
 import {
   Background,
+  getViewportForBounds,
   Handle,
   MarkerType,
   Position,
@@ -23,15 +16,25 @@ import {
   useNodesState,
   useReactFlow,
   useStore,
+  useStoreApi,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
 import { Network, Router, Server, Shrink, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { createPortal } from "react-dom";
 import type { EnvironmentSpec } from "../../api/client";
 import { byteUnit, reading } from "../../foundation/format";
-import { useTopology } from "./useTopology";
-import { trafficTopology } from "./trafficModel";
 import styles from "./TrafficGraph.module.css";
+import { trafficTopology } from "./trafficModel";
+import { useTopology } from "./useTopology";
 
 export type TrafficSelection =
   { asset: string } | { source: string; destination: string };
@@ -127,16 +130,91 @@ const edgeTypes = {
 };
 const routingOptions = { ...routingGeometry, routeOnlyWhenBlocked: false };
 
-function GraphActions({ toolsTarget }: { toolsTarget: HTMLElement | null }) {
-  const initialized = useNodesInitialized(),
-    fitted = useRef(false);
-  const visible = useStore((state) => state.width > 0 && state.height > 0);
-  const { fitView, zoomIn, zoomOut } = useReactFlow();
+function GraphActions({
+  toolsTarget,
+  selection,
+}: {
+  toolsTarget: HTMLElement | null;
+  selection?: TrafficSelection;
+}) {
+  const initialized = useNodesInitialized();
+  const size = useStore((state) =>
+    state.width > 0 && state.height > 0 ? `${state.width}:${state.height}` : "",
+  );
+  const store = useStoreApi();
+  const reducedMotion = useReducedMotion();
+  const { fitView, getNodesBounds, getViewport, setViewport, zoomIn, zoomOut } =
+    useReactFlow();
+  const motion = useRef<{
+    key: string;
+    start: number;
+    from: ReturnType<typeof getViewport>;
+  }>(undefined);
+  const selectionKey = selection
+    ? JSON.stringify(
+        "asset" in selection
+          ? [selection.asset]
+          : [selection.source, selection.destination],
+      )
+    : "";
   useEffect(() => {
-    if (!initialized || !visible || fitted.current) return;
-    fitted.current = true;
-    void fitView({ padding: 0.18, maxZoom: 1 });
-  }, [initialized, visible, fitView]);
+    if (!initialized || !size) return;
+    if (
+      motion.current?.key === selectionKey &&
+      (reducedMotion || performance.now() - motion.current.start >= 280)
+    )
+      return;
+    const ids: string[] = selectionKey ? JSON.parse(selectionKey) : [];
+    const nodes = [...store.getState().nodeLookup.values()].filter(
+      (node) => !ids.length || ids.includes(node.id),
+    );
+    if (!nodes.length) return;
+    const bounds = getNodesBounds(nodes);
+    const singleMachine =
+      nodes.length === 1 && nodes[0].type === "trafficAsset";
+    if (motion.current?.key !== selectionKey) {
+      motion.current = {
+        key: selectionKey,
+        start: motion.current && !reducedMotion ? performance.now() : -Infinity,
+        from: getViewport(),
+      };
+    }
+    const { start, from } = motion.current;
+    let frame: number;
+    // Keep one animation clock while the grid resizes; never refit after it finishes.
+    const animate = (now: number) => {
+      const { width, height } = store.getState();
+      const target = getViewportForBounds(
+        bounds,
+        width,
+        height,
+        singleMachine ? 1.15 : 0.1,
+        singleMachine ? 1.35 : 1,
+        0.3,
+      );
+      const progress = reducedMotion
+        ? 1
+        : Math.max(0, Math.min(1, (now - start) / 280));
+      const eased = 1 - (1 - progress) ** 3;
+      void setViewport({
+        x: from.x + (target.x - from.x) * eased,
+        y: from.y + (target.y - from.y) * eased,
+        zoom: from.zoom + (target.zoom - from.zoom) * eased,
+      });
+      if (progress < 1) frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [
+    initialized,
+    size,
+    selectionKey,
+    reducedMotion,
+    store,
+    getNodesBounds,
+    getViewport,
+    setViewport,
+  ]);
   return (
     toolsTarget &&
     createPortal(
@@ -454,6 +532,10 @@ function Graph({
           onPaneClick={() => onSelect(undefined)}
           nodesConnectable={false}
           nodesDraggable={false}
+          zoomOnScroll={false}
+          zoomActivationKeyCode="Control"
+          panOnScroll={false}
+          preventScrolling={false}
           deleteKeyCode={null}
           minZoom={0.1}
           maxZoom={2}
@@ -461,7 +543,7 @@ function Graph({
           proOptions={{ hideAttribution: true }}
         >
           <Background color="var(--line)" gap={24} size={1} />
-          <GraphActions toolsTarget={toolsTarget} />
+          <GraphActions toolsTarget={toolsTarget} selection={selection} />
         </ReactFlow>
       </SmartEdgeProvider>
       {!models.length && <div className={styles.empty}>当前范围内无通信</div>}

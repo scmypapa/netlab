@@ -113,6 +113,11 @@ async function fixture(page: Page) {
       response = { total: 1, statuses: { running: 1 } };
     else if (path === "/environments")
       response = [{ ...environment, assetCount: 1, networkCount: 0 }];
+    else if (path === "/environments/env/storage")
+      return route.fulfill({
+        status: 503,
+        json: { detail: "Storage unavailable in access fixture" },
+      });
     else if (path === "/environments/env") response = environment;
     else if (path === "/environments/env/state")
       response = {

@@ -1,118 +1,64 @@
 import { ActionIcon, Button, Modal, Textarea } from "@mantine/core";
+import RFB from "@novnc/novnc";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
 import {
-  Clipboard,
   Maximize2,
   Minimize2,
-  PanelBottomClose,
-  PanelBottomOpen,
   Monitor,
   Settings2,
   SquareTerminal,
-  X,
+  Clipboard,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import RFB from "@novnc/novnc";
 import "@xterm/xterm/css/xterm.css";
-import { consoleKey, type ConsoleTab } from "./consoles";
 import styles from "./ConsoleWorkspace.module.css";
 import { RDPDisplay, type RDPControls } from "./RDPDisplay";
+import type { ConsoleSession } from "./consoles";
 
 export default function ConsoleWorkspace({
   environmentId,
-  tabs,
-  selected,
-  onSelect,
-  onClose,
+  session,
   onSettings,
 }: {
   environmentId: string;
-  tabs: ConsoleTab[];
-  selected: string;
-  onSelect: (key: string) => void;
-  onClose: (key: string) => void;
-  onSettings: (tab: ConsoleTab) => void;
+  session: ConsoleSession;
+  onSettings?: () => void;
 }) {
   const workspace = useRef<HTMLElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const current = tabs.find((tab) => consoleKey(tab) === selected);
-  useEffect(() => setCollapsed(false), [selected]);
   useEffect(() => {
     const changed = () =>
       setFullscreen(document.fullscreenElement === workspace.current);
     document.addEventListener("fullscreenchange", changed);
     return () => document.removeEventListener("fullscreenchange", changed);
   }, []);
+  const label = {
+    vnc: "控制台",
+    serial: "串口",
+    ssh: "SSH",
+    rdp: "远程桌面",
+    terminal: "终端",
+  }[session.kind];
   return (
-    <section
-      ref={workspace}
-      className={styles.workspace}
-      data-collapsed={collapsed}
-      aria-label="资产连接"
-    >
-      <div className={styles.toolbar}>
-        <div className={styles.tabs} role="tablist" aria-label="当前连接">
-          {tabs.map((tab) => {
-            const key = consoleKey(tab);
-            return (
-              <div
-                className={`${styles.tab} ${selected === key ? styles.active : ""}`}
-                key={key}
-              >
-                <button
-                  role="tab"
-                  aria-selected={selected === key}
-                  aria-controls={`console-${key}`}
-                  onClick={() => {
-                    onSelect(key);
-                    setCollapsed(false);
-                  }}
-                >
-                  {tab.kind === "vnc" || tab.kind === "rdp" ? (
-                    <Monitor size={14} />
-                  ) : (
-                    <SquareTerminal size={14} />
-                  )}
-                  {tab.name}
-                  {tab.kind === "serial" && " · 串口"}
-                  {tab.kind === "ssh" && " · SSH"}
-                  {tab.kind === "rdp" && " · RDP"}
-                </button>
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  aria-label={`结束 ${tab.name} 连接`}
-                  onClick={() => onClose(key)}
-                >
-                  <X size={14} />
-                </ActionIcon>
-              </div>
-            );
-          })}
-        </div>
-        <div className={styles.actions}>
-          {!fullscreen && (
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              aria-label={collapsed ? "展开连接" : "收起连接"}
-              onClick={() => setCollapsed(!collapsed)}
-            >
-              {collapsed ? (
-                <PanelBottomOpen size={16} />
-              ) : (
-                <PanelBottomClose size={16} />
-              )}
-            </ActionIcon>
+    <section ref={workspace} className={styles.workspace} aria-label="资产连接">
+      <header className={styles.toolbar}>
+        <h1 className={styles.title}>
+          {session.kind === "vnc" || session.kind === "rdp" ? (
+            <Monitor size={17} />
+          ) : (
+            <SquareTerminal size={17} />
           )}
-          {(current?.kind === "ssh" || current?.kind === "rdp") && (
+          {session.name}
+          <span>{label}</span>
+        </h1>
+        <div className={styles.actions}>
+          {onSettings && (
             <ActionIcon
               variant="subtle"
               color="gray"
               aria-label="连接设置"
-              onClick={() => onSettings(current)}
+              onClick={onSettings}
             >
               <Settings2 size={16} />
             </ActionIcon>
@@ -122,7 +68,6 @@ export default function ConsoleWorkspace({
             color="gray"
             aria-label={fullscreen ? "退出全屏连接" : "全屏连接"}
             onClick={() => {
-              setCollapsed(false);
               void (fullscreen
                 ? document.exitFullscreen()
                 : workspace.current?.requestFullscreen());
@@ -131,27 +76,18 @@ export default function ConsoleWorkspace({
             {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </ActionIcon>
         </div>
-      </div>
-      {tabs.map((tab) => (
-        <ConsoleConnection
-          key={consoleKey(tab)}
-          tab={tab}
-          environmentId={environmentId}
-          active={!collapsed && selected === consoleKey(tab)}
-        />
-      ))}
+      </header>
+      <ConsoleConnection session={session} environmentId={environmentId} />
     </section>
   );
 }
 
 function ConsoleConnection({
-  tab,
+  session,
   environmentId,
-  active,
 }: {
-  tab: ConsoleTab;
+  session: ConsoleSession;
   environmentId: string;
-  active: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("连接中");
@@ -162,18 +98,15 @@ function ConsoleConnection({
   const [clipboardOpened, setClipboardOpened] = useState(false);
   const [clipboardText, setClipboardText] = useState("");
   useEffect(() => {
-    if (active) fit.current?.fit();
-  }, [active]);
-  useEffect(() => {
-    if (tab.kind === "rdp") return;
+    if (session.kind === "rdp") return;
     const element = host.current!;
     const url = new URL(
-      `/api/v1/environments/${encodeURIComponent(environmentId)}/assets/${encodeURIComponent(tab.id)}/console?kind=${tab.kind}`,
+      `/api/v1/environments/${encodeURIComponent(environmentId)}/assets/${encodeURIComponent(session.id)}/console?kind=${session.kind}`,
       window.location.href,
     );
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
     setStatus("连接中");
-    if (tab.kind === "vnc") {
+    if (session.kind === "vnc") {
       const connection = new RFB(element, url.href, {
         wsProtocols: ["binary"],
       });
@@ -221,7 +154,7 @@ function ConsoleConnection({
     socket.onopen = () => {
       setStatus("已连接");
       fitter.fit();
-      if (tab.kind === "terminal" || tab.kind === "ssh")
+      if (session.kind === "terminal" || session.kind === "ssh")
         socket.send(
           JSON.stringify({ cols: terminal.cols, rows: terminal.rows }),
         );
@@ -239,7 +172,7 @@ function ConsoleConnection({
     });
     const resize = terminal.onResize((size) => {
       if (
-        (tab.kind === "terminal" || tab.kind === "ssh") &&
+        (session.kind === "terminal" || session.kind === "ssh") &&
         socket.readyState === WebSocket.OPEN
       )
         socket.send(JSON.stringify(size));
@@ -259,14 +192,9 @@ function ConsoleConnection({
       terminal.dispose();
       fit.current = null;
     };
-  }, [environmentId, tab.id, tab.kind, tab.revision, attempt]);
+  }, [environmentId, session.id, session.kind, session.revision, attempt]);
   return (
-    <div
-      id={`console-${consoleKey(tab)}`}
-      className={styles.connection}
-      role="tabpanel"
-      hidden={!active}
-    >
+    <div className={styles.connection} role="region" aria-label="控制台内容">
       <div className={styles.status}>
         <span
           role="status"
@@ -276,7 +204,7 @@ function ConsoleConnection({
           {status}
         </span>
         <div className={styles.actions}>
-          {tab.kind === "rdp" && status === "已连接" && (
+          {session.kind === "rdp" && status === "已连接" && (
             <ActionIcon
               variant="subtle"
               color="gray"
@@ -289,13 +217,13 @@ function ConsoleConnection({
               <Clipboard size={14} />
             </ActionIcon>
           )}
-          {(tab.kind === "vnc" || tab.kind === "rdp") &&
+          {(session.kind === "vnc" || session.kind === "rdp") &&
             status === "已连接" && (
               <Button
                 variant="subtle"
                 size="compact-xs"
                 onClick={() =>
-                  tab.kind === "rdp"
+                  session.kind === "rdp"
                     ? rdp.current?.attention()
                     : vnc.current?.sendCtrlAltDel()
                 }
@@ -314,19 +242,19 @@ function ConsoleConnection({
           )}
         </div>
       </div>
-      {tab.kind === "rdp" ? (
+      {session.kind === "rdp" ? (
         <RDPDisplay
           environmentId={environmentId}
-          assetId={tab.id}
-          attempt={attempt + (tab.revision ?? 0)}
-          active={active}
+          assetId={session.id}
+          attempt={attempt + (session.revision ?? 0)}
+          active
           onStatus={setStatus}
           controls={rdp}
         />
       ) : (
         <div
           ref={host}
-          className={`${styles.surface} ${tab.kind === "vnc" ? styles.vnc : styles.terminal}`}
+          className={`${styles.surface} ${session.kind === "vnc" ? styles.vnc : styles.terminal}`}
         />
       )}
       <Modal

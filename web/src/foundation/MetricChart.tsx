@@ -1,6 +1,4 @@
 import { useComputedColorScheme } from "@mantine/core";
-import { useEffect, useRef } from "react";
-import * as echarts from "echarts/core";
 import { LineChart } from "echarts/charts";
 import {
   GridComponent,
@@ -12,11 +10,13 @@ import {
   DataZoomSliderComponent,
   MarkLineComponent,
 } from "echarts/components";
+import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
+import { useEffect, useRef } from "react";
+import styles from "./MetricChart.module.css";
+import { clockTime } from "./format";
 import type { History, Metric } from "./metrics";
 import { assetMetricSeries } from "./metrics";
-import { clockTime } from "./format";
-import styles from "./MetricChart.module.css";
 
 echarts.use([
   LineChart,
@@ -61,12 +61,13 @@ export function MetricChart({
   names = emptyNames,
   seriesBy = "interface",
   colors,
-  group,
   compact = false,
   timeline = false,
   onTimeRange,
   timeWindow,
   annotations,
+  showLegend = true,
+  focusedAsset,
 }: {
   history: History;
   measures: Metric[];
@@ -75,12 +76,13 @@ export function MetricChart({
   names?: ReadonlyMap<string, string>;
   seriesBy?: "metric" | "asset" | "node" | "interface";
   colors?: string[];
-  group?: string;
   compact?: boolean;
   timeline?: boolean;
   onTimeRange?: (start: string, end: string) => void;
   timeWindow?: { start: string; end: string };
   annotations?: { time: string; label: string; color: string }[];
+  showLegend?: boolean;
+  focusedAsset?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.EChartsType>(null);
@@ -101,10 +103,6 @@ export function MetricChart({
           new Date(zoom.endValue).toISOString(),
         );
     });
-    if (group) {
-      current.group = group;
-      echarts.connect(group);
-    }
     const observer = new ResizeObserver(() => current.resize());
     observer.observe(host.current!);
     return () => {
@@ -112,7 +110,7 @@ export function MetricChart({
       current.dispose();
       chart.current = null;
     };
-  }, [theme, group]);
+  }, [theme]);
   useEffect(() => {
     const css = getComputedStyle(host.current!);
     const muted = css.getPropertyValue("--muted").trim();
@@ -144,7 +142,11 @@ export function MetricChart({
       ),
     ];
     const series = plotted
-      .filter((item) => measures.includes(item.metric))
+      .filter(
+        (item) =>
+          measures.includes(item.metric) &&
+          (!focusedAsset || item.assetId === focusedAsset),
+      )
       .map((item, index) => {
         const identity =
           seriesBy === "asset"
@@ -267,7 +269,7 @@ export function MetricChart({
         grid: {
           left: 12,
           right: 18,
-          top: timeline ? 30 : compact ? 25 : 30,
+          top: timeline && !showLegend ? 12 : compact ? 25 : 30,
           bottom: timeline ? 34 : compact ? 12 : 36,
           containLabel: true,
         },
@@ -356,7 +358,10 @@ export function MetricChart({
           },
         },
         legend: {
-          show: !compact && (measures.length > 1 || series.length > 1),
+          show:
+            showLegend &&
+            !compact &&
+            (measures.length > 1 || series.length > 1),
           top: timeline ? 4 : undefined,
           bottom: timeline ? undefined : 0,
           left: 12,
@@ -452,11 +457,12 @@ export function MetricChart({
     seriesBy,
     theme,
     colors,
-    group,
     compact,
     timeline,
     timeWindow,
     annotations,
+    showLegend,
+    focusedAsset,
   ]);
   return (
     <div

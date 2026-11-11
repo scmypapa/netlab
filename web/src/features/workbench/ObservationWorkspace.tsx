@@ -1,11 +1,11 @@
-import { MetricChart } from "../../foundation/MetricChart";
 import { ActionIcon, SegmentedControl, Switch } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Activity, RefreshCw } from "lucide-react";
 import { api, type Asset, type Network, type Schema } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
-import { latestMetric } from "../../foundation/metrics";
+import { MetricChart } from "../../foundation/MetricChart";
 import { byteUnit, reading } from "../../foundation/format";
+import { latestMetric } from "../../foundation/metrics";
 import {
   metricRanges,
   useMetricWindow,
@@ -150,9 +150,6 @@ export default function ObservationWorkspace({
                       unit={unit.unit}
                       scale={unit.scale}
                       names={interfaces}
-                      group={
-                        "asset-performance-" + environmentId + "-" + asset.id
-                      }
                     />
                   </section>
                 );

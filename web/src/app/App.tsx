@@ -22,7 +22,7 @@ import {
   KeyRound,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useMatch } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { ErrorMessage, Loading } from "../foundation/Feedback";
 import { EnvironmentsPage } from "../features/environments/EnvironmentsPage";
@@ -42,6 +42,7 @@ const WorkbenchPage = lazy(() =>
     default: module.WorkbenchPage,
   })),
 );
+const ConsolePage = lazy(() => import("../features/workbench/ConsolePage"));
 const AccountsPage = lazy(() =>
   import("../features/access/AccountsPage").then((module) => ({
     default: module.AccountsPage,
@@ -54,6 +55,7 @@ const UpdatePanel = lazy(() =>
 );
 
 export function App() {
+  const consoleRoute = useMatch("/environments/:id/console/:assetId/:kind");
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const identity = useQuery({ queryKey: ["identity"], queryFn: api.identity });
@@ -78,6 +80,17 @@ export function App() {
           重新连接
         </Button>
       </div>
+    );
+  if (consoleRoute)
+    return (
+      <Suspense fallback={<Loading />}>
+        <Routes>
+          <Route
+            path="/environments/:id/console/:assetId/:kind"
+            element={<ConsolePage />}
+          />
+        </Routes>
+      </Suspense>
     );
   return (
     <div className="app-shell">

@@ -17,6 +17,13 @@ test("外部设备发现后加入画布、编辑和移除，不创建运行实�
     let response: unknown = [];
     if (path === "/identity")
       response = { id: "admin", name: "admin", administrator: true };
+    else if (path.endsWith("/storage"))
+      response = {
+        bytes: 0,
+        baseBytes: 0,
+        locations: [],
+        measuredAt: "2026-10-25T00:00:00Z",
+      };
     else if (path === "/environments/env")
       response = {
         id: "env",
@@ -129,8 +136,10 @@ test("外部设备发现后加入画布、编辑和移除，不创建运行实�
   expect(physical!.y + physical!.height).toBeLessThanOrEqual(
     segment!.y + segment!.height,
   );
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
-  await page.getByRole("button", { name: "PLC-01", exact: true }).click();
+  await page
+    .locator(".react-flow__node-asset")
+    .filter({ hasText: "PLC-01" })
+    .click();
   const inspector = page.getByRole("complementary", { name: "对象详情" });
   await expect(inspector).toContainText("192.0.2.20");
   await expect(
@@ -141,7 +150,10 @@ test("外部设备发现后加入画布、编辑和移除，不创建运行实�
   await expect(edit.getByRole("textbox", { name: /IP/ })).toHaveCount(0);
   await edit.getByRole("textbox", { name: "设备名称" }).fill("PLC-产线一");
   await edit.getByRole("button", { name: "保存设备", exact: true }).click();
-  await page.getByRole("button", { name: "PLC-产线一", exact: true }).click();
+  await page
+    .locator(".react-flow__node-asset")
+    .filter({ hasText: "PLC-产线一" })
+    .click();
   await inspector
     .getByRole("button", { name: "对象操作", exact: true })
     .click();

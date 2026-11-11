@@ -1,6 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { MantineProvider, createTheme } from "@mantine/core";
+import {
+  MantineProvider,
+  createTheme,
+  defaultVariantColorsResolver,
+} from "@mantine/core";
+import { MotionConfig } from "motion/react";
+import { workspaceMotionDuration } from "./foundation/AnimatedPanel";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import "@mantine/core/styles.css";
@@ -14,6 +20,20 @@ const queryClient = new QueryClient({
   },
 });
 const theme = createTheme({
+  respectReducedMotion: true,
+  variantColorResolver: (input) => {
+    if (
+      (!input.color || input.color === input.theme.primaryColor) &&
+      input.variant === "filled"
+    )
+      return {
+        background: "var(--control-strong)",
+        hover: "var(--control-strong-hover)",
+        color: "var(--control-strong-text)",
+        border: "transparent",
+      };
+    return defaultVariantColorsResolver(input);
+  },
   primaryColor: "blue",
   colors: {
     blue: [
@@ -73,8 +93,17 @@ const theme = createTheme({
   fontSizes: { xs: "12px", sm: "14px", md: "14px", lg: "16px", xl: "18px" },
   headings: { fontWeight: "600" },
   components: {
+    SegmentedControl: {
+      defaultProps: { transitionDuration: workspaceMotionDuration },
+    },
+    Accordion: {
+      defaultProps: { transitionDuration: workspaceMotionDuration },
+    },
+    Popover: {
+      defaultProps: { transitionProps: { duration: workspaceMotionDuration } },
+    },
     Button: {
-      defaultProps: { size: "sm" },
+      defaultProps: { size: "sm", variant: "filled" },
       styles: { root: { fontWeight: 500, letterSpacing: 0 } },
     },
     TextInput: { defaultProps: { size: "sm" } },
@@ -93,6 +122,7 @@ const theme = createTheme({
       },
     },
     Drawer: {
+      defaultProps: { transitionProps: { duration: workspaceMotionDuration } },
       styles: {
         content: { background: "var(--surface)" },
         header: {
@@ -105,7 +135,10 @@ const theme = createTheme({
       },
     },
     Modal: {
-      defaultProps: { radius: "md" },
+      defaultProps: {
+        radius: "md",
+        transitionProps: { duration: workspaceMotionDuration },
+      },
       styles: {
         content: { background: "var(--surface)" },
         header: { background: "var(--surface)" },
@@ -113,7 +146,11 @@ const theme = createTheme({
       },
     },
     Menu: {
-      defaultProps: { shadow: "sm", offset: 6 },
+      defaultProps: {
+        shadow: "sm",
+        offset: 6,
+        transitionProps: { duration: workspaceMotionDuration },
+      },
       styles: {
         dropdown: { background: "var(--surface)", borderColor: "var(--line)" },
         item: { fontSize: 14 },
@@ -127,7 +164,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <MantineProvider theme={theme} defaultColorScheme="auto">
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
+          <MotionConfig
+            reducedMotion="user"
+            transition={{
+              duration: workspaceMotionDuration / 1000,
+              ease: "easeOut",
+            }}
+          >
+            <App />
+          </MotionConfig>
         </BrowserRouter>
       </QueryClientProvider>
     </MantineProvider>
