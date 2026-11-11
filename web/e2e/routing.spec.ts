@@ -114,6 +114,13 @@ async function fixture(page: Page, spec = scenario()) {
       status = 200;
     if (path === "/identity")
       response = { id: "user", name: "operator", administrator: true };
+    else if (path.endsWith("/storage"))
+      response = {
+        bytes: 0,
+        baseBytes: 0,
+        locations: [],
+        measuredAt: environment.updatedAt,
+      };
     else if (path === "/templates")
       response = [
         {
@@ -494,8 +501,10 @@ test("交换机名称在保存与重新编辑后保留，网卡和路由身份�
   spec.networks[0].name = "交换机5";
   const { calls } = await fixture(page, spec);
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
-  await page.getByRole("button", { name: "交换机5", exact: true }).click();
+  await page
+    .locator(".react-flow__node-network")
+    .filter({ hasText: "交换机5" })
+    .click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "编辑交换机" });
   await editor.getByLabel("交换机名称").fill("集控站核心交换机");

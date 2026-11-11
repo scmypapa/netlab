@@ -275,6 +275,5 @@ curl -H "Authorization: Bearer <Your-Token>" \
 ## 文档
 
 - [安装与更新](docs/installation.md)
-- [工作台交互设计](docs/workspace-design.md)
 - [API 契约](api/openapi.yaml)
 - [版本与更新日志](https://github.com/scmypapa/netlab/releases)

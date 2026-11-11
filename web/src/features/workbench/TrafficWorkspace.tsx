@@ -379,6 +379,7 @@ export default function TrafficWorkspace({
         </strong>
         <Select
           aria-label="趋势范围"
+          comboboxProps={{ withinPortal: false }}
           value={range}
           data={ranges}
           allowDeselect={false}

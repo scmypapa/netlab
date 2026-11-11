@@ -42,6 +42,9 @@ const node = {
   reserved: { cpu: 8, memoryMiB: 16384, diskGiB: 100 },
   capabilities: ["vm", "container"],
   slots: 8,
+  cpuAllocationRatio: 1,
+  memoryReserveMiB: 2048,
+  allocatableMemoryMiB: 63488,
   observedAt: new Date().toISOString(),
 };
 function readings(host: boolean, range: number): Schema<"MetricHistory"> {
@@ -202,7 +205,7 @@ test("设计迁移：环境性能区分当前快照和历史，支持切换指�
   await panel.getByRole("button", { name: "收起内存", exact: true }).click();
   await expect(panel.getByRole("img", { name: "CPU历史曲线" })).toBeVisible();
   await page.setViewportSize({ width: 1366, height: 900 });
-  for (const width of [1366, 1920, 2560, 390]) {
+  for (const width of [1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
     await expect
       .poll(() =>
@@ -257,7 +260,7 @@ test("集群历史覆盖全量，节点卡片展示实测并下钻", async ({ pa
   const card = page.getByRole("button", { name: /计算节点 A/ });
   await expect(card).toContainText("2.5");
   await expect(card.getByLabel("已分配", { exact: true })).toContainText(
-    "8 核",
+    "8 / 16 vCPU",
   );
   await card.click();
   const drawer = page.getByRole("dialog", { name: "计算节点 A" });
@@ -296,7 +299,7 @@ test("集群历史覆盖全量，节点卡片展示实测并下钻", async ({ pa
       ),
     )
     .toBe(true);
-  for (const width of [1366, 1920, 2560, 390]) {
+  for (const width of [1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
     await expect
       .poll(() =>

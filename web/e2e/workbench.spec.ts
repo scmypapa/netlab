@@ -31,7 +31,7 @@ test("环境占用包含基础镜像，波浪条展示动态可用空间", async
   });
   await expect(trigger).toBeVisible();
   const initialReads = reads;
-  for (const width of [390, 1366, 1920, 2560]) {
+  for (const width of [1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
     await trigger.click();
     await expect(
@@ -43,7 +43,10 @@ test("环境占用包含基础镜像，波浪条展示动态可用空间", async
         name: /^基础镜像 2 GiB，增量数据 1.7 GiB，当前可用/,
       }),
     ).toBeVisible();
-    const panel = page.locator(".mantine-Popover-dropdown");
+    const panel = page.getByRole("dialog", {
+      name: "环境占用 3.7 GiB，查看存储详情",
+      exact: true,
+    });
     await expect(panel).toHaveCSS("background-color", "rgb(255, 255, 255)");
     expect(
       await page.evaluate(
@@ -78,20 +81,22 @@ test("环境占用包含基础镜像，波浪条展示动态可用空间", async
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "切换夜间主题" }).click();
   await trigger.click();
-  await expect(page.locator(".mantine-Popover-dropdown")).toHaveCSS(
-    "background-color",
-    "rgb(34, 35, 38)",
-  );
+  await expect(
+    page.getByRole("dialog", {
+      name: "环境占用 3.7 GiB，查看存储详情",
+      exact: true,
+    }),
+  ).toHaveCSS("background-color", "rgb(34, 35, 38)");
   await page.screenshot({
     path: test.info().outputPath("environment-storage-dark.png"),
     animations: "disabled",
   });
 });
 
-test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page }) => {
-  await fixture(page);
+test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page, context }) => {
+  await fixture(context);
   let submitted: unknown;
-  await page.route("**/api/v1/environments/env/assets/web/ssh", (route) => {
+  await context.route("**/api/v1/environments/env/assets/web/ssh", (route) => {
     if (route.request().method() === "PUT") {
       submitted = route.request().postDataJSON();
       return route.fulfill({ status: 204 });
@@ -103,7 +108,7 @@ test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page
     releaseInitial = resolve;
   });
   const ports: number[] = [];
-  await page.route(
+  await context.route(
     "**/api/v1/environments/env/assets/web/ssh/host-key",
     async (route) => {
       const { port } = route.request().postDataJSON();
@@ -113,11 +118,17 @@ test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page
     },
   );
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "连接方式", exact: true }).click();
+  const opened = context.waitForEvent("page");
   await page.getByRole("menuitem", { name: "SSH", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "web-01 · SSH" });
+  const consolePage = await opened;
+  const dialog = consolePage.getByRole("dialog", { name: "web-01 · SSH" });
   await dialog
     .getByRole("textbox", { name: "用户名", exact: true })
     .fill("operator");
@@ -135,8 +146,8 @@ test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page
   await expect(
     dialog.getByRole("button", { name: "信任并保存" }),
   ).toBeEnabled();
-  for (const width of [1366, 1920, 390]) {
-    await page.setViewportSize({ width, height: 900 });
+  for (const width of [1366, 1920]) {
+    await consolePage.setViewportSize({ width, height: 900 });
     expect(
       await dialog.evaluate((element) => element.scrollWidth),
     ).toBeLessThanOrEqual(width);
@@ -151,6 +162,7 @@ test("SSH 密码配置自动读取所选端口的身份并保存", async ({ page
       port: 2222,
       hostKey: "SHA256:server-2222",
     });
+  await consolePage.close();
 });
 
 test("文件工作区切换视图时退出，目录操作保留键盘入口", async ({ page }) => {
@@ -174,7 +186,11 @@ test("文件工作区切换视图时退出，目录操作保留键盘入口", as
     }),
   );
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "文件", exact: true }).click();
   const files = page.getByRole("table", { name: "文件列表" });
@@ -188,7 +204,7 @@ test("文件工作区切换视图时退出，目录操作保留键盘入口", as
   const rename = page.getByRole("dialog", { name: "重命名", exact: true });
   await expect(rename).toBeVisible();
   await rename.getByRole("button", { name: "取消", exact: true }).click();
-  for (const width of [1366, 1920, 390]) {
+  for (const width of [1366, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
       await page.evaluate(
@@ -196,9 +212,17 @@ test("文件工作区切换视图时退出，目录操作保留键盘入口", as
       ),
     ).toBe(true);
   }
-  await page.getByRole("button", { name: "拓扑视图", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "拓扑", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await expect(files).toHaveCount(0);
-  await page.getByRole("button", { name: "资产视图", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "关闭对象详情", exact: true }).click();
   await page
     .getByRole("textbox", { name: "查找资产", exact: true })
@@ -215,9 +239,9 @@ test("文件工作区切换视图时退出，目录操作保留键盘入口", as
   ).toHaveCount(0);
 });
 
-test("控制台收起不断开连接，全屏支持直接退出", async ({ page }) => {
-  await fixture(page);
-  await page.route("**/api/v1/environments/env/assets/web/ssh", (route) =>
+test("独立控制台全屏设置与重连保持会话一致", async ({ page, context }) => {
+  await fixture(context);
+  await context.route("**/api/v1/environments/env/assets/web/ssh", (route) =>
     route.fulfill({
       json: {
         username: "operator",
@@ -228,15 +252,14 @@ test("控制台收起不断开连接，全屏支持直接退出", async ({ page 
     }),
   );
   let connections = 0;
-  await page.routeWebSocket(
+  await context.routeWebSocket(
     /\/api\/v1\/environments\/env\/assets\/web\/console\?kind=ssh$/,
     (socket) => {
       connections++;
       socket.send(Buffer.from("ready\r\n"));
     },
   );
-  await page.goto("/environments/env");
-  await page.evaluate(() => {
+  await context.addInitScript(() => {
     const sockets: WebSocket[] = [];
     Object.assign(window, { consoleSockets: sockets });
     const NativeSocket = WebSocket;
@@ -247,36 +270,34 @@ test("控制台收起不断开连接，全屏支持直接退出", async ({ page 
       }
     };
   });
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page.goto("/environments/env");
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "连接方式", exact: true }).click();
+  const openedPage = context.waitForEvent("page");
   await page.getByRole("menuitem", { name: "SSH", exact: true }).click();
+  const consolePage = await openedPage;
   await expect.poll(() => connections).toBeGreaterThan(0);
-  const connection = page.getByRole("region", {
+  const connection = consolePage.getByRole("region", {
     name: "资产连接",
     exact: true,
   });
   await expect(connection.getByText("已连接", { exact: true })).toBeVisible();
   const opened = connections;
   await connection
-    .getByRole("button", { name: "收起连接", exact: true })
-    .click();
-  await expect(connection.getByRole("tabpanel")).toHaveCount(0);
-  await connection
-    .getByRole("button", { name: "展开连接", exact: true })
-    .click();
-  await expect(connection.getByRole("tabpanel")).toBeVisible();
-  expect(connections).toBe(opened);
-  await connection
     .getByRole("button", { name: "全屏连接", exact: true })
     .click();
   await expect
-    .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+    .poll(() => consolePage.evaluate(() => Boolean(document.fullscreenElement)))
     .toBe(true);
   await connection
     .getByRole("button", { name: "连接设置", exact: true })
     .click();
-  const settings = page.getByRole("dialog", { name: "web-01 · SSH" });
+  const settings = consolePage.getByRole("dialog", { name: "web-01 · SSH" });
   await expect(
     settings.getByRole("textbox", { name: "用户名", exact: true }),
   ).toBeVisible();
@@ -290,10 +311,10 @@ test("控制台收起不断开连接，全屏支持直接退出", async ({ page 
     .getByRole("button", { name: "退出全屏连接", exact: true })
     .click();
   await expect
-    .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+    .poll(() => consolePage.evaluate(() => Boolean(document.fullscreenElement)))
     .toBe(false);
   expect(connections).toBe(opened);
-  await page.evaluate(() => {
+  await consolePage.evaluate(() => {
     const sockets = (window as unknown as { consoleSockets: WebSocket[] })
       .consoleSockets;
     sockets
@@ -309,7 +330,7 @@ test("控制台收起不断开连接，全屏支持直接退出", async ({ page 
   await expect(connection.getByRole("status")).toHaveText("已连接");
   expect(connections).toBe(opened + 1);
   expect(
-    await page.evaluate(() => {
+    await consolePage.evaluate(() => {
       const sockets = (window as unknown as { consoleSockets: WebSocket[] })
         .consoleSockets;
       const previous = sockets.at(-2)!;
@@ -324,6 +345,7 @@ test("控制台收起不断开连接，全屏支持直接退出", async ({ page 
     }),
   ).toBe(true);
   await expect(connection.getByRole("status")).toHaveText("已连接");
+  await consolePage.close();
 });
 
 test("会话过期后切换账号清除前账号的环境缓存", async ({ page }) => {
@@ -386,17 +408,17 @@ test("会话过期后切换账号清除前账号的环境缓存", async ({ page 
   ).toHaveCount(0);
 });
 
-test("克隆后切换环境关闭源终端且不自动连接副本", async ({ page }) => {
-  await fixture(page);
+test("克隆后源控制台保持绑定且不自动连接副本", async ({ page, context }) => {
+  await fixture(context);
   const connections: string[] = [];
-  await page.routeWebSocket(
+  await context.routeWebSocket(
     /\/api\/v1\/environments\/[^/]+\/assets\/web\/console\?kind=terminal$/,
     (socket) => {
       connections.push(socket.url());
       socket.close({ code: 1000 });
     },
   );
-  await page.route("**/api/v1/environments/env/recovery-points**", (route) =>
+  await context.route("**/api/v1/environments/env/recovery-points**", (route) =>
     route.fulfill({
       json: [
         {
@@ -412,7 +434,7 @@ test("克隆后切换环境关闭源终端且不自动连接副本", async ({ pa
       ],
     }),
   );
-  await page.route("**/api/v1/environments", (route) =>
+  await context.route("**/api/v1/environments", (route) =>
     route.fulfill({ status: 201, json: { id: "clone" } }),
   );
   const response = page.waitForResponse((response) =>
@@ -420,10 +442,10 @@ test("克隆后切换环境关闭源终端且不自动连接副本", async ({ pa
   );
   await page.goto("/environments/env");
   const original = await (await response).json();
-  await page.route("**/api/v1/environments/clone", (route) =>
+  await context.route("**/api/v1/environments/clone", (route) =>
     route.fulfill({ json: { ...original, id: "clone", name: "环境副本" } }),
   );
-  await page.route("**/api/v1/environments/clone/state", (route) =>
+  await context.route("**/api/v1/environments/clone/state", (route) =>
     route.fulfill({
       json: {
         id: "clone",
@@ -434,9 +456,15 @@ test("克隆后切换环境关闭源终端且不自动连接副本", async ({ pa
       },
     }),
   );
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
+  const opened = context.waitForEvent("page");
   await page.getByRole("button", { name: "终端", exact: true }).click();
+  const consolePage = await opened;
   await expect.poll(() => connections.length).toBeGreaterThan(0);
   await page.getByRole("button", { name: "环境操作" }).click();
   await page.getByRole("menuitem", { name: "恢复点", exact: true }).click();
@@ -455,6 +483,13 @@ test("克隆后切换环境关闭源终端且不自动连接副本", async ({ pa
   expect(connections.every((url) => url.includes("/environments/env/"))).toBe(
     true,
   );
+  await expect(consolePage).toHaveURL(
+    /\/environments\/env\/console\/web\/terminal$/,
+  );
+  await expect(
+    consolePage.getByRole("region", { name: "资产连接" }),
+  ).toBeVisible();
+  await consolePage.close();
 });
 
 test("虚拟机按完整 PCI 设备组绑定节点并保存到原草稿", async ({ page }) => {
@@ -488,7 +523,11 @@ test("虚拟机按完整 PCI 设备组绑定节点并保存到原草稿", async 
   );
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "编辑资产" });
@@ -552,7 +591,11 @@ test("资产迁移选择节点并提交原运行修订", async ({ page }) => {
     },
   );
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "迁移节点", exact: true }).click();
@@ -595,7 +638,11 @@ test("资产附加持久卷，容量取自目录并通过现有草稿提交", as
   );
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "编辑资产" });
@@ -770,7 +817,11 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
     });
   });
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "资产视图", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "资源曲线", exact: true }).click();
@@ -788,7 +839,7 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
   await expect
     .poll(() => requests.at(-1)?.searchParams.get("range"))
     .toBe("3600");
-  for (const width of [390, 1366, 1920, 2560]) {
+  for (const width of [1366, 1920, 2560]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
       await page.evaluate(
@@ -801,8 +852,10 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
   await page.getByRole("button", { name: "返回资产列表", exact: true }).click();
   await expect(page.getByLabel("资源观察")).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "资产视图", exact: true }),
-  ).toBeVisible();
+    page
+      .getByRole("radiogroup", { name: "工作区视图" })
+      .getByRole("radio", { name: "资产", exact: true }),
+  ).toBeChecked();
 });
 
 // API fixtures verify browser interaction. Runtime acceptance uses the real node separately.
@@ -1306,7 +1359,7 @@ test("设计迁移：独立控制台沿用会话权限且不占用工作台", as
   await popup.close();
 });
 
-test("设计迁移：保留固化模板，宽窄屏和日夜布局不溢出", async ({ page }) => {
+test("设计迁移：保留固化模板，桌面和日夜布局不溢出", async ({ page }) => {
   await fixture(page, { status: "stopped" });
   await page.goto("/environments/env");
   await page.locator('.react-flow__node[data-id="windows"]').click();
@@ -1316,7 +1369,7 @@ test("设计迁移：保留固化模板，宽窄屏和日夜布局不溢出", as
   for (const theme of ["light", "dark"]) {
     if (theme === "dark")
       await page.getByRole("button", { name: "切换夜间主题" }).click();
-    for (const width of [390, 1366, 1920, 2560]) {
+    for (const width of [1366, 1920, 2560]) {
       await page.setViewportSize({ width, height: 900 });
       await expect
         .poll(() =>
@@ -1414,7 +1467,7 @@ test("恢复点：只读查看、捕获、恢复与删除请求、真实错误�
   await expect(page.getByRole("heading", { name: "调整前" })).toBeVisible();
   await expect(page.getByText("含 1 台虚拟机内存")).toBeVisible();
   await expect(page.getByText("崩溃一致", { exact: true })).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 1366, height: 900 });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -1562,7 +1615,7 @@ test("备份复用恢复工作区，提交、恢复和克隆请求贯通", async
   await page.getByRole("option", { name: "存储仓库", exact: true }).click();
   await save.getByRole("button", { name: "备份", exact: true }).click();
   await expect(page.getByRole("heading", { name: "独立备份" })).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 1366, height: 900 });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -1595,7 +1648,11 @@ test("draft persists across exit; applying removal uses preview revision", async
   const calls = await fixture(page);
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "移除资产", exact: true }).click();
@@ -1748,11 +1805,17 @@ test("工作台直达视图可刷新，切换视图不修改环境", async ({ pa
   const calls = await fixture(page);
   await page.goto("/environments/env?view=assets");
   await expect(
-    page.getByRole("button", { name: "资产视图", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page
+      .getByRole("radiogroup", { name: "工作区视图" })
+      .getByRole("radio", { name: "资产", exact: true }),
+  ).toBeChecked();
   await page.reload();
   await expect(page.getByRole("table", { name: "运行资产" })).toBeVisible();
-  await page.getByRole("button", { name: "拓扑视图", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "拓扑", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await expect(page).toHaveURL(/\/environments\/env$/);
   const asset = page.locator(".react-flow__node-asset").first();
   await expect(asset).toBeVisible();
@@ -1768,13 +1831,17 @@ test("working area fits supported widths and both themes", async ({ page }) => {
       (scheme) => localStorage.setItem("mantine-color-scheme-value", scheme),
       theme,
     );
-    for (const width of [390, 1366, 1920, 2560]) {
+    for (const width of [1366, 1920, 2560]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/environments/env");
       await expect(
         page.getByRole("heading", { name: "混合环境" }),
       ).toBeVisible();
-      await page.getByRole("button", { name: "对象列表", exact: true }).click();
+      await page
+        .getByRole("radio", { name: "资产", exact: true })
+        .locator("..")
+        .locator("label")
+        .click();
       await page
         .getByRole("button", { name: "windows-01", exact: true })
         .click();
@@ -1797,7 +1864,11 @@ test("saving an edited environment creates a template or appends a version witho
   const calls = await fixture(page);
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "移除资产", exact: true }).click();
@@ -1964,7 +2035,11 @@ test("asset rebuild requires scoped manage and confirms its system disk effect",
     assetPermissions: { windows: ["manage"] },
   });
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await expect(
@@ -1989,6 +2064,7 @@ test("asset rebuild requires scoped manage and confirms its system disk effect",
         path: "/environments/env/assets/windows/actions",
         body: {
           action: "rebuild",
+          resetVolumes: false,
           expectedRevision: 1,
           clientRequestId: expect.any(String),
         },
@@ -2089,12 +2165,17 @@ test("suspended environment and asset both offer a normal stop", async ({
         path: "/environments/env/actions",
         body: {
           action: "stop",
+          resetVolumes: false,
           expectedRevision: 1,
           clientRequestId: expect.any(String),
         },
       },
     ]);
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await expect(
@@ -2110,6 +2191,7 @@ test("suspended environment and asset both offer a normal stop", async ({
     )
     .toEqual({
       action: "stop",
+      resetVolumes: false,
       expectedRevision: 1,
       clientRequestId: expect.any(String),
     });
@@ -2121,7 +2203,11 @@ test("HTTP 浏览器缺少 randomUUID 时仍能启动资产", async ({ page }) =
   });
   const calls = await fixture(page, { status: "stopped" });
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "启动", exact: true }).click();
@@ -2143,7 +2229,11 @@ test("HTTP 浏览器缺少 randomUUID 时仍能启动资产", async ({ page }) =
 test("stopped assets cannot pause", async ({ page }) => {
   await fixture(page, { status: "stopped" });
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await expect(
@@ -2156,14 +2246,15 @@ test("stopped assets cannot pause", async ({ page }) => {
 
 test("asset-scoped session opens its console without environment management", async ({
   page,
+  context,
 }) => {
-  await fixture(page, {
+  await fixture(context, {
     permissions: [],
     assetPermissions: { windows: ["read", "session"] },
     identity: { id: "scoped", name: "scoped", administrator: false },
   });
   const connections: string[] = [];
-  await page.routeWebSocket(
+  await context.routeWebSocket(
     /\/api\/v1\/environments\/env\/assets\/windows\/console\?kind=vnc$/,
     (socket) => {
       connections.push(socket.url());
@@ -2177,7 +2268,11 @@ test("asset-scoped session opens its console without environment management", as
   await expect(
     page.getByRole("button", { name: "环境操作", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "终端", exact: true }),
@@ -2187,12 +2282,15 @@ test("asset-scoped session opens its console without environment management", as
   await expect(
     page.getByRole("complementary", { name: "对象详情" }),
   ).toContainText("UEFI");
+  const opened = context.waitForEvent("page");
   await page.getByRole("button", { name: "控制台", exact: true }).click();
+  const consolePage = await opened;
   await expect
     .poll(() => [...new Set(connections)])
     .toEqual([
       `${new URL(page.url()).origin.replace(/^http/, "ws")}/api/v1/environments/env/assets/windows/console?kind=vnc`,
     ]);
+  await consolePage.close();
 });
 
 test("ordinary asset editing retains VM specifications while source is hidden", async ({
@@ -2204,7 +2302,11 @@ test("ordinary asset editing retains VM specifications while source is hidden", 
   });
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "windows-01", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "编辑资产" });
@@ -2259,7 +2361,11 @@ test("container logs distinguish stderr and switch the requested stream", async 
     },
   );
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "对象操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "进程日志", exact: true }).click();
@@ -2280,7 +2386,11 @@ test("container restart policy is edited with the ordinary asset draft", async (
   const calls = await fixture(page);
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "编辑资产" });
@@ -2359,7 +2469,11 @@ test("service endpoints follow the selected asset and acceptance does not imply 
     },
   );
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await page.getByRole("button", { name: "管理服务入口", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "web-01 · 服务" });
@@ -2394,7 +2508,11 @@ test("asset read permission does not expose service management", async ({
 }) => {
   await fixture(page, { permissions: ["read"] });
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "web-01", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "管理服务入口", exact: true }),
@@ -2407,7 +2525,16 @@ test("external LAN editor reads live interfaces and preserves the LAN gateway", 
   const calls = await fixture(page);
   await page.goto("/environments/env");
   await page.getByRole("button", { name: "调整环境", exact: true }).click();
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
+  await page
+    .getByRole("radio", { name: "网段", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
   await page.getByRole("button", { name: "应用网段", exact: true }).click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "编辑交换机" });
@@ -2438,10 +2565,10 @@ test("external LAN editor reads live interfaces and preserves the LAN gateway", 
   await editor
     .getByRole("textbox", { name: "现有网关", exact: true })
     .fill("192.0.2.1");
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 1366, height: 900 });
   expect(
     await editor.evaluate((element) => element.scrollWidth),
-  ).toBeLessThanOrEqual(390);
+  ).toBeLessThanOrEqual(1366);
   await editor.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   expect(

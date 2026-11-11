@@ -159,6 +159,11 @@ function GraphActions({
     : "";
   useEffect(() => {
     if (!initialized || !size) return;
+    if (
+      motion.current?.key === selectionKey &&
+      (reducedMotion || performance.now() - motion.current.start >= 280)
+    )
+      return;
     const ids: string[] = selectionKey ? JSON.parse(selectionKey) : [];
     const nodes = [...store.getState().nodeLookup.values()].filter(
       (node) => !ids.length || ids.includes(node.id),

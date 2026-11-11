@@ -67,6 +67,10 @@ const environment = {
 async function baseFixture(page: Page) {
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+    if (path.endsWith("/storage"))
+      return route.fulfill({
+        json: { bytes: 0, baseBytes: 0, locations: [], measuredAt: timestamp },
+      });
     const response =
       path === "/identity"
         ? { id: "user", name: "operator", administrator: true }
@@ -287,7 +291,10 @@ test("referenced VM templates, asset selection and operation history read later 
     route.fulfill({ json: pageOf(operations, new URL(route.request().url())) }),
   );
   await page.goto("/environments/env");
-  await page.getByRole("button", { name: "对象列表", exact: true }).click();
+  await page
+    .getByRole("radiogroup", { name: "工作区视图" })
+    .getByText("资产", { exact: true })
+    .click();
   const asset = page.getByRole("button", { name: "Windows 资产", exact: true });
   await expect(asset.locator("svg")).toHaveClass(/lucide-monitor/);
   expect(requests.some((url) => url.searchParams.get("ids") === "old-vm")).toBe(

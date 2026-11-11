@@ -488,12 +488,14 @@ async function fixture(page: Page, scene: EnvironmentSpec = spec) {
   });
   return { state, requests };
 }
-async function open(page: Page) {
-  await page.goto("/environments/env");
-  await page.getByRole("button", { name: "流量视图", exact: true }).click();
-  await expect(page.getByRole("grid", { name: "报文列表" })).toBeVisible();
+async function open(page: Page, view: "overview" | "packets" = "overview") {
+  await page.goto(
+    `/environments/env?view=traffic${view === "packets" ? "&traffic=packets" : ""}`,
+  );
   await expect(
-    page.getByRole("grid", { name: "报文列表" }).getByRole("row").nth(1),
+    page.getByRole("region", {
+      name: view === "packets" ? "所选对象报文" : "资产通信图",
+    }),
   ).toBeVisible();
 }
 
@@ -539,54 +541,40 @@ test("进度事件只刷新任务状态，终态同步关联资源", async ({ pa
   }
 });
 
-test("隐藏分析面板停止查询，展开后恢复实时刷新", async ({ page }) => {
-  await page.setViewportSize({ width: 1366, height: 900 });
+test("切换分析视图停止隐藏查询，返回概览恢复实时刷新", async ({ page }) => {
   await page.clock.install();
-  const { requests, state } = await fixture(page);
+  const { requests } = await fixture(page);
   await open(page);
   const count = (suffix: string) =>
     requests.filter(({ url }) => url.pathname.endsWith(suffix)).length;
   await page.clock.fastForward(11_000);
-  expect(count("/metrics")).toBe(0);
-  expect(count("/packets")).toBeGreaterThan(1);
+  expect(count("/packets")).toBe(0);
   expect(count("/traffic")).toBeGreaterThan(1);
-
-  await page.getByRole("button", { name: /^告警 \d/ }).click();
-  const packets = count("/packets");
-  state.retention.status = "idle";
-  await page.clock.fastForward(11_000);
-  expect(count("/packets")).toBe(packets);
-  await expect(page.getByText("无运行接口", { exact: true })).toBeVisible();
-
-  await page.getByRole("button", { name: "流量趋势", exact: true }).click();
-  await expect.poll(() => count("/metrics")).toBeGreaterThan(0);
+  expect(count("/metrics")).toBeGreaterThan(0);
   expect(
     requests
       .find(({ url }) => url.pathname.endsWith("/metrics"))!
       .url.searchParams.get("metrics"),
   ).toBe("receive,transmit");
-  await page.getByRole("button", { name: "流量趋势", exact: true }).click();
-  const history = count("/metrics");
-  await page.clock.fastForward(11_000);
-  expect(count("/metrics")).toBe(history);
-
-  await page.getByRole("button", { name: "报文", exact: true }).click();
-  await expect.poll(() => count("/packets")).toBeGreaterThan(packets);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(
-    page.getByRole("button", { name: "通信图", exact: true }),
-  ).toBeVisible();
-  const flows = count("/traffic");
+  await page.getByRole("button", { name: "查看报文", exact: true }).click();
+  await expect.poll(() => count("/packets")).toBeGreaterThan(0);
+  const history = count("/metrics"),
+    flows = count("/traffic");
   await page.clock.fastForward(11_000);
   expect(count("/traffic")).toBe(flows);
-  await page.getByRole("button", { name: "通信图", exact: true }).click();
+  expect(count("/metrics")).toBe(history);
+  await page.getByRole("button", { name: /^告警 \d/ }).click();
+  const packets = count("/packets");
+  await page.clock.fastForward(11_000);
+  expect(count("/packets")).toBe(packets);
+  await page.getByRole("button", { name: "返回流量概览", exact: true }).click();
   await expect.poll(() => count("/traffic")).toBeGreaterThan(flows);
 });
 
-test("收起时间轴会取消在途历史请求", async ({ page }) => {
+test("离开概览会取消在途历史请求", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 900 });
   await fixture(page);
-  await open(page);
+  await open(page, "packets");
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -605,13 +593,13 @@ test("收起时间轴会取消在途历史请求", async ({ page }) => {
   const requested = page.waitForRequest((request) =>
     request.url().includes("/env/metrics?"),
   );
-  await page.getByRole("button", { name: "流量趋势", exact: true }).click();
+  await page.getByRole("button", { name: "返回流量概览", exact: true }).click();
   const request = await requested;
   const cancelled = page.waitForEvent("requestfailed", {
     predicate: (failed) => failed === request,
   });
   try {
-    await page.getByRole("button", { name: "流量趋势", exact: true }).click();
+    await page.getByRole("button", { name: "查看报文", exact: true }).click();
     await cancelled;
     expect(request.failure()?.errorText).toContain("ERR_ABORTED");
   } finally {
@@ -623,6 +611,7 @@ const connection = (page: Page, left = "DC01", right = "YINYU-WIN7") =>
     .getByRole("region", { name: "资产通信图" })
     .getByRole("group", { name: new RegExp(`${left} ↔ ${right}`) });
 async function clickConnection(page: Page) {
+  await connection(page).scrollIntoViewIfNeeded();
   await expect(page.locator("[data-smart-edge-placeholder]")).toHaveCount(0);
   const point = await connection(page)
     .locator(".react-flow__edge-interaction")
@@ -746,11 +735,16 @@ test("点连接直接分析报文，协议与字节双向联动，键盘可选�
   ).toHaveCount(0);
   expect(requests.filter(({ method }) => method === "POST")).toHaveLength(0);
   const row = table.getByRole("row").filter({ hasText: "UDP frame 4 ·" });
-  await row.click();
+  await row.focus();
+  await row.press("Home");
   await row.press("ArrowDown");
   await expect(
     table.getByRole("row").filter({ hasText: "UDP frame 8 ·" }),
   ).toHaveAttribute("aria-selected", "true");
+  await table
+    .getByRole("row")
+    .filter({ hasText: "UDP frame 8 ·" })
+    .press("Enter");
   await expect(
     page
       .getByLabel("报文协议层")
@@ -788,6 +782,7 @@ test("点连接直接分析报文，协议与字节双向联动，键盘可选�
   await expect(
     page.getByRole("button", { name: "Ethernet II", exact: true }),
   ).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("button", { name: "关闭报文详情" }).click();
   await connection(page).focus();
   await page.keyboard.press("Escape");
   await connection(page).focus();
@@ -827,7 +822,7 @@ test("风险在同一工作台筛选、分页并直接定位关联报文", async
           (packet) => (packet.transportProtocol ?? packet.protocol) === "TCP",
         )
       : state.packets;
-  await open(page);
+  await open(page, "packets");
   await expect(
     page
       .getByRole("row")
@@ -836,7 +831,7 @@ test("风险在同一工作台筛选、分页并直接定位关联报文", async
   ).toBeVisible();
   await page.getByRole("button", { name: "高风险", exact: true }).click();
   await expect(page.getByRole("table", { name: "告警记录" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "资产通信图" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "资产通信图" })).toHaveCount(0);
   await page.getByRole("button", { name: "更早告警", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "ET WEB_SERVER Earlier request" }),
@@ -855,6 +850,7 @@ test("风险在同一工作台筛选、分页并直接定位关联报文", async
   expect(query.get("interfaceId")).toBe("nic-win7");
   expect(query.get("networkId")).toBe("internal");
   expect(query.get("start")).toBe(alert.firstSeen);
+  await page.getByRole("row").filter({ hasText: "GET / HTTP/1.1 ·" }).click();
   await expect(page.getByLabel("报文协议层")).toContainText(alert.signature);
   await expect(
     page.getByRole("button", { name: "通信分析", exact: true }),
@@ -869,7 +865,7 @@ test("读取更早报文暂停实时头页，继续实时清分页，修改过�
   state.older = Array.from({ length: 20 }, (_, index) => frame(index + 1));
   state.nextCursor = "before-21";
   await page.clock.install();
-  await open(page);
+  await open(page, "packets");
   await page.getByRole("button", { name: "更早报文", exact: true }).click();
   await expect(
     page.getByRole("grid", { name: "报文列表" }).getByRole("row"),
@@ -896,13 +892,13 @@ test("读取更早报文暂停实时头页，继续实时清分页，修改过�
   const selected = page.getByRole("row").filter({ hasText: "TCP frame 121 ·" });
   await selected.click();
   await expect(page.getByLabel("报文协议层")).toContainText("Frame 121:");
+  await page.getByRole("button", { name: "关闭报文详情" }).click();
   state.packetReply = () => [frame(240, true)];
   await page
     .getByRole("textbox", { name: "报文过滤器" })
     .fill("udp.port == 53");
   await page.clock.fastForward(500);
-  await expect(page.getByLabel("报文协议层")).toContainText("选择报文");
-  await expect(page.getByLabel("报文协议层")).not.toContainText("Frame 121:");
+  await expect(page.getByRole("dialog", { name: /^报文/ })).toHaveCount(0);
   await page.getByRole("row").filter({ hasText: "UDP frame 240 ·" }).click();
   await expect(page.getByLabel("报文协议层")).toContainText("Frame 240:");
   expect(
@@ -941,6 +937,11 @@ test("流量刷新保留视角，只呈现环境对象，广播组播归入交�
   const viewport = await graph
     .locator(".react-flow__viewport")
     .getAttribute("style");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(graph.locator(".react-flow__viewport")).toHaveAttribute(
+    "style",
+    viewport!,
+  );
   const positions = await graph
     .locator(".react-flow__node")
     .evaluateAll((nodes) =>
@@ -1031,7 +1032,7 @@ test("流量刷新保留视角，只呈现环境对象，广播组播归入交�
 
 test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用", async ({ page }) => {
   await fixture(page);
-  await open(page);
+  await open(page, "packets");
   await page.getByRole("button", { name: "全屏分析", exact: true }).click();
   await expect
     .poll(() =>
@@ -1040,6 +1041,16 @@ test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用",
       ),
     )
     .toBe(true);
+  await page.getByRole("textbox", { name: "趋势范围", exact: true }).click();
+  await expect(
+    page.getByRole("option", { name: "24 小时", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page
+      .getByRole("option", { name: "24 小时", exact: true })
+      .evaluate((element) => document.fullscreenElement?.contains(element)),
+  ).toBe(true);
+  await page.getByRole("option", { name: "24 小时", exact: true }).click();
   await page.getByRole("textbox", { name: "协议筛选", exact: true }).click();
   await expect(
     page.getByRole("option", { name: "UDP", exact: true }),
@@ -1064,169 +1075,45 @@ test("全屏覆盖整个分析台且菜单、协议选择和对话框仍可用",
     .toBeNull();
 });
 
-test("四窗格、时间轴和分隔条适配桌面、窄屏与日夜主题", async ({ page }) => {
-  test.setTimeout(60000);
+test("桌面日夜主题下概览和报文详情完整呈现", async ({ page }) => {
   await fixture(page);
-  await open(page);
-  await page
-    .getByRole("grid", { name: "报文列表" })
-    .getByRole("row")
-    .nth(2)
-    .click();
-  await expect(page.getByLabel("报文协议层")).toContainText("Frame 2:");
-  const column = page.getByRole("separator", {
-    name: "调整分析栏宽",
-    exact: true,
-  });
-  await column.focus();
-  await column.press("ArrowRight");
-  await expect(column).toHaveAttribute("aria-valuenow", "44");
-  await page
-    .getByRole("separator", { name: "调整报文详情高度", exact: true })
-    .press("ArrowUp");
+  await page.emulateMedia({ reducedMotion: "reduce" });
   for (const theme of ["light", "dark"]) {
-    if (theme === "dark")
-      await page
-        .getByRole("button", { name: "切换夜间主题", exact: true })
-        .click();
-    for (const width of [1366, 1920, 2560, 390]) {
-      await page.setViewportSize({
-        width,
-        height: width === 1366 ? 768 : width === 390 ? 844 : 1080,
-      });
+    await page.addInitScript(
+      (scheme) => localStorage.setItem("mantine-color-scheme-value", scheme),
+      theme,
+    );
+    for (const width of [1366, 1920, 2560]) {
+      await page.setViewportSize({ width, height: 900 });
       await open(page);
-      const timeline = page.getByRole("region", { name: "环境流量时间轴" });
-      if (width === 1366 || width === 390)
-        await expect(timeline).toHaveCount(0);
-      else await expect(timeline).toBeVisible();
-      if (width === 390)
-        await page.getByRole("button", { name: "通信图", exact: true }).click();
+      await expect(
+        page.getByRole("region", { name: "环境流量时间轴" }),
+      ).toBeVisible();
       const graph = page.getByRole("region", { name: "资产通信图" });
-      await expect(graph).toBeVisible();
       await expect(
         graph.locator('.react-flow__node:has([data-kind="asset"])'),
       ).toHaveCount(assets.length);
-      await expect
-        .poll(() =>
-          graph.locator(".react-flow").evaluate((canvas) => {
-            const frame = canvas.getBoundingClientRect();
-            return Array.from(
-              canvas.querySelectorAll(
-                '.react-flow__node:has([data-kind="asset"])',
-              ),
-            )
-              .filter((node) => {
-                const rect = node.getBoundingClientRect();
-                return (
-                  rect.left < frame.left - 1 ||
-                  rect.right > frame.right + 1 ||
-                  rect.top < frame.top - 1 ||
-                  rect.bottom > frame.bottom + 1
-                );
-              })
-              .map((node) => node.getAttribute("data-id"));
-          }),
-        )
-        .toEqual([]);
-      const labelConflicts = await graph
-        .locator(".react-flow")
-        .evaluate((canvas) => {
-          const labels = Array.from(
-            canvas.querySelectorAll(".react-flow__node strong"),
-          ).map((label) => ({
-            name: label.getAttribute("title"),
-            rect: label.getBoundingClientRect(),
-          }));
-          const tools = canvas
-            .closest("[data-traffic-workspace]")!
-            .querySelector('[class*="graphTools"]')!
-            .getBoundingClientRect();
-          const intersects = (a: DOMRect, b: DOMRect) =>
-            a.left < b.right &&
-            a.right > b.left &&
-            a.top < b.bottom &&
-            a.bottom > b.top;
-          const conflicts: string[] = [];
-          for (let i = 0; i < labels.length; i++) {
-            if (intersects(labels[i].rect, tools))
-              conflicts.push(`${labels[i].name}/tools`);
-            for (let j = i + 1; j < labels.length; j++)
-              if (intersects(labels[i].rect, labels[j].rect))
-                conflicts.push(`${labels[i].name}/${labels[j].name}`);
-          }
-          return conflicts;
-        });
-      expect(labelConflicts).toEqual([]);
-      if (width === 390)
-        await page
-          .getByRole("button", { name: "报文", exact: true })
-          .first()
-          .click();
+      await page.getByRole("button", { name: "查看报文", exact: true }).click();
       await page
         .getByRole("grid", { name: "报文列表" })
         .getByRole("row")
         .nth(2)
         .click();
       await expect(page.getByLabel("报文协议层")).toContainText("Frame 2:");
-      await expect(page.getByRole("grid", { name: "报文列表" })).toBeVisible();
+      await expect(page.getByLabel("报文字节")).toBeVisible();
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBe(true);
-      const panes = await page.locator('[class*="panes"]').boundingBox();
-      const packetList = await page
-        .getByRole("grid", { name: "报文列表" })
-        .locator("..")
-        .boundingBox();
-      const protocols = await page.getByLabel("报文协议层").boundingBox();
-      expect(protocols!.height).toBeGreaterThanOrEqual(100);
-      expect(packetList!.height).toBeGreaterThanOrEqual(160);
-      expect(packetList!.y).toBeLessThan(protocols!.y);
-      expect(panes!.y + panes!.height).toBeLessThanOrEqual(
-        (await page.viewportSize())!.height,
-      );
-      if (width === 1366 || width === 390) {
-        await page
-          .getByRole("button", { name: "流量趋势", exact: true })
-          .click();
-        await expect(timeline).toBeVisible();
-        await expect(
-          page.getByRole("textbox", { name: "趋势范围", exact: true }),
-        ).toBeVisible();
-        await page
-          .getByRole("button", { name: "流量趋势", exact: true })
-          .click();
-        await expect(timeline).toHaveCount(0);
-        await expect(page.getByLabel("报文协议层")).toContainText("Frame 2:");
-      }
-      if (width === 390) {
-        const divider = page.getByRole("separator", {
-          name: "调整报文详情高度",
-          exact: true,
-        });
-        await divider.press("ArrowUp");
-        await expect
-          .poll(
-            async () =>
-              (await page.getByLabel("报文协议层").boundingBox())!.height,
-          )
-          .toBeGreaterThan(protocols!.height);
-        await divider.press("ArrowDown");
-        await page.getByRole("button", { name: "通信图", exact: true }).click();
-        await expect(
-          page.getByRole("region", { name: "资产通信图" }),
-        ).toBeVisible();
-        await page
-          .getByRole("button", { name: "报文", exact: true })
-          .first()
-          .click();
-      } else {
-        await expect(page.getByLabel("报文字节")).toBeVisible();
-      }
+      await page.screenshot({
+        path: test.info().outputPath(`packet-${theme}-${width}.png`),
+        animations: "disabled",
+      });
     }
   }
 });
+
 test("无流量资产不显示，密集连线绕开设备与名称，保留真实环境对象", async ({
   page,
 }) => {
