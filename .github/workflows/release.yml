@@ -25,6 +25,7 @@ jobs:
           go-version-file: go.mod
       - name: Install test dependencies
         run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libvirt-dev libpcap-dev qemu-utils btrfs-compsize openvswitch-switch ovn-central suricata suricata-update tshark
       - name: Verify resource, networking and execution changes
