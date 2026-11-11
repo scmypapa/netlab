@@ -1081,9 +1081,11 @@ type FileEntryKind string
 
 // GuestSettings defines model for GuestSettings.
 type GuestSettings struct {
-	Hostname          *string   `json:"hostname,omitempty"`
-	SshAuthorizedKeys *[]string `json:"sshAuthorizedKeys,omitempty"`
-	Username          *string   `json:"username,omitempty"`
+	// Files UTF-8 files written once when a new VM starts, through QEMU Guest Agent. Keys are absolute guest paths. Reboot preserves later guest changes.
+	Files             *map[string]string `json:"files,omitempty"`
+	Hostname          *string            `json:"hostname,omitempty"`
+	SshAuthorizedKeys *[]string          `json:"sshAuthorizedKeys,omitempty"`
+	Username          *string            `json:"username,omitempty"`
 }
 
 // Hardware defines model for Hardware.

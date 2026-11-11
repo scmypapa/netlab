@@ -169,6 +169,16 @@ func (v *VirtualMachines) update(ctx context.Context, domain *libvirt.Domain, en
 	if err = desired.Unmarshal(desiredText); err != nil {
 		return "unknown", err
 	}
+	execution, err := json.Marshal(a)
+	if err != nil {
+		return "unknown", err
+	}
+	ownership.Execution = string(execution)
+	metadata, err := xml.Marshal(ownership)
+	if err != nil {
+		return "unknown", err
+	}
+	desired.Metadata.XML = string(metadata)
 	desired.GenID = current.GenID
 	desired.OS.Loader = current.OS.Loader
 	desired.OS.NVRam = current.OS.NVRam

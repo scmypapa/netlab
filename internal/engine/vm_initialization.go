@@ -25,7 +25,7 @@ func initializationSeed(a api.AssetExecution) (guestSeed, error) {
 	seed := guestSeed{files: map[string][]byte{}}
 	method := initializationMethod(a.Template)
 	if method == api.None {
-		if a.Asset.Guest != nil {
+		if g := a.Asset.Guest; g != nil && (g.Hostname != nil || g.Username != nil || g.SshAuthorizedKeys != nil) {
 			return seed, fmt.Errorf("template %s does not declare a guest initialization method", a.Template.Name)
 		}
 		return seed, nil

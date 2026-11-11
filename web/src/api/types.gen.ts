@@ -1994,6 +1994,10 @@ export interface components {
       hostname?: string;
       username?: string;
       sshAuthorizedKeys?: string[];
+      /** @description UTF-8 files written once when a new VM starts, through QEMU Guest Agent. Keys are absolute guest paths. Reboot preserves later guest changes. */
+      files?: {
+        [key: string]: string;
+      };
     };
     RouterInterface: {
       id: string;

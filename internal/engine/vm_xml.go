@@ -13,11 +13,12 @@ import (
 )
 
 type Ownership struct {
-	XMLName     xml.Name `xml:"urn:netlab:instance instance"`
-	Environment string   `xml:"environment,attr"`
-	Asset       string   `xml:"asset,attr"`
-	Instance    string   `xml:"instance,attr"`
-	Execution   string   `xml:"execution"`
+	GuestFilesInitialized bool     `xml:"guest-files-initialized,attr,omitempty"`
+	XMLName               xml.Name `xml:"urn:netlab:instance instance"`
+	Environment           string   `xml:"environment,attr"`
+	Asset                 string   `xml:"asset,attr"`
+	Instance              string   `xml:"instance,attr"`
+	Execution             string   `xml:"execution"`
 }
 
 func DomainXML(environmentID, directory, bridge string, a api.AssetExecution) (string, error) {
