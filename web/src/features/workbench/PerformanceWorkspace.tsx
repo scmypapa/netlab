@@ -14,12 +14,12 @@ import { useState, type ReactNode, type CSSProperties } from "react";
 import { api, type Asset, type Node } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { MetricChart } from "../../foundation/MetricChart";
+import { byteUnit, reading } from "../../foundation/format";
 import {
   latestMetric,
   type History,
   type Metric,
 } from "../../foundation/metrics";
-import { byteUnit, reading } from "../../foundation/format";
 import {
   metricRanges,
   useMetricWindow,
@@ -337,10 +337,6 @@ export default function PerformanceWorkspace(props: Scope) {
                         scale={item.scale}
                         seriesBy="metric"
                         colors={[item.color, "var(--chart-6)"]}
-                        group={
-                          "performance-" +
-                          (environmentId ?? node?.id ?? "cluster")
-                        }
                       />
                     </section>
                   );

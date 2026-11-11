@@ -665,6 +665,53 @@ const packetCalls = (
   requests: Awaited<ReturnType<typeof fixture>>["requests"],
 ) => requests.filter(({ url }) => url.pathname.endsWith("/packets"));
 
+test("设计迁移：通信对象直接联动报文，图例单选，详情复用弹窗", async ({
+  page,
+}) => {
+  const { requests } = await fixture(page);
+  await page.goto("/environments/env?view=traffic");
+  const graph = page.getByRole("region", { name: "资产通信图" });
+  const packets = page.getByRole("region", { name: "所选对象报文" });
+  await expect(graph).toBeVisible();
+  await expect(packets).toHaveCount(0);
+  const legend = page.getByLabel("流量资产筛选");
+  await legend.getByRole("button", { name: "DC01", exact: true }).click();
+  await expect(
+    legend.getByRole("button", { name: "DC01", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    legend.getByRole("button", { name: "YINYU-OA01", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await legend.getByRole("button", { name: "DC01", exact: true }).click();
+  await expect(
+    legend.getByRole("button", { name: "DC01", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await graph.locator('.react-flow__node[data-id="dc"]').click();
+  await expect(packets).toBeVisible();
+  await expect(packets).toContainText("DC01 · 报文");
+  await expect
+    .poll(() => packetCalls(requests).at(-1)?.url.searchParams.get("assetId"))
+    .toBe("dc");
+  await packets
+    .getByRole("grid", { name: "报文列表" })
+    .getByRole("row")
+    .nth(1)
+    .click();
+  const detail = page.getByRole("dialog", { name: /^报文/ });
+  await expect(detail.getByLabel("报文协议层")).toBeVisible();
+  await expect(detail.getByLabel("报文字节")).toBeVisible();
+  await page.getByRole("button", { name: "关闭报文详情" }).click();
+  await expect(detail).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭报文", exact: true }).click();
+  await expect(packets).toHaveCount(0);
+  await expect(graph).toBeVisible();
+  expect(requests.filter(({ method }) => method !== "GET")).toEqual([]);
+  await page.screenshot({
+    path: test.info().outputPath("traffic-overview.png"),
+    fullPage: true,
+  });
+});
+
 test("点连接直接分析报文，协议与字节双向联动，键盘可选择连接和帧", async ({
   page,
 }) => {

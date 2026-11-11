@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useComputedColorScheme } from "@mantine/core";
+import { useReducedMotion } from "@mantine/hooks";
 import {
   Background,
   BackgroundVariant,
@@ -30,12 +31,13 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useComputedColorScheme } from "@mantine/core";
-import { useReducedMotion } from "@mantine/hooks";
+import { animate } from "motion/react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { workspaceMotionDuration } from "../../foundation/AnimatedPanel";
 import { stateLabel } from "../../foundation/format";
-import { absolutePositions, topologyNodeSize } from "./topologyLayout";
-import type { TopologyNode } from "./topology";
 import styles from "./TopologyCanvas.module.css";
+import type { TopologyNode } from "./topology";
+import { absolutePositions, topologyNodeSize } from "./topologyLayout";
 
 const nodeTypes = { asset: AssetNode, network: NetworkNode, router: AssetNode };
 const edgeTypes = { topology: TopologyEdge };
@@ -43,6 +45,7 @@ type Props = {
   nodes: TopologyNode[];
   edges: Edge[];
   selection?: string;
+  focusRequest?: { id: string };
   onSelect: (id?: string) => void;
   editing: boolean;
   onConnect: OnConnect;
@@ -61,6 +64,7 @@ function Canvas({
   nodes: initialNodes,
   edges: initialEdges,
   selection,
+  focusRequest,
   onSelect,
   editing,
   onConnect,
@@ -108,7 +112,7 @@ function Canvas({
     getNodes,
     getNode,
     getViewport,
-    setCenter,
+    setViewport,
     zoomIn,
     zoomOut,
   } = useReactFlow<TopologyNode>();
@@ -121,49 +125,46 @@ function Canvas({
     void fitView({ padding: 0.12, maxZoom: 1, minZoom: 0.05 });
   }, [initialized, fitView]);
   useEffect(() => {
-    if (!selection) return;
-    const frame = requestAnimationFrame(() => {
-      const node = getNode(selection);
-      if (!node) return;
-      const positions = absolutePositions(getNodes()),
-        point = positions[selection];
-      const { width, height } = store.getState(),
-        viewport = getViewport();
-      const size = node.measured ?? topologyNodeSize[node.type!];
-      const selectionZoom =
-        node.type === "network"
-          ? Math.min(
-              1,
-              (width - 48) / (size.width ?? 236),
-              (height - 48) / (size.height ?? 84),
-            )
-          : Math.max(viewport.zoom, 0.6);
-      const left = point.x * viewport.zoom + viewport.x,
-        top = point.y * viewport.zoom + viewport.y;
-      if (
-        left >= 24 &&
-        top >= 24 &&
-        left + (size.width ?? 184) * viewport.zoom <= width - 24 &&
-        top + (size.height ?? 64) * viewport.zoom <= height - 24 &&
-        viewport.zoom >= 0.6
-      )
-        return;
-      void setCenter(
-        point.x + (size.width ?? 184) / 2,
-        point.y + (size.height ?? 64) / 2,
-        {
-          zoom: selectionZoom,
-          duration: reducedMotion ? 0 : 180,
-        },
-      );
+    if (!focusRequest) return;
+    const node = getNode(focusRequest.id);
+    const point = absolutePositions(getNodes())[focusRequest.id];
+    if (!node || !point) return;
+    const viewport = getViewport();
+    const size = node.measured ?? topologyNodeSize[node.type!];
+    const nodeWidth = size.width ?? 184,
+      nodeHeight = size.height ?? 64;
+    // Read the changing canvas size on the same Motion clock as the inspector.
+    // This keeps the target visible without a second pan after the panel opens.
+    const animation = animate(0, 1, {
+      duration: reducedMotion ? 0 : workspaceMotionDuration / 1000,
+      ease: "easeOut",
+      onUpdate: (progress) => {
+        const { width, height } = store.getState();
+        const targetZoom =
+          node.type === "network"
+            ? Math.min(
+                viewport.zoom,
+                Math.max(1, width - 48) / nodeWidth,
+                Math.max(1, height - 48) / nodeHeight,
+              )
+            : viewport.zoom;
+        const zoom = viewport.zoom + (targetZoom - viewport.zoom) * progress;
+        const x = width / 2 - (point.x + nodeWidth / 2) * zoom;
+        const y = height / 2 - (point.y + nodeHeight / 2) * zoom;
+        void setViewport({
+          x: viewport.x + (x - viewport.x) * progress,
+          y: viewport.y + (y - viewport.y) * progress,
+          zoom,
+        });
+      },
     });
-    return () => cancelAnimationFrame(frame);
+    return () => animation.stop();
   }, [
-    selection,
+    focusRequest,
     getNode,
     getNodes,
     getViewport,
-    setCenter,
+    setViewport,
     store,
     reducedMotion,
   ]);
@@ -196,6 +197,9 @@ function Canvas({
         }}
         nodesConnectable={editing}
         nodesDraggable={false}
+        preventScrolling={false}
+        zoomOnScroll={false}
+        zoomActivationKeyCode="Control"
         edgesReconnectable={false}
         deleteKeyCode={null}
         minZoom={0.05}

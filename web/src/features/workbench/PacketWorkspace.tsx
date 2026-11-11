@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ShieldAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Schema } from "../../api/client";
-import { packetAlerts } from "./trafficModel";
-import { riskLevel } from "./TrafficGraph";
 import { dateTime } from "../../foundation/format";
 import styles from "./PacketWorkspace.module.css";
+import { riskLevel } from "./TrafficGraph";
+import { packetAlerts } from "./trafficModel";
 
 export type Field = Schema<"PacketField">;
 type Packet = Schema<"CapturePacket">;
@@ -25,20 +25,24 @@ export function PacketList({
   packets,
   selectedId,
   onSelect,
+  onOpen,
   alerts,
   loading,
   onOlder,
   fetching,
   live,
+  compact = false,
 }: {
   packets: Packet[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  onOpen?: (id: string) => void;
   alerts: Schema<"SecurityAlert">[];
   loading: boolean;
   onOlder?: () => void;
   fetching: boolean;
   live: boolean;
+  compact?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -46,7 +50,7 @@ export function PacketList({
       host.current?.scrollTo({ top: host.current.scrollHeight });
   }, [packets, live, selectedId]);
   return (
-    <div className={styles.list} ref={host}>
+    <div className={styles.list} data-compact={compact} ref={host}>
       {onOlder && (
         <button className={styles.older} onClick={onOlder} disabled={fetching}>
           {fetching ? "读取中…" : "更早报文"}
@@ -107,6 +111,7 @@ export function PacketList({
             return (
               <tr
                 key={packet.id}
+                title={compact ? packet.summary : undefined}
                 aria-selected={selectedId === packet.id}
                 data-risk={risk?.value}
                 data-protocol={packet.protocol.toLowerCase()}
@@ -115,11 +120,15 @@ export function PacketList({
                     ? 0
                     : -1
                 }
-                onClick={() => onSelect(packet.id!)}
+                onClick={() => {
+                  onSelect(packet.id!);
+                  onOpen?.(packet.id!);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     onSelect(packet.id!);
+                    onOpen?.(packet.id!);
                   }
                 }}
               >

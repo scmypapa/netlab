@@ -807,7 +807,7 @@ test("资产资源曲线按对象查询，时间切换和窄屏布局贯通", as
 
 // API fixtures verify browser interaction. Runtime acceptance uses the real node separately.
 async function fixture(
-  page: Page,
+  page: Pick<Page, "route">,
   options: {
     permissions?: string[];
     assetPermissions?: Record<string, string[]>;
@@ -1221,6 +1221,108 @@ async function fixture(
   });
   return calls;
 }
+
+test("设计迁移：手动选择不移画布，定位器和属性栏保持稳定", async ({ page }) => {
+  const calls = await fixture(page);
+  await page.goto("/environments/env");
+  const viewport = page.locator(".react-flow__viewport").first();
+  const web = page.locator('.react-flow__node[data-id="web"]');
+  const windows = page.locator('.react-flow__node[data-id="windows"]');
+  await expect(web).toBeVisible();
+  // Initial fit is the only automatic viewport change.
+  await expect.poll(() => viewport.getAttribute("style")).toMatch(/transform:/);
+  await page.getByRole("button", { name: "定位对象", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  const before = await viewport.getAttribute("style");
+  const tabs = page.getByRole("radiogroup", { name: "工作区视图" });
+  const toolbarBefore = await tabs.boundingBox();
+  await web.click();
+  const inspector = page.getByRole("complementary", { name: "对象详情" });
+  await expect(inspector).toContainText("web-01");
+  await expect(viewport).toHaveAttribute("style", before!);
+  await windows.click();
+  await expect(inspector).toContainText("windows-01");
+  await expect(viewport).toHaveAttribute("style", before!);
+  expect((await tabs.boundingBox())?.x).toBe(toolbarBefore?.x);
+  await page.getByRole("button", { name: "关闭对象详情" }).click();
+  await expect(inspector).toHaveCount(0);
+  await expect(viewport).toHaveAttribute("style", before!);
+  await page.keyboard.press("Control+k");
+  await page.getByRole("textbox", { name: "搜索拓扑对象" }).fill("10.10.0.11");
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(inspector).toContainText("windows-01");
+  await expect(viewport).not.toHaveAttribute("style", before!);
+  await tabs.getByText("资产", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "定位对象" })).toHaveCount(0);
+  const typeSwitch = page.getByRole("radiogroup", { name: "对象类型" });
+  const switchWidth = (await typeSwitch.boundingBox())!.width;
+  await page.getByRole("button", { name: "关闭对象详情" }).click();
+  await expect(inspector).toHaveCount(0);
+  expect((await typeSwitch.boundingBox())!.width).toBe(switchWidth);
+  expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
+});
+
+test("设计迁移：独立控制台沿用会话权限且不占用工作台", async ({
+  page,
+  context,
+}) => {
+  await fixture(context, {
+    permissions: [],
+    assetPermissions: { windows: ["read", "session"] },
+    identity: { id: "scoped", name: "scoped", administrator: false },
+  });
+  const connections: string[] = [];
+  await context.routeWebSocket(/\/console\?kind=serial$/, (socket) => {
+    connections.push(socket.url());
+    socket.close();
+  });
+  await page.goto("/environments/env");
+  await page.locator('.react-flow__node[data-id="windows"]').click();
+  await page.getByRole("button", { name: "连接方式", exact: true }).click();
+  const popupPromise = context.waitForEvent("page");
+  await page.getByRole("menuitem", { name: "串口控制台", exact: true }).click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(
+    /\/environments\/env\/console\/windows\/serial$/,
+  );
+  await expect(popup.getByRole("region", { name: "资产连接" })).toBeVisible();
+  await expect.poll(() => connections.length).toBeGreaterThan(0);
+  await expect(page.getByRole("region", { name: "资产连接" })).toHaveCount(0);
+  await popup.goto("/environments/env/console/web/terminal");
+  await expect(popup.getByText("无法访问该资产的控制台")).toBeVisible();
+  await popup.close();
+});
+
+test("设计迁移：保留固化模板，宽窄屏和日夜布局不溢出", async ({ page }) => {
+  await fixture(page, { status: "stopped" });
+  await page.goto("/environments/env");
+  await page.locator('.react-flow__node[data-id="windows"]').click();
+  await page.getByRole("button", { name: "对象操作", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "固化模板" })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  for (const theme of ["light", "dark"]) {
+    if (theme === "dark")
+      await page.getByRole("button", { name: "切换夜间主题" }).click();
+    for (const width of [390, 1366, 1920, 2560]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        )
+        .toBe(true);
+      await page.screenshot({
+        path: test.info().outputPath(`workspace-${theme}-${width}.png`),
+        fullPage: true,
+        animations: "disabled",
+      });
+    }
+  }
+});
 
 test("恢复点：只读查看、捕获、恢复与删除请求、真实错误呈现", async ({
   page,
