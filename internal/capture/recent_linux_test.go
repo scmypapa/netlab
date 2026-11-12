@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,4 +173,37 @@ func TestRealCompressedRecentPackets(t *testing.T) {
 	if err = readFrames(ctx, &exported, false, func(api.CapturePacket, []byte) bool { count++; return true }); err != nil || count != 3 {
 		t.Fatalf("scoped history export: count=%d err=%v", count, err)
 	}
+	t.Run("quoted packet summaries", func(t *testing.T) {
+		r, environment, interfaces := recordingFixture(t, 1<<20)
+		udp.SrcPort, udp.DstPort = 5353, 5353
+		values := []string{`name="lab"`, `path=C:\lab\trace`, "line\tbreak\nnext\rline"}
+		frames := make([][]byte, len(values))
+		for index, value := range values {
+			dns := &layers.DNS{ID: 8, QR: true, Answers: []layers.DNSResourceRecord{{Name: []byte("example.local"), Type: layers.DNSTypePTR, Class: layers.DNSClassIN, PTR: []byte(value + ".local")}}}
+			buffer := gopacket.NewSerializeBuffer()
+			if err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), ip, udp, dns); err != nil {
+				t.Fatal(err)
+			}
+			frames[index] = buffer.Bytes()
+			if err := r.Record(environment, interfaces, 0, gopacket.CaptureInfo{Timestamp: at.Add(time.Duration(index) * time.Millisecond), Length: len(frames[index]), CaptureLength: len(frames[index])}, frames[index]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		page, err := r.Recent(ctx, environment, RecentQuery{Limit: 10})
+		if err != nil || len(page.Packets) != len(frames) {
+			t.Fatalf("quoted summaries: packets=%d err=%v", len(page.Packets), err)
+		}
+		if !strings.Contains(page.Packets[0].Summary, values[0]) || !strings.Contains(page.Packets[1].Summary, "path=C:") || !strings.Contains(page.Packets[2].Summary, "next") {
+			t.Fatalf("summary content lost: %+v", page.Packets)
+		}
+		for index, packet := range page.Packets {
+			if packet.Protocol != "MDNS" || packet.SourcePort != 5353 || packet.DestinationPort != 5353 || packet.Length != len(frames[index]) || *packet.InterfaceId != interfaces[0].InterfaceId || strings.ContainsAny(packet.Summary, "\r\n\t") {
+				t.Fatalf("packet fields shifted: %+v", packet)
+			}
+			detail, err := r.RecentPacket(ctx, environment, *packet.Id)
+			if err != nil || detail.Hex != hex.EncodeToString(frames[index]) {
+				t.Fatalf("original packet changed: err=%v", err)
+			}
+		}
+	})
 }

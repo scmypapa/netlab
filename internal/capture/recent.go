@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -275,7 +274,8 @@ func (r *Recorder) recent(ctx context.Context, environment string, q RecentQuery
 			return result, err
 		}
 		parts[index] = part
-		args := []string{"-n", "-r", "-", "-T", "fields", "-E", "separator=\t", "-E", "quote=d", "-E", "occurrence=f"}
+		// TShark 4.2 leaves embedded quotes unescaped; use escaped tab-separated fields.
+		args := []string{"-n", "-r", "-", "-T", "fields", "-E", "separator=\t", "-E", "quote=n", "-E", "escape=y", "-E", "occurrence=f"}
 		if filter != "" {
 			args = append(args, "-Y", filter)
 		}
@@ -295,13 +295,15 @@ func (r *Recorder) recent(ctx context.Context, environment string, q RecentQuery
 		if err = command.Start(); err != nil {
 			return result, err
 		}
-		reader := csv.NewReader(stdout)
-		reader.Comma = '\t'
-		reader.FieldsPerRecord = 19
+		reader := bufio.NewReader(stdout)
 		for {
-			fields, readErr := reader.Read()
-			if readErr == io.EOF {
+			line, readErr := reader.ReadString('\n')
+			if readErr == io.EOF && line == "" {
 				break
+			}
+			fields := strings.Split(strings.TrimSuffix(line, "\n"), "\t")
+			if readErr == nil && len(fields) != 19 {
+				readErr = fmt.Errorf("报文字段解析失败：收到 %d 个字段，预期 19 个", len(fields))
 			}
 			if readErr != nil {
 				command.Process.Kill()
