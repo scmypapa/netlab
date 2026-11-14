@@ -338,7 +338,7 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
         }
         if (section === "nodes")
           await expect(
-            page.getByRole("button", { name: /计算节点 A/ }),
+            page.getByRole("article", { name: "计算节点 A", exact: true }),
           ).toContainText("29.7%");
         if (section === "storage")
           await expect(
@@ -573,7 +573,7 @@ test("模板按页读取，筛选重置分页", async ({ page }) => {
   });
 });
 
-test("节点列表区分使用率与资产配置，分配上限在设置中调整", async ({ page }) => {
+test("节点资源通过共享关系区分配置上限和实际负载", async ({ page }) => {
   await fixture(page);
   await page.setViewportSize({ width: 1440, height: 960 });
   let saved: unknown;
@@ -582,30 +582,40 @@ test("节点列表区分使用率与资产配置，分配上限在设置中调�
     await route.fulfill({ status: 204 });
   });
   await page.goto("/resources");
-  const node = page.getByRole("button", { name: /计算节点 A/ });
+  const card = page.getByRole("article", { name: "计算节点 A", exact: true });
+  const workloads = card.getByRole("group", {
+    name: "计算节点 A 虚拟机与容器",
+    exact: true,
+  });
+  await expect(workloads).toContainText("CPU 分配上限 128 核");
+  await expect(workloads).toContainText("允许超配 4 倍");
+  await expect(workloads).toContainText("12 核");
+  const hardware = card.getByRole("region", {
+    name: "计算节点 A 计算节点",
+    exact: true,
+  });
   await expect(
-    node.getByLabel("计算节点 A 实时负载", { exact: true }),
+    hardware.getByRole("group", { name: "计算节点 A CPU 使用率", exact: true }),
+  ).toContainText("32 核");
+  await expect(
+    hardware.getByRole("group", { name: "计算节点 A CPU 使用率", exact: true }),
   ).toContainText("29.7%");
   await expect(
-    node.getByLabel("计算节点 A 实时负载", { exact: true }),
+    hardware.getByRole("group", { name: "计算节点 A 内存使用率", exact: true }),
   ).toContainText("18.8%");
+  await expect(card).toContainText("共享节点资源");
+  await expect(card).not.toContainText("虚拟核");
   await expect(
-    node.getByLabel("计算节点 A 资产配置", { exact: true }),
-  ).toContainText("12 核");
-  await expect(
-    node.getByLabel("计算节点 A 资产配置", { exact: true }),
-  ).toContainText("32 GiB");
-  await expect(node).not.toContainText("9.5");
-  await expect(node).not.toContainText("128 vCPU");
-  await node.click();
+    page.getByRole("button", { name: "部署容量", exact: true }),
+  ).toHaveCount(0);
+  await card
+    .getByRole("button", { name: "查看计算节点 A", exact: true })
+    .click();
   const drawer = page.getByRole("dialog", { name: "计算节点 A", exact: true });
-  await expect(drawer.getByLabel("CPU 分配", { exact: true })).toContainText(
-    "116 虚拟核",
-  );
-  await expect(drawer.getByLabel("CPU 超配倍数", { exact: true })).toHaveValue(
+  await expect(drawer.getByLabel("CPU 超配上限", { exact: true })).toHaveValue(
     "4 倍",
   );
-  await drawer.getByLabel("CPU 超配倍数", { exact: true }).fill("2");
+  await drawer.getByLabel("CPU 超配上限", { exact: true }).fill("2");
   await drawer.getByRole("button", { name: "应用", exact: true }).click();
   await expect
     .poll(() => saved)

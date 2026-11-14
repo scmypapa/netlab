@@ -35,8 +35,8 @@ export function NodeScheduling({ node }: { node: Node }) {
           <div className={styles.schedulingHeading}>
             <h3>CPU 分配</h3>
             <NumberInput
-              label="CPU 超配倍数"
-              aria-label="CPU 超配倍数"
+              label="CPU 超配上限"
+              aria-label="CPU 超配上限"
               suffix=" 倍"
               min={1}
               step={0.5}
@@ -48,7 +48,7 @@ export function NodeScheduling({ node }: { node: Node }) {
           <dl>
             <div>
               <dt>已分配</dt>
-              <dd>{reading(node.reserved.cpu)} 虚拟核</dd>
+              <dd>{reading(node.reserved.cpu)} 核</dd>
             </div>
             <div>
               <dt>还可分配</dt>
@@ -60,14 +60,12 @@ export function NodeScheduling({ node }: { node: Node }) {
                       node.reserved.cpu,
                   ),
                 )}{" "}
-                虚拟核
+                核
               </dd>
             </div>
             <div>
               <dt>分配上限</dt>
-              <dd>
-                {reading(node.capacity.cpu * node.cpuAllocationRatio)} 虚拟核
-              </dd>
+              <dd>{reading(node.capacity.cpu * node.cpuAllocationRatio)} 核</dd>
             </div>
           </dl>
         </section>
