@@ -8,6 +8,11 @@ import { memory, reading } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
 import styles from "./NodeInventory.module.css";
 
+const percent = new Intl.NumberFormat("zh-CN", {
+  style: "percent",
+  maximumFractionDigits: 1,
+});
+
 export function NodeInventory({
   nodes,
   onSelect,
@@ -28,83 +33,101 @@ export function NodeInventory({
         <div className={styles.columns} aria-hidden="true">
           <span>计算节点</span>
           <span>状态</span>
-          <span>CPU 实时</span>
-          <span>内存实时</span>
-          <span>资产 CPU 配置</span>
-          <span>资产内存配置</span>
+          <span>实时负载</span>
+          <span>资产配置</span>
           <span />
         </div>
-        {nodes.map((node) => {
-          const cpu = latestMetric(history, "cpu", node.id);
-          const ram = latestMetric(history, "memory", node.id);
-          const cpuTotal = latestMetric(history, "cpu_capacity", node.id);
-          const ramTotal = latestMetric(history, "memory_capacity", node.id);
-          return (
-            <button
-              key={node.id}
-              className={styles.row}
-              onClick={() => onSelect(node)}
+        {nodes.map((node) => (
+          <button
+            key={node.id}
+            className={styles.row}
+            onClick={() => onSelect(node)}
+          >
+            <span className={styles.name}>
+              <span className={styles.symbol}>
+                <Server size={20} />
+              </span>
+              <span>
+                <strong>{node.name}</strong>
+                <span>
+                  {reading(node.capacity.cpu)} 核 CPU ·{" "}
+                  {memory(node.capacity.memoryMiB)} 内存
+                </span>
+              </span>
+            </span>
+            <Status value={node.state ?? "unknown"} />
+            <span
+              className={styles.runtime}
+              aria-label={`${node.name} 实时负载`}
             >
-              <span className={styles.name}>
-                <span className={styles.symbol}>
-                  <Server size={20} />
-                </span>
-                <span>
-                  <strong>{node.name}</strong>
-                  <span>
-                    {node.capabilities
-                      .filter((item) => item === "vm" || item === "container")
-                      .map((item) => (item === "vm" ? "KVM" : "OCI"))
-                      .join(" / ")}
-                  </span>
-                </span>
+              <ResourceLoad
+                name={`${node.name} CPU 使用率`}
+                label="CPU"
+                used={latestMetric(history, "cpu", node.id)}
+                total={latestMetric(history, "cpu_capacity", node.id)}
+                color="var(--accent)"
+              />
+              <ResourceLoad
+                name={`${node.name} 内存使用率`}
+                label="内存"
+                used={latestMetric(history, "memory", node.id)}
+                total={latestMetric(history, "memory_capacity", node.id)}
+                color="var(--chart-2)"
+              />
+            </span>
+            <span
+              className={styles.allocation}
+              aria-label={`${node.name} 资产配置`}
+            >
+              <span>
+                <span>虚拟 CPU</span>
+                <strong>
+                  {reading(node.reserved.cpu)} <span>核</span>
+                </strong>
               </span>
-              <Status value={node.state ?? "unknown"} />
-              <span className={styles.load}>
-                <span>
-                  <strong>{reading(cpu)}</strong>
-                  <span> / {reading(cpuTotal)} 核</span>
-                </span>
-                {cpu !== undefined && cpuTotal ? (
-                  <Progress
-                    aria-label={`${node.name} CPU 使用率`}
-                    size={4}
-                    value={Math.min(100, (cpu / cpuTotal) * 100)}
-                    color="var(--accent)"
-                  />
-                ) : (
-                  <span className={styles.emptyTrack} />
-                )}
+              <span>
+                <span>内存</span>
+                <strong>{memory(node.reserved.memoryMiB)}</strong>
               </span>
-              <span className={styles.load}>
-                <span>
-                  <strong>{reading(ram, 2 ** 30)}</strong>
-                  <span> / {reading(ramTotal, 2 ** 30)} GiB</span>
-                </span>
-                {ram !== undefined && ramTotal ? (
-                  <Progress
-                    aria-label={`${node.name} 内存使用率`}
-                    size={4}
-                    value={Math.min(100, (ram / ramTotal) * 100)}
-                    color="var(--chart-2)"
-                  />
-                ) : (
-                  <span className={styles.emptyTrack} />
-                )}
-              </span>
-              <span className={styles.reserved} aria-label="资产 CPU">
-                {reading(node.reserved.cpu)} /{" "}
-                {reading(node.capacity.cpu * node.cpuAllocationRatio)} vCPU
-              </span>
-              <span className={styles.reserved} aria-label="资产内存">
-                {memory(node.reserved.memoryMiB)} /{" "}
-                {memory(node.allocatableMemoryMiB)}
-              </span>
-              <ChevronRight size={17} className={styles.arrow} />
-            </button>
-          );
-        })}
+            </span>
+            <ChevronRight size={17} className={styles.arrow} />
+          </button>
+        ))}
       </div>
     </>
+  );
+}
+
+function ResourceLoad({
+  name,
+  label,
+  used,
+  total,
+  color,
+}: {
+  name: string;
+  label: string;
+  used: number | undefined;
+  total: number | undefined;
+  color: string;
+}) {
+  const ratio = used !== undefined && total ? used / total : undefined;
+  return (
+    <span className={styles.load}>
+      <span>
+        <span>{label}</span>
+        <strong>{ratio === undefined ? "—" : percent.format(ratio)}</strong>
+      </span>
+      {ratio === undefined ? (
+        <span className={styles.emptyTrack} />
+      ) : (
+        <Progress
+          aria-label={name}
+          size={4}
+          value={Math.min(100, ratio * 100)}
+          color={color}
+        />
+      )}
+    </span>
   );
 }

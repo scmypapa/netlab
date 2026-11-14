@@ -339,7 +339,7 @@ test("环境、模板、节点与存储采用各自工作布局，适配日夜�
         if (section === "nodes")
           await expect(
             page.getByRole("button", { name: /计算节点 A/ }),
-          ).toContainText("9.5");
+          ).toContainText("29.7%");
         if (section === "storage")
           await expect(
             page.getByRole("heading", { name: "共享存储", exact: true }),
@@ -571,4 +571,43 @@ test("模板按页读取，筛选重置分页", async ({ page }) => {
     path: test.info().outputPath("templates-pagination.png"),
     animations: "disabled",
   });
+});
+
+test("节点列表区分使用率与资产配置，分配上限在设置中调整", async ({ page }) => {
+  await fixture(page);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  let saved: unknown;
+  await page.route("**/api/v1/nodes/node-0/scheduling", async (route) => {
+    saved = route.request().postDataJSON();
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto("/resources");
+  const node = page.getByRole("button", { name: /计算节点 A/ });
+  await expect(
+    node.getByLabel("计算节点 A 实时负载", { exact: true }),
+  ).toContainText("29.7%");
+  await expect(
+    node.getByLabel("计算节点 A 实时负载", { exact: true }),
+  ).toContainText("18.8%");
+  await expect(
+    node.getByLabel("计算节点 A 资产配置", { exact: true }),
+  ).toContainText("12 核");
+  await expect(
+    node.getByLabel("计算节点 A 资产配置", { exact: true }),
+  ).toContainText("32 GiB");
+  await expect(node).not.toContainText("9.5");
+  await expect(node).not.toContainText("128 vCPU");
+  await node.click();
+  const drawer = page.getByRole("dialog", { name: "计算节点 A", exact: true });
+  await expect(drawer.getByLabel("CPU 分配", { exact: true })).toContainText(
+    "116 虚拟核",
+  );
+  await expect(drawer.getByLabel("CPU 超配倍数", { exact: true })).toHaveValue(
+    "4 倍",
+  );
+  await drawer.getByLabel("CPU 超配倍数", { exact: true }).fill("2");
+  await drawer.getByRole("button", { name: "应用", exact: true }).click();
+  await expect
+    .poll(() => saved)
+    .toEqual({ cpuAllocationRatio: 2, memoryReserveMiB: 0 });
 });
