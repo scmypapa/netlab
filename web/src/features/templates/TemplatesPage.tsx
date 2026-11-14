@@ -8,8 +8,8 @@ import { api } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { memory } from "../../foundation/format";
 import { Status } from "../../foundation/Status";
-import { LoadMore } from "../../foundation/LoadMore";
-import { useCursorList } from "../../foundation/useCursorList";
+import { ListPagination } from "../../foundation/ListPagination";
+import { useCursorPage } from "../../foundation/useCursorPage";
 import { BlueprintsPanel } from "./BlueprintsPanel";
 import { TemplateDetails } from "./TemplateDetails";
 import { TemplateImportForm } from "./TemplateImport";
@@ -50,7 +50,7 @@ function AssetTemplatesPanel() {
   const [query, setQuery] = useState("");
   const [search] = useDebouncedValue(query, 250);
   const selectedKind = kind === "all" ? "" : kind;
-  const templates = useCursorList(
+  const templates = useCursorPage(
     ["templates", { search, kind: selectedKind }],
     (page) => api.templates({ ...page, search, kind: selectedKind }),
     {
@@ -133,8 +133,7 @@ function AssetTemplatesPanel() {
                       <span>
                         {template.os} ·{" "}
                         {template.format?.toUpperCase() ??
-                          (template.kind === "container" ? "OCI" : "—")}{" "}
-                        · v{template.version}
+                          (template.kind === "container" ? "OCI" : "—")}
                       </span>
                       <span>
                         {template.resources.cpu} 核 ·{" "}
@@ -147,8 +146,8 @@ function AssetTemplatesPanel() {
                 {!items.length && (
                   <Empty icon={<Search size={24} />} title="没有匹配的模板" />
                 )}
-                <LoadMore list={templates} />
               </div>
+              <ListPagination list={templates} />
             </aside>
             {detail ? (
               <TemplateDetails

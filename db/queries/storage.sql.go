@@ -298,6 +298,57 @@ func (q *Queries) NodeStorageOperation(ctx context.Context, scopeID string) (Ope
 	return i, err
 }
 
+const otherEnvironmentStorageSources = `-- name: OtherEnvironmentStorageSources :many
+SELECT r.environment_id,e.name,r.node_id,r.execution,''::text AS recovery_id
+FROM runtime_assets r JOIN environments e ON e.id=r.environment_id
+WHERE r.environment_id<>$1::text AND (r.node_id=ANY($2::text[]) OR r.execution->>'storageFilesystem'=ANY($3::text[]))
+UNION ALL
+SELECT p.environment_id,e.name,a->>'nodeId',a->'execution',p.id
+FROM recovery_points p JOIN environments e ON e.id=p.environment_id
+CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a
+WHERE p.environment_id<>$1::text AND (a->>'nodeId'=ANY($2::text[]) OR a->'execution'->>'storageFilesystem'=ANY($3::text[]))
+`
+
+type OtherEnvironmentStorageSourcesParams struct {
+	EnvironmentID     string
+	NodeIds           []string
+	SharedFilesystems []string
+}
+
+type OtherEnvironmentStorageSourcesRow struct {
+	EnvironmentID string
+	Name          string
+	NodeID        string
+	Execution     []byte
+	RecoveryID    string
+}
+
+func (q *Queries) OtherEnvironmentStorageSources(ctx context.Context, arg OtherEnvironmentStorageSourcesParams) ([]OtherEnvironmentStorageSourcesRow, error) {
+	rows, err := q.db.Query(ctx, otherEnvironmentStorageSources, arg.EnvironmentID, arg.NodeIds, arg.SharedFilesystems)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OtherEnvironmentStorageSourcesRow{}
+	for rows.Next() {
+		var i OtherEnvironmentStorageSourcesRow
+		if err := rows.Scan(
+			&i.EnvironmentID,
+			&i.Name,
+			&i.NodeID,
+			&i.Execution,
+			&i.RecoveryID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pendingStorageWrites = `-- name: PendingStorageWrites :many
 SELECT allocation.fs::text AS filesystem,sum(allocation.amount::bigint)::bigint AS gib
 FROM operations o LEFT JOIN environments e ON e.id=o.environment_id

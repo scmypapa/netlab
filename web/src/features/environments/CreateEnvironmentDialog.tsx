@@ -12,16 +12,13 @@ import styles from "./Environments.module.css";
 
 export function CreateEnvironmentDialog({
   blueprint,
-  versionId,
   onClose,
 }: {
   blueprint?: Blueprint;
-  versionId?: string;
   onClose: () => void;
 }) {
   const [name, setName] = useState(blueprint?.name ?? "");
   const [blueprintId, setBlueprintId] = useState(blueprint?.id ?? "blank");
-  const [selectedVersion, setSelectedVersion] = useState(versionId ?? "");
   const [run, setRun] = useState(true);
   const [clientRequestId] = useState(() => randomUUID());
   const blueprints = useCursorList(["blueprints"], api.blueprints);
@@ -33,13 +30,7 @@ export function CreateEnvironmentDialog({
     ).values(),
   ];
   const selected = choices.find((item) => item.id === blueprintId);
-  const versions = useCursorList(
-    ["blueprint-versions", blueprintId],
-    (page) => api.blueprintVersions(blueprintId, page),
-    { enabled: blueprintId !== "blank" },
-  );
-  const currentVersion = selectedVersion || selected?.latestVersionId;
-  const summary = versions.data?.find((item) => item.id === currentVersion);
+  const summary = selected;
   const navigate = useNavigate();
   const client = useQueryClient();
   const create = useMutation({
@@ -51,7 +42,7 @@ export function CreateEnvironmentDialog({
           ? { spec: { assets: [], networks: [] } }
           : {
               projectId: selected!.projectId,
-              blueprintVersionId: currentVersion!,
+              blueprintVersionId: selected!.latestVersionId,
               run,
             }),
       }),
@@ -85,7 +76,6 @@ export function CreateEnvironmentDialog({
             ]}
             onChange={(value) => {
               setBlueprintId(value!);
-              setSelectedVersion("");
               if (!name)
                 setName(choices.find((item) => item.id === value)?.name ?? "");
             }}
@@ -93,18 +83,6 @@ export function CreateEnvironmentDialog({
           <LoadMore list={blueprints} />
           {blueprintId !== "blank" && (
             <>
-              <Select
-                label="版本"
-                allowDeselect={false}
-                value={currentVersion ?? null}
-                disabled={versions.isPending}
-                data={(versions.data ?? []).map((item) => ({
-                  value: item.id,
-                  label: `v${item.version}`,
-                }))}
-                onChange={(value) => setSelectedVersion(value!)}
-              />
-              <LoadMore list={versions} />
               {summary && (
                 <div className="blueprint-scale">
                   <Layers3 size={18} />
@@ -130,9 +108,7 @@ export function CreateEnvironmentDialog({
               onChange={(event) => setRun(event.currentTarget.checked)}
             />
           )}
-          <ErrorMessage
-            error={blueprints.error ?? versions.error ?? create.error}
-          />
+          <ErrorMessage error={blueprints.error ?? create.error} />
         </section>
         <div className={styles.creationFooter}>
           <Button variant="default" onClick={onClose}>

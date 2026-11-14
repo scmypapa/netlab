@@ -103,3 +103,13 @@ UNION ALL
 SELECT a->>'nodeId',a->'execution',p.id FROM recovery_points p
 CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a
 WHERE p.environment_id=$1;
+
+-- name: OtherEnvironmentStorageSources :many
+SELECT r.environment_id,e.name,r.node_id,r.execution,''::text AS recovery_id
+FROM runtime_assets r JOIN environments e ON e.id=r.environment_id
+WHERE r.environment_id<>sqlc.arg(environment_id)::text AND (r.node_id=ANY(sqlc.arg(node_ids)::text[]) OR r.execution->>'storageFilesystem'=ANY(sqlc.arg(shared_filesystems)::text[]))
+UNION ALL
+SELECT p.environment_id,e.name,a->>'nodeId',a->'execution',p.id
+FROM recovery_points p JOIN environments e ON e.id=p.environment_id
+CROSS JOIN LATERAL jsonb_array_elements(p.definition->'assets') a
+WHERE p.environment_id<>sqlc.arg(environment_id)::text AND (a->>'nodeId'=ANY(sqlc.arg(node_ids)::text[]) OR a->'execution'->>'storageFilesystem'=ANY(sqlc.arg(shared_filesystems)::text[]));

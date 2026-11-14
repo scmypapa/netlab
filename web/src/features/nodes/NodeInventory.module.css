@@ -10,7 +10,7 @@
   display: grid;
   grid-template-columns:
     minmax(180px, 1.3fr) 88px minmax(140px, 1fr) minmax(140px, 1fr)
-    minmax(140px, 0.9fr) 18px;
+    minmax(120px, 0.9fr) minmax(150px, 1fr) 18px;
   gap: 24px;
   align-items: center;
   padding: 17px 22px;
@@ -176,6 +176,7 @@
       18px;
   }
   .columns > :nth-child(5),
+  .columns > :nth-child(6),
   .reserved {
     display: none;
   }

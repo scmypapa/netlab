@@ -4,7 +4,6 @@ import {
   Drawer,
   Group,
   Modal,
-  Select,
   TextInput,
 } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,8 +14,8 @@ import { useNavigate } from "react-router-dom";
 import { api, type Blueprint } from "../../api/client";
 import { Empty, ErrorMessage, Loading } from "../../foundation/Feedback";
 import { dateTime } from "../../foundation/format";
-import { LoadMore } from "../../foundation/LoadMore";
-import { useCursorList } from "../../foundation/useCursorList";
+import { ListPagination } from "../../foundation/ListPagination";
+import { useCursorPage } from "../../foundation/useCursorPage";
 import { CreateEnvironmentDialog } from "../environments/CreateEnvironmentDialog";
 import { allowsProject } from "../access/permissions";
 import styles from "./Templates.module.css";
@@ -24,7 +23,7 @@ import styles from "./Templates.module.css";
 export function BlueprintsPanel() {
   const [query, setQuery] = useState("");
   const [search] = useDebouncedValue(query, 250);
-  const blueprints = useCursorList(["blueprints", { search }], (page) =>
+  const blueprints = useCursorPage(["blueprints", { search }], (page) =>
     api.blueprints({ ...page, search }),
   );
   const [selected, setSelected] = useState<Blueprint>();
@@ -50,7 +49,6 @@ export function BlueprintsPanel() {
             <thead>
               <tr>
                 <th>模板</th>
-                <th>最新版本</th>
                 <th>规模</th>
                 <th>最近更新</th>
                 <th />
@@ -70,7 +68,6 @@ export function BlueprintsPanel() {
                       <strong>{item.name}</strong>
                     </button>
                   </td>
-                  <td className={styles.technical}>v{item.latestVersion}</td>
                   <td className="numeric">
                     {item.assetCount} 资产
                     <span className="muted"> · {item.networkCount} 网段</span>
@@ -103,7 +100,7 @@ export function BlueprintsPanel() {
           />
         )
       )}
-      <LoadMore list={blueprints} />
+      <ListPagination list={blueprints} />
       {selected && (
         <BlueprintDetails
           key={selected.id}
@@ -128,7 +125,7 @@ function BlueprintDetails({
     "compose",
     blueprint.projectId,
   );
-  const [versionId, setVersionId] = useState(blueprint.latestVersionId);
+  const versionId = blueprint.latestVersionId;
   const [creating, setCreating] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const client = useQueryClient();
@@ -139,9 +136,6 @@ function BlueprintDetails({
       onClose();
     },
   });
-  const versions = useCursorList(["blueprint-versions", blueprint.id], (page) =>
-    api.blueprintVersions(blueprint.id, page),
-  );
   const version = useQuery({
     queryKey: ["blueprint-version", versionId],
     queryFn: () => api.blueprintVersion(versionId),
@@ -156,18 +150,7 @@ function BlueprintDetails({
         size={760}
       >
         <div className="form-stack">
-          <Select
-            label="版本"
-            allowDeselect={false}
-            value={versionId}
-            data={(versions.data ?? []).map((item) => ({
-              value: item.id,
-              label: `v${item.version} · ${dateTime(item.createdAt)}`,
-            }))}
-            onChange={(value) => setVersionId(value!)}
-          />
-          <LoadMore list={versions} />
-          <ErrorMessage error={versions.error ?? version.error} />
+          <ErrorMessage error={version.error} />
           {version.isPending ? (
             <Loading />
           ) : (
@@ -276,7 +259,6 @@ function BlueprintDetails({
       {creating && (
         <CreateEnvironmentDialog
           blueprint={blueprint}
-          versionId={versionId}
           onClose={() => setCreating(false)}
         />
       )}

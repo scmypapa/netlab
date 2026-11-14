@@ -64,6 +64,8 @@ import { StorageUsage } from "./StorageUsage";
 import { TaskTray } from "./TaskTray";
 import { TopologyCanvas } from "./TopologyCanvas";
 import { VPNDrawer } from "./VPNDrawer";
+import { ListPagination } from "../../foundation/ListPagination";
+import { useLocalPage } from "../../foundation/useLocalPage";
 import styles from "./WorkbenchPage.module.css";
 import { consoleHref } from "./consoles";
 import { routerGateways } from "./networking";
@@ -174,7 +176,7 @@ function Workbench({ id }: { id: string }) {
       ),
     [workbench.state.data?.assets],
   );
-  const layout = useTopology(spec, templates);
+  const layout = useTopology(spec, templates, view === "topology");
   const graph = useMemo(
     () => ({
       edges: layout.data?.edges ?? [],
@@ -209,6 +211,11 @@ function Workbench({ id }: { id: string }) {
         .toLocaleLowerCase()
         .includes(query.toLocaleLowerCase()),
   );
+  const assetPage = useLocalPage<{ id: string }>(
+    [...listedAssets, ...listedExternalDevices.map(({ device }) => device)],
+    `${id}/${query}/${assetFilter}`,
+  );
+  const visibleAssets = new Set(assetPage.data.map((item) => item.id));
   const fileAsset =
     filesOpened &&
     !workbench.editing &&
@@ -909,81 +916,88 @@ function Workbench({ id }: { id: string }) {
                           </tr>
                         </thead>
                         <tbody>
-                          {listedAssets.map((item) => (
-                            <tr
-                              key={item.id}
-                              aria-selected={selection === item.id}
-                              onClick={() => selectObject(item.id)}
-                              onContextMenu={(event) => {
-                                event.preventDefault();
-                                selectObject(item.id);
-                                setContext({
-                                  id: item.id,
-                                  x: event.clientX,
-                                  y: event.clientY,
-                                });
-                              }}
-                            >
-                              <td>
-                                <button
-                                  className={styles.assetName}
-                                  onClick={() => selectObject(item.id)}
-                                >
-                                  {templatesById.get(item.templateId)?.kind ===
-                                  "vm" ? (
-                                    <Monitor size={17} />
-                                  ) : (
-                                    <Box size={17} />
-                                  )}
-                                  {item.name}
-                                </button>
-                              </td>
-                              <td>
-                                <Status
-                                  value={assetStates.get(item.id) ?? "draft"}
-                                />
-                              </td>
-                              <td>
-                                {item.interfaces
-                                  .map(
-                                    (iface) =>
-                                      spec.networks.find(
-                                        (network) =>
-                                          network.id === iface.networkId,
-                                      )?.name,
-                                  )
-                                  .join("、")}
-                              </td>
-                              <td className="mono">
-                                {item.interfaces
-                                  .map((iface) => iface.address)
-                                  .filter(Boolean)
-                                  .join("、")}
-                              </td>
-                            </tr>
-                          ))}
-                          {listedExternalDevices.map(({ device, network }) => (
-                            <tr
-                              key={device.id}
-                              aria-selected={selection === device.id}
-                              onClick={() => selectObject(device.id)}
-                            >
-                              <td>
-                                <button
-                                  className={styles.assetName}
-                                  onClick={() => selectObject(device.id)}
-                                >
-                                  <Router size={17} />
-                                  {device.name}
-                                </button>
-                              </td>
-                              <td>外部设备</td>
-                              <td>{network.name}</td>
-                              <td className="mono">{device.address}</td>
-                            </tr>
-                          ))}
+                          {listedAssets
+                            .filter((item) => visibleAssets.has(item.id))
+                            .map((item) => (
+                              <tr
+                                key={item.id}
+                                aria-selected={selection === item.id}
+                                onClick={() => selectObject(item.id)}
+                                onContextMenu={(event) => {
+                                  event.preventDefault();
+                                  selectObject(item.id);
+                                  setContext({
+                                    id: item.id,
+                                    x: event.clientX,
+                                    y: event.clientY,
+                                  });
+                                }}
+                              >
+                                <td>
+                                  <button
+                                    className={styles.assetName}
+                                    onClick={() => selectObject(item.id)}
+                                  >
+                                    {templatesById.get(item.templateId)
+                                      ?.kind === "vm" ? (
+                                      <Monitor size={17} />
+                                    ) : (
+                                      <Box size={17} />
+                                    )}
+                                    {item.name}
+                                  </button>
+                                </td>
+                                <td>
+                                  <Status
+                                    value={assetStates.get(item.id) ?? "draft"}
+                                  />
+                                </td>
+                                <td>
+                                  {item.interfaces
+                                    .map(
+                                      (iface) =>
+                                        spec.networks.find(
+                                          (network) =>
+                                            network.id === iface.networkId,
+                                        )?.name,
+                                    )
+                                    .join("、")}
+                                </td>
+                                <td className="mono">
+                                  {item.interfaces
+                                    .map((iface) => iface.address)
+                                    .filter(Boolean)
+                                    .join("、")}
+                                </td>
+                              </tr>
+                            ))}
+                          {listedExternalDevices
+                            .filter(({ device }) =>
+                              visibleAssets.has(device.id),
+                            )
+                            .map(({ device, network }) => (
+                              <tr
+                                key={device.id}
+                                aria-selected={selection === device.id}
+                                onClick={() => selectObject(device.id)}
+                              >
+                                <td>
+                                  <button
+                                    className={styles.assetName}
+                                    onClick={() => selectObject(device.id)}
+                                  >
+                                    <Router size={17} />
+                                    {device.name}
+                                  </button>
+                                </td>
+                                <td>外部设备</td>
+                                <td>{network.name}</td>
+                                <td className="mono">{device.address}</td>
+                              </tr>
+                            ))}
                         </tbody>
                       </table>
+                      <ListPagination list={assetPage} />
                       {!listedAssets.length &&
                         !listedExternalDevices.length && (
                           <div className={styles.empty}>没有匹配的资产</div>

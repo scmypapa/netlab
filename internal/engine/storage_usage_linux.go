@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,13 +24,67 @@ import (
 	"netlab.local/core/api"
 )
 
+type storageFootprint struct {
+	paths          map[string]bool
+	disks          map[string]vmDisk
+	parts          map[string]api.StorageUsagePart
+	bases          map[string]bool
+	baseDisks      map[string]bool
+	measuredImages map[string]bool
+	files          map[string][]allocatedFile
+	pools          map[string]api.StorageInfo
+}
+
 func (e *Engine) StorageUsage(ctx context.Context, input api.NodeStorageUsage) ([]api.StorageUsagePart, error) {
-	paths, disks := map[string]bool{}, map[string]vmDisk{}
+	usage := storageFootprint{
+		paths: map[string]bool{}, disks: map[string]vmDisk{}, parts: map[string]api.StorageUsagePart{},
+		bases: map[string]bool{}, baseDisks: map[string]bool{}, measuredImages: map[string]bool{},
+		files: map[string][]allocatedFile{}, pools: map[string]api.StorageInfo{},
+	}
+	ids := []string{}
+	if input.Environments != nil {
+		for id := range *input.Environments {
+			if id != input.EnvironmentId {
+				ids = append(ids, id)
+			}
+		}
+	}
+	slices.Sort(ids)
+	ids = append([]string{input.EnvironmentId}, ids...)
+	// Count shared blocks in the current environment, then attribute each additional physical block once.
+	previous := map[string]api.StorageUsagePart{}
+	result := []api.StorageUsagePart{}
+	for _, id := range ids {
+		sources := input.Sources
+		if id != input.EnvironmentId {
+			sources = (*input.Environments)[id]
+		}
+		parts, err := e.storageFootprint(ctx, api.NodeStorageUsage{EnvironmentId: id, Sources: sources}, &usage)
+		if err != nil {
+			return nil, err
+		}
+		for _, part := range parts {
+			before := previous[part.Key]
+			previous[part.Key] = part
+			part.Bytes = max(int64(0), part.Bytes-before.Bytes)
+			part.BaseBytes = min(part.Bytes, max(int64(0), part.BaseBytes-before.BaseBytes))
+			if part.Bytes == 0 {
+				continue
+			}
+			part.EnvironmentId = id
+			if strings.HasPrefix(part.Key, e.cfg.ID+"/filesystem/") {
+				part.Key += "/" + id
+			}
+			result = append(result, part)
+		}
+	}
+	return result, nil
+}
+
+func (e *Engine) storageFootprint(ctx context.Context, input api.NodeStorageUsage, usage *storageFootprint) ([]api.StorageUsagePart, error) {
+	paths, disks, parts := usage.paths, usage.disks, usage.parts
+	bases, baseDisks, measuredImages := usage.bases, usage.baseDisks, usage.measuredImages
 	paths[filepath.Join(e.cfg.DataDir, "packets", input.EnvironmentId)] = true
-	parts := map[string]api.StorageUsagePart{}
-	bases := map[string]bool{}
-	baseDisks := map[string]bool{}
-	measuredImages := map[string]bool{}
 	for _, source := range input.Sources {
 		a := source.Execution
 		directory := templateDirectory(e.cfg.DataDir, a.Template.Id, a.Template.Version)
@@ -119,14 +174,14 @@ func (e *Engine) StorageUsage(ctx context.Context, input api.NodeStorageUsage) (
 			}
 		}
 	}
-	baseUsage, err := allocatedFiles(ctx, bases)
+	baseUsage, err := allocatedFiles(ctx, bases, usage.files)
 	if err != nil {
 		return nil, err
 	}
 	for path := range bases {
 		paths[path] = true
 	}
-	local, err := allocatedFiles(ctx, paths)
+	local, err := allocatedFiles(ctx, paths, usage.files)
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +191,11 @@ func (e *Engine) StorageUsage(ctx context.Context, input api.NodeStorageUsage) (
 		part.BaseBytes = min(part.Bytes, baseUsage[fs].Bytes)
 		parts[part.Key] = part
 	}
-	shared := map[string]api.StorageInfo{}
+	shared := usage.pools
 	for key, disk := range disks {
+		if _, measured := parts[key]; measured {
+			continue
+		}
 		size, err := disk.usedBytes(ctx)
 		if err != nil {
 			return nil, err
@@ -164,36 +222,58 @@ func (e *Engine) StorageUsage(ctx context.Context, input api.NodeStorageUsage) (
 	return result, nil
 }
 
+type allocatedFile struct {
+	path string
+	stat unix.Stat_t
+}
+
 // Count file blocks once per inode; Btrfs measures the extent union, including compression and reflinks.
-func allocatedFiles(ctx context.Context, paths map[string]bool) (map[string]api.StorageUsagePart, error) {
+func allocatedFiles(ctx context.Context, paths map[string]bool, cache map[string][]allocatedFile) (map[string]api.StorageUsagePart, error) {
 	seen := map[[2]uint64]bool{}
 	sizes := map[string]api.StorageUsagePart{}
-	native := map[string][]string{}
+	native := map[string]map[string]bool{}
 	filesystems := map[uint64]bool{}
 	for root := range paths {
-		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if err = ctx.Err(); err != nil {
-				return err
-			}
-			if !entry.Type().IsRegular() {
-				return nil
-			}
-			var stat unix.Stat_t
-			if err = unix.Stat(path, &stat); err != nil {
+		files, known := cache[root]
+		if !known {
+			err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 				if errors.Is(err, os.ErrNotExist) {
 					return nil
 				}
-				return err
+				if err != nil {
+					return err
+				}
+				if err = ctx.Err(); err != nil {
+					return err
+				}
+				if !entry.Type().IsRegular() {
+					return nil
+				}
+				var stat unix.Stat_t
+				if err = unix.Stat(path, &stat); errors.Is(err, os.ErrNotExist) {
+					return nil
+				} else if err != nil {
+					return err
+				}
+				files = append(files, allocatedFile{path, stat})
+				return nil
+			})
+			if err != nil {
+				return nil, err
 			}
+			cache[root] = files
+		}
+		var rootStat unix.Stat_t
+		if len(files) > 0 {
+			if err := unix.Stat(root, &rootStat); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+		}
+		for _, file := range files {
+			path, stat := file.path, file.stat
 			identity := [2]uint64{stat.Dev, stat.Ino}
 			if seen[identity] {
-				return nil
+				continue
 			}
 			seen[identity] = true
 			key := strconv.FormatUint(stat.Dev, 10)
@@ -202,29 +282,45 @@ func allocatedFiles(ctx context.Context, paths map[string]bool) (map[string]api.
 				storage, err := StorageInfo(path)
 				if err != nil {
 					if errors.Is(err, os.ErrNotExist) {
-						return nil
+						continue
 					}
-					return err
+					return nil, err
 				}
 				cow = storage.NativeSnapshots
 				filesystems[stat.Dev] = cow
 				sizes[key] = api.StorageUsagePart{Storage: &storage}
 			}
 			if cow {
-				native[key] = append(native[key], path)
+				if native[key] == nil {
+					native[key] = map[string]bool{}
+				}
+				candidate := path
+				if rootStat.Dev == stat.Dev {
+					candidate = root
+				}
+				native[key][candidate] = true
 			} else {
 				part := sizes[key]
 				part.Bytes += stat.Blocks * 512
 				sizes[key] = part
 			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
 		}
 	}
-	for key, files := range native {
-		out, err := commandOutput(ctx, "compsize", append([]string{"-b", "--"}, files...)...)
+	for key, roots := range native {
+		files := make([]string, 0, len(roots))
+		for root := range roots {
+			files = append(files, root)
+		}
+		slices.SortFunc(files, func(a, b string) int { return strings.Compare(a+string(os.PathSeparator), b+string(os.PathSeparator)) })
+		minimal := files[:0]
+		for _, path := range files {
+			if len(minimal) > 0 && strings.HasPrefix(path, minimal[len(minimal)-1]+string(os.PathSeparator)) {
+				continue
+			}
+			minimal = append(minimal, path)
+		}
+		// Directory roots keep packet segments out of the process argument list.
+		out, err := commandOutput(ctx, "compsize", append([]string{"-b", "-x", "--"}, minimal...)...)
 		if err != nil {
 			// compsize reports zero allocated extents with exit status 1.
 			var exit *exec.ExitError

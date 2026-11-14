@@ -573,17 +573,10 @@ export const api = {
   blueprints: (options?: ListOptions) =>
     list<Blueprint>("/blueprints", options),
   deleteBlueprint: (id: string) => request<void>(`/blueprints/${id}`, "DELETE"),
-  blueprintVersions: (id: string, options?: ListOptions) =>
-    list<Schema<"BlueprintVersionSummary">>(
-      `/blueprints/${id}/versions`,
-      options,
-    ),
   blueprintVersion: (id: string) =>
     request<BlueprintVersion>(`/blueprint-versions/${id}`),
   saveBlueprint: (id: string, body: Schema<"SaveBlueprint">) =>
     request<Blueprint>(`/environments/${id}/blueprints`, "POST", body),
-  saveBlueprintVersion: (id: string, body: Schema<"SaveBlueprintVersion">) =>
-    request<BlueprintVersion>(`/blueprints/${id}/versions`, "POST", body),
   state: (id: string, signal?: AbortSignal) =>
     request<EnvironmentState>(
       `/environments/${id}/state`,

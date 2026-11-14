@@ -28,9 +28,10 @@ export function NodeInventory({
         <div className={styles.columns} aria-hidden="true">
           <span>计算节点</span>
           <span>状态</span>
-          <span>CPU 使用</span>
-          <span>内存使用</span>
-          <span>已分配</span>
+          <span>CPU 实时</span>
+          <span>内存实时</span>
+          <span>资产 CPU 配置</span>
+          <span>资产内存配置</span>
           <span />
         </div>
         {nodes.map((node) => {
@@ -91,13 +92,13 @@ export function NodeInventory({
                   <span className={styles.emptyTrack} />
                 )}
               </span>
-              <span className={styles.reserved} aria-label="已分配">
+              <span className={styles.reserved} aria-label="资产 CPU">
                 {reading(node.reserved.cpu)} /{" "}
-                {reading(node.capacity.cpu * node.cpuAllocationRatio)} vCPU{" "}
-                <span>
-                  {memory(node.reserved.memoryMiB)} /{" "}
-                  {memory(node.allocatableMemoryMiB)}
-                </span>
+                {reading(node.capacity.cpu * node.cpuAllocationRatio)} vCPU
+              </span>
+              <span className={styles.reserved} aria-label="资产内存">
+                {memory(node.reserved.memoryMiB)} /{" "}
+                {memory(node.allocatableMemoryMiB)}
               </span>
               <ChevronRight size={17} className={styles.arrow} />
             </button>

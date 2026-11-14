@@ -31,11 +31,11 @@ export function NodeScheduling({ node }: { node: Node }) {
           <dd>{reading(node.capacity.cpu)} 核</dd>
         </div>
         <div>
-          <dt>已分配 CPU</dt>
+          <dt>资产 CPU</dt>
           <dd>{reading(node.reserved.cpu)} vCPU</dd>
         </div>
         <div>
-          <dt>可分配 CPU</dt>
+          <dt>CPU 配置上限</dt>
           <dd>{reading(node.capacity.cpu * node.cpuAllocationRatio)} vCPU</dd>
         </div>
         <div>
@@ -43,11 +43,11 @@ export function NodeScheduling({ node }: { node: Node }) {
           <dd>{memory(node.capacity.memoryMiB - node.allocatableMemoryMiB)}</dd>
         </div>
         <div>
-          <dt>已分配内存</dt>
+          <dt>资产内存</dt>
           <dd>{memory(node.reserved.memoryMiB)}</dd>
         </div>
         <div>
-          <dt>可分配内存</dt>
+          <dt>内存配置上限</dt>
           <dd>{memory(node.allocatableMemoryMiB)}</dd>
         </div>
       </dl>

@@ -95,7 +95,7 @@ export function TemplateDetails({
           <h2>{template.name}</h2>
           <span>
             {template.kind === "vm" ? <Monitor size={16} /> : <Box size={16} />}
-            {template.os} · v{template.version}{" "}
+            {template.os}
             <Status value={template.state ?? "importing"} />
           </span>
         </div>
