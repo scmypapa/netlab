@@ -1,8 +1,8 @@
-import { ActionIcon, Popover } from "@mantine/core";
+import { ActionIcon, Popover, Tooltip } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, HardDrive, RefreshCw } from "lucide-react";
 import { useId, useState } from "react";
-import { api } from "../../api/client";
+import { api, type Schema } from "../../api/client";
 import { ErrorMessage, Loading } from "../../foundation/Feedback";
 import { byteUnit, reading } from "../../foundation/format";
 import styles from "./WorkbenchPage.module.css";
@@ -32,7 +32,7 @@ export function StorageUsage({
   return (
     <Popover
       position="bottom-start"
-      width={380}
+      width={460}
       opened={opened}
       onChange={setOpened}
       shadow="md"
@@ -76,17 +76,11 @@ export function StorageUsage({
             </div>
             <dl className={styles.storageLegend}>
               <div>
-                <dt>
-                  <i className={styles.storageBase} />
-                  基础镜像
-                </dt>
+                <dt>基础镜像</dt>
                 <dd>{storageSize(usage.data.baseBytes)}</dd>
               </div>
               <div>
-                <dt>
-                  <i className={styles.storageDelta} />
-                  增量数据
-                </dt>
+                <dt>增量数据</dt>
                 <dd>{storageSize(usage.data.bytes - usage.data.baseBytes)}</dd>
               </div>
             </dl>
@@ -95,18 +89,13 @@ export function StorageUsage({
                 <div className={styles.storageLocationHeading}>
                   <h4>{location.name}</h4>
                 </div>
-                <StorageWave
-                  bytes={location.bytes}
-                  baseBytes={location.baseBytes}
-                  availableBytes={location.availableBytes}
-                />
+                <StorageWave id={id} location={location} />
                 <div className={styles.storageBalance}>
                   <span>
                     环境占用 <strong>{storageSize(location.bytes)}</strong>
                   </span>
                   <span>
-                    当前可用{" "}
-                    <strong>{storageSize(location.availableBytes)}</strong>
+                    空闲 <strong>{storageSize(location.availableBytes)}</strong>
                   </span>
                 </div>
               </section>
@@ -123,26 +112,68 @@ function storageSize(bytes: number) {
   return `${reading(bytes, scale)} ${unit}`;
 }
 
+function environmentColor(id: string) {
+  let hash = 2166136261;
+  for (const character of id)
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  return `hsl(${(((hash >>> 0) % 300) + 240) % 360} 52% 53%)`;
+}
+
 function StorageWave({
-  bytes,
-  baseBytes,
-  availableBytes,
+  id,
+  location,
 }: {
-  bytes: number;
-  baseBytes: number;
-  availableBytes: number;
+  id: string;
+  location: Schema<"StorageLocation">;
 }) {
   const clip = useId();
-  const total = bytes + availableBytes;
-  const base = total > 0 ? (baseBytes / total) * 600 : 0;
-  const used = total > 0 ? (bytes / total) * 600 : 0;
+  const others = location.environments.filter(
+    (environment) => environment.id !== id,
+  );
+  const otherBytes = others.reduce(
+    (sum, environment) => sum + environment.bytes,
+    0,
+  );
+  const remaining = Math.max(
+    0,
+    location.capacityBytes -
+      location.bytes -
+      location.availableBytes -
+      otherBytes,
+  );
+  const current = location.environments.find(
+    (environment) => environment.id === id,
+  );
+  const segments = [
+    {
+      id,
+      name: current?.name ?? "本环境",
+      bytes: location.bytes,
+      color: environmentColor(id),
+    },
+    {
+      id: "free",
+      name: "空闲",
+      bytes: location.availableBytes,
+      color: "#3b82f6",
+    },
+    { id: "system", name: "系统与预留", bytes: remaining, color: "#8d98a8" },
+    ...others.map((environment) => ({
+      ...environment,
+      color:
+        environment.id === "other"
+          ? "#8d98a8"
+          : environmentColor(environment.id),
+    })),
+  ];
+  let offset = 0;
   return (
     <svg
       className={styles.storageWave}
       viewBox="0 0 600 44"
       preserveAspectRatio="none"
       role="img"
-      aria-label={`基础镜像 ${storageSize(baseBytes)}，增量数据 ${storageSize(bytes - baseBytes)}，当前可用 ${storageSize(availableBytes)}`}
+      aria-label={`基础镜像 ${storageSize(location.baseBytes)}，增量数据 ${storageSize(location.bytes - location.baseBytes)}，当前可用 ${storageSize(location.availableBytes)}，其他环境 ${storageSize(otherBytes)}`}
     >
       <defs>
         <clipPath id={clip}>
@@ -153,8 +184,37 @@ function StorageWave({
         </clipPath>
       </defs>
       <g clipPath={`url(#${clip})`}>
-        <rect width={used} height="44" className={styles.storageDelta} />
-        <rect width={base} height="44" className={styles.storageBase} />
+        {segments
+          .filter((segment) => segment.bytes > 0)
+          .map((segment) => {
+            const width =
+              location.capacityBytes > 0
+                ? (segment.bytes / location.capacityBytes) * 600
+                : 0;
+            const x = offset;
+            offset += width;
+            const label = `${segment.name} · ${storageSize(segment.bytes)}`;
+            return (
+              <Tooltip
+                key={segment.id}
+                label={label}
+                openDelay={150}
+                events={{ hover: true, focus: true, touch: false }}
+              >
+                <rect
+                  x={x}
+                  width={width}
+                  height="44"
+                  fill={segment.color}
+                  tabIndex={0}
+                  aria-label={label}
+                  data-storage-segment={segment.id}
+                >
+                  <title>{label}</title>
+                </rect>
+              </Tooltip>
+            );
+          })}
       </g>
     </svg>
   );

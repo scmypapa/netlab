@@ -2700,6 +2700,16 @@ export interface components {
        * @description Space currently available to scheduling after the running reserve and pending writes.
        */
       availableBytes: number;
+      environments: components["schemas"]["StorageEnvironment"][];
+    };
+    StorageEnvironment: {
+      id: string;
+      name: string;
+      /**
+       * Format: int64
+       * @description Additional physical blocks after deduplicating environments earlier in the measurement.
+       */
+      bytes: number;
     };
     StorageUsagePart: {
       key: string;
@@ -2709,6 +2719,7 @@ export interface components {
       baseBytes?: number;
       filesystem?: string;
       storage?: components["schemas"]["StorageInfo"];
+      environmentId?: string;
     };
     StorageUsageSource: {
       execution: components["schemas"]["AssetExecution"];
@@ -2717,6 +2728,9 @@ export interface components {
     NodeStorageUsage: {
       environmentId: string;
       sources: components["schemas"]["StorageUsageSource"][];
+      environments?: {
+        [key: string]: components["schemas"]["StorageUsageSource"][];
+      };
     };
     NodeStorageEstimate: {
       assets: {

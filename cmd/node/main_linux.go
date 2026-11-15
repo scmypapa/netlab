@@ -384,14 +384,26 @@ func run() error {
 			http.Error(w, "invalid environment identity", http.StatusBadRequest)
 			return
 		}
-		for _, source := range input.Sources {
-			if err := validateExecutionPaths(source.Execution); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
+		scopes := map[string][]api.StorageUsageSource{input.EnvironmentId: input.Sources}
+		if input.Environments != nil {
+			for id, sources := range *input.Environments {
+				if !pathID(id) {
+					http.Error(w, "invalid environment identity", http.StatusBadRequest)
+					return
+				}
+				scopes[id] = append(scopes[id], sources...)
 			}
-			if source.RecoveryId != "" && !pathID(source.RecoveryId) {
-				http.Error(w, "invalid recovery identity", http.StatusBadRequest)
-				return
+		}
+		for _, sources := range scopes {
+			for _, source := range sources {
+				if err := validateExecutionPaths(source.Execution); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if source.RecoveryId != "" && !pathID(source.RecoveryId) {
+					http.Error(w, "invalid recovery identity", http.StatusBadRequest)
+					return
+				}
 			}
 		}
 		result, err := executor.StorageUsage(r.Context(), input)

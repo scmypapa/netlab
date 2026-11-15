@@ -25,15 +25,23 @@
 .library {
   display: grid;
   grid-template-columns: minmax(260px, 28%) minmax(0, 1fr);
+  height: calc(100dvh - 230px);
   min-height: 530px;
+  overflow: hidden;
 }
 .directory {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   min-width: 0;
   border-right: 1px solid var(--line);
   background: var(--surface-subtle);
   padding: 12px;
 }
 .items {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
   min-width: 0;
   display: grid;
   align-content: start;
@@ -90,6 +98,7 @@
   place-items: center;
 }
 .detail {
+  overflow-y: auto;
   min-width: 0;
   padding: 24px 28px;
 }

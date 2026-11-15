@@ -1523,8 +1523,9 @@ type NodeStorageEstimate struct {
 
 // NodeStorageUsage defines model for NodeStorageUsage.
 type NodeStorageUsage struct {
-	EnvironmentId string               `json:"environmentId"`
-	Sources       []StorageUsageSource `json:"sources"`
+	EnvironmentId string                           `json:"environmentId"`
+	Environments  *map[string][]StorageUsageSource `json:"environments,omitempty"`
+	Sources       []StorageUsageSource             `json:"sources"`
 }
 
 // NodeTemplatePreparation defines model for NodeTemplatePreparation.
@@ -1988,6 +1989,14 @@ type StorageDevice struct {
 // StorageDriver defines model for StorageDriver.
 type StorageDriver string
 
+// StorageEnvironment defines model for StorageEnvironment.
+type StorageEnvironment struct {
+	// Bytes Additional physical blocks after deduplicating environments earlier in the measurement.
+	Bytes int64  `json:"bytes"`
+	Id    string `json:"id"`
+	Name  string `json:"name"`
+}
+
 // StorageInfo defines model for StorageInfo.
 type StorageInfo struct {
 	AvailableBytes  int64       `json:"availableBytes"`
@@ -2001,12 +2010,13 @@ type StorageInfo struct {
 // StorageLocation defines model for StorageLocation.
 type StorageLocation struct {
 	// AvailableBytes Space currently available to scheduling after the running reserve and pending writes.
-	AvailableBytes int64  `json:"availableBytes"`
-	BaseBytes      int64  `json:"baseBytes"`
-	Bytes          int64  `json:"bytes"`
-	CapacityBytes  int64  `json:"capacityBytes"`
-	Id             string `json:"id"`
-	Name           string `json:"name"`
+	AvailableBytes int64                `json:"availableBytes"`
+	BaseBytes      int64                `json:"baseBytes"`
+	Bytes          int64                `json:"bytes"`
+	CapacityBytes  int64                `json:"capacityBytes"`
+	Environments   []StorageEnvironment `json:"environments"`
+	Id             string               `json:"id"`
+	Name           string               `json:"name"`
 }
 
 // StoragePool defines model for StoragePool.
@@ -2052,11 +2062,12 @@ type StoragePoolAsset struct {
 
 // StorageUsagePart defines model for StorageUsagePart.
 type StorageUsagePart struct {
-	BaseBytes  int64        `json:"baseBytes,omitempty"`
-	Bytes      int64        `json:"bytes"`
-	Filesystem string       `json:"filesystem,omitempty"`
-	Key        string       `json:"key"`
-	Storage    *StorageInfo `json:"storage,omitempty"`
+	BaseBytes     int64        `json:"baseBytes,omitempty"`
+	Bytes         int64        `json:"bytes"`
+	EnvironmentId string       `json:"environmentId,omitempty"`
+	Filesystem    string       `json:"filesystem,omitempty"`
+	Key           string       `json:"key"`
+	Storage       *StorageInfo `json:"storage,omitempty"`
 }
 
 // StorageUsageSource defines model for StorageUsageSource.

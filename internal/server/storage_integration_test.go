@@ -19,6 +19,7 @@ import (
 func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, user string, call func(string, string, string, any, int) []byte) {
 	id := uuid.NewString()
 	cleaned := 0
+	var storageReads atomic.Int64
 	var containerAvailable atomic.Int64
 	containerAvailable.Store(6 << 30)
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -38,9 +39,25 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 			}
 		case http.MethodPost:
 			if r.URL.Path == "/node/v1/storage-usage" {
+				storageReads.Add(1)
+				var input api.NodeStorageUsage
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Error(err)
+					w.WriteHeader(400)
+					return
+				}
 				info := &api.StorageInfo{CapacityBytes: 20 << 30, AvailableBytes: 10 << 30}
 				shared := api.StorageUsagePart{Key: "rbd:cluster/pool/disk", Bytes: 50, BaseBytes: 20, Filesystem: "cluster/pool", Storage: info}
-				writeJSON(w, 200, []api.StorageUsagePart{{Key: id + "/filesystem/data", Bytes: 100, BaseBytes: 60, Filesystem: id + "/data", Storage: info}, shared, shared})
+				parts := []api.StorageUsagePart{{Key: id + "/filesystem/data", Bytes: 100, BaseBytes: 60, Filesystem: id + "/data", Storage: info}, shared, shared}
+				if input.Environments != nil {
+					for owner := range *input.Environments {
+						parts = append(parts, api.StorageUsagePart{Key: id + "/filesystem/data/" + owner, Bytes: 40, Filesystem: id + "/data", Storage: info, EnvironmentId: owner})
+						duplicate := shared
+						duplicate.EnvironmentId = owner
+						parts = append(parts, duplicate)
+					}
+				}
+				writeJSON(w, 200, parts)
 				return
 			}
 			writeJSON(w, 200, api.StorageInfo{Path: "/mnt/pool/netlab-" + id + "/" + r.PathValue("id"), Filesystem: "root", CapacityBytes: 8 << 30, AvailableBytes: 4 << 30})
@@ -124,6 +141,14 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 	if err != nil || len(allocations) != 1 || allocations[0].DiskGib != 2 || allocations[0].ContainerGib != 2 {
 		t.Fatalf("shared volumes counted twice: %+v %v", allocations, err)
 	}
+	other, err := s.Environments.Create(ctx, identity, api.CreateEnvironment{Name: "Other storage environment", Spec: &api.EnvironmentSpec{Assets: []api.Asset{a}, Networks: []api.Network{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherExecution, _ := json.Marshal(api.AssetExecution{Asset: a, InstanceId: uuid.NewString(), Template: image, StoragePoolId: &pool.Id})
+	if _, err = s.Pool.Exec(ctx, "INSERT INTO runtime_assets(environment_id,asset_id,instance_id,node_id,execution,cpu,memory_mib,disk_gib,system_gib) VALUES($1,$2,$3,$4,$5,1,64,3,1)", other.Id, a.Id, uuid.NewString(), id, otherExecution); err != nil {
+		t.Fatal(err)
+	}
 	var usage api.EnvironmentStorage
 	if err := json.Unmarshal(call("GET", "/environments/"+e.Id+"/storage", admin, nil, 200), &usage); err != nil {
 		t.Fatal(err)
@@ -135,6 +160,26 @@ func testStoragePoolsAPI(t *testing.T, ctx context.Context, s *Server, admin, us
 		if location.CapacityBytes != 20<<30 || location.AvailableBytes != 9<<30 {
 			t.Fatalf("display must use scheduler capacity: %+v", location)
 		}
+	}
+	var otherBytes int64
+	for _, location := range usage.Locations {
+		for _, owner := range location.Environments {
+			if owner.Id == other.Id {
+				if owner.Name != other.Name {
+					t.Fatal("environment name missing")
+				}
+				otherBytes += owner.Bytes
+			}
+		}
+	}
+	if otherBytes != 40 || storageReads.Load() != 1 {
+		t.Fatalf("node reads must be batched and shared disks counted once: bytes=%d requests=%d", otherBytes, storageReads.Load())
+	}
+	if _, err = s.Pool.Exec(ctx, "DELETE FROM runtime_assets WHERE environment_id=$1", other.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Pool.Exec(ctx, "DELETE FROM environments WHERE id=$1", other.Id); err != nil {
+		t.Fatal(err)
 	}
 	writeID := uuid.NewString()
 	writes, _ := json.Marshal(map[string]any{"storageWrites": map[string]int64{id + "/data": 2}})

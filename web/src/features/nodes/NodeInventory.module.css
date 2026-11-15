@@ -1,105 +1,186 @@
 .inventory {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 20px;
+}
+.nodeCard {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow-panel);
-  overflow: hidden;
+  padding: 22px 24px 24px;
 }
-.columns,
-.row {
-  display: grid;
-  grid-template-columns:
-    minmax(180px, 1.3fr) 88px minmax(140px, 1fr) minmax(140px, 1fr)
-    minmax(140px, 0.9fr) 18px;
-  gap: 24px;
-  align-items: center;
-  padding: 17px 22px;
-}
-.columns {
-  color: var(--muted);
-  font-size: 12px;
-  padding-top: 11px;
-  padding-bottom: 11px;
-  background: var(--surface-subtle);
-}
-.row {
-  width: 100%;
-  background: transparent;
-  border: 0;
-  border-top: 1px solid var(--line);
-  color: var(--text);
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  min-height: 93px;
-}
-.row:hover {
-  background: var(--surface-hover);
-}
-.row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-.name {
+.nodeHeading {
   display: flex;
-  gap: 13px;
   align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.nodeLink {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   min-width: 0;
 }
-.name .symbol {
-  color: var(--accent);
-  background: var(--accent-soft);
-  display: grid;
-  place-items: center;
-  height: 36px;
-  width: 36px;
-  border-radius: 8px;
+.nodeLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.nodeLink strong {
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.nodeLink > svg {
+  color: var(--muted);
   flex-shrink: 0;
 }
-.name > span {
+.symbol {
   display: grid;
-  gap: 7px;
-  min-width: 0;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 9px;
+  flex-shrink: 0;
 }
-.name strong {
+.workloads {
+  min-width: 0;
+  margin: 0;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 9px;
+  padding: 18px 20px 20px;
+}
+.workloads legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workloads legend strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.workloads h3,
+.nodeResources h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.name > span > span {
+.workloads h3 svg {
+  color: var(--accent);
+}
+.specifications {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 18px 0 0;
+}
+.specifications > div {
+  display: grid;
+  gap: 8px;
+}
+.specifications dt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
   color: var(--muted);
-  font-size: 13px;
+}
+.specifications dd {
+  margin: 0;
+  font: 600 23px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.specifications dd > span {
+  font-size: 14px;
+  font-weight: 400;
+}
+.resourceLink {
+  position: relative;
+  height: 54px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.resourceLink > :first-child {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+.resourceLink > svg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  padding: 3px;
+  box-sizing: content-box;
+}
+.resourceLink > :last-child {
+  position: absolute;
+  left: calc(50% + 18px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+.nodeResources {
+  display: grid;
+  gap: 17px;
+  padding: 18px 20px 20px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.nodeResources h3 svg {
+  color: var(--muted);
 }
 .load {
   display: grid;
   gap: 9px;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
 }
-.load strong {
-  font-size: 16px;
+.loadHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.loadHeading > span {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.loadHeading strong {
+  color: var(--text);
+  font: 500 15px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.loadHeading > :last-child strong {
+  font-size: 18px;
   font-weight: 600;
 }
 .emptyTrack {
-  height: 4px;
-  border-radius: 2px;
+  height: 8px;
+  border-radius: 4px;
   background: var(--line);
-}
-.load > span > span,
-.reserved > span {
-  color: var(--muted);
-}
-.reserved {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
-}
-.arrow {
-  color: var(--muted);
 }
 .drawerHeader {
   display: flex;
@@ -149,15 +230,39 @@
   font: 600 17px var(--font-mono);
 }
 .scheduling form {
+  display: grid;
+  gap: 22px;
+}
+.schedulingResource {
+  display: grid;
+  gap: 14px;
+}
+.schedulingHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.schedulingHeading h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.schedulingHeading > :last-child:not(h3) {
+  width: 160px;
+}
+.schedulingControls {
   display: flex;
   align-items: end;
-  flex-wrap: wrap;
   gap: 12px;
 }
-.scheduling form > :first-child,
-.scheduling form > :nth-child(3) {
-  flex: 1 1 140px;
+.schedulingControls > * {
+  flex: 1;
   min-width: 0;
+}
+.schedulingFooter {
+  display: flex;
+  justify-content: flex-end;
 }
 .memorySetting {
   display: grid;
@@ -166,53 +271,4 @@
 .memorySetting > span {
   font-size: 14px;
   font-weight: 500;
-}
-@media (max-width: 1100px) {
-  .columns,
-  .row {
-    gap: 16px;
-    grid-template-columns:
-      minmax(160px, 1.2fr) 78px minmax(115px, 1fr) minmax(125px, 1fr)
-      18px;
-  }
-  .columns > :nth-child(5),
-  .reserved {
-    display: none;
-  }
-}
-@media (max-width: 650px) {
-  .scheduling dl {
-    gap: 8px;
-  }
-  .scheduling dl > div {
-    padding: 10px;
-  }
-  .scheduling dd {
-    font-size: 14px;
-  }
-  .columns {
-    display: none;
-  }
-  .row {
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
-    padding: 18px 16px;
-  }
-  .row > :nth-child(2) {
-    justify-self: end;
-  }
-  .arrow {
-    display: none;
-  }
-  .load {
-    gap: 7px;
-  }
-  .load > span::before {
-    content: "CPU · ";
-    color: var(--muted);
-    font-size: 12px;
-  }
-  .load:nth-child(4) > span::before {
-    content: "内存 · ";
-  }
 }

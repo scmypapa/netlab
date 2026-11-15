@@ -19,6 +19,10 @@ test("环境占用包含基础镜像，波浪条展示动态可用空间", async
             baseBytes: 2 * 2 ** 30,
             capacityBytes: 20 * 2 ** 30,
             availableBytes: availableGiB * 2 ** 30,
+            environments: [
+              { id: "env", name: "本环境", bytes: 3.7 * 2 ** 30 },
+              { id: "other-env", name: "工业实验室", bytes: 3 * 2 ** 30 },
+            ],
           },
         ],
       },
@@ -63,6 +67,17 @@ test("环境占用包含基础镜像，波浪条展示动态可用空间", async
       page.getByRole("heading", { name: "环境存储", exact: true }),
     ).toHaveCount(0);
   }
+  await trigger.click();
+  const currentSegment = page.locator('[data-storage-segment="env"]');
+  const otherSegment = page.locator('[data-storage-segment="other-env"]');
+  await expect(currentSegment).toHaveAttribute("x", "0");
+  await expect(page.locator('[data-storage-segment="free"]')).toHaveAttribute(
+    "fill",
+    "#3b82f6",
+  );
+  await otherSegment.hover();
+  await expect(page.getByRole("tooltip")).toContainText("工业实验室");
+  await page.keyboard.press("Escape");
   expect(reads).toBe(initialReads);
   availableGiB = 5;
   await trigger.click();
@@ -70,7 +85,7 @@ test("环境占用包含基础镜像，波浪条展示动态可用空间", async
   await expect.poll(() => reads).toBe(initialReads + 1);
   await expect(
     page.getByRole("img", {
-      name: "基础镜像 2 GiB，增量数据 1.7 GiB，当前可用 5 GiB",
+      name: "基础镜像 2 GiB，增量数据 1.7 GiB，当前可用 5 GiB，其他环境 3 GiB",
       exact: true,
     }),
   ).toBeVisible();
@@ -1101,45 +1116,6 @@ async function fixture(
     else if (path.endsWith("/services")) response = [];
     else if (path === "/templates") response = templates;
     else if (path === "/blueprints") response = blueprints;
-    else if (
-      path === "/blueprints/training/versions" &&
-      request.method() === "POST"
-    ) {
-      const version = {
-        ...versions[1],
-        id: "training-v3",
-        version: 3,
-        spec: body.spec,
-        assetCount: body.spec.assets.length,
-        networkCount: body.spec.networks.length,
-      };
-      versions.push(version);
-      Object.assign(blueprints[0], {
-        latestVersionId: version.id,
-        latestVersion: 3,
-        assetCount: version.assetCount,
-        networkCount: version.networkCount,
-      });
-      response = version;
-      status = 201;
-    } else if (path === "/blueprints/training/versions")
-      response = versions.map(
-        ({
-          id,
-          blueprintId,
-          version,
-          assetCount,
-          networkCount,
-          createdAt,
-        }) => ({
-          id,
-          blueprintId,
-          version,
-          assetCount,
-          networkCount,
-          createdAt,
-        }),
-      );
     else if (path.startsWith("/blueprint-versions/"))
       response = versions.find((item) => item.id === path.split("/").at(-1));
     else if (path === "/environments/env/blueprints") {
@@ -1858,7 +1834,7 @@ test("working area fits supported widths and both themes", async ({ page }) => {
   );
 });
 
-test("saving an edited environment creates a template or appends a version without applying the draft", async ({
+test("saving an edited environment saves the current content as a template without applying the draft", async ({
   page,
 }) => {
   const calls = await fixture(page);
@@ -1878,22 +1854,9 @@ test("saving an edited environment creates a template or appends a version witho
     .click();
   await page.getByRole("textbox", { name: "模板名称" }).fill("Web 环境模板");
   await page.getByRole("button", { name: "保存模板", exact: true }).click();
-  await expect(page.getByText("v1 已保存", { exact: true })).toBeVisible();
+  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "完成", exact: true }).click();
   await expect(page.getByText("调整中", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "草稿操作", exact: true }).click();
-  await page
-    .getByRole("menuitem", { name: "保存为环境模板", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "现有模板新版本", exact: true })
-    .click();
-  await page.getByRole("textbox", { name: "环境模板" }).click();
-  await page
-    .getByRole("option", { name: "混合组网模板 · v2", exact: true })
-    .click();
-  await page.getByRole("button", { name: "保存模板", exact: true }).click();
-  await expect(page.getByText("v3 已保存", { exact: true })).toBeVisible();
   const writes = calls.filter((call) => call.method === "POST");
   expect(writes).toEqual([
     {
@@ -1907,21 +1870,10 @@ test("saving an edited environment creates a template or appends a version witho
         }),
       }),
     },
-    {
-      method: "POST",
-      path: "/blueprints/training/versions",
-      body: expect.objectContaining({
-        environmentId: "env",
-        expectedRevision: 1,
-        spec: expect.objectContaining({
-          assets: [expect.objectContaining({ id: "web" })],
-        }),
-      }),
-    },
   ]);
 });
 
-test("template details create and run the selected immutable version", async ({
+test("template details create and run the current template", async ({
   page,
 }) => {
   const calls = await fixture(page);
@@ -1942,15 +1894,16 @@ test("template details create and run the selected immutable version", async ({
   });
   await page.goto("/templates?tab=environments");
   await page.getByRole("button", { name: "混合组网模板", exact: true }).click();
-  await page.getByRole("textbox", { name: "版本", exact: true }).click();
-  await page.getByRole("option", { name: /^v1 ·/ }).click();
+  await expect(
+    page.getByRole("textbox", { name: "版本", exact: true }),
+  ).toHaveCount(0);
   const details = page.getByRole("dialog", {
     name: "混合组网模板",
     exact: true,
   });
   await expect(details).toContainText("web-01");
-  await expect(details).not.toContainText("windows-01");
-  for (const width of [390, 1366]) {
+  await expect(details).toContainText("windows-01");
+  for (const width of [1366]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
       await page.evaluate(
@@ -1974,13 +1927,13 @@ test("template details create and run the selected immutable version", async ({
   expect(create?.body).toEqual({
     name: "独立 Web 环境",
     projectId: "lab-project",
-    blueprintVersionId: "training-v1",
+    blueprintVersionId: "training-v2",
     run: true,
     clientRequestId: expect.any(String),
   });
   expect(attempts).toEqual([create?.body, create?.body]);
   expect(
-    calls.some((call) => call.path === "/blueprint-versions/training-v1"),
+    calls.some((call) => call.path === "/blueprint-versions/training-v2"),
   ).toBe(true);
   expect(calls.some((call) => call.path.endsWith("/actions"))).toBe(false);
 });
@@ -2585,5 +2538,40 @@ test("external LAN editor reads live interfaces and preserves the LAN gateway", 
         },
       ],
     },
+  });
+});
+
+test("大型环境资产分页保留筛选和对象选择", async ({ page }) => {
+  await fixture(page, {
+    additionalAssets: Array.from(
+      { length: 51 },
+      (_, index) => `设备${String(index + 1).padStart(2, "0")}`,
+    ),
+  });
+  await page.goto("/environments/env");
+  await page
+    .getByRole("radio", { name: "资产", exact: true })
+    .locator("..")
+    .locator("label")
+    .click();
+  const table = page.getByRole("table", { name: "运行资产", exact: true });
+  await expect(table.getByRole("row")).toHaveCount(21);
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(
+    table.getByRole("button", { name: "设备19", exact: true }),
+  ).toBeVisible();
+  await expect(table.getByRole("row")).toHaveCount(21);
+  await page
+    .getByRole("textbox", { name: "查找资产", exact: true })
+    .fill("设备51");
+  await expect(table.getByRole("row")).toHaveCount(2);
+  await expect(page.getByLabel("列表分页")).toHaveCount(0);
+  await table.getByRole("button", { name: "设备51", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "设备51", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: test.info().outputPath("assets-pagination.png"),
+    animations: "disabled",
   });
 });

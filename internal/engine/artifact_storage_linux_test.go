@@ -295,6 +295,50 @@ func TestEnvironmentStorageCountsPhysicalBlocks(t *testing.T) {
 			if root == "" && baseBytes != 4<<20 {
 				t.Fatalf("base image counted more than once: %d", baseBytes)
 			}
+			other := a
+			other.InstanceId = "other-instance"
+			otherDir := assetDirectory(data, "other", other)
+			if err = os.MkdirAll(otherDir, 0711); err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(systemDiskPath(otherDir, 0), bytes.Repeat([]byte("other-data"), 4096), 0600); err != nil {
+				t.Fatal(err)
+			}
+			directory, err := os.Open(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = unix.Syncfs(int(directory.Fd()))
+			directory.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := []api.StorageUsageSource{{Execution: a}, {Execution: shared}, {Execution: a, RecoveryId: "point"}}
+			second := []api.StorageUsageSource{{Execution: other}}
+			var total int64
+			for _, request := range []api.NodeStorageUsage{
+				{EnvironmentId: "environment", Sources: first, Environments: &map[string][]api.StorageUsageSource{"other": second}},
+				{EnvironmentId: "other", Sources: second, Environments: &map[string][]api.StorageUsageSource{"environment": first}},
+			} {
+				parts, err := e.StorageUsage(ctx, request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var sum, current int64
+				for _, part := range parts {
+					sum += part.Bytes
+					if part.EnvironmentId == request.EnvironmentId {
+						current += part.Bytes
+					}
+				}
+				if sum <= allocated || current <= 0 || total != 0 && sum != total {
+					t.Fatalf("cross-environment blocks repeated or lost: total=%d previous=%d current=%d", sum, total, current)
+				}
+				if request.EnvironmentId == "environment" && current != allocated {
+					t.Fatalf("current footprint changed: got=%d want=%d", current, allocated)
+				}
+				total = sum
+			}
 		})
 	}
 }

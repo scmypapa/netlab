@@ -405,22 +405,9 @@
   color: var(--muted);
   font-size: 12px;
 }
-.storageLegend i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
 .storageLegend dd {
   margin: 6px 0 0 14px;
   font: 600 14px var(--font-mono);
-}
-.storageBase {
-  background: #3268cf;
-  fill: #3268cf;
-}
-.storageDelta {
-  background: #8bb8f4;
-  fill: #8bb8f4;
 }
 .storageLocation {
   padding-top: 16px;
